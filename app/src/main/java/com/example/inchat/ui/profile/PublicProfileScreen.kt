@@ -259,7 +259,10 @@ private fun ProfileContent(
         InChatProfileAvatar(
 
             profilePhotoUrl =
-                user.profilePhotoUrl,
+                user.profilePhotoData
+                    .ifBlank {
+                        user.profilePhotoUrl
+                    },
 
             modifier =
                 Modifier.size(
