@@ -9,20 +9,26 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -78,7 +84,8 @@ data class NotificationChatTarget(
 private data class BottomNavItem(
     val route: String,
     val label: String,
-    val icon: ImageVector
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
 )
 
 private val bottomNavItems =
@@ -91,8 +98,11 @@ private val bottomNavItems =
             label =
                 "Home",
 
-            icon =
-                Icons.Default.Home
+            selectedIcon =
+                Icons.Default.Home,
+
+            unselectedIcon =
+                Icons.Outlined.Home
         ),
 
         BottomNavItem(
@@ -102,8 +112,11 @@ private val bottomNavItems =
             label =
                 "Search",
 
-            icon =
-                Icons.Default.Search
+            selectedIcon =
+                Icons.Default.Search,
+
+            unselectedIcon =
+                Icons.Outlined.Search
         ),
 
         BottomNavItem(
@@ -113,8 +126,11 @@ private val bottomNavItems =
             label =
                 "Profile",
 
-            icon =
-                Icons.Default.Person
+            selectedIcon =
+                Icons.Default.Person,
+
+            unselectedIcon =
+                Icons.Outlined.Person
         )
     )
 
@@ -838,12 +854,18 @@ fun InChatApp(
  * ============================================================
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
+ *
+ * The navigation itself still uses the existing NavHost. Only
+ * the presentation of the bottom bar is changed here.
+ *
+ * A single shared capsule slides between the three destinations,
+ * which keeps the interaction continuous instead of creating a
+ * new selected background for each icon.
  */
-
 @Composable
 private fun InChatBottomBar(
     navController:
-    NavHostController
+        NavHostController
 ) {
 
     val backStackEntry by
@@ -855,87 +877,182 @@ private fun InChatBottomBar(
             ?.destination
             ?.route
 
+    val selectedIndex =
+        bottomNavItems
+            .indexOfFirst {
+                it.route ==
+                        currentRoute
+            }
+            .coerceAtLeast(
+                0
+            )
+
     Surface(
 
         color =
             MaterialTheme
                 .colorScheme
-                .background,
+                .surface,
+
+        shape =
+            RoundedCornerShape(
+                28.dp
+            ),
 
         shadowElevation =
-            8.dp,
+            6.dp,
 
         tonalElevation =
             0.dp,
 
         modifier =
-            Modifier.fillMaxWidth()
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    start =
+                        12.dp,
+
+                    end =
+                        12.dp,
+
+                    bottom =
+                        8.dp
+                )
     ) {
 
-        Row(
+        BoxWithConstraints(
 
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(
-                        68.dp
+                        64.dp
                     )
                     .padding(
-                        horizontal =
-                            14.dp,
-
-                        vertical =
-                            6.dp
-                    ),
-
-            horizontalArrangement =
-                Arrangement.SpaceEvenly,
-
-            verticalAlignment =
-                Alignment.CenterVertically
+                        6.dp
+                    )
         ) {
 
-            bottomNavItems.forEach { item ->
+            val itemWidth =
+                maxWidth /
+                        bottomNavItems.size
 
-                val selected =
-                    currentRoute ==
-                            item.route
+            val indicatorOffset by
+            animateDpAsState(
 
-                BottomNavigationItem(
+                targetValue =
+                    itemWidth *
+                            selectedIndex,
 
-                    item =
-                        item,
+                animationSpec =
+                    spring(
 
-                    selected =
-                        selected,
+                        dampingRatio =
+                            0.78f,
 
-                    onClick = {
+                        stiffness =
+                            520f
+                    ),
 
-                        if (
-                            !selected
-                        ) {
+                label =
+                    "bottomBarIndicatorOffset"
+            )
 
-                            navController.navigate(
+            /*
+             * =================================================
+             * SLIDING SELECTION CAPSULE
+             * =================================================
+             */
+            Box(
+
+                modifier =
+                    Modifier
+                        .offset(
+                            x =
+                                indicatorOffset
+                        )
+                        .width(
+                            itemWidth
+                        )
+                        .height(
+                            52.dp
+                        )
+                        .clip(
+                            RoundedCornerShape(
+                                20.dp
+                            )
+                        )
+                        .background(
+                            MaterialTheme
+                                .colorScheme
+                                .primary
+                                .copy(
+                                    alpha =
+                                        0.12f
+                                )
+                        )
+            )
+
+            Row(
+
+                modifier =
+                    Modifier
+                        .fillMaxSize(),
+
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                bottomNavItems.forEach { item ->
+
+                    val selected =
+                        currentRoute ==
                                 item.route
+
+                    BottomNavigationItem(
+
+                        item =
+                            item,
+
+                        selected =
+                            selected,
+
+                        modifier =
+                            Modifier
+                                .weight(
+                                    1f
+                                )
+                                .fillMaxSize(),
+
+                        onClick = {
+
+                            if (
+                                !selected
                             ) {
 
-                                popUpTo(
-                                    "home"
-                                ) {
+                                navController
+                                    .navigate(
+                                        item.route
+                                    ) {
 
-                                    saveState =
-                                        true
-                                }
+                                        popUpTo(
+                                            "home"
+                                        ) {
 
-                                launchSingleTop =
-                                    true
+                                            saveState =
+                                                true
+                                        }
 
-                                restoreState =
-                                    true
+                                        launchSingleTop =
+                                            true
+
+                                        restoreState =
+                                            true
+                                    }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -946,12 +1063,19 @@ private fun InChatBottomBar(
  * BOTTOM NAVIGATION ITEM
  * ============================================================
  */
-
 @Composable
 private fun BottomNavigationItem(
-    item: BottomNavItem,
-    selected: Boolean,
-    onClick: () -> Unit
+    item:
+        BottomNavItem,
+
+    selected:
+        Boolean,
+
+    modifier:
+        Modifier,
+
+    onClick:
+        () -> Unit
 ) {
 
     val iconColor by
@@ -974,36 +1098,16 @@ private fun BottomNavigationItem(
             },
 
         animationSpec =
-            spring(),
+            spring(
+                dampingRatio =
+                    0.85f,
+
+                stiffness =
+                    500f
+            ),
 
         label =
             "bottomIconColor"
-    )
-
-    val textColor by
-    animateColorAsState(
-
-        targetValue =
-            if (
-                selected
-            ) {
-
-                MaterialTheme
-                    .colorScheme
-                    .onBackground
-
-            } else {
-
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-            },
-
-        animationSpec =
-            spring(),
-
-        label =
-            "bottomTextColor"
     )
 
     val iconSize by
@@ -1022,7 +1126,13 @@ private fun BottomNavigationItem(
             },
 
         animationSpec =
-            spring(),
+            spring(
+                dampingRatio =
+                    0.82f,
+
+                stiffness =
+                    560f
+            ),
 
         label =
             "bottomIconSize"
@@ -1044,128 +1154,68 @@ private fun BottomNavigationItem(
             },
 
         animationSpec =
-            spring(),
+            spring(
+                dampingRatio =
+                    0.80f,
+
+                stiffness =
+                    520f
+            ),
 
         label =
             "bottomIconScale"
     )
 
-    Column(
+    Box(
 
         modifier =
-            Modifier
-                .width(
-                    82.dp
-                )
+            modifier
                 .clickable(
                     onClick =
                         onClick
-                )
-                .padding(
-                    vertical =
-                        3.dp
                 ),
 
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        contentAlignment =
+            Alignment.Center
     ) {
 
-        Box(
+        /*
+         * The selected icon becomes stronger while the capsule
+         * itself handles the movement between tabs.
+         */
+        Icon(
 
-            modifier =
-                Modifier
-                    .size(
-                        38.dp
-                    )
-                    .then(
-
-                        if (
-                            selected
-                        ) {
-
-                            Modifier.background(
-
-                                color =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .primary
-                                        .copy(
-                                            alpha =
-                                                0.10f
-                                        ),
-
-                                shape =
-                                    RoundedCornerShape(
-                                        14.dp
-                                    )
-                            )
-
-                        } else {
-
-                            Modifier
-                        }
-                    ),
-
-            contentAlignment =
-                Alignment.Center
-        ) {
-
-            Icon(
-
-                imageVector =
-                    item.icon,
-
-                contentDescription =
-                    item.label,
-
-                tint =
-                    iconColor,
-
-                modifier =
-                    Modifier
-                        .size(
-                            iconSize
-                        )
-                        .graphicsLayer {
-
-                            scaleX =
-                                iconScale
-
-                            scaleY =
-                                iconScale
-                        }
-            )
-        }
-
-        Spacer(
-            modifier =
-                Modifier.height(
-                    1.dp
-                )
-        )
-
-        Text(
-
-            text =
-                item.label,
-
-            fontSize =
-                11.sp,
-
-            fontWeight =
+            imageVector =
                 if (
                     selected
                 ) {
 
-                    FontWeight.SemiBold
+                    item.selectedIcon
 
                 } else {
 
-                    FontWeight.Normal
+                    item.unselectedIcon
                 },
 
-            color =
-                textColor
+            contentDescription =
+                item.label,
+
+            tint =
+                iconColor,
+
+            modifier =
+                Modifier
+                    .size(
+                        iconSize
+                    )
+                    .graphicsLayer {
+
+                        scaleX =
+                            iconScale
+
+                        scaleY =
+                            iconScale
+                    }
         )
     }
 }
