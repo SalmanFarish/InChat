@@ -1633,6 +1633,121 @@ class UserRepository {
 
     /*
      * =========================================================
+     * LIVE USERNAME PREFIX SEARCH
+     * =========================================================
+     *
+     * Usernames are indexed in the separate "usernames" node
+     * using lowercase keys. Querying that node by key gives us
+     * efficient case-insensitive prefix suggestions without
+     * loading the entire users collection into the device.
+     */
+
+    suspend fun searchUsersByUsernamePrefix(
+        prefix: String,
+        currentUserId: String,
+        limit: Int = 8
+    ): List<User> {
+
+        val key =
+            usernameKey(
+                prefix
+                    .trim()
+                    .removePrefix("@")
+            )
+
+        if (
+            key.isBlank()
+        ) {
+
+            return emptyList()
+        }
+
+        if (
+            currentUserId.isBlank()
+        ) {
+
+            return emptyList()
+        }
+
+        val safeLimit =
+            limit
+                .coerceIn(
+                    1,
+                    20
+                )
+
+        return try {
+
+            val snapshot =
+                database
+                    .getReference(
+                        "usernames"
+                    )
+                    .orderByKey()
+                    .startAt(
+                        key
+                    )
+                    .endAt(
+                        key + "\\uf8ff"
+                    )
+                    .limitToFirst(
+                        safeLimit
+                    )
+                    .get()
+                    .await()
+
+            val users =
+                mutableListOf<User>()
+
+            for (
+            child in snapshot.children
+            ) {
+
+                val uid =
+                    child.getValue(
+                        String::class.java
+                    )
+
+                if (
+                    uid.isNullOrBlank() ||
+                    uid == currentUserId
+                ) {
+
+                    continue
+                }
+
+                val user =
+                    getUserByIdFast(
+                        uid
+                    )
+
+                if (
+                    user != null &&
+                    user.username.isNotBlank()
+                ) {
+
+                    users.add(
+                        user
+                    )
+                }
+            }
+
+            users.sortedBy {
+                it.username.lowercase(
+                    Locale.ROOT
+                )
+            }
+
+        } catch (
+            _: Exception
+        ) {
+
+            emptyList()
+        }
+    }
+
+    /*
+     * =========================================================
      * ALL USERS FLOW
      * =========================================================
      */
