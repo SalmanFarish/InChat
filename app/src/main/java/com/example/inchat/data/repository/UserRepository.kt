@@ -1476,11 +1476,43 @@ class UserRepository {
                     uid
                 )
 
+        /*
+         * Keep this profile synchronized locally as well, so
+         * the app can still show the last known profile when
+         * the device is offline.
+         */
         userRef.keepSynced(
             true
         )
 
-        val cachedSnapshot =
+        /*
+         * IMPORTANT:
+         *
+         * Profile data can change from another device.
+         * Do not return the local listener result first because
+         * that can be an older cached User object.
+         *
+         * get() attempts to obtain the current server value.
+         */
+        return try {
+
+            userRef
+                .get()
+                .await()
+                .getValue(
+                    User::class.java
+                )
+
+        } catch (
+            _: Exception
+        ) {
+
+            /*
+             * Offline fallback:
+             *
+             * If the server cannot be reached, use the locally
+             * synchronized profile so the app remains usable.
+             */
             try {
 
                 suspendCancellableCoroutine<DataSnapshot> {
@@ -1534,6 +1566,9 @@ class UserRepository {
                             )
                     }
                 }
+                    .getValue(
+                        User::class.java
+                    )
 
             } catch (
                 _: Exception
@@ -1541,35 +1576,6 @@ class UserRepository {
 
                 null
             }
-
-        val cachedUser =
-            cachedSnapshot
-                ?.getValue(
-                    User::class.java
-                )
-
-        if (
-            cachedUser != null &&
-            cachedUser.username.isNotBlank()
-        ) {
-
-            return cachedUser
-        }
-
-        return try {
-
-            userRef
-                .get()
-                .await()
-                .getValue(
-                    User::class.java
-                )
-
-        } catch (
-            _: Exception
-        ) {
-
-            null
         }
     }
 
