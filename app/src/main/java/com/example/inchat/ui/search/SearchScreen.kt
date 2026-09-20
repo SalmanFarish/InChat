@@ -62,6 +62,7 @@ private const val MAX_RECENT_SEARCHES = 8
 fun SearchScreen(
     currentUserId: String,
     searchViewModel: SearchViewModel,
+    searchFocusRequest: Int = 0,
     onUserClick: (User) -> Unit
 ) {
     val context = LocalContext.current
@@ -104,8 +105,23 @@ fun SearchScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    LaunchedEffect(
+        searchFocusRequest
+    ) {
+
+        if (
+            searchFocusRequest > 0
+        ) {
+
+            focusRequester.requestFocus()
+
+            kotlinx.coroutines.delay(
+                50
+            )
+
+            keyboardController
+                ?.show()
+        }
     }
 
     fun saveRecentUser(user: User) {
