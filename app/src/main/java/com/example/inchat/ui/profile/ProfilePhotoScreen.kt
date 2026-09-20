@@ -169,8 +169,6 @@ fun ProfilePhotoScreen(
                     return@launch
                 }
 
-                selectedBitmap?.recycle()
-
                 selectedBitmap =
                     bitmap
 
@@ -219,18 +217,11 @@ fun ProfilePhotoScreen(
     }
 
     /*
-     * Recycle the temporary editing bitmap when this screen
-     * leaves composition.
+     * Compose may still reference the Bitmap while the screen is
+     * leaving composition. Do not call Bitmap.recycle() here;
+     * letting the bitmap be garbage-collected avoids rendering a
+     * recycled bitmap during navigation.
      */
-    androidx.compose.runtime.DisposableEffect(
-        Unit
-    ) {
-
-        onDispose {
-
-            selectedBitmap?.recycle()
-        }
-    }
 
     Scaffold(
 
@@ -331,7 +322,7 @@ fun ProfilePhotoScreen(
             Text(
 
                 text =
-                    "Pinch to zoom and drag to position.",
+                    "Crop with the circle. Pinch to zoom, then drag to position.",
 
                 style =
                     MaterialTheme
@@ -351,6 +342,32 @@ fun ProfilePhotoScreen(
                 modifier =
                     Modifier.height(
                         28.dp
+                    )
+            )
+
+            Text(
+
+                text =
+                    "CROP & ADJUST",
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelMedium,
+
+                fontWeight =
+                    FontWeight.SemiBold,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        10.dp
                     )
             )
 
@@ -737,7 +754,7 @@ fun ProfilePhotoScreen(
 
                 Text(
                     text =
-                        "Save Photo"
+                        "Crop & Save"
                 )
             }
 
