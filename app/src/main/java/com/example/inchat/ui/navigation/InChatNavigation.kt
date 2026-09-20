@@ -7,7 +7,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -48,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -73,6 +76,7 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 data class NotificationChatTarget(
     val chatId: String,
@@ -970,9 +974,17 @@ private fun MainTabPager(
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
  *
- * The bottom dock reads the live HorizontalPager position.
- * While the user drags, the capsule follows the finger.
+ * The dock supports two independent interactions:
+ * 1. Normal tap selects a tab.
+ * 2. Long-press + horizontal drag scrubs between tabs continuously.
+ *
+ * The scrub gesture is mapped from dock distance to pager distance, so
+ * moving one tab-width with the finger moves the HorizontalPager by one
+ * full page-width. The indicator and page therefore track the finger.
  */
+@OptIn(
+    ExperimentalFoundationApi::class
+)
 @Composable
 private fun InChatBottomBar(
     pagerState:
@@ -1045,6 +1057,86 @@ private fun InChatBottomBar(
                         .padding(
                             4.dp
                         )
+                        .pointerInput(
+                            pagerState
+                        ) {
+
+                            val itemWidthPx =
+                                size.width /
+                                        bottomNavItems.size.toFloat()
+
+                            detectDragGesturesAfterLongPress(
+
+                                onDragStart = { offset ->
+
+                                    val pressedPage =
+                                        (
+                                            offset.x /
+                                                    itemWidthPx
+                                            )
+                                            .toInt()
+                                            .coerceIn(
+                                                0,
+                                                bottomNavItems.lastIndex
+                                            )
+
+                                    if (
+                                        pressedPage == 1
+                                    ) {
+
+                                        onSearchLongPress()
+                                    }
+                                },
+
+                                onDrag = {
+                                        change,
+                                        dragAmount ->
+
+                                    val pageWidthPx =
+                                        pagerState
+                                            .layoutInfo
+                                            .pageSize
+                                            .toFloat()
+
+                                    if (
+                                        pageWidthPx >
+                                        0f &&
+                                        itemWidthPx >
+                                        0f
+                                    ) {
+
+                                        change.consume()
+
+                                        pagerState
+                                            .scrollBy(
+                                                dragAmount.x *
+                                                        (
+                                                            pageWidthPx /
+                                                                    itemWidthPx
+                                                            )
+                                            )
+                                    }
+                                },
+
+                                onDragEnd = {
+
+                                    val targetPage =
+                                        (
+                                            pagerState.currentPage +
+                                                    pagerState.currentPageOffsetFraction
+                                            )
+                                            .roundToInt()
+                                            .coerceIn(
+                                                0,
+                                                bottomNavItems.lastIndex
+                                            )
+
+                                    onPageSelected(
+                                        targetPage
+                                    )
+                                }
+                            )
+                        }
             ) {
 
                 val itemWidth =
@@ -1122,17 +1214,6 @@ private fun InChatBottomBar(
                                 onPageSelected(
                                     index
                                 )
-                            },
-
-                            onLongClick = {
-
-                                if (
-                                    index ==
-                                    1
-                                ) {
-
-                                    onSearchLongPress()
-                                }
                             }
                         )
                     }
@@ -1140,6 +1221,8 @@ private fun InChatBottomBar(
             }
         }
     }
+}
+
 }
 
 /*
@@ -1159,9 +1242,6 @@ private fun BottomNavigationItem(
         Modifier,
 
     onClick:
-        () -> Unit,
-
-    onLongClick:
         () -> Unit
 ) {
 
@@ -1257,13 +1337,9 @@ private fun BottomNavigationItem(
 
         modifier =
             modifier
-                .combinedClickable(
-
+                .clickable(
                     onClick =
-                        onClick,
-
-                    onLongClick =
-                        onLongClick
+                        onClick
                 ),
 
         contentAlignment =
