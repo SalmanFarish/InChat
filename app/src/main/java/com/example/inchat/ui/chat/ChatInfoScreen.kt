@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.launch
 
 @OptIn(
@@ -61,6 +63,37 @@ fun ChatInfoScreen(
 
     val coroutineScope =
         rememberCoroutineScope()
+
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
+    var otherUserProfilePhoto by
+    remember(
+        otherUserId
+    ) {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(
+        otherUserId
+    ) {
+
+        val user =
+            userRepository
+                .getUserByIdFast(
+                    otherUserId
+                )
+
+        otherUserProfilePhoto =
+            user
+                ?.profilePhotoData
+                ?.ifBlank {
+                    user.profilePhotoUrl
+                }
+                .orEmpty()
+    }
 
     val chatId =
         remember(
@@ -653,47 +686,22 @@ fun ChatInfoScreen(
                         Alignment.CenterHorizontally
                 ) {
 
-                    Box(
+                    InChatProfileAvatar(
+
+                        profilePhotoUrl =
+                            otherUserProfilePhoto,
 
                         modifier =
-                            Modifier
-                                .size(
-                                    82.dp
-                                )
-                                .background(
-                                    MaterialTheme
-                                        .colorScheme
-                                        .surfaceVariant,
+                            Modifier.size(
+                                82.dp
+                            ),
 
-                                    androidx.compose
-                                        .foundation
-                                        .shape
-                                        .CircleShape
-                                ),
+                        iconSize =
+                            40.dp,
 
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-
-                        Icon(
-
-                            imageVector =
-                                Icons.Default.Person,
-
-                            contentDescription =
-                                null,
-
-                            modifier =
-                                Modifier.size(
-                                    40.dp
-                                ),
-
-                            tint =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurfaceVariant
-                        )
-                    }
+                        contentDescription =
+                            "Profile picture"
+                    )
 
                     Spacer(
                         modifier =
