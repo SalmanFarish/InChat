@@ -132,9 +132,19 @@ dependencies {
         "com.google.firebase:firebase-database"
     )
 
+    // Firebase Cloud Storage
+    implementation(
+        "com.google.firebase:firebase-storage"
+    )
+
     // Firebase Cloud Messaging
     implementation(
         "com.google.firebase:firebase-messaging"
+    )
+
+    // Image loading
+    implementation(
+        "io.coil-kt:coil-compose:2.7.0"
     )
 
     // Testing dependencies

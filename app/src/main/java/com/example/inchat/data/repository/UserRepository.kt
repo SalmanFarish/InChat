@@ -1,19 +1,24 @@
 package com.example.inchat.data.repository
 
+import android.net.Uri
 import com.example.inchat.data.model.RecoveryCodeSet
 import com.example.inchat.data.model.User
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import java.util.Locale
+import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -26,6 +31,12 @@ class UserRepository {
 
     private val database =
         FirebaseDatabase.getInstance()
+
+    private val auth =
+        FirebaseAuth.getInstance()
+
+    private val storage =
+        FirebaseStorage.getInstance()
 
     private fun usernameKey(
         username: String
@@ -521,14 +532,195 @@ class UserRepository {
 
     /*
      * =========================================================
-     * DELETE ACCOUNT-OWNED DATA
+     * UPLOAD PROFILE PHOTO
      * =========================================================
      *
-     * This removes data owned directly by this user.
+     * The actual image is stored in Firebase Cloud Storage.
      *
-     * Shared chat rooms and shared messages are NOT deleted,
-     * because doing so would also destroy the other participant's
-     * conversation history.
+     * The user's Realtime Database record receives only:
+     *
+     * users/{uid}/profilePhotoUrl
+     *
+     * A unique Storage object is used for every new photo so
+     * image-loader caching cannot keep showing an old URL.
+     */
+    suspend fun uploadProfilePhoto(
+        uid: String,
+        imageUri: Uri,
+        mimeType: String? = null
+    ): Result<String> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        if (
+            imageUri.toString().isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "Invalid image"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match profile owner"
+                )
+            )
+        }
+
+        val cleanMimeType =
+            mimeType
+                ?.takeIf {
+                    it.startsWith(
+                        "image/",
+                        ignoreCase = true
+                    )
+                }
+                ?: "image/jpeg"
+
+        return try {
+
+            val userRef =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
+
+            val existingSnapshot =
+                userRef
+                    .child(
+                        "profilePhotoUrl"
+                    )
+                    .get()
+                    .await()
+
+            val oldPhotoUrl =
+                existingSnapshot
+                    .getValue(
+                        String::class.java
+                    )
+                    .orEmpty()
+
+            val photoId =
+                UUID
+                    .randomUUID()
+                    .toString()
+
+            val photoRef =
+                storage
+                    .reference
+                    .child(
+                        "profilePhotos"
+                    )
+                    .child(
+                        uid
+                    )
+                    .child(
+                        photoId
+                    )
+
+            val metadata =
+                StorageMetadata
+                    .Builder()
+                    .setContentType(
+                        cleanMimeType
+                    )
+                    .build()
+
+            photoRef
+                .putFile(
+                    imageUri,
+                    metadata
+                )
+                .await()
+
+            val downloadUrl =
+                photoRef
+                    .downloadUrl
+                    .await()
+                    .toString()
+
+            userRef
+                .updateChildren(
+                    mapOf(
+                        "profilePhotoUrl" to
+                                downloadUrl
+                    )
+                )
+                .await()
+
+            /*
+             * Delete the previous photo after the new URL has
+             * been successfully saved.
+             *
+             * A failure here does not invalidate the new photo.
+             */
+            if (
+                oldPhotoUrl.isNotBlank() &&
+                oldPhotoUrl != downloadUrl
+            ) {
+
+                try {
+
+                    storage
+                        .getReferenceFromUrl(
+                            oldPhotoUrl
+                        )
+                        .delete()
+                        .await()
+
+                } catch (
+                    cleanupError: Exception
+                ) {
+
+                    /*
+                     * Cleanup failure is intentionally ignored.
+                     * The new profile photo is already valid.
+                     */
+                    cleanupError.printStackTrace()
+                }
+            }
+
+            Result.success(
+                downloadUrl
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
+     * DELETE ACCOUNT-OWNED DATA
+     * =========================================================
      */
     suspend fun deleteAccountData(
         uid: String,
@@ -548,9 +740,6 @@ class UserRepository {
 
         return try {
 
-            /*
-             * Release username first.
-             */
             val releaseResult =
                 releaseUsername(
                     username =
@@ -573,10 +762,6 @@ class UserRepository {
                 )
             }
 
-            /*
-             * Read the user's own blocked users so each child
-             * can be removed using the existing child-level rule.
-             */
             val blockedSnapshot =
                 database
                     .getReference(
@@ -588,10 +773,6 @@ class UserRepository {
                     .get()
                     .await()
 
-            /*
-             * Read the user's own conversation summaries so they
-             * can be removed individually.
-             */
             val userChatsSnapshot =
                 database
                     .getReference(
@@ -606,9 +787,6 @@ class UserRepository {
             val updates =
                 mutableMapOf<String, Any?>()
 
-            /*
-             * Base account data.
-             */
             updates[
                 "users/$uid"
             ] =
@@ -624,9 +802,6 @@ class UserRepository {
             ] =
                 null
 
-            /*
-             * Remove owned blocked-user entries.
-             */
             for (
             child in
             blockedSnapshot.children
@@ -646,9 +821,6 @@ class UserRepository {
                 }
             }
 
-            /*
-             * Remove owned conversation summaries.
-             */
             for (
             child in
             userChatsSnapshot.children

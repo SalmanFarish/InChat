@@ -1,6 +1,6 @@
 package com.example.inchat.ui.profile
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,11 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -223,11 +220,6 @@ fun PublicProfileScreen(
     }
 }
 
-/*
- * ============================================================
- * PUBLIC PROFILE CONTENT
- * ============================================================
- */
 @Composable
 private fun ProfileContent(
     user: User,
@@ -264,47 +256,22 @@ private fun ProfileContent(
          * PROFILE AVATAR
          * ========================================================
          */
-        Box(
+        InChatProfileAvatar(
+
+            profilePhotoUrl =
+                user.profilePhotoUrl,
 
             modifier =
-                Modifier
-                    .size(
-                        108.dp
-                    )
-                    .background(
+                Modifier.size(
+                    108.dp
+                ),
 
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .surfaceVariant,
+            iconSize =
+                54.dp,
 
-                        shape =
-                            CircleShape
-                    ),
-
-            contentAlignment =
-                Alignment.Center
-        ) {
-
-            Icon(
-
-                imageVector =
-                    Icons.Default.Person,
-
-                contentDescription =
-                    "Profile picture",
-
-                modifier =
-                    Modifier.size(
-                        54.dp
-                    ),
-
-                tint =
-                    MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant
-            )
-        }
+            contentDescription =
+                "Profile picture"
+        )
 
         Spacer(
             modifier =
@@ -313,11 +280,6 @@ private fun ProfileContent(
                 )
         )
 
-        /*
-         * ========================================================
-         * DISPLAY NAME
-         * ========================================================
-         */
         Text(
 
             text =
@@ -345,11 +307,6 @@ private fun ProfileContent(
                 )
         )
 
-        /*
-         * ========================================================
-         * USERNAME
-         * ========================================================
-         */
         Text(
 
             text =
@@ -374,21 +331,11 @@ private fun ProfileContent(
                 )
         )
 
-        /*
-         * ========================================================
-         * ONLINE / LAST SEEN
-         * ========================================================
-         */
         PresenceText(
             presence =
                 presence
         )
 
-        /*
-         * ========================================================
-         * BIO
-         * ========================================================
-         */
         if (
             bio.isNotBlank()
         ) {
@@ -435,11 +382,6 @@ private fun ProfileContent(
                 )
         )
 
-        /*
-         * ========================================================
-         * START PRIVATE CHAT
-         * ========================================================
-         */
         Button(
 
             onClick =
@@ -468,11 +410,6 @@ private fun ProfileContent(
     }
 }
 
-/*
- * ============================================================
- * PRESENCE
- * ============================================================
- */
 @Composable
 private fun PresenceText(
     presence: Presence
@@ -523,11 +460,6 @@ private fun PresenceText(
     }
 }
 
-/*
- * ============================================================
- * LAST SEEN
- * ============================================================
- */
 private fun formatLastSeen(
     timestamp: Long
 ): String {
@@ -573,11 +505,6 @@ private fun formatLastSeen(
     }
 }
 
-/*
- * ============================================================
- * PROFILE ERROR
- * ============================================================
- */
 @Composable
 private fun ProfileError(
     title: String,

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -26,7 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.User
+import com.example.inchat.ui.profile.InChatProfileAvatar
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -433,11 +432,6 @@ fun SearchScreen(
     }
 }
 
-/*
- * ============================================================
- * SEARCH USER RESULT
- * ============================================================
- */
 @Composable
 private fun SearchUserItem(
     user: User,
@@ -483,51 +477,22 @@ private fun SearchUserItem(
                 Alignment.CenterVertically
         ) {
 
-            Surface(
+            InChatProfileAvatar(
+
+                profilePhotoUrl =
+                    user.profilePhotoUrl,
 
                 modifier =
                     Modifier.size(
                         52.dp
                     ),
 
-                shape =
-                    androidx.compose
-                        .foundation
-                        .shape
-                        .CircleShape,
+                iconSize =
+                    30.dp,
 
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .primaryContainer
-            ) {
-
-                Box(
-
-                    contentAlignment =
-                        Alignment.Center
-                ) {
-
-                    Icon(
-
-                        imageVector =
-                            Icons.Default.Person,
-
-                        contentDescription =
-                            null,
-
-                        modifier =
-                            Modifier.size(
-                                30.dp
-                            ),
-
-                        tint =
-                            MaterialTheme
-                                .colorScheme
-                                .primary
-                    )
-                }
-            }
+                contentDescription =
+                    "Profile picture"
+            )
 
             Spacer(
                 modifier =
@@ -577,11 +542,6 @@ private fun SearchUserItem(
     }
 }
 
-/*
- * ============================================================
- * SEARCH EMPTY STATE
- * ============================================================
- */
 @Composable
 private fun SearchEmptyState() {
 
@@ -664,11 +624,6 @@ private fun SearchEmptyState() {
     }
 }
 
-/*
- * ============================================================
- * SEARCH MESSAGE
- * ============================================================
- */
 @Composable
 private fun SearchMessage(
     text: String

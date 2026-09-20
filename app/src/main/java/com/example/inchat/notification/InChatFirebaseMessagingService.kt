@@ -10,8 +10,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.inchat.MainActivity
+import com.example.inchat.data.repository.UserRepository
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class InChatFirebaseMessagingService :
     FirebaseMessagingService() {
@@ -124,12 +129,24 @@ class InChatFirebaseMessagingService :
     override fun onNewToken(
         token: String
     ) {
-        /*
-         * Intentionally left empty.
-         *
-         * The existing token-registration flow is responsible
-         * for saving the current token to Firebase.
-         */
+        val uid =
+            FirebaseAuth
+                .getInstance()
+                .currentUser
+                ?.uid
+                .orEmpty()
+
+        if (uid.isBlank()) {
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            UserRepository()
+                .saveFcmToken(
+                    uid = uid,
+                    token = token
+                )
+        }
     }
 
     private fun showNotification(

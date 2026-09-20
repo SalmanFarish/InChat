@@ -4,7 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,9 +26,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,8 +41,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +58,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
+import kotlinx.coroutines.launch
+
+private const val MAX_PROFILE_PHOTO_BYTES =
+    5L * 1024L * 1024L
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -69,6 +83,14 @@ fun ProfileScreen(
     val clipboardManager =
         LocalClipboardManager.current
 
+    val repository =
+        remember {
+            UserRepository()
+        }
+
+    val coroutineScope =
+        rememberCoroutineScope()
+
     val currentDisplayName by
     authViewModel
         .displayName
@@ -78,6 +100,161 @@ fun ProfileScreen(
     authViewModel
         .bio
         .collectAsState()
+
+    var profilePhotoUrl by
+    remember(
+        uid
+    ) {
+        mutableStateOf("")
+    }
+
+    var photoUploading by
+    remember {
+        mutableStateOf(false)
+    }
+
+    var photoError by
+    remember {
+        mutableStateOf<String?>(null)
+    }
+
+    val photoPickerLauncher =
+        rememberLauncherForActivityResult(
+            contract =
+                ActivityResultContracts
+                    .PickVisualMedia()
+        ) { uri ->
+
+            if (
+                uri == null
+            ) {
+
+                return@rememberLauncherForActivityResult
+            }
+
+            val contentResolver =
+                context.contentResolver
+
+            val fileSize =
+                try {
+
+                    contentResolver
+                        .openAssetFileDescriptor(
+                            uri,
+                            "r"
+                        )
+                        ?.use {
+                            it.length
+                        }
+
+                } catch (
+                    _: Exception
+                ) {
+
+                    null
+                }
+
+            if (
+                fileSize != null &&
+                fileSize >
+                MAX_PROFILE_PHOTO_BYTES
+            ) {
+
+                photoError =
+                    "Profile photo must be 5 MB or smaller."
+
+                return@rememberLauncherForActivityResult
+            }
+
+            val mimeType =
+                contentResolver
+                    .getType(
+                        uri
+                    )
+
+            if (
+                !mimeType
+                    .orEmpty()
+                    .startsWith(
+                        "image/",
+                        ignoreCase = true
+                    )
+            ) {
+
+                photoError =
+                    "Please select an image."
+
+                return@rememberLauncherForActivityResult
+            }
+
+            photoUploading =
+                true
+
+            photoError =
+                null
+
+            coroutineScope.launch {
+
+                repository
+                    .uploadProfilePhoto(
+                        uid =
+                            uid,
+
+                        imageUri =
+                            uri,
+
+                        mimeType =
+                            mimeType
+                    )
+                    .onSuccess { downloadUrl ->
+
+                        profilePhotoUrl =
+                            downloadUrl
+
+                        photoUploading =
+                            false
+                    }
+                    .onFailure { error ->
+
+                        photoUploading =
+                            false
+
+                        photoError =
+                            error.message
+                                ?: "Could not upload profile photo."
+                    }
+            }
+        }
+
+    /*
+     * Load the current profile photo whenever this profile
+     * screen is created for the authenticated user.
+     */
+    LaunchedEffect(
+        uid
+    ) {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return@LaunchedEffect
+        }
+
+        val user =
+            repository
+                .getUserByIdFast(
+                    uid
+                )
+
+        if (
+            user != null
+        ) {
+
+            profilePhotoUrl =
+                user.profilePhotoUrl
+        }
+    }
 
     val displayName =
         currentDisplayName
@@ -250,7 +427,7 @@ fun ProfileScreen(
              * PROFILE AVATAR
              * =====================================================
              */
-            Surface(
+            Box(
 
                 modifier =
                     Modifier
@@ -259,48 +436,158 @@ fun ProfileScreen(
                         )
                         .clip(
                             CircleShape
-                        ),
+                        )
+                        .clickable(
+                            enabled =
+                                !photoUploading
+                        ) {
 
-                shape =
-                    CircleShape,
+                            photoPickerLauncher
+                                .launch(
+                                    PickVisualMediaRequest(
+                                        ActivityResultContracts
+                                            .PickVisualMedia
+                                            .ImageOnly
+                                    )
+                                )
+                        },
 
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .surfaceVariant
+                contentAlignment =
+                    Alignment.Center
             ) {
 
-                Box(
+                InChatProfileAvatar(
 
-                    contentAlignment =
-                        Alignment.Center
+                    profilePhotoUrl =
+                        profilePhotoUrl,
+
+                    modifier =
+                        Modifier.fillMaxSize(),
+
+                    iconSize =
+                        56.dp,
+
+                    contentDescription =
+                        "Profile picture"
+                )
+
+                if (
+                    photoUploading
                 ) {
 
-                    Icon(
-
-                        imageVector =
-                            Icons.Default.Person,
-
-                        contentDescription =
-                            null,
+                    Surface(
 
                         modifier =
-                            Modifier.size(
-                                56.dp
-                            ),
+                            Modifier.fillMaxSize(),
 
-                        tint =
+                        shape =
+                            CircleShape,
+
+                        color =
                             MaterialTheme
                                 .colorScheme
-                                .onSurfaceVariant
-                    )
+                                .scrim
+                                .copy(
+                                    alpha =
+                                        0.45f
+                                )
+                    ) {
+
+                        Box(
+
+                            contentAlignment =
+                                Alignment.Center
+                        ) {
+
+                            CircularProgressIndicator(
+                                modifier =
+                                    Modifier.size(
+                                        28.dp
+                                    ),
+
+                                strokeWidth =
+                                    3.dp
+                            )
+                        }
+                    }
                 }
             }
 
             Spacer(
                 modifier =
                     Modifier.height(
-                        20.dp
+                        8.dp
+                    )
+            )
+
+            TextButton(
+
+                onClick = {
+
+                    if (
+                        !photoUploading
+                    ) {
+
+                        photoPickerLauncher
+                            .launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts
+                                        .PickVisualMedia
+                                        .ImageOnly
+                                )
+                            )
+                    }
+                },
+
+                enabled =
+                    !photoUploading
+            ) {
+
+                Text(
+                    if (
+                        profilePhotoUrl.isBlank()
+                    ) {
+                        "Add profile photo"
+                    } else {
+                        "Change profile photo"
+                    }
+                )
+            }
+
+            if (
+                photoError != null
+            ) {
+
+                Text(
+
+                    text =
+                        photoError!!,
+
+                    modifier =
+                        Modifier.padding(
+                            horizontal =
+                                12.dp
+                        ),
+
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodySmall,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .error,
+
+                    textAlign =
+                        TextAlign.Center
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        12.dp
                     )
             )
 
@@ -407,11 +694,6 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * USERNAME INFO
-             * =====================================================
-             */
             ProfileInfoRow(
 
                 title =
@@ -437,11 +719,6 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * COPY PROFILE
-             * =====================================================
-             */
             OutlinedButton(
 
                 onClick = {
@@ -490,11 +767,6 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * SHARE PROFILE
-             * =====================================================
-             */
             OutlinedButton(
 
                 onClick = {
@@ -607,11 +879,6 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * SETTINGS
-             * =====================================================
-             */
             TextButton(
 
                 onClick =
@@ -650,11 +917,6 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * FOOTER
-             * =====================================================
-             */
             Text(
 
                 text =
@@ -703,11 +965,6 @@ fun ProfileScreen(
     }
 }
 
-/*
- * ============================================================
- * PROFILE INFO ROW
- * ============================================================
- */
 @Composable
 private fun ProfileInfoRow(
     title: String,
