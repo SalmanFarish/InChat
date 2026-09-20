@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -230,7 +231,135 @@ fun InChatApp(
             modifier =
                 Modifier.padding(
                     innerPadding
-                )
+                ),
+
+            enterTransition = {
+                val from =
+                    bottomNavIndex(
+                        initialState
+                            .destination
+                            .route
+                    )
+
+                val to =
+                    bottomNavIndex(
+                        targetState
+                            .destination
+                            .route
+                    )
+
+                if (
+                    from >= 0 &&
+                    to >= 0 &&
+                    from != to
+                ) {
+
+                    if (
+                        to > from
+                    ) {
+
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope
+                                .SlideDirection
+                                .Left,
+
+                            animationSpec =
+                                spring(
+                                    dampingRatio =
+                                        0.88f,
+
+                                    stiffness =
+                                        420f
+                                )
+                        )
+
+                    } else {
+
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope
+                                .SlideDirection
+                                .Right,
+
+                            animationSpec =
+                                spring(
+                                    dampingRatio =
+                                        0.88f,
+
+                                    stiffness =
+                                        420f
+                                )
+                        )
+                    }
+
+                } else {
+
+                    null
+                }
+            },
+
+            exitTransition = {
+                val from =
+                    bottomNavIndex(
+                        initialState
+                            .destination
+                            .route
+                    )
+
+                val to =
+                    bottomNavIndex(
+                        targetState
+                            .destination
+                            .route
+                    )
+
+                if (
+                    from >= 0 &&
+                    to >= 0 &&
+                    from != to
+                ) {
+
+                    if (
+                        to > from
+                    ) {
+
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope
+                                .SlideDirection
+                                .Left,
+
+                            animationSpec =
+                                spring(
+                                    dampingRatio =
+                                        0.88f,
+
+                                    stiffness =
+                                        420f
+                                )
+                        )
+
+                    } else {
+
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope
+                                .SlideDirection
+                                .Right,
+
+                            animationSpec =
+                                spring(
+                                    dampingRatio =
+                                        0.88f,
+
+                                    stiffness =
+                                        420f
+                                )
+                        )
+                    }
+
+                } else {
+
+                    null
+                }
+            }
         ) {
 
             /*
@@ -855,12 +984,12 @@ fun InChatApp(
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
  *
- * The navigation itself still uses the existing NavHost. Only
- * the presentation of the bottom bar is changed here.
- *
- * A single shared capsule slides between the three destinations,
- * which keeps the interaction continuous instead of creating a
- * new selected background for each icon.
+ * Compact iOS / Telegram-inspired dock:
+ * - centered instead of stretched edge-to-edge
+ * - one shared selection capsule
+ * - outlined icons when inactive
+ * - stronger icons when active
+ * - spring-driven movement
  */
 @Composable
 private fun InChatBottomBar(
@@ -878,11 +1007,9 @@ private fun InChatBottomBar(
             ?.route
 
     val selectedIndex =
-        bottomNavItems
-            .indexOfFirst {
-                it.route ==
-                        currentRoute
-            }
+        bottomNavIndex(
+            currentRoute
+        )
             .coerceAtLeast(
                 0
             )
@@ -896,25 +1023,21 @@ private fun InChatBottomBar(
 
         shape =
             RoundedCornerShape(
-                28.dp
+                25.dp
             ),
 
         shadowElevation =
-            6.dp,
+            5.dp,
 
         tonalElevation =
             0.dp,
 
         modifier =
             Modifier
-                .fillMaxWidth()
+                .wrapContentWidth(
+                    Alignment.CenterHorizontally
+                )
                 .padding(
-                    start =
-                        12.dp,
-
-                    end =
-                        12.dp,
-
                     bottom =
                         8.dp
                 )
@@ -924,12 +1047,14 @@ private fun InChatBottomBar(
 
             modifier =
                 Modifier
-                    .fillMaxWidth()
+                    .width(
+                        220.dp
+                    )
                     .height(
-                        64.dp
+                        58.dp
                     )
                     .padding(
-                        6.dp
+                        4.dp
                     )
         ) {
 
@@ -958,11 +1083,6 @@ private fun InChatBottomBar(
                     "bottomBarIndicatorOffset"
             )
 
-            /*
-             * =================================================
-             * SLIDING SELECTION CAPSULE
-             * =================================================
-             */
             Box(
 
                 modifier =
@@ -975,11 +1095,11 @@ private fun InChatBottomBar(
                             itemWidth
                         )
                         .height(
-                            52.dp
+                            50.dp
                         )
                         .clip(
                             RoundedCornerShape(
-                                20.dp
+                                19.dp
                             )
                         )
                         .background(
@@ -1058,6 +1178,18 @@ private fun InChatBottomBar(
     }
 }
 
+private fun bottomNavIndex(
+    route:
+        String?
+): Int {
+
+    return bottomNavItems
+        .indexOfFirst {
+            it.route ==
+                    route
+        }
+}
+
 /*
  * ============================================================
  * BOTTOM NAVIGATION ITEM
@@ -1122,7 +1254,7 @@ private fun BottomNavigationItem(
 
             } else {
 
-                22.dp
+                21.dp
             },
 
         animationSpec =
@@ -1150,7 +1282,7 @@ private fun BottomNavigationItem(
 
             } else {
 
-                0.94f
+                0.95f
             },
 
         animationSpec =
@@ -1179,10 +1311,6 @@ private fun BottomNavigationItem(
             Alignment.Center
     ) {
 
-        /*
-         * The selected icon becomes stronger while the capsule
-         * itself handles the movement between tabs.
-         */
         Icon(
 
             imageVector =
