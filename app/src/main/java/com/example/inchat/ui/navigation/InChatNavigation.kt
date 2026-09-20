@@ -1,17 +1,13 @@
 package com.example.inchat.ui.navigation
 
 import android.net.Uri
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -23,6 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -41,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -152,6 +149,16 @@ fun InChatApp(
     val navigationScope =
         rememberCoroutineScope()
 
+    val pagerState =
+        rememberPagerState(
+            initialPage =
+                0,
+
+            pageCount = {
+                bottomNavItems.size
+            }
+        )
+
     var searchFocusRequest by
     remember {
         mutableStateOf(
@@ -170,32 +177,7 @@ fun InChatApp(
 
     val showBottomBar =
         currentRoute ==
-                "home" ||
-                currentRoute ==
-                "search" ||
-                currentRoute ==
-                "my_profile"
-
-    val tabSwipeAnimation =
-        remember {
-            Animatable(
-                0f
-            )
-        }
-
-    var liveSwipeOffset by
-    remember {
-        mutableFloatStateOf(
-            0f
-        )
-    }
-
-    var isDraggingTabs by
-    remember {
-        mutableStateOf(
-            false
-        )
-    }
+                "home"
 
     /*
      * =========================================================
@@ -244,12 +226,38 @@ fun InChatApp(
             ) {
 
                 InChatBottomBar(
-                    navController =
-                        navController,
+
+                    pagerState =
+                        pagerState,
+
+                    onPageSelected = { page ->
+
+                        if (
+                            page !=
+                            pagerState.currentPage
+                        ) {
+
+                            navigationScope.launch {
+
+                                pagerState
+                                    .animateScrollToPage(
+                                        page
+                                    )
+                            }
+                        }
+                    },
 
                     onSearchLongPress = {
 
-                        searchFocusRequest++
+                        navigationScope.launch {
+
+                            pagerState
+                                .animateScrollToPage(
+                                    1
+                                )
+
+                            searchFocusRequest++
+                        }
                     }
                 )
             }
@@ -271,390 +279,6 @@ fun InChatApp(
                     .padding(
                         innerPadding
                     )
-                    .graphicsLayer {
-                        translationX =
-                            if (
-                                isDraggingTabs
-                            ) {
-
-                                liveSwipeOffset
-
-                            } else {
-
-                                tabSwipeAnimation.value
-                            }
-                    }
-                    .pointerInput(
-                        currentRoute
-                    ) {
-                        detectHorizontalDragGestures(
-
-                            onHorizontalDrag = {
-                                    change,
-                                    dragAmount ->
-
-                                val currentIndex =
-                                    bottomNavIndex(
-                                        currentRoute
-                                    )
-
-                                if (
-                                    currentIndex >= 0
-                                ) {
-
-                                    if (
-                                        !isDraggingTabs
-                                    ) {
-
-                                        isDraggingTabs =
-                                            true
-
-                                        liveSwipeOffset =
-                                            tabSwipeAnimation.value
-                                    }
-
-                                    val maxOffset =
-                                        size.width
-                                            .toFloat() *
-                                                0.40f
-
-                                    liveSwipeOffset =
-                                        (
-                                            liveSwipeOffset +
-                                                    dragAmount
-                                            )
-                                            .coerceIn(
-                                                -maxOffset,
-                                                maxOffset
-                                            )
-
-                                    change
-                                        .consume()
-                                }
-                            },
-
-                            onDragEnd = {
-
-                                val currentIndex =
-                                    bottomNavIndex(
-                                        currentRoute
-                                    )
-
-                                val width =
-                                    size.width
-                                        .toFloat()
-                                        .coerceAtLeast(
-                                            1f
-                                        )
-
-                                val threshold =
-                                    width *
-                                            0.24f
-
-                                val offset =
-                                    liveSwipeOffset
-
-                                val targetIndex =
-                                    when {
-
-                                        currentIndex < 0 ->
-                                            currentIndex
-
-                                        offset <= -threshold &&
-                                                currentIndex <
-                                                bottomNavItems.lastIndex ->
-
-                                            currentIndex + 1
-
-                                        offset >= threshold &&
-                                                currentIndex > 0 ->
-
-                                            currentIndex - 1
-
-                                        else ->
-                                            currentIndex
-                                    }
-
-                                val targetOffset =
-                                    if (
-                                        targetIndex !=
-                                        currentIndex
-                                    ) {
-
-                                        if (
-                                            targetIndex >
-                                            currentIndex
-                                        ) {
-
-                                            -width
-
-                                        } else {
-
-                                            width
-                                        }
-
-                                    } else {
-
-                                        0f
-                                    }
-
-                                val targetRoute =
-                                    if (
-                                        targetIndex >= 0 &&
-                                        targetIndex <=
-                                        bottomNavItems.lastIndex &&
-                                        targetIndex !=
-                                        currentIndex
-                                    ) {
-
-                                        bottomNavItems[
-                                            targetIndex
-                                        ].route
-
-                                    } else {
-
-                                        null
-                                    }
-
-                                navigationScope.launch {
-
-                                    /*
-                                     * Transfer the exact finger position into
-                                     * the spring animation before handing control
-                                     * from the finger to the spring.
-                                     */
-                                    tabSwipeAnimation
-                                        .snapTo(
-                                            offset
-                                        )
-
-                                    isDraggingTabs =
-                                        false
-
-                                    tabSwipeAnimation
-                                        .animateTo(
-                                            targetOffset,
-
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio =
-                                                        0.90f,
-
-                                                    stiffness =
-                                                        420f
-                                                )
-                                        )
-
-                                    if (
-                                        targetRoute !=
-                                        null
-                                    ) {
-
-                                        navController
-                                            .navigate(
-                                                targetRoute
-                                            ) {
-
-                                                popUpTo(
-                                                    "home"
-                                                ) {
-
-                                                    saveState =
-                                                        true
-                                                }
-
-                                                launchSingleTop =
-                                                    true
-
-                                                restoreState =
-                                                    true
-                                            }
-
-                                        /*
-                                         * Keep the new destination aligned
-                                         * with the center after navigation.
-                                         */
-                                        tabSwipeAnimation
-                                            .snapTo(
-                                                0f
-                                            )
-
-                                    } else {
-
-                                        tabSwipeAnimation
-                                            .snapTo(
-                                                0f
-                                            )
-                                    }
-
-                                    liveSwipeOffset =
-                                        0f
-                                }
-                            },
-
-                            onDragCancel = {
-
-                                val offset =
-                                    liveSwipeOffset
-
-                                navigationScope.launch {
-
-                                    tabSwipeAnimation
-                                        .snapTo(
-                                            offset
-                                        )
-
-                                    isDraggingTabs =
-                                        false
-
-                                    tabSwipeAnimation
-                                        .animateTo(
-                                            0f,
-
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio =
-                                                        0.78f,
-
-                                                    stiffness =
-                                                        540f
-                                                )
-                                        )
-
-                                    liveSwipeOffset =
-                                        0f
-                                }
-                            }
-                        )
-                    },
-
-            enterTransition = {
-                val from =
-                    bottomNavIndex(
-                        initialState
-                            .destination
-                            .route
-                    )
-
-                val to =
-                    bottomNavIndex(
-                        targetState
-                            .destination
-                            .route
-                    )
-
-                if (
-                    from >= 0 &&
-                    to >= 0 &&
-                    from != to
-                ) {
-
-                    if (
-                        to > from
-                    ) {
-
-                        slideIntoContainer(
-                            AnimatedContentTransitionScope
-                                .SlideDirection
-                                .Left,
-
-                            animationSpec =
-                                spring(
-                                    dampingRatio =
-                                        0.88f,
-
-                                    stiffness =
-                                        420f
-                                )
-                        )
-
-                    } else {
-
-                        slideIntoContainer(
-                            AnimatedContentTransitionScope
-                                .SlideDirection
-                                .Right,
-
-                            animationSpec =
-                                spring(
-                                    dampingRatio =
-                                        0.88f,
-
-                                    stiffness =
-                                        420f
-                                )
-                        )
-                    }
-
-                } else {
-
-                    EnterTransition.None
-                }
-            },
-
-            exitTransition = {
-                val from =
-                    bottomNavIndex(
-                        initialState
-                            .destination
-                            .route
-                    )
-
-                val to =
-                    bottomNavIndex(
-                        targetState
-                            .destination
-                            .route
-                    )
-
-                if (
-                    from >= 0 &&
-                    to >= 0 &&
-                    from != to
-                ) {
-
-                    if (
-                        to > from
-                    ) {
-
-                        slideOutOfContainer(
-                            AnimatedContentTransitionScope
-                                .SlideDirection
-                                .Left,
-
-                            animationSpec =
-                                spring(
-                                    dampingRatio =
-                                        0.88f,
-
-                                    stiffness =
-                                        420f
-                                )
-                        )
-
-                    } else {
-
-                        slideOutOfContainer(
-                            AnimatedContentTransitionScope
-                                .SlideDirection
-                                .Right,
-
-                            animationSpec =
-                                spring(
-                                    dampingRatio =
-                                        0.88f,
-
-                                    stiffness =
-                                        420f
-                                )
-                        )
-                    }
-
-                } else {
-
-                    ExitTransition.None
-                }
-            }
         ) {
 
             /*
@@ -667,7 +291,16 @@ fun InChatApp(
                 "home"
             ) {
 
-                HomeScreen(
+                MainTabPager(
+
+                    pagerState =
+                        pagerState,
+
+                    uid =
+                        uid,
+
+                    username =
+                        username,
 
                     authViewModel =
                         authViewModel,
@@ -675,136 +308,11 @@ fun InChatApp(
                     homeViewModel =
                         homeViewModel,
 
-                    onConversationClick = {
-                            conversation ->
-
-                        val encodedUsername =
-                            Uri.encode(
-                                conversation.otherUsername
-                            )
-
-                        navController.navigate(
-                            "chat/${conversation.otherUserId}" +
-                                    "?otherUserNickname=$encodedUsername"
-                        )
-                    },
-
-                    onProfileClick = {
-
-                        navController.navigate(
-                            "my_profile"
-                        ) {
-
-                            launchSingleTop =
-                                true
-                        }
-                    }
-                )
-            }
-
-            /*
-             * ==================================================
-             * SEARCH
-             * ==================================================
-             */
-
-            composable(
-                "search"
-            ) { searchBackStackEntry ->
-
-                val searchViewModel:
-                        SearchViewModel =
-                    viewModel(
-                        searchBackStackEntry
-                    )
-
-                SearchScreen(
-
-                    currentUserId =
-                        uid,
-
-                    searchViewModel =
-                        searchViewModel,
+                    navController =
+                        navController,
 
                     searchFocusRequest =
-                        searchFocusRequest,
-
-                    onUserClick = {
-                            user ->
-
-                        val encodedUsername =
-                            Uri.encode(
-                                user.username
-                            )
-
-                        navController.navigate(
-                            "profile?username=$encodedUsername"
-                        )
-                    }
-                )
-            }
-
-            /*
-             * ==================================================
-             * MY PROFILE
-             * ==================================================
-             */
-
-            composable(
-                "my_profile"
-            ) {
-
-                ProfileScreen(
-
-                    username =
-                        username,
-
-                    uid =
-                        uid,
-
-                    authViewModel =
-                        authViewModel,
-
-                    onBackClick = {
-
-                        navController.navigate(
-                            "home"
-                        ) {
-
-                            popUpTo(
-                                "home"
-                            ) {
-
-                                inclusive =
-                                    false
-                            }
-
-                            launchSingleTop =
-                                true
-                        }
-                    },
-
-                    onSettingsClick = {
-
-                        navController.navigate(
-                            "settings"
-                        ) {
-
-                            launchSingleTop =
-                                true
-                        }
-                    },
-
-                    onProfilePhotoClick = {
-
-                        navController.navigate(
-                            "profile_photo"
-                        ) {
-
-                            launchSingleTop =
-                                true
-                        }
-                    }
+                        searchFocusRequest
                 )
             }
 
@@ -1279,45 +787,228 @@ fun InChatApp(
 
 /*
  * ============================================================
+ * MAIN TAB PAGER
+ * ============================================================
+ */
+@OptIn(
+    ExperimentalFoundationApi::class
+)
+@Composable
+private fun MainTabPager(
+    pagerState:
+        PagerState,
+
+    uid:
+        String,
+
+    username:
+        String,
+
+    authViewModel:
+        AuthViewModel,
+
+    homeViewModel:
+        HomeViewModel,
+
+    navController:
+        NavHostController,
+
+    searchFocusRequest:
+        Int
+) {
+
+    val pagerScope =
+        rememberCoroutineScope()
+
+    val searchViewModel:
+        SearchViewModel =
+        viewModel()
+
+    HorizontalPager(
+
+        state =
+            pagerState,
+
+        modifier =
+            Modifier.fillMaxSize(),
+
+        userScrollEnabled =
+            true,
+
+        beyondViewportPageCount =
+            1,
+
+        pageSpacing =
+            0.dp
+    ) { page ->
+
+        when (
+            page
+        ) {
+
+            0 -> {
+
+                HomeScreen(
+
+                    authViewModel =
+                        authViewModel,
+
+                    homeViewModel =
+                        homeViewModel,
+
+                    onConversationClick = {
+                            conversation ->
+
+                        val encodedUsername =
+                            Uri.encode(
+                                conversation.otherUsername
+                            )
+
+                        navController.navigate(
+                            "chat/" +
+                                    conversation.otherUserId +
+                                    "?otherUserNickname=" +
+                                    encodedUsername
+                        )
+                    },
+
+                    onProfileClick = {
+
+                        pagerScope.launch {
+
+                            pagerState
+                                .animateScrollToPage(
+                                    2
+                                )
+                        }
+                    }
+                )
+            }
+
+            1 -> {
+
+                SearchScreen(
+
+                    currentUserId =
+                        uid,
+
+                    searchViewModel =
+                        searchViewModel,
+
+                    searchFocusRequest =
+                        searchFocusRequest,
+
+                    onUserClick = {
+                            user ->
+
+                        val encodedUsername =
+                            Uri.encode(
+                                user.username
+                            )
+
+                        navController.navigate(
+                            "profile?username=" +
+                                    encodedUsername
+                        )
+                    }
+                )
+            }
+
+            2 -> {
+
+                ProfileScreen(
+
+                    username =
+                        username,
+
+                    uid =
+                        uid,
+
+                    authViewModel =
+                        authViewModel,
+
+                    onBackClick = {
+
+                        pagerScope.launch {
+
+                            pagerState
+                                .animateScrollToPage(
+                                    0
+                                )
+                        }
+                    },
+
+                    onSettingsClick = {
+
+                        navController.navigate(
+                            "settings"
+                        ) {
+
+                            launchSingleTop =
+                                true
+                        }
+                    },
+
+                    onProfilePhotoClick = {
+
+                        navController.navigate(
+                            "profile_photo"
+                        ) {
+
+                            launchSingleTop =
+                                true
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/*
+ * ============================================================
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
  *
- * The dock stays compact and centered. The shared capsule moves
- * under the active icon, while long-pressing Search explicitly
- * requests keyboard focus.
+ * The bottom dock reads the live HorizontalPager position.
+ * While the user drags, the capsule follows the finger.
  */
 @Composable
 private fun InChatBottomBar(
-    navController:
-        NavHostController,
+    pagerState:
+        PagerState,
+
+    onPageSelected:
+        (Int) -> Unit,
 
     onSearchLongPress:
         () -> Unit
 ) {
 
-    val backStackEntry by
-    navController
-        .currentBackStackEntryAsState()
+    val selectedPage =
+        pagerState.currentPage
 
-    val currentRoute =
-        backStackEntry
-            ?.destination
-            ?.route
-
-    val selectedIndex =
-        bottomNavIndex(
-            currentRoute
-        )
-            .coerceAtLeast(
-                0
+    val pagePosition =
+        (
+            pagerState.currentPage +
+                    pagerState.currentPageOffsetFraction
+            )
+            .coerceIn(
+                0f,
+                bottomNavItems.lastIndex
+                    .toFloat()
             )
 
     Box(
 
         modifier =
             Modifier
-                .fillMaxWidth(),
-        
+                .fillMaxWidth()
+                .padding(
+                    bottom =
+                        8.dp
+                ),
+
         contentAlignment =
             Alignment.Center
     ) {
@@ -1360,26 +1051,9 @@ private fun InChatBottomBar(
                     maxWidth /
                             bottomNavItems.size
 
-                val indicatorOffset by
-                animateDpAsState(
-
-                    targetValue =
-                        itemWidth *
-                                selectedIndex,
-
-                    animationSpec =
-                        spring(
-
-                            dampingRatio =
-                                0.78f,
-
-                            stiffness =
-                                520f
-                        ),
-
-                    label =
-                        "bottomBarIndicatorOffset"
-                )
+                val indicatorOffset =
+                    itemWidth *
+                            pagePosition
 
                 Box(
 
@@ -1414,18 +1088,19 @@ private fun InChatBottomBar(
                 Row(
 
                     modifier =
-                        Modifier
-                            .fillMaxSize(),
+                        Modifier.fillMaxSize(),
 
                     verticalAlignment =
                         Alignment.CenterVertically
                 ) {
 
-                    bottomNavItems.forEach { item ->
+                    bottomNavItems.forEachIndexed {
+                            index,
+                            item ->
 
                         val selected =
-                            currentRoute ==
-                                    item.route
+                            selectedPage ==
+                                    index
 
                         BottomNavigationItem(
 
@@ -1444,63 +1119,17 @@ private fun InChatBottomBar(
 
                             onClick = {
 
-                                if (
-                                    !selected
-                                ) {
-
-                                    navController
-                                        .navigate(
-                                            item.route
-                                        ) {
-
-                                            popUpTo(
-                                                "home"
-                                            ) {
-
-                                                saveState =
-                                                    true
-                                            }
-
-                                            launchSingleTop =
-                                                true
-
-                                            restoreState =
-                                                true
-                                        }
-                                }
+                                onPageSelected(
+                                    index
+                                )
                             },
 
                             onLongClick = {
 
                                 if (
-                                    item.route ==
-                                    "search"
+                                    index ==
+                                    1
                                 ) {
-
-                                    if (
-                                        !selected
-                                    ) {
-
-                                        navController
-                                            .navigate(
-                                                "search"
-                                            ) {
-
-                                                popUpTo(
-                                                    "home"
-                                                ) {
-
-                                                    saveState =
-                                                        true
-                                                }
-
-                                                launchSingleTop =
-                                                    true
-
-                                                restoreState =
-                                                    true
-                                            }
-                                    }
 
                                     onSearchLongPress()
                                 }
@@ -1511,18 +1140,6 @@ private fun InChatBottomBar(
             }
         }
     }
-}
-
-private fun bottomNavIndex(
-    route:
-        String?
-): Int {
-
-    return bottomNavItems
-        .indexOfFirst {
-            it.route ==
-                    route
-        }
 }
 
 /*
