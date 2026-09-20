@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.UserRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +16,10 @@ sealed interface UserSearchState {
     data object Idle : UserSearchState
 
     data object Loading : UserSearchState
+
+    data class Suggestions(
+        val users: List<User>
+    ) : UserSearchState
 
     data class Found(
         val user: User
@@ -46,7 +51,7 @@ class SearchViewModel : ViewModel() {
 
     /*
      * =========================================================
-     * SEARCH USER
+     * LIVE SEARCH
      * =========================================================
      */
     fun searchUser(
@@ -55,14 +60,93 @@ class SearchViewModel : ViewModel() {
     ) {
 
         val username =
-            rawUsername.trim()
+            rawUsername
+                .trim()
+                .removePrefix("@")
 
         if (
             username.isBlank()
         ) {
 
-            _searchState.value =
-                UserSearchState.Idle
+            clearSearch()
+
+            return
+        }
+
+        searchJob?.cancel()
+
+        searchJob =
+            viewModelScope.launch {
+
+                delay(220)
+
+                _searchState.value =
+                    UserSearchState.Loading
+
+                try {
+
+                    val users =
+                        userRepository
+                            .searchUsersByUsernamePrefix(
+                                prefix =
+                                    username,
+
+                                currentUserId =
+                                    currentUserId,
+
+                                limit =
+                                    8
+                            )
+
+                    if (
+                        users.isEmpty()
+                    ) {
+
+                        _searchState.value =
+                            UserSearchState.NotFound
+
+                    } else {
+
+                        _searchState.value =
+                            UserSearchState.Suggestions(
+                                users
+                            )
+                    }
+
+                } catch (
+                    _: Exception
+                ) {
+
+                    _searchState.value =
+                        UserSearchState.Error(
+                            "Could not search right now. Please try again."
+                        )
+                }
+            }
+    }
+
+    /*
+     * =========================================================
+     * EXACT USER LOOKUP
+     * =========================================================
+     *
+     * Kept for callers that still want a single exact result.
+     */
+    fun searchExactUser(
+        currentUserId: String,
+        rawUsername: String
+    ) {
+
+        val username =
+            rawUsername
+                .trim()
+                .removePrefix("@")
+
+        if (
+            username.isBlank()
+        ) {
+
+            clearSearch()
 
             return
         }
@@ -85,13 +169,8 @@ class SearchViewModel : ViewModel() {
 
                     when {
 
-                        user == null -> {
-
-                            _searchState.value =
-                                UserSearchState.NotFound
-                        }
-
-                        user.uid ==
+                        user == null ||
+                                user.uid ==
                                 currentUserId -> {
 
                             _searchState.value =
@@ -108,7 +187,7 @@ class SearchViewModel : ViewModel() {
                     }
 
                 } catch (
-                    e: Exception
+                    _: Exception
                 ) {
 
                     _searchState.value =
