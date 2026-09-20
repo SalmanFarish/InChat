@@ -1,6 +1,9 @@
 package com.example.inchat.ui.navigation
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -293,7 +296,7 @@ fun InChatApp(
 
                 } else {
 
-                    null
+                    EnterTransition.None
                 }
             },
 
@@ -357,7 +360,7 @@ fun InChatApp(
 
                 } else {
 
-                    null
+                    ExitTransition.None
                 }
             }
         ) {
