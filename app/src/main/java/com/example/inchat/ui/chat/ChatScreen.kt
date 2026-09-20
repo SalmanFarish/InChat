@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatAppearanceRepository
+import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.ChatRepository
 
 @OptIn(
@@ -47,6 +48,18 @@ fun ChatScreen(
         remember {
             ChatAppearanceRepository()
         }
+
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
+    var otherUserProfilePhoto by
+    remember(
+        otherUserId
+    ) {
+        mutableStateOf("")
+    }
 
     val chatId =
         remember(
@@ -77,6 +90,25 @@ fun ChatScreen(
         ChatTheme.fromId(
             chatThemeId
         )
+
+    LaunchedEffect(
+        otherUserId
+    ) {
+
+        val user =
+            userRepository
+                .getUserByIdFast(
+                    otherUserId
+                )
+
+        otherUserProfilePhoto =
+            user
+                ?.profilePhotoData
+                ?.ifBlank {
+                    user.profilePhotoUrl
+                }
+                .orEmpty()
+    }
 
     LaunchedEffect(
         currentUserId,
@@ -380,6 +412,9 @@ fun ChatScreen(
 
                 otherUserNickname =
                     otherUserNickname,
+
+                otherUserProfilePhoto =
+                    otherUserProfilePhoto,
 
                 otherUserPresence =
                     otherUserPresence,
