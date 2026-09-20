@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -148,6 +149,9 @@ fun InChatApp(
     val navController =
         rememberNavController()
 
+    val navigationScope =
+        rememberCoroutineScope()
+
     var searchFocusRequest by
     remember {
         mutableStateOf(
@@ -227,7 +231,12 @@ fun InChatApp(
 
                 InChatBottomBar(
                     navController =
-                        navController
+                        navController,
+
+                    onSearchLongPress = {
+
+                        searchFocusRequest++
+                    }
                 )
             }
         }
@@ -297,7 +306,9 @@ fun InChatApp(
 
                             onDragEnd = {
 
-                                val currentIndex =
+                                navigationScope.launch {
+
+                                    val currentIndex =
                                     bottomNavIndex(
                                         currentRoute
                                     )
@@ -443,23 +454,27 @@ fun InChatApp(
                                                     )
                                             )
                                     }
+                                    }
                                 }
                             },
 
                             onDragCancel = {
 
-                                tabSwipeOffset
-                                    .animateTo(
-                                        0f,
-                                        animationSpec =
-                                            spring(
-                                                dampingRatio =
-                                                    0.78f,
+                                navigationScope.launch {
 
-                                                stiffness =
-                                                    540f
-                                            )
-                                    )
+                                    tabSwipeOffset
+                                        .animateTo(
+                                            0f,
+                                            animationSpec =
+                                                spring(
+                                                    dampingRatio =
+                                                        0.78f,
+
+                                                    stiffness =
+                                                        540f
+                                                )
+                                        )
+                                }
                             }
                         )
                     },
