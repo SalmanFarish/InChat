@@ -2,6 +2,7 @@ package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,8 +18,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,7 +33,67 @@ fun ReplyMessagePreview(
     onClick: () -> Unit
 ) {
 
-    Column(
+    val backgroundColor =
+        if (
+            isMe
+        ) {
+
+            MaterialTheme
+                .colorScheme
+                .onPrimary
+                .copy(
+                    alpha =
+                        0.10f
+                )
+
+        } else {
+
+            MaterialTheme
+                .colorScheme
+                .onSurface
+                .copy(
+                    alpha =
+                        0.06f
+                )
+        }
+
+    val primaryTextColor =
+        if (
+            isMe
+        ) {
+
+            MaterialTheme
+                .colorScheme
+                .onPrimary
+
+        } else {
+
+            MaterialTheme
+                .colorScheme
+                .onSurface
+        }
+
+    val secondaryTextColor =
+        if (
+            isMe
+        ) {
+
+            MaterialTheme
+                .colorScheme
+                .onPrimary
+                .copy(
+                    alpha =
+                        0.78f
+                )
+
+        } else {
+
+            MaterialTheme
+                .colorScheme
+                .onSurfaceVariant
+        }
+
+    Row(
 
         modifier =
             Modifier
@@ -47,105 +108,101 @@ fun ReplyMessagePreview(
                         onClick
                 )
                 .background(
-
-                    if (
-                        isMe
-                    ) {
-
-                        MaterialTheme
-                            .colorScheme
-                            .onPrimary
-                            .copy(
-                                alpha =
-                                    0.12f
-                            )
-
-                    } else {
-
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(
-                                alpha =
-                                    0.07f
-                            )
-                    }
+                    backgroundColor
                 )
                 .padding(
                     horizontal =
                         9.dp,
 
                     vertical =
-                        7.dp
-                )
+                        8.dp
+                ),
+
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
-        Text(
+        Box(
 
-            text =
-                "@${reply.senderNickname}",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .labelSmall,
-
-            fontWeight =
-                FontWeight.SemiBold,
-
-            color =
-                if (
-                    isMe
-                ) {
-
-                    MaterialTheme
-                        .colorScheme
-                        .onPrimary
-
-                } else {
-
-                    MaterialTheme
-                        .colorScheme
-                        .onSurface
-                }
+            modifier =
+                Modifier
+                    .width(
+                        3.dp
+                    )
+                    .height(
+                        42.dp
+                    )
+                    .clip(
+                        RoundedCornerShape(
+                            2.dp
+                        )
+                    )
+                    .background(
+                        MaterialTheme
+                            .colorScheme
+                            .primary
+                    )
         )
 
         Spacer(
             modifier =
-                Modifier.height(
-                    2.dp
+                Modifier.width(
+                    8.dp
                 )
         )
 
-        Text(
+        Column(
 
-            text =
-                reply.text,
+            modifier =
+                Modifier.weight(
+                    1f
+                )
+        ) {
 
-            maxLines =
-                2,
+            Text(
 
-            style =
-                MaterialTheme
-                    .typography
-                    .bodySmall,
+                text =
+                    "@${reply.senderNickname}",
 
-            color =
-                if (
-                    isMe
-                ) {
-
+                style =
                     MaterialTheme
-                        .colorScheme
-                        .onPrimary
+                        .typography
+                        .labelSmall,
 
-                } else {
+                fontWeight =
+                    FontWeight.SemiBold,
 
+                maxLines =
+                    1,
+
+                color =
+                    primaryTextColor
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        2.dp
+                    )
+            )
+
+            Text(
+
+                text =
+                    reply.text,
+
+                maxLines =
+                    2,
+
+                style =
                     MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant
-                }
-        )
+                        .typography
+                        .bodySmall,
+
+                color =
+                    secondaryTextColor
+            )
+        }
     }
 }
 
@@ -172,7 +229,7 @@ fun ReplyComposerPreview(
             Alignment.CenterVertically
     ) {
 
-        Column(
+        Row(
 
             modifier =
                 Modifier
@@ -191,57 +248,101 @@ fun ReplyComposerPreview(
                     )
                     .padding(
                         horizontal =
-                            12.dp,
+                            10.dp,
 
                         vertical =
-                            8.dp
-                    )
+                            9.dp
+                    ),
+
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
-            Text(
+            Box(
 
-                text =
-                    "Replying to @${message.senderNickname}",
-
-                style =
-                    MaterialTheme
-                        .typography
-                        .labelSmall,
-
-                fontWeight =
-                    FontWeight.SemiBold,
-
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .primary
+                modifier =
+                    Modifier
+                        .width(
+                            3.dp
+                        )
+                        .height(
+                            42.dp
+                        )
+                        .clip(
+                            RoundedCornerShape(
+                                2.dp
+                            )
+                        )
+                        .background(
+                            MaterialTheme
+                                .colorScheme
+                                .primary
+                        )
             )
 
             Spacer(
                 modifier =
-                    Modifier.height(
-                        2.dp
+                    Modifier.width(
+                        9.dp
                     )
             )
 
-            Text(
+            Column(
 
-                text =
-                    message.text,
+                modifier =
+                    Modifier.weight(
+                        1f
+                    )
+            ) {
 
-                maxLines =
-                    2,
+                Text(
 
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodySmall,
+                    text =
+                        "Replying to @${message.senderNickname}",
 
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant
-            )
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+
+                    fontWeight =
+                        FontWeight.SemiBold,
+
+                    maxLines =
+                        1,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .primary
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            2.dp
+                        )
+                )
+
+                Text(
+
+                    text =
+                        message.text,
+
+                    maxLines =
+                        2,
+
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodySmall,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant
+                )
+            }
         }
 
         IconButton(

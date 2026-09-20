@@ -10,5 +10,17 @@ data class User(
 
     val bio: String = "",
 
-    val profilePhotoUrl: String = ""
+    /*
+     * Kept for backward compatibility with the existing app.
+     * Older accounts may still contain a Storage URL here.
+     */
+    val profilePhotoUrl: String = "",
+
+    /*
+     * New free-plan profile photo storage.
+     *
+     * The photo will be stored as a compressed Base64 string
+     * in Realtime Database instead of Firebase Cloud Storage.
+     */
+    val profilePhotoData: String = ""
 )

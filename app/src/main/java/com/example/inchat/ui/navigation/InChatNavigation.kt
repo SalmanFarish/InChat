@@ -23,7 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -33,10 +33,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -48,18 +53,21 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
+import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
+import com.example.inchat.ui.profile.ProfilePhotoScreen
 import com.example.inchat.ui.profile.ProfileScreen
 import com.example.inchat.ui.profile.PublicProfileScreen
 import com.example.inchat.ui.profile.PublicProfileViewModel
 import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.SettingsScreen
+import kotlinx.coroutines.launch
 
 data class NotificationChatTarget(
     val chatId: String,
@@ -145,6 +153,7 @@ fun InChatApp(
      * NOTIFICATION CHAT
      * =========================================================
      */
+
     LaunchedEffect(
         notificationTarget?.chatId,
         notificationTarget?.otherUserId,
@@ -186,7 +195,6 @@ fun InChatApp(
             ) {
 
                 InChatBottomBar(
-
                     navController =
                         navController
                 )
@@ -214,6 +222,7 @@ fun InChatApp(
              * HOME
              * ==================================================
              */
+
             composable(
                 "home"
             ) {
@@ -257,17 +266,16 @@ fun InChatApp(
              * ==================================================
              * SEARCH
              * ==================================================
-             *
-             * Search now has its own screen and ViewModel.
              */
+
             composable(
                 "search"
-            ) { backStackEntry ->
+            ) { searchBackStackEntry ->
 
                 val searchViewModel:
                         SearchViewModel =
                     viewModel(
-                        backStackEntry
+                        searchBackStackEntry
                     )
 
                 SearchScreen(
@@ -298,6 +306,7 @@ fun InChatApp(
              * MY PROFILE
              * ==================================================
              */
+
             composable(
                 "my_profile"
             ) {
@@ -341,8 +350,191 @@ fun InChatApp(
                             launchSingleTop =
                                 true
                         }
+                    },
+
+                    onProfilePhotoClick = {
+
+                        navController.navigate(
+                            "profile_photo"
+                        ) {
+
+                            launchSingleTop =
+                                true
+                        }
                     }
                 )
+            }
+
+            /*
+             * ==================================================
+             * PROFILE PHOTO EDITOR
+             * ==================================================
+             */
+
+            composable(
+                "profile_photo"
+            ) {
+
+                val repository =
+                    remember {
+                        UserRepository()
+                    }
+
+                val coroutineScope =
+                    rememberCoroutineScope()
+
+                var currentPhotoData by
+                remember {
+                    mutableStateOf("")
+                }
+
+                var isLoadingPhoto by
+                remember {
+                    mutableStateOf(true)
+                }
+
+                var isSavingPhoto by
+                remember {
+                    mutableStateOf(false)
+                }
+
+                LaunchedEffect(
+                    uid
+                ) {
+
+                    isLoadingPhoto =
+                        true
+
+                    val user =
+                        repository
+                            .getUserByIdFast(
+                                uid
+                            )
+
+                    if (
+                        user != null
+                    ) {
+
+                        currentPhotoData =
+                            user
+                                .profilePhotoData
+                                .ifBlank {
+                                    user.profilePhotoUrl
+                                }
+                    }
+
+                    isLoadingPhoto =
+                        false
+                }
+
+                if (
+                    isLoadingPhoto
+                ) {
+
+                    Box(
+
+                        modifier =
+                            Modifier.fillMaxSize(),
+
+                        contentAlignment =
+                            Alignment.Center
+                    ) {
+
+                        CircularProgressIndicator()
+                    }
+
+                } else {
+
+                    ProfilePhotoScreen(
+
+                        currentPhotoData =
+                            currentPhotoData,
+
+                        onBackClick = {
+
+                            if (
+                                !isSavingPhoto
+                            ) {
+
+                                navController
+                                    .popBackStack()
+                            }
+                        },
+
+                        onSavePhoto = {
+                                photoBytes ->
+
+                            if (
+                                !isSavingPhoto
+                            ) {
+
+                                isSavingPhoto =
+                                    true
+
+                                coroutineScope.launch {
+
+                                    repository
+                                        .uploadProfilePhoto(
+                                            uid =
+                                                uid,
+
+                                            photoBytes =
+                                                photoBytes
+                                        )
+                                        .onSuccess {
+
+                                            isSavingPhoto =
+                                                false
+
+                                            navController
+                                                .popBackStack()
+                                        }
+                                        .onFailure {
+
+                                            isSavingPhoto =
+                                                false
+                                        }
+                                }
+                            }
+                        },
+
+                        onRemovePhoto = {
+
+                            if (
+                                !isSavingPhoto
+                            ) {
+
+                                isSavingPhoto =
+                                    true
+
+                                coroutineScope.launch {
+
+                                    repository
+                                        .removeProfilePhoto(
+                                            uid =
+                                                uid
+                                        )
+                                        .onSuccess {
+
+                                            isSavingPhoto =
+                                                false
+
+                                            navController
+                                                .popBackStack()
+                                        }
+                                        .onFailure {
+
+                                            isSavingPhoto =
+                                                false
+                                        }
+                                }
+                            }
+                        },
+
+                        isSaving =
+                            isSavingPhoto
+                    )
+                }
             }
 
             /*
@@ -350,6 +542,7 @@ fun InChatApp(
              * SETTINGS
              * ==================================================
              */
+
             composable(
                 "settings"
             ) {
@@ -367,7 +560,8 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController.popBackStack()
+                        navController
+                            .popBackStack()
                     }
                 )
             }
@@ -377,6 +571,7 @@ fun InChatApp(
              * PUBLIC PROFILE
              * ==================================================
              */
+
             composable(
 
                 route =
@@ -407,10 +602,10 @@ fun InChatApp(
                         }
                     )
 
-            ) { backStackEntry ->
+            ) { publicProfileBackStackEntry ->
 
                 val otherUsername =
-                    backStackEntry
+                    publicProfileBackStackEntry
                         .arguments
                         ?.getString(
                             "username"
@@ -420,7 +615,7 @@ fun InChatApp(
                 val publicProfileViewModel:
                         PublicProfileViewModel =
                     viewModel(
-                        backStackEntry
+                        publicProfileBackStackEntry
                     )
 
                 PublicProfileScreen(
@@ -452,7 +647,8 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController.popBackStack()
+                        navController
+                            .popBackStack()
                     }
                 )
             }
@@ -462,6 +658,7 @@ fun InChatApp(
              * CHAT INFO
              * ==================================================
              */
+
             composable(
 
                 route =
@@ -491,10 +688,10 @@ fun InChatApp(
                         }
                     )
 
-            ) { backStackEntry ->
+            ) { chatInfoBackStackEntry ->
 
                 val infoUserId =
-                    backStackEntry
+                    chatInfoBackStackEntry
                         .arguments
                         ?.getString(
                             "otherUserId"
@@ -502,7 +699,7 @@ fun InChatApp(
                         .orEmpty()
 
                 val infoUsername =
-                    backStackEntry
+                    chatInfoBackStackEntry
                         .arguments
                         ?.getString(
                             "otherUserNickname"
@@ -512,7 +709,7 @@ fun InChatApp(
                 val infoChatViewModel:
                         ChatViewModel =
                     viewModel(
-                        backStackEntry
+                        chatInfoBackStackEntry
                     )
 
                 ChatInfoScreen(
@@ -531,7 +728,8 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController.popBackStack()
+                        navController
+                            .popBackStack()
                     }
                 )
             }
@@ -541,6 +739,7 @@ fun InChatApp(
              * CHAT
              * ==================================================
              */
+
             composable(
 
                 route =
@@ -570,10 +769,10 @@ fun InChatApp(
                         }
                     )
 
-            ) { backStackEntry ->
+            ) { chatBackStackEntry ->
 
                 val otherUserId =
-                    backStackEntry
+                    chatBackStackEntry
                         .arguments
                         ?.getString(
                             "otherUserId"
@@ -581,7 +780,7 @@ fun InChatApp(
                         .orEmpty()
 
                 val otherUserNickname =
-                    backStackEntry
+                    chatBackStackEntry
                         .arguments
                         ?.getString(
                             "otherUserNickname"
@@ -591,7 +790,7 @@ fun InChatApp(
                 val chatViewModel:
                         ChatViewModel =
                     viewModel(
-                        backStackEntry
+                        chatBackStackEntry
                     )
 
                 ChatScreen(
@@ -613,7 +812,8 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController.popBackStack()
+                        navController
+                            .popBackStack()
                     },
 
                     onChatInfoClick = {
@@ -639,9 +839,11 @@ fun InChatApp(
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
  */
+
 @Composable
 private fun InChatBottomBar(
-    navController: NavHostController
+    navController:
+    NavHostController
 ) {
 
     val backStackEntry by
@@ -744,6 +946,7 @@ private fun InChatBottomBar(
  * BOTTOM NAVIGATION ITEM
  * ============================================================
  */
+
 @Composable
 private fun BottomNavigationItem(
     item: BottomNavItem,
@@ -954,19 +1157,11 @@ private fun BottomNavigationItem(
                     selected
                 ) {
 
-                    androidx.compose
-                        .ui.text
-                        .font
-                        .FontWeight
-                        .SemiBold
+                    FontWeight.SemiBold
 
                 } else {
 
-                    androidx.compose
-                        .ui.text
-                        .font
-                        .FontWeight
-                        .Normal
+                    FontWeight.Normal
                 },
 
             color =

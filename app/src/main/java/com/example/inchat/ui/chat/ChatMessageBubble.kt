@@ -21,26 +21,31 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import kotlin.math.roundToInt
-import androidx.compose.ui.text.font.FontWeight
 
 @OptIn(
     ExperimentalFoundationApi::class
@@ -56,6 +61,22 @@ fun SwipeableMessageBubble(
     onQuotedReplyClick: (String) -> Unit
 ) {
 
+    val density =
+        LocalDensity.current
+
+    val hapticFeedback =
+        LocalHapticFeedback.current
+
+    val replyThresholdPx =
+        with(density) {
+            64.dp.toPx()
+        }
+
+    val maximumSwipePx =
+        with(density) {
+            88.dp.toPx()
+        }
+
     var swipeOffset by
     remember(
         message.id
@@ -63,6 +84,16 @@ fun SwipeableMessageBubble(
 
         mutableFloatStateOf(
             0f
+        )
+    }
+
+    var replyThresholdTriggered by
+    remember(
+        message.id
+    ) {
+
+        mutableStateOf(
+            false
         )
     }
 
@@ -78,12 +109,6 @@ fun SwipeableMessageBubble(
         label =
             "messageSwipe"
     )
-
-    val replyThreshold =
-        72f
-
-    val maximumSwipe =
-        96f
 
     Row(
 
@@ -115,7 +140,7 @@ fun SwipeableMessageBubble(
         ) {
 
             if (
-                animatedSwipeOffset > 8f
+                animatedSwipeOffset > 4f
             ) {
 
                 Box(
@@ -127,7 +152,7 @@ fun SwipeableMessageBubble(
                         Alignment.CenterStart
                 ) {
 
-                    androidx.compose.material3.Icon(
+                    Icon(
 
                         imageVector =
                             Icons.AutoMirrored
@@ -148,7 +173,17 @@ fun SwipeableMessageBubble(
                                 alpha =
                                     (
                                             animatedSwipeOffset /
-                                                    replyThreshold
+                                                    replyThresholdPx
+                                            )
+                                        .coerceIn(
+                                            0f,
+                                            1f
+                                        )
+
+                                val progress =
+                                    (
+                                            animatedSwipeOffset /
+                                                    maximumSwipePx
                                             )
                                         .coerceIn(
                                             0f,
@@ -156,16 +191,11 @@ fun SwipeableMessageBubble(
                                         )
 
                                 scaleX =
-                                    0.8f +
+                                    0.82f +
                                             (
-                                                    animatedSwipeOffset /
-                                                            maximumSwipe
+                                                    progress *
+                                                            0.18f
                                                     )
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                ) *
-                                            0.2f
 
                                 scaleY =
                                     scaleX
@@ -254,19 +284,48 @@ fun SwipeableMessageBubble(
                                         dragAmount ->
 
                                     if (
-                                        dragAmount > 0f ||
-                                        swipeOffset > 0f
+                                        dragAmount <= 0f &&
+                                        swipeOffset <= 0f
                                     ) {
 
-                                        swipeOffset =
-                                            (
-                                                    swipeOffset +
-                                                            dragAmount
-                                                    )
-                                                .coerceIn(
-                                                    0f,
-                                                    maximumSwipe
+                                        return@detectHorizontalDragGestures
+                                    }
+
+                                    swipeOffset =
+                                        (
+                                                swipeOffset +
+                                                        dragAmount
                                                 )
+                                            .coerceIn(
+                                                0f,
+                                                maximumSwipePx
+                                            )
+
+                                    val thresholdReached =
+                                        swipeOffset >=
+                                                replyThresholdPx
+
+                                    if (
+                                        thresholdReached &&
+                                        !replyThresholdTriggered
+                                    ) {
+
+                                        hapticFeedback
+                                            .performHapticFeedback(
+                                                HapticFeedbackType
+                                                    .TextHandleMove
+                                            )
+
+                                        replyThresholdTriggered =
+                                            true
+                                    }
+
+                                    if (
+                                        !thresholdReached
+                                    ) {
+
+                                        replyThresholdTriggered =
+                                            false
                                     }
                                 },
 
@@ -274,7 +333,7 @@ fun SwipeableMessageBubble(
 
                                     if (
                                         swipeOffset >=
-                                        replyThreshold
+                                        replyThresholdPx
                                     ) {
 
                                         onReply()
@@ -282,12 +341,18 @@ fun SwipeableMessageBubble(
 
                                     swipeOffset =
                                         0f
+
+                                    replyThresholdTriggered =
+                                        false
                                 },
 
                                 onDragCancel = {
 
                                     swipeOffset =
                                         0f
+
+                                    replyThresholdTriggered =
+                                        false
                                 }
                             )
                         }

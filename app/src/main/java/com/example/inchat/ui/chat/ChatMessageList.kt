@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
@@ -13,11 +12,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -52,6 +51,16 @@ fun ChatMessageList(
         mutableStateOf(false)
     }
 
+    var previousMessageCount by
+    remember {
+        mutableIntStateOf(0)
+    }
+
+    var previousLastMessageId by
+    remember {
+        mutableStateOf<String?>(null)
+    }
+
     /*
      * Reading this value makes the composable recompose
      * when "Seen just now" changes into "Seen".
@@ -65,14 +74,35 @@ fun ChatMessageList(
      * =========================================================
      * AUTO SCROLL
      * =========================================================
+     *
+     * The chat only follows newly received messages when the
+     * user is already at (or very close to) the bottom.
+     *
+     * A newly sent message from the current user is always
+     * followed so the sender can immediately see their message.
      */
     LaunchedEffect(
-        messages.size
+        messages.size,
+        messages.lastOrNull()?.id
     ) {
 
         if (
             messages.isEmpty()
         ) {
+
+            /*
+             * The message list can become empty when navigating
+             * to another conversation. The next non-empty list
+             * should therefore be treated as a fresh chat load.
+             */
+            initialMessagesPositioned =
+                false
+
+            previousMessageCount =
+                0
+
+            previousLastMessageId =
+                null
 
             return@LaunchedEffect
         }
@@ -89,6 +119,14 @@ fun ChatMessageList(
             newestIndex +
                     separatorCount
 
+        /*
+         * =====================================================
+         * FIRST LOAD
+         * =====================================================
+         *
+         * Always start at the newest message when a conversation
+         * is first populated.
+         */
         if (
             !initialMessagesPositioned
         ) {
@@ -100,12 +138,108 @@ fun ChatMessageList(
             initialMessagesPositioned =
                 true
 
-        } else {
+            previousMessageCount =
+                messages.size
+
+            previousLastMessageId =
+                messages.lastOrNull()
+                    ?.id
+
+            return@LaunchedEffect
+        }
+
+        /*
+         * =====================================================
+         * DETECT LIST CHANGE
+         * =====================================================
+         *
+         * We intentionally don't react to every recomposition.
+         * Only a change in message count or newest message ID
+         * matters for message-following behavior.
+         */
+        val currentLastMessageId =
+            messages
+                .lastOrNull()
+                ?.id
+
+        val listChanged =
+            messages.size !=
+                    previousMessageCount ||
+                    currentLastMessageId !=
+                    previousLastMessageId
+
+        if (
+            !listChanged
+        ) {
+
+            return@LaunchedEffect
+        }
+
+        val newestMessage =
+            messages.lastOrNull()
+
+        val newOwnMessage =
+            messages.size >
+                    previousMessageCount &&
+                    newestMessage != null &&
+                    newestMessage.id !=
+                    previousLastMessageId &&
+                    newestMessage.senderId ==
+                    currentUserId
+
+        /*
+         * =====================================================
+         * DETERMINE WHETHER USER IS AT BOTTOM
+         * =====================================================
+         *
+         * LazyColumn contains both day separators and messages,
+         * so compare against the actual composed item count.
+         *
+         * Being one item away from the bottom still counts as
+         * "at the bottom" for normal chat behavior.
+         */
+        val layoutInfo =
+            listState.layoutInfo
+
+        val totalItemsCount =
+            layoutInfo.totalItemsCount
+
+        val lastVisibleItemIndex =
+            layoutInfo
+                .visibleItemsInfo
+                .lastOrNull()
+                ?.index
+                ?: -1
+
+        val isNearBottom =
+            totalItemsCount > 0 &&
+                    lastVisibleItemIndex >=
+                    totalItemsCount - 2
+
+        /*
+         * Follow the conversation when:
+         *
+         * 1. The user is already at the bottom, OR
+         * 2. The user just sent a new message themselves.
+         *
+         * This prevents incoming messages from stealing the
+         * user's reading position when they have scrolled upward.
+         */
+        if (
+            isNearBottom ||
+            newOwnMessage
+        ) {
 
             listState.animateScrollToItem(
                 targetIndex
             )
         }
+
+        previousMessageCount =
+            messages.size
+
+        previousLastMessageId =
+            currentLastMessageId
     }
 
     ChatWallpaper(
@@ -151,7 +285,7 @@ fun ChatMessageList(
                                     "You blocked @$otherUserNickname."
 
                                 BlockState.THEY_BLOCKED_ME ->
-                                    "@$otherUserNickname has blocked you."
+                                    " @$otherUserNickname has blocked you."
 
                                 BlockState.NONE ->
                                     "No messages yet.\n" +

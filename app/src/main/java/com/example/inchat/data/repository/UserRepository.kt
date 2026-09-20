@@ -1,6 +1,10 @@
 package com.example.inchat.data.repository
 
+import android.content.ContentResolver
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import com.example.inchat.data.model.RecoveryCodeSet
 import com.example.inchat.data.model.User
 import com.google.firebase.auth.FirebaseAuth
@@ -10,17 +14,16 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import java.io.ByteArrayOutputStream
 import java.util.Locale
-import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.max
 
 class UsernameAlreadyTakenException :
     IllegalStateException(
@@ -29,14 +32,29 @@ class UsernameAlreadyTakenException :
 
 class UserRepository {
 
+    companion object {
+
+        private const val PROFILE_PHOTO_MAX_BYTES =
+            200 * 1024
+
+        private const val PROFILE_PHOTO_PREFIX =
+            "data:image/jpeg;base64,"
+
+        private const val PROFILE_PHOTO_MAX_DIMENSION =
+            512
+
+        private const val PROFILE_PHOTO_INITIAL_QUALITY =
+            80
+
+        private const val PROFILE_PHOTO_MIN_QUALITY =
+            45
+    }
+
     private val database =
         FirebaseDatabase.getInstance()
 
     private val auth =
         FirebaseAuth.getInstance()
-
-    private val storage =
-        FirebaseStorage.getInstance()
 
     private fun usernameKey(
         username: String
@@ -54,6 +72,7 @@ class UserRepository {
      * USERNAME AVAILABILITY
      * =========================================================
      */
+
     suspend fun isUsernameAvailable(
         username: String
     ): Boolean {
@@ -89,6 +108,7 @@ class UserRepository {
      * CLAIM USERNAME
      * =========================================================
      */
+
     suspend fun claimUsername(
         username: String,
         uid: String
@@ -230,6 +250,7 @@ class UserRepository {
      * RELEASE USERNAME
      * =========================================================
      */
+
     suspend fun releaseUsername(
         username: String,
         uid: String
@@ -335,6 +356,7 @@ class UserRepository {
      * SAVE USER
      * =========================================================
      */
+
     suspend fun saveUser(
         uid: String,
         username: String,
@@ -447,6 +469,7 @@ class UserRepository {
      * UPDATE PROFILE
      * =========================================================
      */
+
     suspend fun updateProfile(
         uid: String,
         displayName: String,
@@ -532,22 +555,22 @@ class UserRepository {
 
     /*
      * =========================================================
-     * UPLOAD PROFILE PHOTO
+     * SAVE PROFILE PHOTO — NEW EDITOR FLOW
      * =========================================================
      *
-     * The actual image is stored in Firebase Cloud Storage.
+     * The ProfilePhotoScreen performs the crop and gives us
+     * compressed JPEG bytes.
      *
-     * The user's Realtime Database record receives only:
+     * We convert those bytes to Base64 and store them in:
      *
-     * users/{uid}/profilePhotoUrl
+     * users/{uid}/profilePhotoData
      *
-     * A unique Storage object is used for every new photo so
-     * image-loader caching cannot keep showing an old URL.
+     * Firebase Cloud Storage is NOT used.
      */
+
     suspend fun uploadProfilePhoto(
         uid: String,
-        imageUri: Uri,
-        mimeType: String? = null
+        photoBytes: ByteArray
     ): Result<String> {
 
         if (
@@ -562,12 +585,24 @@ class UserRepository {
         }
 
         if (
-            imageUri.toString().isBlank()
+            photoBytes.isEmpty()
         ) {
 
             return Result.failure(
                 IllegalArgumentException(
-                    "Invalid image"
+                    "Profile photo is empty"
+                )
+            )
+        }
+
+        if (
+            photoBytes.size >
+            PROFILE_PHOTO_MAX_BYTES
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "Profile photo is too large after compression. Please choose another image."
                 )
             )
         }
@@ -587,124 +622,35 @@ class UserRepository {
             )
         }
 
-        val cleanMimeType =
-            mimeType
-                ?.takeIf {
-                    it.startsWith(
-                        "image/",
-                        ignoreCase = true
-                    )
-                }
-                ?: "image/jpeg"
-
         return try {
 
-            val userRef =
-                database
-                    .getReference(
-                        "users"
-                    )
-                    .child(
-                        uid
-                    )
-
-            val existingSnapshot =
-                userRef
-                    .child(
-                        "profilePhotoUrl"
-                    )
-                    .get()
-                    .await()
-
-            val oldPhotoUrl =
-                existingSnapshot
-                    .getValue(
-                        String::class.java
-                    )
-                    .orEmpty()
-
-            val photoId =
-                UUID
-                    .randomUUID()
-                    .toString()
-
-            val photoRef =
-                storage
-                    .reference
-                    .child(
-                        "profilePhotos"
-                    )
-                    .child(
-                        uid
-                    )
-                    .child(
-                        photoId
-                    )
-
-            val metadata =
-                StorageMetadata
-                    .Builder()
-                    .setContentType(
-                        cleanMimeType
-                    )
-                    .build()
-
-            photoRef
-                .putFile(
-                    imageUri,
-                    metadata
+            val base64Data =
+                Base64.encodeToString(
+                    photoBytes,
+                    Base64.NO_WRAP
                 )
-                .await()
 
-            val downloadUrl =
-                photoRef
-                    .downloadUrl
-                    .await()
-                    .toString()
+            val profilePhotoData =
+                PROFILE_PHOTO_PREFIX +
+                        base64Data
 
-            userRef
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
                 .updateChildren(
                     mapOf(
-                        "profilePhotoUrl" to
-                                downloadUrl
+                        "profilePhotoData" to
+                                profilePhotoData
                     )
                 )
                 .await()
 
-            /*
-             * Delete the previous photo after the new URL has
-             * been successfully saved.
-             *
-             * A failure here does not invalidate the new photo.
-             */
-            if (
-                oldPhotoUrl.isNotBlank() &&
-                oldPhotoUrl != downloadUrl
-            ) {
-
-                try {
-
-                    storage
-                        .getReferenceFromUrl(
-                            oldPhotoUrl
-                        )
-                        .delete()
-                        .await()
-
-                } catch (
-                    cleanupError: Exception
-                ) {
-
-                    /*
-                     * Cleanup failure is intentionally ignored.
-                     * The new profile photo is already valid.
-                     */
-                    cleanupError.printStackTrace()
-                }
-            }
-
             Result.success(
-                downloadUrl
+                profilePhotoData
             )
 
         } catch (
@@ -719,9 +665,433 @@ class UserRepository {
 
     /*
      * =========================================================
+     * LEGACY PICKER COMPATIBILITY
+     * =========================================================
+     *
+     * This keeps the existing ProfileScreen compiling until
+     * we replace it with the new editor navigation.
+     *
+     * It also automatically compresses the selected image.
+     */
+
+    suspend fun uploadProfilePhoto(
+        uid: String,
+        imageUri: Uri,
+        contentResolver: ContentResolver,
+        mimeType: String? = null
+    ): Result<String> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        if (
+            !imageUri.toString().isNotBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "Invalid image"
+                )
+            )
+        }
+
+        if (
+            mimeType != null &&
+            !mimeType.startsWith(
+                "image/",
+                ignoreCase = true
+            )
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "Please select an image."
+                )
+            )
+        }
+
+        return try {
+
+            val bitmap =
+                decodeProfileBitmap(
+                    contentResolver =
+                        contentResolver,
+
+                    imageUri =
+                        imageUri
+                )
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Could not read the selected image."
+                        )
+                    )
+
+            val compressedBytes =
+                compressProfileBitmap(
+                    bitmap
+                )
+
+            bitmap.recycle()
+
+            if (
+                compressedBytes == null
+            ) {
+
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Could not compress the profile photo."
+                    )
+                )
+            }
+
+            uploadProfilePhoto(
+                uid =
+                    uid,
+
+                photoBytes =
+                    compressedBytes
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
+     * REMOVE PROFILE PHOTO
+     * =========================================================
+     */
+
+    suspend fun removeProfilePhoto(
+        uid: String
+    ): Result<Unit> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match profile owner"
+                )
+            )
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "profilePhotoData"
+                )
+                .removeValue()
+                .await()
+
+            /*
+             * Do not remove profilePhotoUrl here.
+             *
+             * It may belong to an older account version and
+             * is intentionally retained for compatibility.
+             */
+
+            Result.success(
+                Unit
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
+     * DECODE PROFILE IMAGE
+     * =========================================================
+     */
+
+    private fun decodeProfileBitmap(
+        contentResolver: ContentResolver,
+        imageUri: Uri
+    ): Bitmap? {
+
+        val bounds =
+            BitmapFactory.Options().apply {
+
+                inJustDecodeBounds =
+                    true
+            }
+
+        try {
+
+            contentResolver
+                .openInputStream(
+                    imageUri
+                )
+                ?.use { inputStream ->
+
+                    BitmapFactory.decodeStream(
+                        inputStream,
+                        null,
+                        bounds
+                    )
+                }
+
+        } catch (
+            _: Exception
+        ) {
+
+            return null
+        }
+
+        if (
+            bounds.outWidth <= 0 ||
+            bounds.outHeight <= 0
+        ) {
+
+            return null
+        }
+
+        var sampleSize =
+            1
+
+        while (
+            bounds.outWidth /
+            sampleSize >
+            2048 ||
+            bounds.outHeight /
+            sampleSize >
+            2048
+        ) {
+
+            sampleSize *=
+                2
+        }
+
+        val options =
+            BitmapFactory.Options().apply {
+
+                inSampleSize =
+                    sampleSize
+
+                inPreferredConfig =
+                    Bitmap.Config.ARGB_8888
+            }
+
+        return try {
+
+            contentResolver
+                .openInputStream(
+                    imageUri
+                )
+                ?.use { inputStream ->
+
+                    BitmapFactory.decodeStream(
+                        inputStream,
+                        null,
+                        options
+                    )
+                }
+
+        } catch (
+            _: Exception
+        ) {
+
+            null
+        }
+    }
+
+    /*
+     * =========================================================
+     * COMPRESS PROFILE BITMAP
+     * =========================================================
+     */
+
+    private fun compressProfileBitmap(
+        bitmap: Bitmap
+    ): ByteArray? {
+
+        val maxDimension =
+            max(
+                bitmap.width,
+                bitmap.height
+            )
+
+        val outputBitmap =
+            if (
+                maxDimension >
+                PROFILE_PHOTO_MAX_DIMENSION
+            ) {
+
+                val scale =
+                    PROFILE_PHOTO_MAX_DIMENSION /
+                            maxDimension.toFloat()
+
+                Bitmap.createScaledBitmap(
+
+                    bitmap,
+
+                    (
+                            bitmap.width *
+                                    scale
+                            )
+                        .toInt()
+                        .coerceAtLeast(
+                            1
+                        ),
+
+                    (
+                            bitmap.height *
+                                    scale
+                            )
+                        .toInt()
+                        .coerceAtLeast(
+                            1
+                        ),
+
+                    true
+                )
+
+            } else {
+
+                bitmap
+            }
+
+        var quality =
+            PROFILE_PHOTO_INITIAL_QUALITY
+
+        var result =
+            compressJpeg(
+                outputBitmap,
+                quality
+            )
+
+        while (
+            result != null &&
+            result.size >
+            PROFILE_PHOTO_MAX_BYTES &&
+            quality >
+            PROFILE_PHOTO_MIN_QUALITY
+        ) {
+
+            quality -=
+                5
+
+            result =
+                compressJpeg(
+                    outputBitmap,
+                    quality
+                )
+        }
+
+        if (
+            outputBitmap !== bitmap
+        ) {
+
+            outputBitmap.recycle()
+        }
+
+        return if (
+            result != null &&
+            result.size <=
+            PROFILE_PHOTO_MAX_BYTES
+        ) {
+
+            result
+
+        } else {
+
+            null
+        }
+    }
+
+    /*
+     * =========================================================
+     * BITMAP → JPEG
+     * =========================================================
+     */
+
+    private fun compressJpeg(
+        bitmap: Bitmap,
+        quality: Int
+    ): ByteArray? {
+
+        return try {
+
+            ByteArrayOutputStream()
+                .use { outputStream ->
+
+                    val success =
+                        bitmap.compress(
+                            Bitmap.CompressFormat.JPEG,
+                            quality,
+                            outputStream
+                        )
+
+                    if (
+                        !success
+                    ) {
+
+                        null
+
+                    } else {
+
+                        outputStream.toByteArray()
+                    }
+                }
+
+        } catch (
+            _: Exception
+        ) {
+
+            null
+        }
+    }
+
+    /*
+     * =========================================================
      * DELETE ACCOUNT-OWNED DATA
      * =========================================================
      */
+
     suspend fun deleteAccountData(
         uid: String,
         username: String
@@ -803,8 +1173,7 @@ class UserRepository {
                 null
 
             for (
-            child in
-            blockedSnapshot.children
+            child in blockedSnapshot.children
             ) {
 
                 val blockedUserId =
@@ -822,8 +1191,7 @@ class UserRepository {
             }
 
             for (
-            child in
-            userChatsSnapshot.children
+            child in userChatsSnapshot.children
             ) {
 
                 val chatId =
@@ -871,6 +1239,7 @@ class UserRepository {
      * SAVE RECOVERY CODES
      * =========================================================
      */
+
     suspend fun saveRecoveryCodes(
         uid: String,
         recoveryCodeSet: RecoveryCodeSet
@@ -944,6 +1313,7 @@ class UserRepository {
      * FCM TOKEN
      * =========================================================
      */
+
     suspend fun saveFcmToken(
         uid: String,
         token: String
@@ -997,6 +1367,7 @@ class UserRepository {
      * CLEAR FCM TOKEN
      * =========================================================
      */
+
     suspend fun clearFcmToken(
         uid: String
     ): Result<Unit> {
@@ -1044,6 +1415,7 @@ class UserRepository {
      * GET USER BY ID
      * =========================================================
      */
+
     suspend fun getUserById(
         uid: String
     ): User? {
@@ -1055,7 +1427,7 @@ class UserRepository {
             return null
         }
 
-        val snapshot =
+        val userRef =
             database
                 .getReference(
                     "users"
@@ -1063,6 +1435,13 @@ class UserRepository {
                 .child(
                     uid
                 )
+
+        userRef.keepSynced(
+            true
+        )
+
+        val snapshot =
+            userRef
                 .get()
                 .await()
 
@@ -1076,6 +1455,7 @@ class UserRepository {
      * FAST USER LOOKUP
      * =========================================================
      */
+
     suspend fun getUserByIdFast(
         uid: String
     ): User? {
@@ -1095,6 +1475,10 @@ class UserRepository {
                 .child(
                     uid
                 )
+
+        userRef.keepSynced(
+            true
+        )
 
         val cachedSnapshot =
             try {
@@ -1194,6 +1578,7 @@ class UserRepository {
      * GET USER BY USERNAME
      * =========================================================
      */
+
     suspend fun getUserByUsername(
         username: String
     ): User? {
@@ -1210,7 +1595,7 @@ class UserRepository {
             return null
         }
 
-        val uidSnapshot =
+        val usernameRef =
             database
                 .getReference(
                     "usernames"
@@ -1218,6 +1603,13 @@ class UserRepository {
                 .child(
                     key
                 )
+
+        usernameRef.keepSynced(
+            true
+        )
+
+        val uidSnapshot =
+            usernameRef
                 .get()
                 .await()
 
@@ -1238,6 +1630,7 @@ class UserRepository {
      * ALL USERS FLOW
      * =========================================================
      */
+
     fun getUsersFlow(
         currentUserId: String
     ): Flow<List<User>> =
@@ -1248,6 +1641,10 @@ class UserRepository {
                     .getReference(
                         "users"
                     )
+
+            usersRef.keepSynced(
+                true
+            )
 
             val listener =
                 object :
@@ -1262,8 +1659,7 @@ class UserRepository {
                             mutableListOf<User>()
 
                         for (
-                        child in
-                        snapshot.children
+                        child in snapshot.children
                         ) {
 
                             val user =
