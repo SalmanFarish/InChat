@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -72,6 +73,9 @@ private const val PROFILE_PHOTO_INITIAL_QUALITY =
 
 private const val PROFILE_PHOTO_MIN_QUALITY =
     45
+
+private const val CROP_GRID_DIVISIONS =
+    3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -322,7 +326,7 @@ fun ProfilePhotoScreen(
             Text(
 
                 text =
-                    "Crop with the circle. Pinch to zoom, then drag to position.",
+                    "Use the 3×3 grid to frame your photo. Pinch to zoom and drag to position.",
 
                 style =
                     MaterialTheme
@@ -525,6 +529,95 @@ fun ProfilePhotoScreen(
                             contentDescription =
                                 "Current profile picture"
                         )
+                    }
+
+                    if (
+                        bitmap != null
+                    ) {
+
+                        val gridColor =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(
+                                    alpha =
+                                        0.35f
+                                )
+
+                        Canvas(
+
+                            modifier =
+                                Modifier.fillMaxSize()
+                        ) {
+
+                            val strokeWidth =
+                                1.dp.toPx()
+
+                            val verticalStep =
+                                size.width /
+                                        CROP_GRID_DIVISIONS
+
+                            val horizontalStep =
+                                size.height /
+                                        CROP_GRID_DIVISIONS
+
+                            for (
+                                index in
+                                1 until
+                                        CROP_GRID_DIVISIONS
+                            ) {
+
+                                val x =
+                                    verticalStep *
+                                            index
+
+                                drawLine(
+
+                                    color =
+                                        gridColor,
+
+                                    start =
+                                        androidx.compose.ui.geometry.Offset(
+                                            x,
+                                            0f
+                                        ),
+
+                                    end =
+                                        androidx.compose.ui.geometry.Offset(
+                                            x,
+                                            size.height
+                                        ),
+
+                                    strokeWidth =
+                                        strokeWidth
+                                )
+
+                                val y =
+                                    horizontalStep *
+                                            index
+
+                                drawLine(
+
+                                    color =
+                                        gridColor,
+
+                                    start =
+                                        androidx.compose.ui.geometry.Offset(
+                                            0f,
+                                            y
+                                        ),
+
+                                    end =
+                                        androidx.compose.ui.geometry.Offset(
+                                            size.width,
+                                            y
+                                        ),
+
+                                    strokeWidth =
+                                        strokeWidth
+                                )
+                            }
+                        }
                     }
 
                     if (
@@ -1134,13 +1227,6 @@ private fun cropAndCompressProfilePhoto(
             true
         )
 
-    if (
-        croppedBitmap !== outputBitmap
-    ) {
-
-        croppedBitmap.recycle()
-    }
-
     var quality =
         PROFILE_PHOTO_INITIAL_QUALITY
 
@@ -1173,8 +1259,6 @@ private fun cropAndCompressProfilePhoto(
                     quality
             )
     }
-
-    outputBitmap.recycle()
 
     return if (
         result != null &&
