@@ -176,12 +176,26 @@ fun InChatApp(
                 currentRoute ==
                 "my_profile"
 
-    val tabSwipeOffset =
+    val tabSwipeAnimation =
         remember {
             Animatable(
                 0f
             )
         }
+
+    var liveSwipeOffset by
+    remember {
+        mutableFloatStateOf(
+            0f
+        )
+    }
+
+    var isDraggingTabs by
+    remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     /*
      * =========================================================
@@ -259,7 +273,16 @@ fun InChatApp(
                     )
                     .graphicsLayer {
                         translationX =
-                            tabSwipeOffset.value
+                            if (
+                                isDraggingTabs
+                            ) {
+
+                                liveSwipeOffset
+
+                            } else {
+
+                                tabSwipeAnimation.value
+                            }
                     }
                     .pointerInput(
                         currentRoute
@@ -279,25 +302,31 @@ fun InChatApp(
                                     currentIndex >= 0
                                 ) {
 
+                                    if (
+                                        !isDraggingTabs
+                                    ) {
+
+                                        isDraggingTabs =
+                                            true
+
+                                        liveSwipeOffset =
+                                            tabSwipeAnimation.value
+                                    }
+
                                     val maxOffset =
                                         size.width
                                             .toFloat() *
                                                 0.40f
 
-                                    val nextOffset =
+                                    liveSwipeOffset =
                                         (
-                                            tabSwipeOffset.value +
+                                            liveSwipeOffset +
                                                     dragAmount
                                             )
                                             .coerceIn(
                                                 -maxOffset,
                                                 maxOffset
                                             )
-
-                                    tabSwipeOffset
-                                        .snapTo(
-                                            nextOffset
-                                        )
 
                                     change
                                         .consume()
@@ -306,9 +335,7 @@ fun InChatApp(
 
                             onDragEnd = {
 
-                                navigationScope.launch {
-
-                                    val currentIndex =
+                                val currentIndex =
                                     bottomNavIndex(
                                         currentRoute
                                     )
@@ -325,46 +352,103 @@ fun InChatApp(
                                             0.24f
 
                                 val offset =
-                                    tabSwipeOffset.value
+                                    liveSwipeOffset
 
-                                when {
+                                val targetIndex =
+                                    when {
 
-                                    currentIndex < 0 -> {
-                                        tabSwipeOffset
-                                            .animateTo(
-                                                0f,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio =
-                                                            0.82f,
+                                        currentIndex < 0 ->
+                                            currentIndex
 
-                                                        stiffness =
-                                                            500f
-                                                    )
-                                            )
+                                        offset <= -threshold &&
+                                                currentIndex <
+                                                bottomNavItems.lastIndex ->
+
+                                            currentIndex + 1
+
+                                        offset >= threshold &&
+                                                currentIndex > 0 ->
+
+                                            currentIndex - 1
+
+                                        else ->
+                                            currentIndex
                                     }
 
-                                    offset <= -threshold &&
-                                            currentIndex <
-                                            bottomNavItems.lastIndex -> {
+                                val targetOffset =
+                                    if (
+                                        targetIndex !=
+                                        currentIndex
+                                    ) {
 
-                                        val targetRoute =
-                                            bottomNavItems[
-                                                currentIndex + 1
-                                            ].route
+                                        if (
+                                            targetIndex >
+                                            currentIndex
+                                        ) {
 
-                                        tabSwipeOffset
-                                            .animateTo(
-                                                -width,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio =
-                                                            0.90f,
+                                            -width
 
-                                                        stiffness =
-                                                            420f
-                                                    )
-                                            )
+                                        } else {
+
+                                            width
+                                        }
+
+                                    } else {
+
+                                        0f
+                                    }
+
+                                val targetRoute =
+                                    if (
+                                        targetIndex >= 0 &&
+                                        targetIndex <=
+                                        bottomNavItems.lastIndex &&
+                                        targetIndex !=
+                                        currentIndex
+                                    ) {
+
+                                        bottomNavItems[
+                                            targetIndex
+                                        ].route
+
+                                    } else {
+
+                                        null
+                                    }
+
+                                navigationScope.launch {
+
+                                    /*
+                                     * Transfer the exact finger position into
+                                     * the spring animation before handing control
+                                     * from the finger to the spring.
+                                     */
+                                    tabSwipeAnimation
+                                        .snapTo(
+                                            offset
+                                        )
+
+                                    isDraggingTabs =
+                                        false
+
+                                    tabSwipeAnimation
+                                        .animateTo(
+                                            targetOffset,
+
+                                            animationSpec =
+                                                spring(
+                                                    dampingRatio =
+                                                        0.90f,
+
+                                                    stiffness =
+                                                        420f
+                                                )
+                                        )
+
+                                    if (
+                                        targetRoute !=
+                                        null
+                                    ) {
 
                                         navController
                                             .navigate(
@@ -386,85 +470,47 @@ fun InChatApp(
                                                     true
                                             }
 
-                                        tabSwipeOffset
+                                        /*
+                                         * Keep the new destination aligned
+                                         * with the center after navigation.
+                                         */
+                                        tabSwipeAnimation
+                                            .snapTo(
+                                                0f
+                                            )
+
+                                    } else {
+
+                                        tabSwipeAnimation
                                             .snapTo(
                                                 0f
                                             )
                                     }
 
-                                    offset >= threshold &&
-                                            currentIndex > 0 -> {
-
-                                        val targetRoute =
-                                            bottomNavItems[
-                                                currentIndex - 1
-                                            ].route
-
-                                        tabSwipeOffset
-                                            .animateTo(
-                                                width,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio =
-                                                            0.90f,
-
-                                                        stiffness =
-                                                            420f
-                                                    )
-                                            )
-
-                                        navController
-                                            .navigate(
-                                                targetRoute
-                                            ) {
-
-                                                popUpTo(
-                                                    "home"
-                                                ) {
-
-                                                    saveState =
-                                                        true
-                                                }
-
-                                                launchSingleTop =
-                                                    true
-
-                                                restoreState =
-                                                    true
-                                            }
-
-                                        tabSwipeOffset
-                                            .snapTo(
-                                                0f
-                                            )
-                                    }
-
-                                    else -> {
-
-                                        tabSwipeOffset
-                                            .animateTo(
-                                                0f,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio =
-                                                            0.78f,
-
-                                                        stiffness =
-                                                            540f
-                                                    )
-                                            )
-                                    }
-                                    }
+                                    liveSwipeOffset =
+                                        0f
                                 }
                             },
 
                             onDragCancel = {
 
+                                val offset =
+                                    liveSwipeOffset
+
                                 navigationScope.launch {
 
-                                    tabSwipeOffset
+                                    tabSwipeAnimation
+                                        .snapTo(
+                                            offset
+                                        )
+
+                                    isDraggingTabs =
+                                        false
+
+                                    tabSwipeAnimation
                                         .animateTo(
                                             0f,
+
                                             animationSpec =
                                                 spring(
                                                     dampingRatio =
@@ -474,6 +520,9 @@ fun InChatApp(
                                                         540f
                                                 )
                                         )
+
+                                    liveSwipeOffset =
+                                        0f
                                 }
                             }
                         )
