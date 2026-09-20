@@ -9,7 +9,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -50,7 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -1108,8 +1107,8 @@ private fun InChatBottomBar(
                                         change.consume()
 
                                         pagerState
-                                            .scrollBy(
-                                                dragAmount.x *
+                                            .dispatchRawDelta(
+                                                -dragAmount.x *
                                                         (
                                                             pageWidthPx /
                                                                     itemWidthPx
@@ -1221,8 +1220,6 @@ private fun InChatBottomBar(
             }
         }
     }
-}
-
 }
 
 /*
