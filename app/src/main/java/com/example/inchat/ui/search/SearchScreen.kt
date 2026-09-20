@@ -1,6 +1,8 @@
 package com.example.inchat.ui.search
 
+import android.content.Context
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,567 +13,502 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.User
+import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-@OptIn(
-    ExperimentalMaterial3Api::class
-)
+private const val SEARCH_HISTORY_PREFS = "inchat_search_history"
+private const val SEARCH_HISTORY_KEY = "recent_user_ids"
+private const val MAX_RECENT_SEARCHES = 8
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     currentUserId: String,
     searchViewModel: SearchViewModel,
     onUserClick: (User) -> Unit
 ) {
+    val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
+    val userRepository = remember { UserRepository() }
 
-    var usernameInput by
-    rememberSaveable {
-        mutableStateOf("")
+    val historyPreferences = remember {
+        context.getSharedPreferences(
+            SEARCH_HISTORY_PREFS,
+            Context.MODE_PRIVATE
+        )
     }
 
-    val searchState by
-    searchViewModel
-        .searchState
-        .collectAsState()
+    var usernameInput by rememberSaveable { mutableStateOf("") }
 
-    val keyboardController =
-        LocalSoftwareKeyboardController.current
-
-    val focusRequester =
-        remember {
-            FocusRequester()
-        }
-
-    LaunchedEffect(
-        Unit
-    ) {
-
-        searchViewModel
-            .clearSearch()
+    var recentUserIds by remember {
+        mutableStateOf(
+            historyPreferences
+                .getStringSet(
+                    SEARCH_HISTORY_KEY,
+                    emptySet()
+                )
+                .orEmpty()
+                .toList()
+        )
     }
 
-    fun performSearch() {
+    var recentUsers by remember {
+        mutableStateOf<List<User>>(emptyList())
+    }
 
-        val query =
-            usernameInput
-                .trim()
+    val searchState by searchViewModel.searchState.collectAsState()
 
-        if (
-            query.isBlank()
-        ) {
-
-            return
+    LaunchedEffect(recentUserIds) {
+        val loadedUsers = withContext(Dispatchers.IO) {
+            recentUserIds.mapNotNull { uid ->
+                userRepository.getUserByIdFast(uid)
+            }
         }
 
-        searchViewModel
-            .searchUser(
+        recentUsers = loadedUsers.filter {
+            it.uid != currentUserId
+        }
+    }
 
-                currentUserId =
-                    currentUserId,
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 
-                rawUsername =
-                    query
+    fun saveRecentUser(user: User) {
+        val updatedIds =
+            listOf(user.uid) +
+                    recentUserIds.filter {
+                        it != user.uid
+                    }
+
+        recentUserIds =
+            updatedIds.take(MAX_RECENT_SEARCHES)
+
+        historyPreferences
+            .edit()
+            .putStringSet(
+                SEARCH_HISTORY_KEY,
+                recentUserIds.toSet()
             )
+            .apply()
+    }
 
-        keyboardController
-            ?.hide()
+    fun openUser(user: User) {
+        saveRecentUser(user)
+        keyboardController?.hide()
+        onUserClick(user)
+    }
+
+    fun clearRecentSearches() {
+        recentUserIds = emptyList()
+        recentUsers = emptyList()
+
+        historyPreferences
+            .edit()
+            .remove(SEARCH_HISTORY_KEY)
+            .apply()
     }
 
     Scaffold(
-
-        containerColor =
-            MaterialTheme
-                .colorScheme
-                .background,
-
-        topBar = {
-
-            TopAppBar(
-
-                title = {
-
-                    Text(
-
-                        text =
-                            "Search",
-
-                        fontSize =
-                            20.sp,
-
-                        fontWeight =
-                            FontWeight.Bold,
-
-                        letterSpacing =
-                            (-0.2).sp
-                    )
-                },
-
-                colors =
-                    TopAppBarDefaults
-                        .topAppBarColors(
-
-                            containerColor =
-                                MaterialTheme
-                                    .colorScheme
-                                    .background,
-
-                            scrolledContainerColor =
-                                MaterialTheme
-                                    .colorScheme
-                                    .background,
-
-                            titleContentColor =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onBackground
-                        )
-            )
-        }
-
+        containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
 
         Column(
-
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(
-                        innerPadding
-                    )
-                    .padding(
-                        horizontal =
-                            18.dp,
+                    .padding(innerPadding)
+        ) {
 
-                        vertical =
-                            16.dp
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = 10.dp,
+                            top = 10.dp,
+                            end = 16.dp,
+                            bottom = 8.dp
+                        ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                IconButton(
+                    onClick = {
+                        keyboardController?.hide()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back"
                     )
+                }
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(21.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(
+                            modifier = Modifier.width(9.dp)
+                        )
+
+                        androidx.compose.foundation.BasicTextField(
+                            value = usernameInput,
+                            onValueChange = { newValue ->
+                                usernameInput = newValue
+
+                                searchViewModel.searchUser(
+                                    currentUserId = currentUserId,
+                                    rawUsername = newValue
+                                )
+                            },
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .focusRequester(focusRequester),
+                            singleLine = true,
+                            textStyle =
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onSurface
+                                ),
+                            decorationBox = { innerTextField ->
+                                Box {
+                                    if (usernameInput.isBlank()) {
+                                        Text(
+                                            text = "Search",
+                                            color =
+                                                MaterialTheme
+                                                    .colorScheme
+                                                    .onSurfaceVariant
+                                        )
+                                    }
+
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        if (usernameInput.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    usernameInput = ""
+                                    searchViewModel.clearSearch()
+                                    focusRequester.requestFocus()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            when (val state = searchState) {
+
+                UserSearchState.Idle -> {
+                    RecentSearches(
+                        users = recentUsers,
+                        onUserClick = ::openUser,
+                        onClearAll = ::clearRecentSearches
+                    )
+                }
+
+                UserSearchState.Loading -> {
+                    SearchLoading()
+                }
+
+                is UserSearchState.Suggestions -> {
+                    SearchResults(
+                        users = state.users,
+                        onUserClick = ::openUser
+                    )
+                }
+
+                is UserSearchState.Found -> {
+                    SearchResults(
+                        users = listOf(state.user),
+                        onUserClick = ::openUser
+                    )
+                }
+
+                UserSearchState.NotFound -> {
+                    SearchNotFound(query = usernameInput)
+                }
+
+                is UserSearchState.Error -> {
+                    SearchNotFound(
+                        query = usernameInput,
+                        message = state.message
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentSearches(
+    users: List<User>,
+    onUserClick: (User) -> Unit,
+    onClearAll: () -> Unit
+) {
+    if (users.isEmpty()) {
+        SearchWelcome()
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 20.dp,
+                        top = 14.dp,
+                        end = 12.dp,
+                        bottom = 6.dp
+                    ),
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
             Text(
-
-                text =
-                    "Find someone",
-
-                fontSize =
-                    27.sp,
-
-                fontWeight =
-                    FontWeight.Bold,
-
-                letterSpacing =
-                    (-0.5).sp
+                text = "Recent",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(
-                modifier =
-                    Modifier.height(
-                        5.dp
-                    )
+                modifier = Modifier.weight(1f)
             )
 
+            TextButton(
+                onClick = onClearAll
+            ) {
+                Text("Clear all")
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(
+                items = users,
+                key = { it.uid }
+            ) { user ->
+                SearchUserRow(
+                    user = user,
+                    onClick = {
+                        onUserClick(user)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(
+    users: List<User>,
+    onUserClick: (User) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+
+        Text(
+            text = "People",
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 20.dp,
+                        top = 14.dp,
+                        end = 20.dp,
+                        bottom = 8.dp
+                    ),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(
+                items = users,
+                key = { it.uid }
+            ) { user ->
+                SearchUserRow(
+                    user = user,
+                    onClick = {
+                        onUserClick(user)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchUserRow(
+    user: User,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 10.dp
+                ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        InChatProfileAvatar(
+            profilePhotoUrl =
+                user.profilePhotoData.ifBlank {
+                    user.profilePhotoUrl
+                },
+            modifier = Modifier.size(52.dp),
+            iconSize = 29.dp,
+            contentDescription = "Profile picture"
+        )
+
+        Spacer(
+            modifier = Modifier.width(13.dp)
+        )
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+
             Text(
+                text = "@${user.username}",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
 
-                text =
-                    "Search by their username.",
+            val secondaryText =
+                user.displayName
+                    .takeIf {
+                        it.isNotBlank() &&
+                                it != user.username
+                    }
+                    ?: "InChat user"
 
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodyMedium,
-
+            Text(
+                text = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
                 color =
                     MaterialTheme
                         .colorScheme
                         .onSurfaceVariant
             )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        18.dp
-                    )
-            )
-
-            OutlinedTextField(
-
-                value =
-                    usernameInput,
-
-                onValueChange = {
-                        newValue ->
-
-                    usernameInput =
-                        newValue
-
-                    searchViewModel
-                        .clearSearch()
-                },
-
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .focusRequester(
-                            focusRequester
-                        ),
-
-                singleLine =
-                    true,
-
-                label = {
-
-                    Text(
-                        "Username"
-                    )
-                },
-
-                placeholder = {
-
-                    Text(
-                        "Enter username"
-                    )
-                },
-
-                leadingIcon = {
-
-                    Icon(
-
-                        imageVector =
-                            Icons.Default.Search,
-
-                        contentDescription =
-                            "Search"
-                    )
-                },
-
-                trailingIcon = {
-
-                    if (
-                        usernameInput.isNotEmpty()
-                    ) {
-
-                        IconButton(
-
-                            onClick = {
-
-                                usernameInput =
-                                    ""
-
-                                searchViewModel
-                                    .clearSearch()
-                            }
-                        ) {
-
-                            Icon(
-
-                                imageVector =
-                                    Icons.Default.Clear,
-
-                                contentDescription =
-                                    "Clear search"
-                            )
-                        }
-                    }
-                }
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-            Button(
-
-                onClick =
-                    ::performSearch,
-
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(
-                            50.dp
-                        ),
-
-                enabled =
-                    usernameInput
-                        .isNotBlank()
-            ) {
-
-                Icon(
-
-                    imageVector =
-                        Icons.Default.Search,
-
-                    contentDescription =
-                        null
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.width(
-                            8.dp
-                        )
-                )
-
-                Text(
-
-                    text =
-                        "Search",
-
-                    fontWeight =
-                        FontWeight.SemiBold
-                )
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        22.dp
-                    )
-            )
-
-            when (
-                val state =
-                    searchState
-            ) {
-
-                UserSearchState.Idle -> {
-
-                    SearchEmptyState()
-                }
-
-                UserSearchState.Loading -> {
-
-                    Box(
-
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    vertical =
-                                        40.dp
-                                ),
-
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-
-                        CircularProgressIndicator()
-                    }
-                }
-
-                is UserSearchState.Found -> {
-
-                    SearchUserItem(
-
-                        user =
-                            state.user,
-
-                        onClick = {
-
-                            onUserClick(
-                                state.user
-                            )
-                        }
-                    )
-                }
-
-                UserSearchState.NotFound -> {
-
-                    SearchMessage(
-
-                        text =
-                            "No user found with that username."
-                    )
-                }
-
-                is UserSearchState.Error -> {
-
-                    SearchMessage(
-
-                        text =
-                            state.message
-                    )
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun SearchUserItem(
-    user: User,
-    onClick: () -> Unit
-) {
-
-    Card(
-
+private fun SearchLoading() {
+    Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(
-                    onClick =
-                        onClick
-                ),
-
-        colors =
-            CardDefaults
-                .cardColors(
-
-                    containerColor =
-                        MaterialTheme
-                            .colorScheme
-                            .surfaceVariant
-                ),
-
-        shape =
-            RoundedCornerShape(
-                18.dp
-            )
+                .padding(top = 48.dp),
+        contentAlignment = Alignment.Center
     ) {
-
-        Row(
-
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        16.dp
-                    ),
-
-            verticalAlignment =
-                Alignment.CenterVertically
-        ) {
-
-            InChatProfileAvatar(
-
-                profilePhotoUrl =
-                    user.profilePhotoUrl,
-
-                modifier =
-                    Modifier.size(
-                        52.dp
-                    ),
-
-                iconSize =
-                    30.dp,
-
-                contentDescription =
-                    "Profile picture"
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.width(
-                        14.dp
-                    )
-            )
-
-            Column {
-
-                Text(
-
-                    text =
-                        "@${user.username}",
-
-                    fontSize =
-                        18.sp,
-
-                    fontWeight =
-                        FontWeight.SemiBold
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            2.dp
-                        )
-                )
-
-                Text(
-
-                    text =
-                        "View profile",
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodySmall,
-
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
-            }
-        }
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp)
+        )
     }
 }
 
 @Composable
-private fun SearchEmptyState() {
-
+private fun SearchNotFound(
+    query: String,
+    message: String = "No matching users found."
+) {
     Column(
-
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    top =
-                        40.dp
+                    horizontal = 28.dp,
+                    vertical = 48.dp
                 ),
-
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
         Icon(
-
-            imageVector =
-                Icons.Default.Search,
-
-            contentDescription =
-                null,
-
-            modifier =
-                Modifier.size(
-                    42.dp
-                ),
-
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
             tint =
                 MaterialTheme
                     .colorScheme
@@ -579,75 +516,72 @@ private fun SearchEmptyState() {
         )
 
         Spacer(
-            modifier =
-                Modifier.height(
-                    12.dp
-                )
+            modifier = Modifier.height(12.dp)
         )
 
         Text(
-
-            text =
-                "Search for a username",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .titleMedium,
-
-            fontWeight =
-                FontWeight.SemiBold
+            text = message,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
         )
 
-        Spacer(
-            modifier =
-                Modifier.height(
-                    5.dp
-                )
-        )
+        if (query.isNotBlank()) {
+            Spacer(
+                modifier = Modifier.height(5.dp)
+            )
 
-        Text(
-
-            text =
-                "Find an InChat user and start a conversation.",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .bodyMedium,
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-        )
+            Text(
+                text = "Try a different username.",
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+        }
     }
 }
 
 @Composable
-private fun SearchMessage(
-    text: String
-) {
-
-    Box(
-
+private fun SearchWelcome() {
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    vertical =
-                        30.dp
+                    horizontal = 28.dp,
+                    vertical = 64.dp
                 ),
-
-        contentAlignment =
-            Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            modifier = Modifier.size(42.dp),
+            tint =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
         Text(
+            text = "Find people on InChat",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
 
-            text =
-                text,
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
 
+        Text(
+            text = "Start typing a username to see matching people.",
+            style = MaterialTheme.typography.bodyMedium,
             color =
                 MaterialTheme
                     .colorScheme
