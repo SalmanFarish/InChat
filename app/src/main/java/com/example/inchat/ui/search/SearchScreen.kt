@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -162,7 +161,7 @@ fun SearchScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = 10.dp,
+                            start = 16.dp,
                             top = 10.dp,
                             end = 16.dp,
                             bottom = 8.dp
@@ -170,19 +169,8 @@ fun SearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
-                IconButton(
-                    onClick = {
-                        keyboardController?.hide()
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-
                 Surface(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
