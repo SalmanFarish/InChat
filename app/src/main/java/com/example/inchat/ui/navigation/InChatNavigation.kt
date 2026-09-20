@@ -6,16 +6,15 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,12 +37,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -51,9 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -151,6 +148,13 @@ fun InChatApp(
     val navController =
         rememberNavController()
 
+    var searchFocusRequest by
+    remember {
+        mutableStateOf(
+            0
+        )
+    }
+
     val backStackEntry by
     navController
         .currentBackStackEntryAsState()
@@ -167,6 +171,13 @@ fun InChatApp(
                 "search" ||
                 currentRoute ==
                 "my_profile"
+
+    val tabSwipeOffset =
+        remember {
+            Animatable(
+                0f
+            )
+        }
 
     /*
      * =========================================================
@@ -232,9 +243,226 @@ fun InChatApp(
                 "home",
 
             modifier =
-                Modifier.padding(
-                    innerPadding
-                ),
+                Modifier
+                    .fillMaxSize()
+                    .padding(
+                        innerPadding
+                    )
+                    .graphicsLayer {
+                        translationX =
+                            tabSwipeOffset.value
+                    }
+                    .pointerInput(
+                        currentRoute
+                    ) {
+                        detectHorizontalDragGestures(
+
+                            onHorizontalDrag = {
+                                    change,
+                                    dragAmount ->
+
+                                val currentIndex =
+                                    bottomNavIndex(
+                                        currentRoute
+                                    )
+
+                                if (
+                                    currentIndex >= 0
+                                ) {
+
+                                    val maxOffset =
+                                        size.width
+                                            .toFloat() *
+                                                0.40f
+
+                                    val nextOffset =
+                                        (
+                                            tabSwipeOffset.value +
+                                                    dragAmount
+                                            )
+                                            .coerceIn(
+                                                -maxOffset,
+                                                maxOffset
+                                            )
+
+                                    tabSwipeOffset
+                                        .snapTo(
+                                            nextOffset
+                                        )
+
+                                    change
+                                        .consume()
+                                }
+                            },
+
+                            onDragEnd = {
+
+                                val currentIndex =
+                                    bottomNavIndex(
+                                        currentRoute
+                                    )
+
+                                val width =
+                                    size.width
+                                        .toFloat()
+                                        .coerceAtLeast(
+                                            1f
+                                        )
+
+                                val threshold =
+                                    width *
+                                            0.24f
+
+                                val offset =
+                                    tabSwipeOffset.value
+
+                                when {
+
+                                    currentIndex < 0 -> {
+                                        tabSwipeOffset
+                                            .animateTo(
+                                                0f,
+                                                animationSpec =
+                                                    spring(
+                                                        dampingRatio =
+                                                            0.82f,
+
+                                                        stiffness =
+                                                            500f
+                                                    )
+                                            )
+                                    }
+
+                                    offset <= -threshold &&
+                                            currentIndex <
+                                            bottomNavItems.lastIndex -> {
+
+                                        val targetRoute =
+                                            bottomNavItems[
+                                                currentIndex + 1
+                                            ].route
+
+                                        tabSwipeOffset
+                                            .animateTo(
+                                                -width,
+                                                animationSpec =
+                                                    spring(
+                                                        dampingRatio =
+                                                            0.90f,
+
+                                                        stiffness =
+                                                            420f
+                                                    )
+                                            )
+
+                                        navController
+                                            .navigate(
+                                                targetRoute
+                                            ) {
+
+                                                popUpTo(
+                                                    "home"
+                                                ) {
+
+                                                    saveState =
+                                                        true
+                                                }
+
+                                                launchSingleTop =
+                                                    true
+
+                                                restoreState =
+                                                    true
+                                            }
+
+                                        tabSwipeOffset
+                                            .snapTo(
+                                                0f
+                                            )
+                                    }
+
+                                    offset >= threshold &&
+                                            currentIndex > 0 -> {
+
+                                        val targetRoute =
+                                            bottomNavItems[
+                                                currentIndex - 1
+                                            ].route
+
+                                        tabSwipeOffset
+                                            .animateTo(
+                                                width,
+                                                animationSpec =
+                                                    spring(
+                                                        dampingRatio =
+                                                            0.90f,
+
+                                                        stiffness =
+                                                            420f
+                                                    )
+                                            )
+
+                                        navController
+                                            .navigate(
+                                                targetRoute
+                                            ) {
+
+                                                popUpTo(
+                                                    "home"
+                                                ) {
+
+                                                    saveState =
+                                                        true
+                                                }
+
+                                                launchSingleTop =
+                                                    true
+
+                                                restoreState =
+                                                    true
+                                            }
+
+                                        tabSwipeOffset
+                                            .snapTo(
+                                                0f
+                                            )
+                                    }
+
+                                    else -> {
+
+                                        tabSwipeOffset
+                                            .animateTo(
+                                                0f,
+                                                animationSpec =
+                                                    spring(
+                                                        dampingRatio =
+                                                            0.78f,
+
+                                                        stiffness =
+                                                            540f
+                                                    )
+                                            )
+                                    }
+                                }
+                            },
+
+                            onDragCancel = {
+
+                                tabSwipeOffset
+                                    .animateTo(
+                                        0f,
+                                        animationSpec =
+                                            spring(
+                                                dampingRatio =
+                                                    0.78f,
+
+                                                stiffness =
+                                                    540f
+                                            )
+                                    )
+                            }
+                        )
+                    },
 
             enterTransition = {
                 val from =
@@ -433,6 +661,9 @@ fun InChatApp(
 
                     searchViewModel =
                         searchViewModel,
+
+                    searchFocusRequest =
+                        searchFocusRequest,
 
                     onUserClick = {
                             user ->
@@ -987,17 +1218,17 @@ fun InChatApp(
  * CUSTOM BOTTOM NAVIGATION
  * ============================================================
  *
- * Compact iOS / Telegram-inspired dock:
- * - centered instead of stretched edge-to-edge
- * - one shared selection capsule
- * - outlined icons when inactive
- * - stronger icons when active
- * - spring-driven movement
+ * The dock stays compact and centered. The shared capsule moves
+ * under the active icon, while long-pressing Search explicitly
+ * requests keyboard focus.
  */
 @Composable
 private fun InChatBottomBar(
     navController:
-        NavHostController
+        NavHostController,
+
+    onSearchLongPress:
+        () -> Unit
 ) {
 
     val backStackEntry by
@@ -1017,164 +1248,201 @@ private fun InChatBottomBar(
                 0
             )
 
-    Surface(
-
-        color =
-            MaterialTheme
-                .colorScheme
-                .surface,
-
-        shape =
-            RoundedCornerShape(
-                25.dp
-            ),
-
-        shadowElevation =
-            5.dp,
-
-        tonalElevation =
-            0.dp,
+    Box(
 
         modifier =
             Modifier
-                .wrapContentWidth(
-                    Alignment.CenterHorizontally
-                )
-                .padding(
-                    bottom =
-                        8.dp
-                )
+                .fillMaxWidth(),
+        
+        contentAlignment =
+            Alignment.Center
     ) {
 
-        BoxWithConstraints(
+        Surface(
 
-            modifier =
-                Modifier
-                    .width(
-                        220.dp
-                    )
-                    .height(
-                        58.dp
-                    )
-                    .padding(
-                        4.dp
-                    )
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .surface,
+
+            shape =
+                RoundedCornerShape(
+                    26.dp
+                ),
+
+            shadowElevation =
+                5.dp,
+
+            tonalElevation =
+                0.dp
         ) {
 
-            val itemWidth =
-                maxWidth /
-                        bottomNavItems.size
-
-            val indicatorOffset by
-            animateDpAsState(
-
-                targetValue =
-                    itemWidth *
-                            selectedIndex,
-
-                animationSpec =
-                    spring(
-
-                        dampingRatio =
-                            0.78f,
-
-                        stiffness =
-                            520f
-                    ),
-
-                label =
-                    "bottomBarIndicatorOffset"
-            )
-
-            Box(
+            BoxWithConstraints(
 
                 modifier =
                     Modifier
-                        .offset(
-                            x =
-                                indicatorOffset
-                        )
                         .width(
-                            itemWidth
+                            216.dp
                         )
                         .height(
-                            50.dp
+                            58.dp
                         )
-                        .clip(
-                            RoundedCornerShape(
-                                19.dp
-                            )
+                        .padding(
+                            4.dp
                         )
-                        .background(
-                            MaterialTheme
-                                .colorScheme
-                                .primary
-                                .copy(
-                                    alpha =
-                                        0.12f
-                                )
-                        )
-            )
-
-            Row(
-
-                modifier =
-                    Modifier
-                        .fillMaxSize(),
-
-                verticalAlignment =
-                    Alignment.CenterVertically
             ) {
 
-                bottomNavItems.forEach { item ->
+                val itemWidth =
+                    maxWidth /
+                            bottomNavItems.size
 
-                    val selected =
-                        currentRoute ==
-                                item.route
+                val indicatorOffset by
+                animateDpAsState(
 
-                    BottomNavigationItem(
+                    targetValue =
+                        itemWidth *
+                                selectedIndex,
 
-                        item =
-                            item,
+                    animationSpec =
+                        spring(
 
-                        selected =
-                            selected,
+                            dampingRatio =
+                                0.78f,
 
-                        modifier =
-                            Modifier
-                                .weight(
-                                    1f
+                            stiffness =
+                                520f
+                        ),
+
+                    label =
+                        "bottomBarIndicatorOffset"
+                )
+
+                Box(
+
+                    modifier =
+                        Modifier
+                            .offset(
+                                x =
+                                    indicatorOffset
+                            )
+                            .width(
+                                itemWidth
+                            )
+                            .height(
+                                50.dp
+                            )
+                            .clip(
+                                RoundedCornerShape(
+                                    19.dp
                                 )
-                                .fillMaxSize(),
+                            )
+                            .background(
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary
+                                    .copy(
+                                        alpha =
+                                            0.12f
+                                    )
+                            )
+                )
 
-                        onClick = {
+                Row(
 
-                            if (
-                                !selected
-                            ) {
+                    modifier =
+                        Modifier
+                            .fillMaxSize(),
 
-                                navController
-                                    .navigate(
-                                        item.route
-                                    ) {
+                    verticalAlignment =
+                        Alignment.CenterVertically
+                ) {
 
-                                        popUpTo(
-                                            "home"
+                    bottomNavItems.forEach { item ->
+
+                        val selected =
+                            currentRoute ==
+                                    item.route
+
+                        BottomNavigationItem(
+
+                            item =
+                                item,
+
+                            selected =
+                                selected,
+
+                            modifier =
+                                Modifier
+                                    .weight(
+                                        1f
+                                    )
+                                    .fillMaxSize(),
+
+                            onClick = {
+
+                                if (
+                                    !selected
+                                ) {
+
+                                    navController
+                                        .navigate(
+                                            item.route
                                         ) {
 
-                                            saveState =
+                                            popUpTo(
+                                                "home"
+                                            ) {
+
+                                                saveState =
+                                                    true
+                                            }
+
+                                            launchSingleTop =
+                                                true
+
+                                            restoreState =
                                                 true
                                         }
+                                }
+                            },
 
-                                        launchSingleTop =
-                                            true
+                            onLongClick = {
 
-                                        restoreState =
-                                            true
+                                if (
+                                    item.route ==
+                                    "search"
+                                ) {
+
+                                    if (
+                                        !selected
+                                    ) {
+
+                                        navController
+                                            .navigate(
+                                                "search"
+                                            ) {
+
+                                                popUpTo(
+                                                    "home"
+                                                ) {
+
+                                                    saveState =
+                                                        true
+                                                }
+
+                                                launchSingleTop =
+                                                    true
+
+                                                restoreState =
+                                                    true
+                                            }
                                     }
+
+                                    onSearchLongPress()
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -1210,6 +1478,9 @@ private fun BottomNavigationItem(
         Modifier,
 
     onClick:
+        () -> Unit,
+
+    onLongClick:
         () -> Unit
 ) {
 
@@ -1305,9 +1576,13 @@ private fun BottomNavigationItem(
 
         modifier =
             modifier
-                .clickable(
+                .combinedClickable(
+
                     onClick =
-                        onClick
+                        onClick,
+
+                    onLongClick =
+                        onLongClick
                 ),
 
         contentAlignment =
