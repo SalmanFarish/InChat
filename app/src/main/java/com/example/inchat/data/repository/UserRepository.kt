@@ -1688,7 +1688,7 @@ class UserRepository {
                         key
                     )
                     .endAt(
-                        key + "\\uf8ff"
+                        key + "\uf8ff"
                     )
                     .limitToFirst(
                         safeLimit
@@ -1723,7 +1723,11 @@ class UserRepository {
 
                 if (
                     user != null &&
-                    user.username.isNotBlank()
+                    user.username.isNotBlank() &&
+                    user.username
+                        .trim()
+                        .lowercase(Locale.ROOT)
+                        .startsWith(key)
                 ) {
 
                     users.add(
