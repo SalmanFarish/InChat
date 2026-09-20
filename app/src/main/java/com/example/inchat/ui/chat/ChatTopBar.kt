@@ -2,6 +2,7 @@ package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -13,11 +14,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
+import com.example.inchat.ui.profile.InChatProfileAvatar
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -25,6 +28,7 @@ import com.example.inchat.data.model.Presence
 @Composable
 fun ChatTopBar(
     otherUserNickname: String,
+    otherUserProfilePhoto: String,
     otherUserPresence: Presence,
     otherUserTyping: Boolean,
     blockState: BlockState,
@@ -36,7 +40,7 @@ fun ChatTopBar(
 
         title = {
 
-            Column(
+            Row(
 
                 modifier =
                     Modifier
@@ -56,8 +60,37 @@ fun ChatTopBar(
 
                             bottom =
                                 2.dp
-                        )
+                        ),
+
+                verticalAlignment =
+                    Alignment.CenterVertically
             ) {
+
+                InChatProfileAvatar(
+
+                    profilePhotoUrl =
+                        otherUserProfilePhoto,
+
+                    modifier =
+                        Modifier.size(
+                            40.dp
+                        ),
+
+                    iconSize =
+                        21.dp,
+
+                    contentDescription =
+                        "Profile picture"
+                )
+
+                Column(
+
+                    modifier =
+                        Modifier.padding(
+                            start =
+                                10.dp
+                        )
+                ) {
 
                 Text(
 
