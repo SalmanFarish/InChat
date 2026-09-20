@@ -51,6 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Conversation
+import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.auth.AuthViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -873,6 +875,37 @@ private fun ConversationItem(
     onLongClick: () -> Unit
 ) {
 
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
+    var otherUserProfilePhoto by
+    remember(
+        conversation.otherUserId
+    ) {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(
+        conversation.otherUserId
+    ) {
+
+        val user =
+            userRepository
+                .getUserByIdFast(
+                    conversation.otherUserId
+                )
+
+        otherUserProfilePhoto =
+            user
+                ?.profilePhotoData
+                ?.ifBlank {
+                    user.profilePhotoUrl
+                }
+                .orEmpty()
+    }
+
     val hasUnread =
         conversation.unreadCount > 0L
 
@@ -914,48 +947,22 @@ private fun ConversationItem(
              * AVATAR
              * =================================================
              */
-            Surface(
+            InChatProfileAvatar(
+
+                profilePhotoUrl =
+                    otherUserProfilePhoto,
 
                 modifier =
                     Modifier.size(
                         48.dp
                     ),
 
-                shape =
-                    CircleShape,
+                iconSize =
+                    25.dp,
 
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .surfaceVariant
-            ) {
-
-                Box(
-
-                    contentAlignment =
-                        Alignment.Center
-                ) {
-
-                    Icon(
-
-                        imageVector =
-                            Icons.Default.Person,
-
-                        contentDescription =
-                            null,
-
-                        modifier =
-                            Modifier.size(
-                                25.dp
-                            ),
-
-                        tint =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                    )
-                }
-            }
+                contentDescription =
+                    "Profile picture"
+            )
 
             Spacer(
                 modifier =
