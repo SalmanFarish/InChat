@@ -48,11 +48,13 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import org.json.JSONArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val SEARCH_HISTORY_PREFS = "inchat_search_history"
 private const val SEARCH_HISTORY_KEY = "recent_user_ids"
+private const val SEARCH_HISTORY_ORDERED_KEY = "recent_user_ids_ordered"
 private const val MAX_RECENT_SEARCHES = 8
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,13 +80,9 @@ fun SearchScreen(
 
     var recentUserIds by remember {
         mutableStateOf(
-            historyPreferences
-                .getStringSet(
-                    SEARCH_HISTORY_KEY,
-                    emptySet()
-                )
-                .orEmpty()
-                .toList()
+            readRecentUserIds(
+                historyPreferences
+            )
         )
     }
 
@@ -120,13 +118,13 @@ fun SearchScreen(
         recentUserIds =
             updatedIds.take(MAX_RECENT_SEARCHES)
 
-        historyPreferences
-            .edit()
-            .putStringSet(
-                SEARCH_HISTORY_KEY,
-                recentUserIds.toSet()
-            )
-            .apply()
+        writeRecentUserIds(
+            preferences =
+                historyPreferences,
+
+            userIds =
+                recentUserIds
+        )
     }
 
     fun openUser(user: User) {
@@ -141,8 +139,35 @@ fun SearchScreen(
 
         historyPreferences
             .edit()
-            .remove(SEARCH_HISTORY_KEY)
+            .remove(
+                SEARCH_HISTORY_KEY
+            )
+            .remove(
+                SEARCH_HISTORY_ORDERED_KEY
+            )
             .apply()
+    }
+
+    fun removeRecentUser(
+        userId: String
+    ) {
+        recentUserIds =
+            recentUserIds.filter {
+                it != userId
+            }
+
+        recentUsers =
+            recentUsers.filter {
+                it.uid != userId
+            }
+
+        writeRecentUserIds(
+            preferences =
+                historyPreferences,
+
+            userIds =
+                recentUserIds
+        )
     }
 
     Scaffold(
@@ -257,9 +282,17 @@ fun SearchScreen(
 
                 UserSearchState.Idle -> {
                     RecentSearches(
-                        users = recentUsers,
-                        onUserClick = ::openUser,
-                        onClearAll = ::clearRecentSearches
+                        users =
+                            recentUsers,
+
+                        onUserClick =
+                            ::openUser,
+
+                        onRemoveUser =
+                            ::removeRecentUser,
+
+                        onClearAll =
+                            ::clearRecentSearches
                     )
                 }
 
@@ -300,6 +333,7 @@ fun SearchScreen(
 private fun RecentSearches(
     users: List<User>,
     onUserClick: (User) -> Unit,
+    onRemoveUser: (String) -> Unit,
     onClearAll: () -> Unit
 ) {
     if (users.isEmpty()) {
@@ -348,13 +382,128 @@ private fun RecentSearches(
                 items = users,
                 key = { it.uid }
             ) { user ->
-                SearchUserRow(
-                    user = user,
+                RecentSearchRow(
+                    user =
+                        user,
+
                     onClick = {
-                        onUserClick(user)
+                        onUserClick(
+                            user
+                        )
+                    },
+
+                    onRemove = {
+                        onRemoveUser(
+                            user.uid
+                        )
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun RecentSearchRow(
+    user: User,
+    onClick: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick =
+                        onClick
+                )
+                .padding(
+                    start = 20.dp,
+                    top = 10.dp,
+                    end = 12.dp,
+                    bottom = 10.dp
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+
+        InChatProfileAvatar(
+            profilePhotoUrl =
+                user.profilePhotoData.ifBlank {
+                    user.profilePhotoUrl
+                },
+
+            modifier =
+                Modifier.size(
+                    52.dp
+                ),
+
+            iconSize =
+                29.dp,
+
+            contentDescription =
+                "Profile picture"
+        )
+
+        Spacer(
+            modifier =
+                Modifier.width(
+                    13.dp
+                )
+        )
+
+        Column(
+            modifier =
+                Modifier.weight(
+                    1f
+                )
+        ) {
+
+            Text(
+                text =
+                    "@${user.username}",
+
+                fontSize =
+                    16.sp,
+
+                fontWeight =
+                    FontWeight.SemiBold
+            )
+
+            val secondaryText =
+                user.displayName
+                    .takeIf {
+                        it.isNotBlank() &&
+                                it != user.username
+                    }
+                    ?: "InChat user"
+
+            Text(
+                text =
+                    secondaryText,
+
+                style =
+                    MaterialTheme.typography.bodySmall,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+        }
+
+        IconButton(
+            onClick =
+                onRemove
+        ) {
+
+            Icon(
+                imageVector =
+                    Icons.Default.Clear,
+
+                contentDescription =
+                    "Remove recent search"
+            )
         }
     }
 }
@@ -576,4 +725,95 @@ private fun SearchWelcome() {
                     .onSurfaceVariant
         )
     }
+}
+
+
+private fun readRecentUserIds(
+    preferences:
+        android.content.SharedPreferences
+): List<String> {
+
+    val ordered =
+        preferences
+            .getString(
+                SEARCH_HISTORY_ORDERED_KEY,
+                null
+            )
+
+    if (
+        !ordered.isNullOrBlank()
+    ) {
+
+        return try {
+
+            val array =
+                JSONArray(
+                    ordered
+                )
+
+            List(
+                array.length()
+            ) { index ->
+                array.optString(
+                    index
+                )
+            }
+                .filter {
+                    it.isNotBlank()
+                }
+
+        } catch (
+            _: Exception
+        ) {
+
+            emptyList()
+        }
+    }
+
+    return preferences
+        .getStringSet(
+            SEARCH_HISTORY_KEY,
+            emptySet()
+        )
+        .orEmpty()
+        .toList()
+}
+
+private fun writeRecentUserIds(
+    preferences:
+        android.content.SharedPreferences,
+
+    userIds:
+        List<String>
+) {
+
+    val array =
+        JSONArray()
+
+    userIds
+        .take(
+            MAX_RECENT_SEARCHES
+        )
+        .forEach { userId ->
+
+            if (
+                userId.isNotBlank()
+            ) {
+
+                array.put(
+                    userId
+                )
+            }
+        }
+
+    preferences
+        .edit()
+        .putString(
+            SEARCH_HISTORY_ORDERED_KEY,
+            array.toString()
+        )
+        .remove(
+            SEARCH_HISTORY_KEY
+        )
+        .apply()
 }
