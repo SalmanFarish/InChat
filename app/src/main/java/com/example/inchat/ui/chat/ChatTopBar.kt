@@ -4,15 +4,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,34 +93,35 @@ fun ChatTopBar(
                         )
                 ) {
 
-                Text(
+                    Text(
 
-                    text =
-                        "@$otherUserNickname",
+                        text =
+                            "@$otherUserNickname",
 
-                    fontSize =
-                        18.sp,
+                        fontSize =
+                            18.sp,
 
-                    fontWeight =
-                        FontWeight.SemiBold,
+                        fontWeight =
+                            FontWeight.SemiBold,
 
-                    letterSpacing =
-                        (-0.2).sp
-                )
-
-                if (
-                    blockState ==
-                    BlockState.NONE
-                ) {
-
-                    PresenceStatus(
-
-                        presence =
-                            otherUserPresence,
-
-                        isTyping =
-                            otherUserTyping
+                        letterSpacing =
+                            (-0.2).sp
                     )
+
+                    if (
+                        blockState ==
+                        BlockState.NONE
+                    ) {
+
+                        PresenceStatus(
+
+                            presence =
+                                otherUserPresence,
+
+                            isTyping =
+                                otherUserTyping
+                        )
+                    }
                 }
             }
         },
