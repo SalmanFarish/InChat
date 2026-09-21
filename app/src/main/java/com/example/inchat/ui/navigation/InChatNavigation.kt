@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -222,6 +224,20 @@ fun InChatApp(
             MaterialTheme
                 .colorScheme
                 .background,
+
+        /*
+         * Child destinations already use their own Material 3
+         * Scaffold/TopAppBar and therefore own their system-bar
+         * insets. The root scaffold should only reserve space
+         * for this custom dock.
+         */
+        contentWindowInsets =
+            WindowInsets(
+                0,
+                0,
+                0,
+                0
+            ),
 
         bottomBar = {
 
@@ -994,6 +1010,7 @@ private fun InChatBottomBar(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(
                     bottom =
                         8.dp
