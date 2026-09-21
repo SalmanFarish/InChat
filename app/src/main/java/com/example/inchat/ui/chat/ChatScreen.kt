@@ -268,6 +268,23 @@ fun ChatScreen(
                     null
             },
 
+            onReply = {
+
+                messageForActions =
+                    null
+
+                chatViewModel
+                    .clearEditingMessage()
+
+                messageText =
+                    ""
+
+                chatViewModel
+                    .setReplyingTo(
+                        message
+                    )
+            },
+
             onEdit = {
 
                 messageForActions =
