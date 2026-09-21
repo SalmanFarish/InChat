@@ -353,7 +353,7 @@ fun EditProfileScreen(
             Text(
 
                 text =
-                    "@$username",
+                    username,
 
                 style =
                     MaterialTheme
