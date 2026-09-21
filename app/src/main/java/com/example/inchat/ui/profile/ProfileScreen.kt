@@ -22,6 +22,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -55,7 +57,8 @@ fun ProfileScreen(
     authViewModel: AuthViewModel,
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onProfilePhotoClick: () -> Unit
+    onProfilePhotoClick: () -> Unit,
+    onEditProfileClick: () -> Unit
 ) {
     /*
      * Read Compose locals at the composable level.
@@ -141,7 +144,7 @@ fun ProfileScreen(
             )
 
             append(
-                "\n@"
+                "\n"
             )
 
             append(
@@ -338,11 +341,11 @@ fun ProfileScreen(
                             profilePhotoData.isBlank()
                         ) {
 
-                            "Add profile photo"
+                            "Edit photo"
 
                         } else {
 
-                            "Change profile photo"
+                            "Edit photo"
                         }
                 )
             }
@@ -391,7 +394,7 @@ fun ProfileScreen(
             Text(
 
                 text =
-                    "@$username",
+                    username,
 
                 fontSize =
                     16.sp,
@@ -460,44 +463,277 @@ fun ProfileScreen(
                     )
             )
 
-            /*
-             * =====================================================
-             * PROFILE INFORMATION
-             * =====================================================
-             */
-
-            ProfileInfoRow(
-
-                title =
-                    "Username",
-
-                value =
-                    "@$username"
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        26.dp
+                    )
             )
 
-            ProfileInfoRow(
+            Row(
 
-                title =
-                    "Account ID",
+                modifier =
+                    Modifier.fillMaxWidth(),
 
-                value =
-                    uid
-            )
+                horizontalArrangement =
+                    Arrangement.spacedBy(
+                        10.dp
+                    )
+            ) {
+
+                Button(
+
+                    onClick =
+                        onEditProfileClick,
+
+                    modifier =
+                        Modifier
+                            .weight(
+                                1f
+                            )
+                            .height(
+                                50.dp
+                            )
+                ) {
+
+                    Icon(
+
+                        imageVector =
+                            Icons.Default.Edit,
+
+                        contentDescription =
+                            null,
+
+                        modifier =
+                            Modifier.size(
+                                18.dp
+                            )
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.width(
+                                7.dp
+                            )
+                    )
+
+                    Text(
+                        text =
+                            "Edit profile"
+                    )
+                }
+
+                OutlinedButton(
+
+                    onClick = {
+
+                        val shareLink =
+                            "https://inchat.app/user/$username"
+
+                        val shareText =
+                            buildString {
+
+                                append(
+                                    displayName
+                                )
+
+                                append(
+                                    "\n"
+                                )
+
+                                append(
+                                    username
+                                )
+
+                                if (
+                                    bio.isNotBlank()
+                                ) {
+
+                                    append(
+                                        "\n\n"
+                                    )
+
+                                    append(
+                                        bio
+                                    )
+                                }
+
+                                append(
+                                    "\n\nChat with me anonymously on InChat:"
+                                )
+
+                                append(
+                                    "\n"
+                                )
+
+                                append(
+                                    shareLink
+                                )
+                            }
+
+                        val sendIntent =
+                            Intent().apply {
+
+                                action =
+                                    Intent.ACTION_SEND
+
+                                putExtra(
+                                    Intent.EXTRA_TEXT,
+                                    shareText
+                                )
+
+                                type =
+                                    "text/plain"
+                            }
+
+                        context.startActivity(
+                            Intent.createChooser(
+                                sendIntent,
+                                "Share InChat Profile"
+                            )
+                        )
+                    },
+
+                    modifier =
+                        Modifier
+                            .weight(
+                                1f
+                            )
+                            .height(
+                                50.dp
+                            )
+                ) {
+
+                    Icon(
+
+                        imageVector =
+                            Icons.Default.Share,
+
+                        contentDescription =
+                            null,
+
+                        modifier =
+                            Modifier.size(
+                                18.dp
+                            )
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.width(
+                                7.dp
+                            )
+                    )
+
+                    Text(
+                        text =
+                            "Share"
+                    )
+                }
+            }
 
             Spacer(
                 modifier =
                     Modifier.height(
-                        20.dp
+                        34.dp
                     )
             )
 
-            /*
-             * =====================================================
-             * COPY PROFILE
-             * =====================================================
-             */
+            Column(
+                modifier =
+                    Modifier.fillMaxWidth()
+            ) {
 
-            OutlinedButton(
+                Text(
+
+                    text =
+                        "Account",
+
+                    style =
+                        MaterialTheme
+                            .typography
+                            .titleMedium,
+
+                    fontWeight =
+                        FontWeight.SemiBold
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            8.dp
+                        )
+                )
+
+                HorizontalDivider()
+
+                ProfileInfoRow(
+
+                    title =
+                        "Username",
+
+                    value =
+                        username,
+
+                    onCopy = {
+
+                        clipboardManager.setText(
+                            AnnotatedString(
+                                username
+                            )
+                        )
+                    }
+                )
+
+                HorizontalDivider(
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .outlineVariant
+                            .copy(
+                                alpha =
+                                    0.55f
+                            )
+                )
+
+                ProfileInfoRow(
+
+                    title =
+                        "Account ID",
+
+                    value =
+                        uid,
+
+                    onCopy = {
+
+                        clipboardManager.setText(
+                            AnnotatedString(
+                                uid
+                            )
+                        )
+                    }
+                )
+
+                HorizontalDivider(
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .outlineVariant
+                            .copy(
+                                alpha =
+                                    0.55f
+                            )
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        10.dp
+                    )
+            )
+
+            TextButton(
 
                 onClick = {
 
@@ -506,14 +742,7 @@ fun ProfileScreen(
                             profileText
                         )
                     )
-                },
-
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(
-                            52.dp
-                        )
+                }
             ) {
 
                 Icon(
@@ -522,182 +751,31 @@ fun ProfileScreen(
                         Icons.Default.ContentCopy,
 
                     contentDescription =
-                        null
+                        null,
+
+                    modifier =
+                        Modifier.size(
+                            18.dp
+                        )
                 )
 
                 Spacer(
                     modifier =
                         Modifier.width(
-                            8.dp
+                            7.dp
                         )
                 )
 
                 Text(
                     text =
-                        "Copy Profile"
+                        "Copy profile text"
                 )
             }
 
             Spacer(
                 modifier =
                     Modifier.height(
-                        12.dp
-                    )
-            )
-
-            /*
-             * =====================================================
-             * SHARE PROFILE
-             * =====================================================
-             */
-
-            OutlinedButton(
-
-                onClick = {
-
-                    val shareLink =
-                        "https://inchat.app/user/$username"
-
-                    val shareText =
-                        buildString {
-
-                            append(
-                                displayName
-                            )
-
-                            append(
-                                "\n@"
-                            )
-
-                            append(
-                                username
-                            )
-
-                            if (
-                                bio.isNotBlank()
-                            ) {
-
-                                append(
-                                    "\n\n"
-                                )
-
-                                append(
-                                    bio
-                                )
-                            }
-
-                            append(
-                                "\n\nChat with me anonymously on InChat:"
-                            )
-
-                            append(
-                                "\n"
-                            )
-
-                            append(
-                                shareLink
-                            )
-                        }
-
-                    val sendIntent =
-                        Intent().apply {
-
-                            action =
-                                Intent.ACTION_SEND
-
-                            putExtra(
-                                Intent.EXTRA_TEXT,
-                                shareText
-                            )
-
-                            type =
-                                "text/plain"
-                        }
-
-                    /*
-                     * Use the context captured above.
-                     * This is the fix for the compiler error.
-                     */
-                    context.startActivity(
-                        Intent.createChooser(
-                            sendIntent,
-                            "Share InChat Profile"
-                        )
-                    )
-                },
-
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(
-                            52.dp
-                        )
-            ) {
-
-                Icon(
-
-                    imageVector =
-                        Icons.Default.Share,
-
-                    contentDescription =
-                        null
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.width(
-                            8.dp
-                        )
-                )
-
-                Text(
-                    text =
-                        "Share Profile"
-                )
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        26.dp
-                    )
-            )
-
-            TextButton(
-
-                onClick =
-                    onSettingsClick,
-
-                modifier =
-                    Modifier.fillMaxWidth()
-            ) {
-
-                Icon(
-
-                    imageVector =
-                        Icons.Default.Settings,
-
-                    contentDescription =
-                        null
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.width(
-                            8.dp
-                        )
-                )
-
-                Text(
-                    text =
-                        "Settings"
-                )
-            }
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        26.dp
+                        10.dp
                     )
             )
 
@@ -752,7 +830,8 @@ fun ProfileScreen(
 @Composable
 private fun ProfileInfoRow(
     title: String,
-    value: String
+    value: String,
+    onCopy: () -> Unit
 ) {
 
     Row(
@@ -762,7 +841,7 @@ private fun ProfileInfoRow(
                 .fillMaxWidth()
                 .padding(
                     vertical =
-                        10.dp
+                        14.dp
                 ),
 
         verticalAlignment =
@@ -799,7 +878,7 @@ private fun ProfileInfoRow(
             Spacer(
                 modifier =
                     Modifier.height(
-                        3.dp
+                        4.dp
                     )
             )
 
@@ -811,7 +890,29 @@ private fun ProfileInfoRow(
                 style =
                     MaterialTheme
                         .typography
-                        .bodyMedium
+                        .bodyLarge,
+
+                maxLines =
+                    1,
+
+                overflow =
+                    TextOverflow.Ellipsis
+            )
+        }
+
+        IconButton(
+
+            onClick =
+                onCopy
+        ) {
+
+            Icon(
+
+                imageVector =
+                    Icons.Default.ContentCopy,
+
+                contentDescription =
+                    "Copy $title"
             )
         }
     }
