@@ -1072,7 +1072,7 @@ private fun InChatBottomBar(
 
                                         pagerState
                                             .dispatchRawDelta(
-                                                -dragAmount.x *
+                                                dragAmount.x *
                                                         (
                                                             pageWidthPx /
                                                                     itemWidthPx
