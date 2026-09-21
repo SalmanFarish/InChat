@@ -79,6 +79,11 @@ fun HomeScreen(
         .conversations
         .collectAsState()
 
+    val conversationsLoaded by
+    homeViewModel
+        .conversationsLoaded
+        .collectAsState()
+
     var searchQuery by
     rememberSaveable {
         mutableStateOf("")
@@ -417,6 +422,12 @@ fun HomeScreen(
              * =================================================
              */
             if (
+                !conversationsLoaded
+            ) {
+
+                HomeConversationLoadingState()
+
+            } else if (
                 conversations.isEmpty()
             ) {
 
@@ -735,6 +746,139 @@ private fun NoSearchResults(
                     .colorScheme
                     .onSurfaceVariant
         )
+    }
+}
+
+
+/*
+ * ============================================================
+ * INITIAL LOAD STATE
+ * ============================================================
+ *
+ * Keep the Home layout stable while Firebase delivers the first
+ * conversation snapshot. This avoids briefly showing the empty
+ * state before the real chat list appears.
+ */
+@Composable
+private fun HomeConversationLoadingState() {
+
+    LazyColumn(
+
+        modifier =
+            Modifier.fillMaxSize(),
+
+        contentPadding =
+            PaddingValues(
+                bottom =
+                    24.dp
+            )
+    ) {
+
+        items(
+            count =
+                6
+        ) {
+
+            Row(
+
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start =
+                                18.dp,
+
+                            top =
+                                14.dp,
+
+                            end =
+                                18.dp,
+
+                            bottom =
+                                14.dp
+                        ),
+
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Surface(
+
+                    modifier =
+                        Modifier.size(
+                            48.dp
+                        ),
+
+                    shape =
+                        CircleShape,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .surfaceVariant
+                ) {}
+
+                Spacer(
+                    modifier =
+                        Modifier.width(
+                            13.dp
+                        )
+                )
+
+                Column(
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        )
+                ) {
+
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(
+                                    0.60f
+                                )
+                                .height(
+                                    15.dp
+                                ),
+                        shape =
+                            RoundedCornerShape(
+                                8.dp
+                            ),
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .surfaceVariant
+                    ) {}
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                7.dp
+                            )
+                    )
+
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(
+                                    0.86f
+                                )
+                                .height(
+                                    13.dp
+                                ),
+                        shape =
+                            RoundedCornerShape(
+                                7.dp
+                            ),
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .surfaceVariant
+                    ) {}
+                }
+            }
+        }
     }
 }
 
