@@ -1,7 +1,7 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -141,9 +141,8 @@ fun SwipeableMessageBubble(
                                 change.pressed
                             ) {
                                 val delta =
-                                    change
-                                        .positionChange()
-                                        .x
+                                    change.position.x -
+                                            change.previousPosition.x
 
                                 if (
                                     delta > 0f
