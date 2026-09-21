@@ -1350,6 +1350,8 @@ private fun BottomNavigationItem(
         modifier =
             modifier
                 .clickable(
+                    interactionSource = null,
+                    indication = null,
                     onClick =
                         onClick
                 ),
