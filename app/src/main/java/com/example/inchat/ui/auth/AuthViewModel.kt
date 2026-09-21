@@ -481,6 +481,27 @@ class AuthViewModel(
 
     /*
      * =========================================================
+     * SYNC SAVED PROFILE STATE
+     * =========================================================
+     */
+    fun applySavedProfileState(
+        displayName: String,
+        bio: String
+    ) {
+
+        _displayName.value =
+            displayName
+                .trim()
+                .ifBlank {
+                    _username.value
+                }
+
+        _bio.value =
+            bio.trim()
+    }
+
+    /*
+     * =========================================================
      * UPDATE DISPLAY NAME + BIO
      * =========================================================
      */
