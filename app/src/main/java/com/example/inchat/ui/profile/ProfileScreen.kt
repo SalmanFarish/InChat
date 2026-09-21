@@ -305,6 +305,8 @@ fun ProfileScreen(
                             112.dp
                         )
                         .clickable(
+                            interactionSource = null,
+                            indication = null,
                             onClick =
                                 onProfilePhotoClick
                         ),
