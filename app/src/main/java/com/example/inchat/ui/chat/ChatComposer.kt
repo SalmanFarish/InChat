@@ -9,13 +9,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -23,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,8 +39,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
 
@@ -65,6 +74,9 @@ fun ChatComposer(
         remember {
             FocusRequester()
         }
+
+    val textScrollState =
+        rememberScrollState()
 
     /*
      * =========================================================
@@ -96,9 +108,6 @@ fun ChatComposer(
      * =========================================================
      * BACK HANDLER
      * =========================================================
-     *
-     * Back first cancels edit/reply instead of immediately
-     * leaving the conversation.
      */
     BackHandler(
 
@@ -133,7 +142,15 @@ fun ChatComposer(
             8.dp,
 
         modifier =
-            Modifier.fillMaxWidth()
+            Modifier
+                .fillMaxWidth()
+                /*
+                 * Explicitly lift the entire composer above
+                 * the software keyboard. The Activity already
+                 * uses adjustResize; this handles the Compose
+                 * bottom-bar inset itself.
+                 */
+                .imePadding()
     ) {
 
         Column {
@@ -242,6 +259,7 @@ fun ChatComposer(
 
                     modifier =
                         Modifier.padding(
+
                             start =
                                 16.dp,
 
@@ -282,7 +300,7 @@ fun ChatComposer(
                                 10.dp,
 
                             top =
-                                6.dp,
+                                7.dp,
 
                             end =
                                 10.dp,
@@ -295,58 +313,137 @@ fun ChatComposer(
                     Alignment.Bottom
             ) {
 
-                OutlinedTextField(
-
-                    value =
-                        messageText,
-
-                    onValueChange =
-                        onMessageTextChange,
-
-                    enabled =
-                        !messagingBlocked,
+                Surface(
 
                     modifier =
                         Modifier
-                            .weight(
-                                1f
-                            )
-                            .focusRequester(
-                                focusRequester
-                            )
+                            .weight(1f)
                             .animateContentSize(),
-
-                    placeholder = {
-
-                        Text(
-
-                            when {
-
-                                editingMessage != null ->
-                                    "Edit your message..."
-
-                                blockState ==
-                                        BlockState.I_BLOCKED_THEM ->
-                                    "You blocked this user"
-
-                                blockState ==
-                                        BlockState.THEY_BLOCKED_ME ->
-                                    "You can't message this user"
-
-                                else ->
-                                    "Message..."
-                            }
-                        )
-                    },
 
                     shape =
                         RoundedCornerShape(
-                            22.dp
+                            24.dp
                         ),
 
-                    maxLines =
-                        5
-                )
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .surfaceVariant,
+
+                    tonalElevation =
+                        0.dp
+                ) {
+
+                    BasicTextField(
+
+                        value =
+                            messageText,
+
+                        onValueChange =
+                            onMessageTextChange,
+
+                        enabled =
+                            !messagingBlocked,
+
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .focusRequester(
+                                    focusRequester
+                                )
+                                .verticalScroll(
+                                    textScrollState
+                                )
+                                .padding(
+                                    horizontal =
+                                        17.dp,
+
+                                    vertical =
+                                        13.dp
+                                ),
+
+                        textStyle =
+                            MaterialTheme
+                                .typography
+                                .bodyLarge
+                                .copy(
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                ),
+
+                        cursorBrush =
+                            SolidColor(
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary
+                            ),
+
+                        keyboardOptions =
+                            KeyboardOptions(
+                                capitalization =
+                                    KeyboardCapitalization.Sentences,
+
+                                keyboardType =
+                                    KeyboardType.Text,
+
+                                imeAction =
+                                    ImeAction.Default
+                            ),
+
+                        singleLine =
+                            false,
+
+                        maxLines =
+                            5,
+
+                        decorationBox = { innerTextField ->
+
+                            if (
+                                messageText.isBlank()
+                            ) {
+
+                                Text(
+
+                                    text =
+                                        when {
+
+                                            editingMessage != null ->
+                                                "Edit your message..."
+
+                                            blockState ==
+                                                    BlockState.I_BLOCKED_THEM ->
+                                                "You blocked this user"
+
+                                            blockState ==
+                                                    BlockState.THEY_BLOCKED_ME ->
+                                                "You can't message this user"
+
+                                            else ->
+                                                "Message..."
+                                        },
+
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .bodyLarge,
+
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                            .copy(
+                                                alpha =
+                                                    0.62f
+                                            )
+                                )
+                            }
+
+                            innerTextField()
+                        }
+                    )
+                }
 
                 Spacer(
                     modifier =
@@ -455,10 +552,6 @@ fun ChatComposer(
                          * =================================================
                          * SEND MESSAGE
                          * =================================================
-                         *
-                         * The ViewModel handles online/offline
-                         * queuing. The composer simply clears its
-                         * local input after handing the message over.
                          */
                         chatViewModel
                             .sendMessage(
