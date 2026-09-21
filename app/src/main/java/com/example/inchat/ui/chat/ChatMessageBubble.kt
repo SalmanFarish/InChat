@@ -64,6 +64,21 @@ fun SwipeableMessageBubble(
                 1f
             )
 
+    val replyRevealDistancePx =
+        with(density) {
+            56.dp.toPx()
+        }
+
+    val replyProgress =
+        (
+                replySwipeOffsetPx /
+                        replyRevealDistancePx
+                )
+            .coerceIn(
+                0f,
+                1f
+            )
+
     Box(
         modifier =
             Modifier
@@ -118,40 +133,19 @@ fun SwipeableMessageBubble(
                     )
                     .graphicsLayer {
                         alpha =
-                            (
-                                    replySwipeOffsetPx /
-                                            (56.dp.toPx())
-                                    )
-                                .coerceIn(
-                                    0f,
-                                    1f
-                                )
+                            replyProgress
 
                         scaleX =
                             0.7f +
                                     (
-                                            (
-                                                    replySwipeOffsetPx /
-                                                            (56.dp.toPx())
-                                                    )
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                ) *
+                                            replyProgress *
                                                     0.3f
                                             )
 
                         scaleY =
                             0.7f +
                                     (
-                                            (
-                                                    replySwipeOffsetPx /
-                                                            (56.dp.toPx())
-                                                    )
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                ) *
+                                            replyProgress *
                                                     0.3f
                                             )
                     },
