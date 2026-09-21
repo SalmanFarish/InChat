@@ -353,10 +353,17 @@ fun ChatMessageList(
                                             0f
                                     },
                                     onHorizontalDrag = {
-                                            _,
+                                            change,
                                             dragAmount ->
 
+                                        /*
+                                         * A sent-message LEFT swipe is owned
+                                         * by the message reply detector. Only
+                                         * handle an unclaimed LEFT swipe here
+                                         * for the global timestamp reveal.
+                                         */
                                         if (
+                                            !change.isConsumed &&
                                             dragAmount < 0f
                                         ) {
                                             chatSwipeOffsetPx =
