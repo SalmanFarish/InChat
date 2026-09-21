@@ -580,18 +580,6 @@ fun ChatMessageList(
                                         0f
                                     },
 
-                                onReply = {
-
-                                    if (
-                                        !messagingBlocked
-                                    ) {
-
-                                        onReply(
-                                            message
-                                        )
-                                    }
-                                },
-
                                 onLongClick = {
 
                                     if (
