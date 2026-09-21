@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -159,10 +160,22 @@ fun ChatMessageActionsDialog(
                                         if (
                                             selected
                                         ) {
-                                            28.sp
+                                            30.sp
                                         } else {
-                                            24.sp
-                                        }
+                                            27.sp
+                                        },
+
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .headlineSmall
+                                            .copy(
+                                                platformStyle =
+                                                    PlatformTextStyle(
+                                                        includeFontPadding =
+                                                            false
+                                                    )
+                                            )
                                 )
                             }
                         }
