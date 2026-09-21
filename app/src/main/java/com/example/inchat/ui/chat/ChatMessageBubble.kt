@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -21,11 +22,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,8 +52,7 @@ fun SwipeableMessageBubble(
     currentUserId: String,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
-    chatSwipeOffsetPx: Float = 0f,
-    replySwipeOffsetPx: Float = 0f
+    chatSwipeOffsetPx: Float = 0f
 ) {
     val density =
         LocalDensity.current
@@ -63,26 +72,112 @@ fun SwipeableMessageBubble(
                 1f
             )
 
-    val replyRevealDistancePx =
+    val replyThresholdPx =
         with(density) {
-            56.dp.toPx()
+            44.dp.toPx()
         }
 
-    val replyProgress =
-        (
-                replySwipeOffsetPx /
-                        replyRevealDistancePx
-                )
-            .coerceIn(
-                0f,
-                1f
-            )
+    val replyRevealDistancePx =
+        with(density) {
+            52.dp.toPx()
+        }
+
+    var localReplySwipeOffsetPx by
+    remember(message.id) {
+        mutableFloatStateOf(0f)
+    }
+
+    val animatedReplySwipeOffsetPx by
+    animateFloatAsState(
+        targetValue =
+            localReplySwipeOffsetPx,
+        animationSpec =
+            androidx.compose.animation.core.spring(),
+        label =
+            "messageReplySwipe"
+    )
 
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .animateContentSize()
+                .pointerInput(message.id) {
+                    awaitEachGesture {
+                        val down =
+                            awaitFirstDown()
+
+                        var change =
+                            awaitHorizontalTouchSlopOrCancellation(
+                                down.id
+                            ) { touchChange, overSlop ->
+
+                                if (
+                                    overSlop > 0f
+                                ) {
+                                    touchChange.consume()
+
+                                    localReplySwipeOffsetPx =
+                                        overSlop
+                                            .coerceIn(
+                                                0f,
+                                                replyRevealDistancePx
+                                            )
+                                }
+                            }
+
+                        while (
+                            change != null &&
+                            change.pressed
+                        ) {
+                            change =
+                                awaitHorizontalDragOrCancellation(
+                                    change.id
+                                )
+
+                            if (
+                                change != null &&
+                                change.pressed
+                            ) {
+                                val delta =
+                                    change
+                                        .positionChange()
+                                        .x
+
+                                if (
+                                    delta > 0f
+                                ) {
+                                    localReplySwipeOffsetPx =
+                                        (
+                                                localReplySwipeOffsetPx +
+                                                        delta
+                                                )
+                                            .coerceIn(
+                                                0f,
+                                                replyRevealDistancePx
+                                            )
+
+                                    change.consume()
+
+                                    if (
+                                        localReplySwipeOffsetPx >=
+                                        replyThresholdPx
+                                    ) {
+                                        onReply()
+
+                                        localReplySwipeOffsetPx =
+                                            0f
+
+                                        break
+                                    }
+                                }
+                            }
+                        }
+
+                        localReplySwipeOffsetPx =
+                            0f
+                    }
+                }
     ) {
         Text(
             text =
@@ -102,10 +197,18 @@ fun SwipeableMessageBubble(
             modifier =
                 Modifier
                     .align(
-                        Alignment.CenterEnd
+                        if (isMe) {
+                            Alignment.CenterEnd
+                        } else {
+                            Alignment.CenterStart
+                        }
+                    )
+                    .widthIn(
+                        min =
+                            54.dp
                     )
                     .padding(
-                        end =
+                        horizontal =
                             2.dp
                     )
                     .graphicsLayer {
@@ -113,11 +216,19 @@ fun SwipeableMessageBubble(
                             revealProgress
 
                         translationX =
-                            4.dp.toPx() -
-                                    (
-                                            revealProgress *
-                                                    6.dp.toPx()
-                                            )
+                            if (isMe) {
+                                0f +
+                                        (
+                                                revealProgress *
+                                                        2.dp.toPx()
+                                                )
+                            } else {
+                                0f -
+                                        (
+                                                revealProgress *
+                                                        2.dp.toPx()
+                                                )
+                            }
                     }
         )
 
@@ -132,19 +243,40 @@ fun SwipeableMessageBubble(
                     )
                     .graphicsLayer {
                         alpha =
-                            replyProgress
+                            (
+                                    animatedReplySwipeOffsetPx /
+                                            replyRevealDistancePx
+                                    )
+                                .coerceIn(
+                                    0f,
+                                    1f
+                                )
 
                         scaleX =
                             0.7f +
                                     (
-                                            replyProgress *
+                                            (
+                                                    animatedReplySwipeOffsetPx /
+                                                            replyRevealDistancePx
+                                                    )
+                                                .coerceIn(
+                                                    0f,
+                                                    1f
+                                                ) *
                                                     0.3f
                                             )
 
                         scaleY =
                             0.7f +
                                     (
-                                            replyProgress *
+                                            (
+                                                    animatedReplySwipeOffsetPx /
+                                                            replyRevealDistancePx
+                                                    )
+                                                .coerceIn(
+                                                    0f,
+                                                    1f
+                                                ) *
                                                     0.3f
                                             )
                     },
