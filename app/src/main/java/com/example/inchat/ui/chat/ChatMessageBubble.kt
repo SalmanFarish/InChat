@@ -40,7 +40,6 @@ fun SwipeableMessageBubble(
     isMe: Boolean,
     deliveryStatus: MessageDeliveryStatus,
     currentUserId: String,
-    onReply: () -> Unit,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
     chatSwipeOffsetPx: Float = 0f,
@@ -183,7 +182,7 @@ fun SwipeableMessageBubble(
                     .fillMaxWidth()
                     .graphicsLayer {
                         translationX =
-                            replySwipeOffset.value -
+                            replySwipeOffsetPx -
                                     (
                                             revealProgress *
                                                     12.dp.toPx()
