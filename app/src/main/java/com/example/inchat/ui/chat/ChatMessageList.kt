@@ -1,10 +1,6 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -60,16 +56,6 @@ fun ChatMessageList(
     remember {
         mutableFloatStateOf(0f)
     }
-
-    val animatedChatSwipeOffsetPx by
-    animateFloatAsState(
-        targetValue =
-            chatSwipeOffsetPx,
-        animationSpec =
-            androidx.compose.animation.core.spring(),
-        label =
-            "chatTimestampReveal"
-    )
 
     var initialMessagesPositioned by
     remember {
@@ -278,70 +264,7 @@ fun ChatMessageList(
                 .padding(
                     innerPadding
                 )
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down =
-                            awaitFirstDown()
 
-                        var change =
-                            awaitHorizontalTouchSlopOrCancellation(
-                                down.id
-                            ) { touchChange, overSlop ->
-
-                                if (
-                                    overSlop < 0f
-                                ) {
-
-                                    chatSwipeOffsetPx =
-                                        (-overSlop)
-                                            .coerceIn(
-                                                0f,
-                                                with(density) {
-                                                    72.dp.toPx()
-                                                }
-                                            )
-                                }
-                            }
-
-                        while (
-                            change != null &&
-                            change.pressed
-                        ) {
-                            change =
-                                awaitHorizontalDragOrCancellation(
-                                    change.id
-                                )
-
-                            if (
-                                change != null &&
-                                change.pressed
-                            ) {
-                                val delta =
-                                    change.position.x -
-                                            change.previousPosition.x
-
-                                if (
-                                    delta < 0f
-                                ) {
-                                    chatSwipeOffsetPx =
-                                        (
-                                                chatSwipeOffsetPx -
-                                                        delta
-                                                )
-                                            .coerceIn(
-                                                0f,
-                                                with(density) {
-                                                    72.dp.toPx()
-                                                }
-                                            )
-                                }
-                            }
-                        }
-
-                        chatSwipeOffsetPx =
-                            0f
-                    }
-                }
     ) {
 
         Box(
@@ -422,7 +345,43 @@ fun ChatMessageList(
                             .padding(
                                 horizontal =
                                     12.dp
-                            ),
+                            )
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        chatSwipeOffsetPx =
+                                            0f
+                                    },
+                                    onHorizontalDrag = {
+                                            _,
+                                            dragAmount ->
+
+                                        if (
+                                            dragAmount < 0f
+                                        ) {
+                                            chatSwipeOffsetPx =
+                                                (
+                                                    chatSwipeOffsetPx -
+                                                            dragAmount
+                                                    )
+                                                    .coerceIn(
+                                                        0f,
+                                                        with(density) {
+                                                            72.dp.toPx()
+                                                        }
+                                                    )
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        chatSwipeOffsetPx =
+                                            0f
+                                    },
+                                    onDragCancel = {
+                                        chatSwipeOffsetPx =
+                                            0f
+                                    }
+                                )
+                            },
 
                     verticalArrangement =
                         Arrangement.spacedBy(
@@ -529,7 +488,7 @@ fun ChatMessageList(
                                     currentUserId,
 
                                 chatSwipeOffsetPx =
-                                    animatedChatSwipeOffsetPx,
+                                    chatSwipeOffsetPx,
 
                                 onReply = {
                                     if (
