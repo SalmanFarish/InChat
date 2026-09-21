@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -40,6 +41,7 @@ fun ChatMessageActionsDialog(
     isOwnMessage: Boolean,
     currentUserId: String,
     onReaction: (String) -> Unit,
+    onReply: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -186,6 +188,33 @@ fun ChatMessageActionsDialog(
                         Modifier.height(
                             4.dp
                         )
+                )
+
+                DropdownMenuItem(
+
+                    text = {
+
+                        Text(
+                            "Reply"
+                        )
+                    },
+
+                    leadingIcon = {
+
+                        Icon(
+
+                            imageVector =
+                                Icons.AutoMirrored
+                                    .Filled
+                                    .Reply,
+
+                            contentDescription =
+                                null
+                        )
+                    },
+
+                    onClick =
+                        onReply
                 )
 
                 DropdownMenuItem(
