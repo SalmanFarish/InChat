@@ -47,6 +47,13 @@ class ChatViewModel : ViewModel() {
             StateFlow<List<Message>> =
         _messages.asStateFlow()
 
+    private val _messagesLoaded =
+        MutableStateFlow(false)
+
+    val messagesLoaded:
+            StateFlow<Boolean> =
+        _messagesLoaded.asStateFlow()
+
     private val _otherUserReadTimestamp =
         MutableStateFlow(0L)
 
@@ -294,6 +301,9 @@ class ChatViewModel : ViewModel() {
         _messages.value =
             emptyList()
 
+        _messagesLoaded.value =
+            false
+
         _otherUserReadTimestamp.value =
             0L
 
@@ -430,6 +440,9 @@ class ChatViewModel : ViewModel() {
                             _messages.value =
                                 messageList
 
+                            _messagesLoaded.value =
+                                true
+
                             val newestOtherMessage =
                                 messageList
                                     .asSequence()
@@ -494,6 +507,9 @@ class ChatViewModel : ViewModel() {
                         "Message listener failed",
                         e
                     )
+
+                    _messagesLoaded.value =
+                        true
                 }
             }
     }
