@@ -479,7 +479,7 @@ private fun RecentSearchRow(
 
             Text(
                 text =
-                    "@${user.username}",
+                    user.username,
 
                 fontSize =
                     16.sp,
@@ -608,7 +608,7 @@ private fun SearchUserRow(
         ) {
 
             Text(
-                text = "@${user.username}",
+                text = user.username,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
