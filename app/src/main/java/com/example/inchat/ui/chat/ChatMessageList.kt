@@ -57,6 +57,16 @@ fun ChatMessageList(
         mutableFloatStateOf(0f)
     }
 
+    var replySwipeOffsetPx by
+    remember {
+        mutableFloatStateOf(0f)
+    }
+
+    var replySwipeMessageId by
+    remember {
+        mutableStateOf<String?>(null)
+    }
+
     val animatedChatSwipeOffsetPx by
     androidx.compose.animation.core.animateFloatAsState(
         targetValue =
@@ -276,10 +286,29 @@ fun ChatMessageList(
                 )
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
-                        onHorizontalDrag = {
-                                _,
-                                dragAmount ->
-
+                        onDragStart = { startOffset ->
+                            chatSwipeOffsetPx = 0f
+                            replySwipeOffsetPx = 0f
+                            replySwipeMessageId =
+                                listState
+                                    .layoutInfo
+                                    .visibleItemsInfo
+                                    .firstOrNull { itemInfo ->
+                                        startOffset.y >=
+                                                itemInfo.offset &&
+                                                startOffset.y <
+                                                itemInfo.offset +
+                                                        itemInfo.size
+                                    }
+                                    ?.key
+                                    ?.toString()
+                                    ?.takeIf { key ->
+                                        messages.any {
+                                            it.id == key
+                                        }
+                                    }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
                             if (dragAmount < 0f) {
                                 chatSwipeOffsetPx =
                                     (
@@ -292,15 +321,65 @@ fun ChatMessageList(
                                                 56.dp.toPx()
                                             }
                                         )
+
+                                replySwipeOffsetPx = 0f
+                                change.consume()
+                            } else if (
+                                dragAmount > 0f &&
+                                        replySwipeMessageId != null
+                            ) {
+                                val replyThresholdPx =
+                                    with(density) {
+                                        56.dp.toPx()
+                                    }
+
+                                replySwipeOffsetPx =
+                                    (
+                                            replySwipeOffsetPx +
+                                                    dragAmount
+                                            )
+                                        .coerceIn(
+                                            0f,
+                                            replyThresholdPx * 1.25f
+                                        )
+
+                                change.consume()
+
+                                if (
+                                    replySwipeOffsetPx >=
+                                            replyThresholdPx
+                                ) {
+                                    val targetMessage =
+                                        messages.firstOrNull {
+                                            it.id ==
+                                                    replySwipeMessageId
+                                        }
+
+                                    if (
+                                        targetMessage != null
+                                    ) {
+                                        onReply(
+                                            targetMessage
+                                        )
+                                    }
+
+                                    replySwipeMessageId = null
+                                    replySwipeOffsetPx = 0f
+                                }
                             }
                         },
                         onDragEnd = {
                             chatSwipeOffsetPx = 0f
+                            replySwipeOffsetPx = 0f
+                            replySwipeMessageId = null
                         },
                         onDragCancel = {
                             chatSwipeOffsetPx = 0f
+                            replySwipeOffsetPx = 0f
+                            replySwipeMessageId = null
                         }
                     )
+                }
                 }
     ) {
 
@@ -490,6 +569,16 @@ fun ChatMessageList(
 
                                 chatSwipeOffsetPx =
                                     animatedChatSwipeOffsetPx,
+
+                                replySwipeOffsetPx =
+                                    if (
+                                        message.id ==
+                                                replySwipeMessageId
+                                    ) {
+                                        replySwipeOffsetPx
+                                    } else {
+                                        0f
+                                    },
 
                                 onReply = {
 
