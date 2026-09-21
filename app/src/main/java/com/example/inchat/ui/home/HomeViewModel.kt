@@ -24,6 +24,13 @@ class HomeViewModel : ViewModel() {
             StateFlow<List<Conversation>> =
         _conversations.asStateFlow()
 
+    private val _conversationsLoaded =
+        MutableStateFlow(false)
+
+    val conversationsLoaded:
+            StateFlow<Boolean> =
+        _conversationsLoaded.asStateFlow()
+
     private var conversationsJob:
             Job? = null
 
@@ -45,6 +52,9 @@ class HomeViewModel : ViewModel() {
 
             _conversations.value =
                 emptyList()
+
+            _conversationsLoaded.value =
+                false
 
             listeningUserId =
                 ""
@@ -68,6 +78,9 @@ class HomeViewModel : ViewModel() {
         listeningUserId =
             currentUserId
 
+        _conversationsLoaded.value =
+            false
+
         conversationsJob?.cancel()
 
         conversationsJob =
@@ -81,6 +94,9 @@ class HomeViewModel : ViewModel() {
 
                         _conversations.value =
                             list
+
+                        _conversationsLoaded.value =
+                            true
                     }
             }
     }
