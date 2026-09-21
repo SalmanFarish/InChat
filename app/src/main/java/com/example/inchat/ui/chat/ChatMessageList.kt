@@ -317,14 +317,14 @@ fun ChatMessageList(
                             ) {
 
                                 BlockState.I_BLOCKED_THEM ->
-                                    "You blocked @$otherUserNickname."
+                                    "You blocked $otherUserNickname."
 
                                 BlockState.THEY_BLOCKED_ME ->
-                                    " @$otherUserNickname has blocked you."
+                                    "$otherUserNickname has blocked you."
 
                                 BlockState.NONE ->
                                     "No messages yet.\n" +
-                                            "Say hi to @$otherUserNickname!"
+                                            "Say hi to $otherUserNickname!"
                             },
 
                         color =
