@@ -4,6 +4,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,7 +62,7 @@ fun ChatMessageList(
     }
 
     val animatedChatSwipeOffsetPx by
-    androidx.compose.animation.core.animateFloatAsState(
+    animateFloatAsState(
         targetValue =
             chatSwipeOffsetPx,
         animationSpec =
@@ -290,7 +291,6 @@ fun ChatMessageList(
                                 if (
                                     overSlop < 0f
                                 ) {
-                                    touchChange.consume()
 
                                     chatSwipeOffsetPx =
                                         (-overSlop)
@@ -334,8 +334,6 @@ fun ChatMessageList(
                                                     72.dp.toPx()
                                                 }
                                             )
-
-                                    change.consume()
                                 }
                             }
                         }
