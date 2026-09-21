@@ -22,10 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -35,8 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -104,81 +103,54 @@ fun SwipeableMessageBubble(
                 .fillMaxWidth()
                 .animateContentSize()
                 .pointerInput(message.id) {
-                    awaitEachGesture {
-                        val down =
-                            awaitFirstDown()
-
-                        var change =
-                            awaitHorizontalTouchSlopOrCancellation(
-                                down.id
-                            ) { touchChange, overSlop ->
-
-                                if (
-                                    overSlop > 0f
-                                ) {
-                                    touchChange.consume()
-
-                                    localReplySwipeOffsetPx =
-                                        overSlop
-                                            .coerceIn(
-                                                0f,
-                                                replyRevealDistancePx
-                                            )
-                                }
-                            }
-
-                        while (
-                            change != null &&
-                            change.pressed
-                        ) {
-                            change =
-                                awaitHorizontalDragOrCancellation(
-                                    change.id
-                                )
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            localReplySwipeOffsetPx =
+                                0f
+                        },
+                        onHorizontalDrag = {
+                                change,
+                                dragAmount ->
 
                             if (
-                                change != null &&
-                                change.pressed
+                                dragAmount > 0f
                             ) {
-                                val delta =
-                                    change.position.x -
-                                            change.previousPosition.x
+                                localReplySwipeOffsetPx =
+                                    (
+                                            localReplySwipeOffsetPx +
+                                                    dragAmount
+                                            )
+                                        .coerceIn(
+                                            0f,
+                                            replyRevealDistancePx
+                                        )
+
+                                change.consume()
 
                                 if (
-                                    delta > 0f
+                                    localReplySwipeOffsetPx >=
+                                    replyThresholdPx
                                 ) {
+                                    onReply()
+
                                     localReplySwipeOffsetPx =
-                                        (
-                                                localReplySwipeOffsetPx +
-                                                        delta
-                                                )
-                                            .coerceIn(
-                                                0f,
-                                                replyRevealDistancePx
-                                            )
-
-                                    change.consume()
-
-                                    if (
-                                        localReplySwipeOffsetPx >=
-                                        replyThresholdPx
-                                    ) {
-                                        onReply()
-
-                                        localReplySwipeOffsetPx =
-                                            0f
-
-                                        break
-                                    }
+                                        0f
                                 }
                             }
+                        },
+                        onDragEnd = {
+                            localReplySwipeOffsetPx =
+                                0f
+                        },
+                        onDragCancel = {
+                            localReplySwipeOffsetPx =
+                                0f
                         }
-
-                        localReplySwipeOffsetPx =
-                            0f
-                    }
+                    )
                 }
                 .combinedClickable(
+                    interactionSource = null,
+                    indication = null,
                     onClick = {},
                     onLongClick =
                         onLongClick
@@ -208,14 +180,14 @@ fun SwipeableMessageBubble(
                             Alignment.CenterStart
                         }
                     )
-                    .widthIn(
-                        min =
-                            54.dp
+                    .width(
+                        60.dp
                     )
                     .padding(
                         horizontal =
                             2.dp
                     )
+                    .zIndex(1f)
                     .graphicsLayer {
                         alpha =
                             revealProgress
