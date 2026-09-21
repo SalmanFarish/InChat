@@ -107,6 +107,8 @@ fun ReplyMessagePreview(
                     )
                 )
                 .clickable(
+                    interactionSource = null,
+                    indication = null,
                     onClick =
                         onClick
                 )
