@@ -96,7 +96,7 @@ fun ChatTopBar(
                     Text(
 
                         text =
-                            "@$otherUserNickname",
+                            otherUserNickname,
 
                         fontSize =
                             18.sp,
