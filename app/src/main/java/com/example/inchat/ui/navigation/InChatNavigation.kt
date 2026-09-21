@@ -235,31 +235,12 @@ fun InChatApp(
 
                     onPageSelected = { page ->
 
-                        if (
-                            page !=
-                            pagerState.currentPage
-                        ) {
-
-                            navigationScope.launch {
-
-                                pagerState
-                                    .animateScrollToPage(
-                                        page
-                                    )
-                            }
-                        }
-                    },
-
-                    onSearchLongPress = {
-
                         navigationScope.launch {
 
                             pagerState
                                 .animateScrollToPage(
-                                    1
+                                    page
                                 )
-
-                            searchFocusRequest++
                         }
                     }
                 )
@@ -990,10 +971,7 @@ private fun InChatBottomBar(
         PagerState,
 
     onPageSelected:
-        (Int) -> Unit,
-
-    onSearchLongPress:
-        () -> Unit
+        (Int) -> Unit
 ) {
 
     val selectedPage =
@@ -1066,25 +1044,10 @@ private fun InChatBottomBar(
 
                             detectDragGesturesAfterLongPress(
 
-                                onDragStart = { offset ->
-
-                                    val pressedPage =
-                                        (
-                                            offset.x /
-                                                    itemWidthPx
-                                            )
-                                            .toInt()
-                                            .coerceIn(
-                                                0,
-                                                bottomNavItems.lastIndex
-                                            )
-
-                                    if (
-                                        pressedPage == 1
-                                    ) {
-
-                                        onSearchLongPress()
-                                    }
+                                onDragStart = {
+                                    // Intentionally do not trigger Search focus.
+                                    // Crossing/touching Search while scrubbing must
+                                    // remain a navigation gesture only.
                                 },
 
                                 onDrag = {
@@ -1118,6 +1081,24 @@ private fun InChatBottomBar(
                                 },
 
                                 onDragEnd = {
+
+                                    val targetPage =
+                                        (
+                                            pagerState.currentPage +
+                                                    pagerState.currentPageOffsetFraction
+                                            )
+                                            .roundToInt()
+                                            .coerceIn(
+                                                0,
+                                                bottomNavItems.lastIndex
+                                            )
+
+                                    onPageSelected(
+                                        targetPage
+                                    )
+                                },
+
+                                onDragCancel = {
 
                                     val targetPage =
                                         (
