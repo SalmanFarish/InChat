@@ -1,6 +1,9 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -55,16 +58,6 @@ fun ChatMessageList(
     var chatSwipeOffsetPx by
     remember {
         mutableFloatStateOf(0f)
-    }
-
-    var replySwipeOffsetPx by
-    remember {
-        mutableFloatStateOf(0f)
-    }
-
-    var replySwipeMessageId by
-    remember {
-        mutableStateOf<String?>(null)
     }
 
     val animatedChatSwipeOffsetPx by
@@ -285,100 +278,72 @@ fun ChatMessageList(
                     innerPadding
                 )
                 .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { startOffset ->
-                            chatSwipeOffsetPx = 0f
-                            replySwipeOffsetPx = 0f
-                            replySwipeMessageId =
-                                listState
-                                    .layoutInfo
-                                    .visibleItemsInfo
-                                    .firstOrNull { itemInfo ->
-                                        startOffset.y >=
-                                                itemInfo.offset &&
-                                                startOffset.y <
-                                                itemInfo.offset +
-                                                        itemInfo.size
-                                    }
-                                    ?.key
-                                    ?.toString()
-                                    ?.takeIf { key ->
-                                        messages.any {
-                                            it.id == key
-                                        }
-                                    }
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            if (dragAmount < 0f) {
-                                chatSwipeOffsetPx =
-                                    (
-                                            chatSwipeOffsetPx -
-                                                    dragAmount
-                                            )
-                                        .coerceIn(
-                                            0f,
-                                            with(density) {
-                                                56.dp.toPx()
-                                            }
-                                        )
+                    awaitEachGesture {
+                        val down =
+                            awaitFirstDown()
 
-                                replySwipeOffsetPx = 0f
-                                change.consume()
-                            } else if (
-                                dragAmount > 0f &&
-                                        replySwipeMessageId != null
-                            ) {
-                                val replyThresholdPx =
-                                    with(density) {
-                                        56.dp.toPx()
-                                    }
-
-                                replySwipeOffsetPx =
-                                    (
-                                            replySwipeOffsetPx +
-                                                    dragAmount
-                                            )
-                                        .coerceIn(
-                                            0f,
-                                            replyThresholdPx * 1.25f
-                                        )
-
-                                change.consume()
+                        var change =
+                            awaitHorizontalTouchSlopOrCancellation(
+                                down.id
+                            ) { touchChange, overSlop ->
 
                                 if (
-                                    replySwipeOffsetPx >=
-                                            replyThresholdPx
+                                    overSlop < 0f
                                 ) {
-                                    val targetMessage =
-                                        messages.firstOrNull {
-                                            it.id ==
-                                                    replySwipeMessageId
-                                        }
+                                    touchChange.consume()
 
-                                    if (
-                                        targetMessage != null
-                                    ) {
-                                        onReply(
-                                            targetMessage
-                                        )
-                                    }
-
-                                    replySwipeMessageId = null
-                                    replySwipeOffsetPx = 0f
+                                    chatSwipeOffsetPx =
+                                        (-overSlop)
+                                            .coerceIn(
+                                                0f,
+                                                with(density) {
+                                                    72.dp.toPx()
+                                                }
+                                            )
                                 }
                             }
-                        },
-                        onDragEnd = {
-                            chatSwipeOffsetPx = 0f
-                            replySwipeOffsetPx = 0f
-                            replySwipeMessageId = null
-                        },
-                        onDragCancel = {
-                            chatSwipeOffsetPx = 0f
-                            replySwipeOffsetPx = 0f
-                            replySwipeMessageId = null
+
+                        while (
+                            change != null &&
+                            change.pressed
+                        ) {
+                            change =
+                                awaitHorizontalDragOrCancellation(
+                                    change.id
+                                )
+
+                            if (
+                                change != null &&
+                                change.pressed
+                            ) {
+                                val delta =
+                                    change
+                                        .positionChange()
+                                        .x
+
+                                if (
+                                    delta < 0f
+                                ) {
+                                    chatSwipeOffsetPx =
+                                        (
+                                                chatSwipeOffsetPx -
+                                                        delta
+                                                )
+                                            .coerceIn(
+                                                0f,
+                                                with(density) {
+                                                    72.dp.toPx()
+                                                }
+                                            )
+
+                                    change.consume()
+                                }
+                            }
                         }
-                    )
+
+                        chatSwipeOffsetPx =
+                            0f
+                    }
                 }
     ) {
 
@@ -568,16 +533,6 @@ fun ChatMessageList(
 
                                 chatSwipeOffsetPx =
                                     animatedChatSwipeOffsetPx,
-
-                                replySwipeOffsetPx =
-                                    if (
-                                        message.id ==
-                                                replySwipeMessageId
-                                    ) {
-                                        replySwipeOffsetPx
-                                    } else {
-                                        0f
-                                    },
 
                                 onLongClick = {
 
