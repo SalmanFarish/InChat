@@ -1,7 +1,6 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +22,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,7 +34,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 
@@ -73,47 +69,94 @@ fun SwipeableMessageBubble(
 
     val replyThresholdPx =
         with(density) {
-            44.dp.toPx()
+            34.dp.toPx()
         }
 
-    val replyRevealDistancePx =
+    val replyTravelDistancePx =
         with(density) {
-            52.dp.toPx()
+            56.dp.toPx()
         }
 
-    var localReplySwipeOffsetPx by
+    var replySwipeOffsetPx by
     remember(message.id) {
         mutableFloatStateOf(0f)
     }
-
-    val animatedReplySwipeOffsetPx by
-    animateFloatAsState(
-        targetValue =
-            localReplySwipeOffsetPx,
-        animationSpec =
-            androidx.compose.animation.core.spring(),
-        label =
-            "messageReplySwipe"
-    )
 
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .animateContentSize()
-                .pointerInput(message.id) {
+                .pointerInput(
+                    message.id,
+                    isMe
+                ) {
+                    var replyTriggered =
+                        false
+
                     detectHorizontalDragGestures(
                         onDragStart = {
-                            localReplySwipeOffsetPx =
+                            replySwipeOffsetPx =
                                 0f
+
+                            replyTriggered =
+                                false
                         },
                         onHorizontalDrag = {
-                                change,
+                                _,
                                 dragAmount ->
 
+                            val movingTowardCenter =
+                                if (isMe) {
+                                    dragAmount < 0f
+                                } else {
+                                    dragAmount > 0f
+                                }
+
                             if (
-                                dragAmount > 0f
+                                movingTowardCenter &&
+                                !replyTriggered
                             ) {
+                                replySwipeOffsetPx =
+                                    (
+                                        replySwipeOffsetPx +
+                                                kotlin.math.abs(
+                                                    dragAmount
+                                                )
+                                        )
+                                        .coerceIn(
+                                            0f,
+                                            replyTravelDistancePx
+                                        )
+
+                                if (
+                                    replySwipeOffsetPx >=
+                                    replyThresholdPx
+                                ) {
+                                    replyTriggered =
+                                        true
+
+                                    onReply()
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            replySwipeOffsetPx =
+                                0f
+
+                            replyTriggered =
+                                false
+                        },
+                        onDragCancel = {
+                            replySwipeOffsetPx =
+                                0f
+
+                            replyTriggered =
+                                false
+                        }
+                    )
+                }
+    ) {{
                                 localReplySwipeOffsetPx =
                                     (
                                             localReplySwipeOffsetPx +
@@ -145,29 +188,47 @@ fun SwipeableMessageBubble(
                         }
                     )
                 }
-                .combinedClickable(
-                    interactionSource = null,
-                    indication = null,
-                    onClick = {},
-                    onLongClick =
-                        onLongClick
-                )
     ) {
-        Text(
-            text =
-                formatMessageTime(
-                    message.timestamp
-                ),
-            style =
-                MaterialTheme
-                    .typography
-                    .labelSmall,
-            fontWeight =
-                FontWeight.Medium,
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant,
+        Box(
+            modifier =
+                Modifier
+                    .align(
+                        Alignment.CenterEnd
+                    )
+                    .width(
+                        72.dp
+                    )
+                    .graphicsLayer {
+                        alpha =
+                            timestampProgress(
+                                chatSwipeOffsetPx,
+                                timestampRevealDistancePx
+                            )
+                    },
+            contentAlignment =
+                Alignment.Center
+        ) {
+            Text(
+                text =
+                    formatMessageTime(
+                        message.timestamp
+                    ),
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelMedium,
+                fontWeight =
+                    FontWeight.Medium,
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant,
+                maxLines =
+                    1
+            )
+        }
+
+        Surface(
             modifier =
                 Modifier
                     .align(
@@ -177,83 +238,40 @@ fun SwipeableMessageBubble(
                             Alignment.CenterStart
                         }
                     )
-                    .width(
-                        60.dp
-                    )
                     .padding(
                         horizontal =
-                            2.dp
-                    )
-                    .zIndex(1f)
-                    .graphicsLayer {
-                        alpha =
-                            revealProgress
-
-                        translationX =
-                            if (isMe) {
-                                0f +
-                                        (
-                                                revealProgress *
-                                                        2.dp.toPx()
-                                                )
-                            } else {
-                                0f -
-                                        (
-                                                revealProgress *
-                                                        2.dp.toPx()
-                                                )
-                            }
-                    }
-        )
-
-        Surface(
-            modifier =
-                Modifier
-                    .align(
-                        Alignment.CenterStart
+                            4.dp
                     )
                     .size(
-                        32.dp
+                        34.dp
                     )
                     .graphicsLayer {
-                        alpha =
+                        val progress =
                             (
-                                    animatedReplySwipeOffsetPx /
-                                            replyRevealDistancePx
-                                    )
+                                replySwipeOffsetPx /
+                                        replyTravelDistancePx
+                                )
                                 .coerceIn(
                                     0f,
                                     1f
                                 )
 
+                        alpha =
+                            progress
+
                         scaleX =
-                            0.7f +
-                                    (
-                                            (
-                                                    animatedReplySwipeOffsetPx /
-                                                            replyRevealDistancePx
-                                                    )
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                ) *
-                                                    0.3f
-                                            )
+                            0.76f +
+                                    progress *
+                                            0.24f
 
                         scaleY =
-                            0.7f +
-                                    (
-                                            (
-                                                    animatedReplySwipeOffsetPx /
-                                                            replyRevealDistancePx
-                                                    )
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                ) *
-                                                    0.3f
-                                            )
-                    },
+                            0.76f +
+                                    progress *
+                                            0.24f
+                    }
+                    .zIndex(
+                        0.5f
+                    ),
             shape =
                 CircleShape,
             color =
@@ -288,11 +306,14 @@ fun SwipeableMessageBubble(
                     .fillMaxWidth()
                     .graphicsLayer {
                         translationX =
-                            animatedReplySwipeOffsetPx -
-                                    (
-                                            revealProgress *
-                                                    timestampRevealDistancePx
-                                            )
+                            (
+                                if (isMe) {
+                                    -replySwipeOffsetPx
+                                } else {
+                                    replySwipeOffsetPx
+                                }
+                                ) -
+                                    chatSwipeOffsetPx
                     },
             horizontalArrangement =
                 if (isMe) {
@@ -306,16 +327,24 @@ fun SwipeableMessageBubble(
                     Modifier
                         .widthIn(
                             min =
-                                72.dp,
+                                68.dp,
                             max =
                                 310.dp
                         )
-                        .wrapContentWidth()
                         .animateContentSize()
             ) {
                 Column(
                     modifier =
                         Modifier
+                            .combinedClickable(
+                                interactionSource =
+                                    null,
+                                indication =
+                                    null,
+                                onClick = {},
+                                onLongClick =
+                                    onLongClick
+                            )
                             .clip(
                                 RoundedCornerShape(
                                     topStart =
@@ -389,12 +418,14 @@ fun SwipeableMessageBubble(
                                     .colorScheme
                                     .onSurfaceVariant
                             },
-                        fontSize =
-                            16.sp,
-                        lineHeight =
-                            21.sp,
-                        letterSpacing =
-                            (-0.05).sp
+                        style =
+                            MaterialTheme
+                                .typography
+                                .bodyLarge
+                                .copy(
+                                    lineHeight =
+                                        22.sp
+                                )
                     )
 
                     if (
@@ -530,6 +561,20 @@ fun SwipeableMessageBubble(
             }
         }
     }
+}
+
+private fun timestampProgress(
+    offsetPx: Float,
+    revealDistancePx: Float
+): Float {
+    return (
+        offsetPx /
+                revealDistancePx
+        )
+        .coerceIn(
+            0f,
+            1f
+        )
 }
 
 @Composable
