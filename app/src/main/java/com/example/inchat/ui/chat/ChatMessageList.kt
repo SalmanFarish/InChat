@@ -534,6 +534,16 @@ fun ChatMessageList(
                                 chatSwipeOffsetPx =
                                     animatedChatSwipeOffsetPx,
 
+                                onReply = {
+                                    if (
+                                        !messagingBlocked
+                                    ) {
+                                        onReply(
+                                            message
+                                        )
+                                    }
+                                },
+
                                 onLongClick = {
 
                                     if (
