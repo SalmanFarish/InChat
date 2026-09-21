@@ -280,10 +280,10 @@ fun ChatMessageList(
                                 _,
                                 dragAmount ->
 
-                            if (dragAmount > 0f) {
+                            if (dragAmount < 0f) {
                                 chatSwipeOffsetPx =
                                     (
-                                            chatSwipeOffsetPx +
+                                            chatSwipeOffsetPx -
                                                     dragAmount
                                             )
                                         .coerceIn(
