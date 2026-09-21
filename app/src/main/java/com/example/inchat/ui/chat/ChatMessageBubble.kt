@@ -50,6 +50,7 @@ fun SwipeableMessageBubble(
     isMe: Boolean,
     deliveryStatus: MessageDeliveryStatus,
     currentUserId: String,
+    onReply: () -> Unit,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
     chatSwipeOffsetPx: Float = 0f
@@ -178,6 +179,11 @@ fun SwipeableMessageBubble(
                             0f
                     }
                 }
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick =
+                        onLongClick
+                )
     ) {
         Text(
             text =
@@ -372,11 +378,6 @@ fun SwipeableMessageBubble(
                                         .colorScheme
                                         .surfaceVariant
                                 }
-                            )
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick =
-                                    onLongClick
                             )
                             .padding(
                                 horizontal =
