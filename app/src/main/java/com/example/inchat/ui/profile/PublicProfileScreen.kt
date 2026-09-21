@@ -1,6 +1,6 @@
 package com.example.inchat.ui.profile
 
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +9,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -18,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -29,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
@@ -83,7 +90,10 @@ fun PublicProfileScreen(
                             "Profile",
 
                         fontWeight =
-                            FontWeight.Bold
+                            FontWeight.Bold,
+
+                        letterSpacing =
+                            (-0.2).sp
                     )
                 },
 
@@ -150,17 +160,17 @@ fun PublicProfileScreen(
                             20.dp,
 
                         top =
-                            24.dp,
+                            12.dp,
 
                         end =
                             20.dp,
 
                         bottom =
-                            24.dp
+                            20.dp
                     ),
 
             contentAlignment =
-                Alignment.Center
+                Alignment.TopCenter
         ) {
 
             when (
@@ -227,6 +237,9 @@ private fun ProfileContent(
     onStartChatClick: () -> Unit
 ) {
 
+    val scrollState =
+        rememberScrollState()
+
     val displayName =
         user.displayName
             .trim()
@@ -242,44 +255,96 @@ private fun ProfileContent(
 
         modifier =
             Modifier
-                .fillMaxWidth(),
+                .fillMaxSize()
+                .verticalScroll(
+                    scrollState
+                )
+                .padding(
+                    top =
+                        12.dp
+                ),
 
         horizontalAlignment =
             Alignment.CenterHorizontally,
 
         verticalArrangement =
-            Arrangement.Center
+            Arrangement.Top
     ) {
 
-        /*
-         * ========================================================
-         * PROFILE AVATAR
-         * ========================================================
-         */
-        InChatProfileAvatar(
-
-            profilePhotoUrl =
-                user.profilePhotoData
-                    .ifBlank {
-                        user.profilePhotoUrl
-                    },
+        Box(
 
             modifier =
                 Modifier.size(
-                    108.dp
-                ),
+                    116.dp
+                )
+        ) {
 
-            iconSize =
-                54.dp,
+            InChatProfileAvatar(
 
-            contentDescription =
-                "Profile picture"
-        )
+                profilePhotoUrl =
+                    user.profilePhotoData
+                        .ifBlank {
+                            user.profilePhotoUrl
+                        },
+
+                modifier =
+                    Modifier
+                        .size(
+                            108.dp
+                        )
+                        .align(
+                            Alignment.Center
+                        ),
+
+                iconSize =
+                    54.dp,
+
+                contentDescription =
+                    "Profile picture"
+            )
+
+            if (
+                presence.online
+            ) {
+
+                Surface(
+
+                    modifier =
+                        Modifier
+                            .size(
+                                19.dp
+                            )
+                            .align(
+                                Alignment.BottomEnd
+                            )
+                            .border(
+                                width =
+                                    3.dp,
+
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .background,
+
+                                shape =
+                                    CircleShape
+                            ),
+
+                    shape =
+                        CircleShape,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .primary
+                ) {}
+            }
+        }
 
         Spacer(
             modifier =
                 Modifier.height(
-                    20.dp
+                    18.dp
                 )
         )
 
@@ -287,6 +352,14 @@ private fun ProfileContent(
 
             text =
                 displayName,
+
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal =
+                            8.dp
+                    ),
 
             fontSize =
                 28.sp,
@@ -297,6 +370,12 @@ private fun ProfileContent(
             textAlign =
                 TextAlign.Center,
 
+            maxLines =
+                2,
+
+            overflow =
+                TextOverflow.Ellipsis,
+
             color =
                 MaterialTheme
                     .colorScheme
@@ -306,7 +385,7 @@ private fun ProfileContent(
         Spacer(
             modifier =
                 Modifier.height(
-                    5.dp
+                    4.dp
                 )
         )
 
@@ -324,13 +403,16 @@ private fun ProfileContent(
             color =
                 MaterialTheme
                     .colorScheme
-                    .onSurfaceVariant
+                    .onSurfaceVariant,
+
+            textAlign =
+                TextAlign.Center
         )
 
         Spacer(
             modifier =
                 Modifier.height(
-                    10.dp
+                    8.dp
                 )
         )
 
@@ -346,42 +428,65 @@ private fun ProfileContent(
             Spacer(
                 modifier =
                     Modifier.height(
-                        20.dp
+                        22.dp
                     )
             )
 
-            Text(
-
-                text =
-                    bio,
+            Surface(
 
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal =
-                                16.dp
-                        ),
+                    Modifier.fillMaxWidth(),
 
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodyLarge,
+                shape =
+                    RoundedCornerShape(
+                        20.dp
+                    ),
 
                 color =
                     MaterialTheme
                         .colorScheme
-                        .onSurface,
+                        .surfaceVariant,
 
-                textAlign =
-                    TextAlign.Center
-            )
+                tonalElevation =
+                    1.dp
+            ) {
+
+                Text(
+
+                    text =
+                        bio,
+
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal =
+                                    20.dp,
+
+                                vertical =
+                                    18.dp
+                            ),
+
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodyLarge,
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+
+                    textAlign =
+                        TextAlign.Center
+                )
+            }
         }
 
         Spacer(
             modifier =
                 Modifier.height(
-                    32.dp
+                    28.dp
                 )
         )
 
@@ -394,8 +499,13 @@ private fun ProfileContent(
                 Modifier
                     .fillMaxWidth()
                     .height(
-                        52.dp
-                    )
+                        54.dp
+                    ),
+
+            shape =
+                RoundedCornerShape(
+                    18.dp
+                )
         ) {
 
             Text(
@@ -410,6 +520,39 @@ private fun ProfileContent(
                     FontWeight.Bold
             )
         }
+
+        Spacer(
+            modifier =
+                Modifier.height(
+                    8.dp
+                )
+        )
+
+        Text(
+
+            text =
+                "Private messaging on InChat",
+
+            style =
+                MaterialTheme
+                    .typography
+                    .bodySmall,
+
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .onSurfaceVariant,
+
+            textAlign =
+                TextAlign.Center
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(
+                    20.dp
+                )
+        )
     }
 }
 
@@ -425,7 +568,7 @@ private fun PresenceText(
         Text(
 
             text =
-                "● Online",
+                "Online",
 
             style =
                 MaterialTheme
@@ -495,13 +638,13 @@ private fun formatLastSeen(
             "Last seen just now"
 
         difference < hour ->
-            "Last seen ${difference / minute} min ago"
+            "Last seen \${difference / minute} min ago"
 
         difference < day ->
-            "Last seen ${difference / hour} hr ago"
+            "Last seen \${difference / hour} hr ago"
 
         difference < 7 * day ->
-            "Last seen ${difference / day} days ago"
+            "Last seen \${difference / day} days ago"
 
         else ->
             "Last seen recently"
@@ -518,7 +661,11 @@ private fun ProfileError(
 
         modifier =
             Modifier
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .padding(
+                    top =
+                        96.dp
+                ),
 
         horizontalAlignment =
             Alignment.CenterHorizontally,
