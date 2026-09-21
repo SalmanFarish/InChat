@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -145,11 +146,11 @@ fun ChatComposer(
             Modifier
                 .fillMaxWidth()
                 /*
-                 * Explicitly lift the entire composer above
-                 * the software keyboard. The Activity already
-                 * uses adjustResize; this handles the Compose
-                 * bottom-bar inset itself.
+                 * The composer is a custom Scaffold bottomBar,
+                 * so protect it from both navigation UI and the
+                 * on-screen keyboard on every device configuration.
                  */
+                .navigationBarsPadding()
                 .imePadding()
     ) {
 
