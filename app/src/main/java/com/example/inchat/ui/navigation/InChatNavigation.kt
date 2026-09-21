@@ -75,6 +75,7 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 data class NotificationChatTarget(
@@ -1123,9 +1124,42 @@ private fun InChatBottomBar(
                     maxWidth /
                             bottomNavItems.size
 
-                val indicatorOffset =
+                val swipeDistance =
+                    abs(
+                        pagePosition -
+                                pagerState.settledPage
+                        )
+                        .coerceIn(
+                            0f,
+                            1f
+                        )
+
+                val liquidWidth =
                     itemWidth *
-                            pagePosition
+                            (
+                                1f +
+                                        swipeDistance * 0.50f
+                                )
+
+                val itemCenter =
+                    itemWidth *
+                            pagePosition +
+                            itemWidth / 2f
+
+                val liquidLeft =
+                    (
+                        itemCenter -
+                                liquidWidth / 2f
+                        )
+                        .coerceIn(
+                            0.dp,
+                            maxWidth -
+                                    liquidWidth
+                        )
+
+                val liquidAlpha =
+                    0.12f +
+                            swipeDistance * 0.04f
 
                 Box(
 
@@ -1133,17 +1167,17 @@ private fun InChatBottomBar(
                         Modifier
                             .offset(
                                 x =
-                                    indicatorOffset
+                                    liquidLeft
                             )
                             .width(
-                                itemWidth
+                                liquidWidth
                             )
                             .height(
                                 50.dp
                             )
                             .clip(
                                 RoundedCornerShape(
-                                    19.dp
+                                    25.dp
                                 )
                             )
                             .background(
@@ -1152,7 +1186,7 @@ private fun InChatBottomBar(
                                     .primary
                                     .copy(
                                         alpha =
-                                            0.12f
+                                            liquidAlpha
                                     )
                             )
                 )
