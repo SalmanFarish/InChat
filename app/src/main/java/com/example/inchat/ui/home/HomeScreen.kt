@@ -917,6 +917,8 @@ private fun ConversationItem(
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(
+                        interactionSource = null,
+                        indication = null,
 
                         onClick =
                             onClick,
