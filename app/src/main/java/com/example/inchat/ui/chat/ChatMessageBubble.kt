@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,15 +13,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -31,9 +34,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 
@@ -54,20 +59,20 @@ fun SwipeableMessageBubble(
 
     val timestampRevealDistancePx =
         with(density) {
-            56.dp.toPx()
+            72.dp.toPx()
         }
 
-    val revealProgress =
+    val timestampProgress =
         (
-                chatSwipeOffsetPx /
-                        timestampRevealDistancePx
-                )
+            chatSwipeOffsetPx /
+                    timestampRevealDistancePx
+            )
             .coerceIn(
                 0f,
                 1f
             )
 
-    val replyThresholdPx =
+    val replyTriggerDistancePx =
         with(density) {
             34.dp.toPx()
         }
@@ -87,6 +92,12 @@ fun SwipeableMessageBubble(
             Modifier
                 .fillMaxWidth()
                 .animateContentSize()
+                /*
+                 * Reply swipe is owned by this parent row.
+                 * The long-press detector is attached to the
+                 * actual bubble below, so the two interactions
+                 * do not share one gesture detector.
+                 */
                 .pointerInput(
                     message.id,
                     isMe
@@ -131,7 +142,7 @@ fun SwipeableMessageBubble(
 
                                 if (
                                     replySwipeOffsetPx >=
-                                    replyThresholdPx
+                                    replyTriggerDistancePx
                                 ) {
                                     replyTriggered =
                                         true
@@ -156,39 +167,13 @@ fun SwipeableMessageBubble(
                         }
                     )
                 }
-    ) {{
-                                localReplySwipeOffsetPx =
-                                    (
-                                            localReplySwipeOffsetPx +
-                                                    dragAmount
-                                            )
-                                        .coerceIn(
-                                            0f,
-                                            replyRevealDistancePx
-                                        )
-
-                                if (
-                                    localReplySwipeOffsetPx >=
-                                    replyThresholdPx
-                                ) {
-                                    onReply()
-
-                                    localReplySwipeOffsetPx =
-                                        0f
-                                }
-                            }
-                        },
-                        onDragEnd = {
-                            localReplySwipeOffsetPx =
-                                0f
-                        },
-                        onDragCancel = {
-                            localReplySwipeOffsetPx =
-                                0f
-                        }
-                    )
-                }
     ) {
+        /*
+         * Timestamp tray is deliberately fixed-width and placed
+         * at the right edge. The message content moves left with
+         * the finger, exposing the full tray rather than drawing
+         * the time beneath the bubble.
+         */
         Box(
             modifier =
                 Modifier
@@ -198,13 +183,9 @@ fun SwipeableMessageBubble(
                     .width(
                         72.dp
                     )
-                    .graphicsLayer {
-                        alpha =
-                            timestampProgress(
-                                chatSwipeOffsetPx,
-                                timestampRevealDistancePx
-                            )
-                    },
+                    .alphaProgress(
+                        timestampProgress
+                    ),
             contentAlignment =
                 Alignment.Center
         ) {
@@ -219,15 +200,23 @@ fun SwipeableMessageBubble(
                         .labelMedium,
                 fontWeight =
                     FontWeight.Medium,
+                textAlign =
+                    TextAlign.Center,
+                maxLines =
+                    1,
                 color =
                     MaterialTheme
                         .colorScheme
-                        .onSurfaceVariant,
-                maxLines =
-                    1
+                        .onSurfaceVariant
             )
         }
 
+        /*
+         * The reply affordance is always on the outside edge and
+         * the message slides toward the center:
+         * received:  RIGHT
+         * sent:      LEFT
+         */
         Surface(
             modifier =
                 Modifier
@@ -260,14 +249,14 @@ fun SwipeableMessageBubble(
                             progress
 
                         scaleX =
-                            0.76f +
+                            0.78f +
                                     progress *
-                                            0.24f
+                                            0.22f
 
                         scaleY =
-                            0.76f +
+                            0.78f +
                                     progress *
-                                            0.24f
+                                            0.22f
                     }
                     .zIndex(
                         0.5f
@@ -285,14 +274,16 @@ fun SwipeableMessageBubble(
                 contentAlignment =
                     Alignment.Center
             ) {
-                Text(
-                    text =
-                        "↩",
-                    style =
-                        MaterialTheme
-                            .typography
-                            .titleMedium,
-                    color =
+                Icon(
+                    imageVector =
+                        Icons.AutoMirrored.Filled.Reply,
+                    contentDescription =
+                        "Reply",
+                    modifier =
+                        Modifier.size(
+                            19.dp
+                        ),
+                    tint =
                         MaterialTheme
                             .colorScheme
                             .onPrimaryContainer
@@ -300,6 +291,10 @@ fun SwipeableMessageBubble(
             }
         }
 
+        /*
+         * Message + reactions move together so the row always
+         * stays visually aligned during the swipe.
+         */
         Row(
             modifier =
                 Modifier
@@ -314,13 +309,18 @@ fun SwipeableMessageBubble(
                                 }
                                 ) -
                                     chatSwipeOffsetPx
-                    },
+                    }
+                    .zIndex(
+                        1f
+                    ),
             horizontalArrangement =
                 if (isMe) {
                     Arrangement.End
                 } else {
                     Arrangement.Start
-                }
+                },
+            verticalAlignment =
+                Alignment.Top
         ) {
             Column(
                 modifier =
@@ -378,7 +378,7 @@ fun SwipeableMessageBubble(
                             )
                             .padding(
                                 horizontal =
-                                    13.dp,
+                                    14.dp,
                                 vertical =
                                     10.dp
                             )
@@ -398,16 +398,24 @@ fun SwipeableMessageBubble(
 
                         Spacer(
                             modifier =
-                                Modifier.padding(
-                                    vertical =
-                                        3.5.dp
-                                )
+                                Modifier
+                                    .size(
+                                        1.dp
+                                    )
                         )
                     }
 
                     Text(
                         text =
                             message.text,
+                        style =
+                            MaterialTheme
+                                .typography
+                                .bodyLarge
+                                .copy(
+                                    lineHeight =
+                                        22.sp
+                                ),
                         color =
                             if (isMe) {
                                 MaterialTheme
@@ -417,42 +425,36 @@ fun SwipeableMessageBubble(
                                 MaterialTheme
                                     .colorScheme
                                     .onSurfaceVariant
-                            },
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyLarge
-                                .copy(
-                                    lineHeight =
-                                        22.sp
-                                )
+                            }
                     )
 
                     if (
                         message.edited ||
-                                (
-                                        isMe &&
-                                                deliveryStatus !=
-                                                MessageDeliveryStatus.NONE
-                                        )
+                        (
+                            isMe &&
+                                    deliveryStatus !=
+                                    MessageDeliveryStatus.NONE
+                            )
                     ) {
                         Spacer(
                             modifier =
-                                Modifier.padding(
-                                    vertical =
-                                        2.5.dp
-                                )
+                                Modifier
+                                    .size(
+                                        2.dp
+                                    )
                         )
 
                         Row(
                             modifier =
-                                Modifier.wrapContentWidth(),
+                                Modifier.fillMaxWidth(),
                             horizontalArrangement =
                                 Arrangement.End,
                             verticalAlignment =
                                 Alignment.CenterVertically
                         ) {
-                            if (message.edited) {
+                            if (
+                                message.edited
+                            ) {
                                 Text(
                                     text =
                                         "edited",
@@ -483,10 +485,12 @@ fun SwipeableMessageBubble(
 
                             if (
                                 isMe &&
-                                        deliveryStatus !=
-                                        MessageDeliveryStatus.NONE
+                                deliveryStatus !=
+                                MessageDeliveryStatus.NONE
                             ) {
-                                if (message.edited) {
+                                if (
+                                    message.edited
+                                ) {
                                     Spacer(
                                         modifier =
                                             Modifier.width(
@@ -563,18 +567,13 @@ fun SwipeableMessageBubble(
     }
 }
 
-private fun timestampProgress(
-    offsetPx: Float,
-    revealDistancePx: Float
-): Float {
-    return (
-        offsetPx /
-                revealDistancePx
-        )
-        .coerceIn(
-            0f,
-            1f
-        )
+private fun Modifier.alphaProgress(
+    progress: Float
+): Modifier {
+    return this.graphicsLayer {
+        alpha =
+            progress
+    }
 }
 
 @Composable
@@ -655,11 +654,17 @@ fun ReactionSummary(
                                 FontWeight.Normal
                             },
                         modifier =
-                            Modifier.clickable {
-                                onReactionClick(
-                                    reaction
-                                )
-                            },
+                            Modifier.clickable(
+                                interactionSource =
+                                    null,
+                                indication =
+                                    null,
+                                onClick = {
+                                    onReactionClick(
+                                        reaction
+                                    )
+                                }
+                            ),
                         color =
                             if (
                                 userReaction ==
