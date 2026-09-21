@@ -137,6 +137,7 @@ fun SwipeableMessageBubble(
                         max =
                             310.dp
                     )
+                    .wrapContentWidth()
                     .animateContentSize()
         ) {
 
@@ -169,7 +170,12 @@ fun SwipeableMessageBubble(
                                 .primary,
 
                         modifier =
-                            Modifier.graphicsLayer {
+                            Modifier
+                                .padding(
+                                    start =
+                                        52.dp
+                                )
+                                .graphicsLayer {
 
                                 alpha =
                                     (
@@ -204,6 +210,58 @@ fun SwipeableMessageBubble(
                     )
                 }
             }
+
+            Text(
+
+                text =
+                    formatMessageTime(
+                        message.timestamp
+                    ),
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelSmall,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant,
+
+                modifier =
+                    Modifier
+                        .align(
+                            Alignment.CenterStart
+                        )
+                        .padding(
+                            start =
+                                1.dp
+                        )
+                        .graphicsLayer {
+
+                            val progress =
+                                (
+                                        animatedSwipeOffset /
+                                                with(density) {
+                                                    52.dp.toPx()
+                                                }
+                                        )
+                                    .coerceIn(
+                                        0f,
+                                        1f
+                                    )
+
+                            alpha =
+                                progress
+
+                            translationX =
+                                -4.dp.toPx() +
+                                        (
+                                                progress *
+                                                        5.dp.toPx()
+                                                )
+                        }
+            )
 
             Column(
 
@@ -425,15 +483,24 @@ fun SwipeableMessageBubble(
                         (-0.05).sp
                 )
 
-                Spacer(
-                    modifier =
-                        Modifier.padding(
-                            vertical =
-                                2.5.dp
-                        )
-                )
+                if (
+                    message.edited ||
+                            (
+                                    isMe &&
+                                            deliveryStatus !=
+                                            MessageDeliveryStatus.NONE
+                                    )
+                ) {
 
-                Row(
+                    Spacer(
+                        modifier =
+                            Modifier.padding(
+                                vertical =
+                                    2.5.dp
+                            )
+                    )
+
+                    Row(
 
                     modifier =
                         Modifier.wrapContentWidth(),
@@ -444,43 +511,6 @@ fun SwipeableMessageBubble(
                     verticalAlignment =
                         Alignment.CenterVertically
                 ) {
-
-                    Text(
-
-                        text =
-                            formatMessageTime(
-                                message.timestamp
-                            ),
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .labelSmall,
-
-                        color =
-                            if (
-                                isMe
-                            ) {
-
-                                MaterialTheme
-                                    .colorScheme
-                                    .onPrimary
-                                    .copy(
-                                        alpha =
-                                            0.72f
-                                    )
-
-                            } else {
-
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurfaceVariant
-                                    .copy(
-                                        alpha =
-                                            0.72f
-                                    )
-                            }
-                    )
 
                     if (
                         message.edited
@@ -584,8 +614,8 @@ fun SwipeableMessageBubble(
                                 }
                         )
                     }
+                    }
                 }
-            }
 
             if (
                 message.reactions.isNotEmpty()
