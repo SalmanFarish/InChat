@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatMessageList(
     messages: List<Message>,
+    messagesLoaded: Boolean,
     currentUserId: String,
     otherUserNickname: String,
     blockState: BlockState,
@@ -93,9 +95,17 @@ fun ChatMessageList(
      * followed so the sender can immediately see their message.
      */
     LaunchedEffect(
+        messagesLoaded,
         messages.size,
         messages.lastOrNull()?.id
     ) {
+
+        if (
+            !messagesLoaded
+        ) {
+
+            return@LaunchedEffect
+        }
 
         if (
             messages.isEmpty()
@@ -274,6 +284,19 @@ fun ChatMessageList(
         ) {
 
             if (
+                !messagesLoaded
+            ) {
+
+                /*
+                 * Keep the wallpaper completely stable while the
+                 * first Firebase snapshot is being delivered.
+                 */
+                Box(
+                    modifier =
+                        Modifier.fillMaxSize()
+                )
+
+            } else if (
                 messages.isEmpty()
             ) {
 
@@ -342,6 +365,15 @@ fun ChatMessageList(
                     modifier =
                         Modifier
                             .fillMaxSize()
+                            .alpha(
+                                if (
+                                    initialMessagesPositioned
+                                ) {
+                                    1f
+                                } else {
+                                    0f
+                                }
+                            )
                             .padding(
                                 horizontal =
                                     12.dp
