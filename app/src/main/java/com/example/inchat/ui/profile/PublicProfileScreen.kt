@@ -313,7 +313,7 @@ private fun ProfileContent(
         Text(
 
             text =
-                "@${user.username}",
+                user.username,
 
             fontSize =
                 16.sp,
