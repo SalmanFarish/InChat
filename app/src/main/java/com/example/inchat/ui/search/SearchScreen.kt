@@ -430,6 +430,8 @@ private fun RecentSearchRow(
             Modifier
                 .fillMaxWidth()
                 .clickable(
+                    interactionSource = null,
+                    indication = null,
                     onClick =
                         onClick
                 )
@@ -575,7 +577,11 @@ private fun SearchUserRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .clickable(
+                    interactionSource = null,
+                    indication = null,
+                    onClick = onClick
+                )
                 .padding(
                     horizontal = 20.dp,
                     vertical = 10.dp
