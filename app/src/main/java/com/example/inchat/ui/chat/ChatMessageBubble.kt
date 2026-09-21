@@ -319,10 +319,10 @@ fun SwipeableMessageBubble(
                     .fillMaxWidth()
                     .graphicsLayer {
                         translationX =
-                            replySwipeOffsetPx -
+                            animatedReplySwipeOffsetPx -
                                     (
                                             revealProgress *
-                                                    12.dp.toPx()
+                                                    timestampRevealDistancePx
                                             )
                     },
             horizontalArrangement =
