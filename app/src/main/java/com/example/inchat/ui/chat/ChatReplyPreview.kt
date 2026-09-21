@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -22,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -115,7 +118,7 @@ fun ReplyMessagePreview(
                         9.dp,
 
                     vertical =
-                        8.dp
+                        6.dp
                 ),
 
         verticalAlignment =
@@ -130,7 +133,7 @@ fun ReplyMessagePreview(
                         3.dp
                     )
                     .height(
-                        42.dp
+                        30.dp
                     )
                     .clip(
                         RoundedCornerShape(
@@ -154,8 +157,9 @@ fun ReplyMessagePreview(
         Column(
 
             modifier =
-                Modifier.weight(
-                    1f
+                Modifier.widthIn(
+                    max =
+                        210.dp
                 )
         ) {
 
@@ -192,7 +196,10 @@ fun ReplyMessagePreview(
                     reply.text,
 
                 maxLines =
-                    2,
+                    1,
+
+                overflow =
+                    TextOverflow.Ellipsis,
 
                 style =
                     MaterialTheme
