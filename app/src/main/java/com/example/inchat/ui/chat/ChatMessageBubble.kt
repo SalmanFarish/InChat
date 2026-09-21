@@ -1,6 +1,5 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.animation.Animatable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -23,17 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.changedToDown
-import androidx.compose.ui.input.pointer.consume
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,7 +43,8 @@ fun SwipeableMessageBubble(
     onReply: () -> Unit,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
-    chatSwipeOffsetPx: Float = 0f
+    chatSwipeOffsetPx: Float = 0f,
+    replySwipeOffsetPx: Float = 0f
 ) {
     val density =
         LocalDensity.current
@@ -71,187 +64,11 @@ fun SwipeableMessageBubble(
                 1f
             )
 
-    val replyThresholdPx =
-        with(density) {
-            56.dp.toPx()
-        }
-
-    val replySwipeOffset =
-        remember(message.id) {
-            Animatable(0f)
-        }
-
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .animateContentSize()
-                .pointerInput(message.id) {
-                    awaitPointerEventScope {
-                        val touchSlop =
-                            with(density) {
-                                8.dp.toPx()
-                            }
-
-                        var activePointerId: PointerId? =
-                            null
-
-                        var totalHorizontalDrag =
-                            0f
-
-                        var replyGestureActive =
-                            false
-
-                        var replyTriggered =
-                            false
-
-                        while (true) {
-                            val event =
-                                awaitPointerEvent()
-
-                            val change =
-                                activePointerId
-                                    ?.let { pointerId ->
-                                        event.changes
-                                            .firstOrNull {
-                                                it.id ==
-                                                        pointerId
-                                            }
-                                    }
-                                    ?: event.changes
-                                        .firstOrNull {
-                                            it.changedToDown()
-                                        }
-
-                            if (
-                                change ==
-                                null
-                            ) {
-                                continue
-                            }
-
-                            if (
-                                change.changedToDown()
-                            ) {
-                                activePointerId =
-                                    change.id
-
-                                totalHorizontalDrag =
-                                    0f
-
-                                replyGestureActive =
-                                    false
-
-                                replyTriggered =
-                                    false
-
-                                continue
-                            }
-
-                            if (
-                                !change.pressed
-                            ) {
-                                if (
-                                    replyGestureActive
-                                ) {
-                                    replySwipeOffset
-                                        .animateTo(
-                                            0f
-                                        )
-                                }
-
-                                activePointerId =
-                                    null
-
-                                totalHorizontalDrag =
-                                    0f
-
-                                replyGestureActive =
-                                    false
-
-                                replyTriggered =
-                                    false
-
-                                continue
-                            }
-
-                            val dragDelta =
-                                change
-                                    .positionChange()
-                                    .x
-
-                            if (
-                                !replyGestureActive
-                            ) {
-                                totalHorizontalDrag +=
-                                    dragDelta
-
-                                if (
-                                    totalHorizontalDrag >
-                                    touchSlop
-                                ) {
-                                    replyGestureActive =
-                                        true
-
-                                    replySwipeOffset
-                                        .snapTo(
-                                            totalHorizontalDrag
-                                                .coerceIn(
-                                                    0f,
-                                                    replyThresholdPx * 1.25f
-                                                )
-                                        )
-
-                                    change.consume()
-                                } else if (
-                                    totalHorizontalDrag <
-                                    -touchSlop
-                                ) {
-                                    activePointerId =
-                                        null
-
-                                    totalHorizontalDrag =
-                                        0f
-                                }
-
-                                continue
-                            }
-
-                            if (
-                                dragDelta >
-                                0f
-                            ) {
-                                val nextOffset =
-                                    (
-                                            replySwipeOffset.value +
-                                                    dragDelta
-                                            )
-                                        .coerceIn(
-                                            0f,
-                                            replyThresholdPx * 1.25f
-                                        )
-
-                                replySwipeOffset
-                                    .snapTo(
-                                        nextOffset
-                                    )
-
-                                change.consume()
-
-                                if (
-                                    !replyTriggered &&
-                                    nextOffset >=
-                                    replyThresholdPx
-                                ) {
-                                    replyTriggered =
-                                        true
-
-                                    onReply()
-                                }
-                            }
-                        }
-                    }
-                }
     ) {
         Text(
             text =
@@ -294,11 +111,7 @@ fun SwipeableMessageBubble(
             modifier =
                 Modifier
                     .align(
-                        if (isMe) {
-                            Alignment.CenterEnd
-                        } else {
-                            Alignment.CenterStart
-                        }
+                        Alignment.CenterStart
                     )
                     .size(
                         32.dp
@@ -306,8 +119,8 @@ fun SwipeableMessageBubble(
                     .graphicsLayer {
                         alpha =
                             (
-                                    replySwipeOffset.value /
-                                            replyThresholdPx
+                                    replySwipeOffsetPx /
+                                            (56.dp.toPx())
                                     )
                                 .coerceIn(
                                     0f,
@@ -318,8 +131,8 @@ fun SwipeableMessageBubble(
                             0.7f +
                                     (
                                             (
-                                                    replySwipeOffset.value /
-                                                            replyThresholdPx
+                                                    replySwipeOffsetPx /
+                                                            (56.dp.toPx())
                                                     )
                                                 .coerceIn(
                                                     0f,
@@ -332,8 +145,8 @@ fun SwipeableMessageBubble(
                             0.7f +
                                     (
                                             (
-                                                    replySwipeOffset.value /
-                                                            replyThresholdPx
+                                                    replySwipeOffsetPx /
+                                                            (56.dp.toPx())
                                                     )
                                                 .coerceIn(
                                                     0f,
