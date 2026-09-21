@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
@@ -45,6 +48,23 @@ fun ChatMessageList(
 
     val coroutineScope =
         rememberCoroutineScope()
+
+    val density = LocalDensity.current
+
+    var chatSwipeOffsetPx by
+    remember {
+        mutableFloatStateOf(0f)
+    }
+
+    val animatedChatSwipeOffsetPx by
+    androidx.compose.animation.core.animateFloatAsState(
+        targetValue =
+            chatSwipeOffsetPx,
+        animationSpec =
+            androidx.compose.animation.core.spring(),
+        label =
+            "chatTimestampReveal"
+    )
 
     var initialMessagesPositioned by
     remember {
@@ -253,6 +273,34 @@ fun ChatMessageList(
                 .padding(
                     innerPadding
                 )
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = {
+                                _,
+                                dragAmount ->
+
+                            if (dragAmount > 0f) {
+                                chatSwipeOffsetPx =
+                                    (
+                                            chatSwipeOffsetPx +
+                                                    dragAmount
+                                            )
+                                        .coerceIn(
+                                            0f,
+                                            with(density) {
+                                                56.dp.toPx()
+                                            }
+                                        )
+                            }
+                        },
+                        onDragEnd = {
+                            chatSwipeOffsetPx = 0f
+                        },
+                        onDragCancel = {
+                            chatSwipeOffsetPx = 0f
+                        }
+                    )
+                }
     ) {
 
         Box(
@@ -438,6 +486,9 @@ fun ChatMessageList(
 
                                 currentUserId =
                                     currentUserId,
+
+                                chatSwipeOffsetPx =
+                                    animatedChatSwipeOffsetPx,
 
                                 onReply = {
 
