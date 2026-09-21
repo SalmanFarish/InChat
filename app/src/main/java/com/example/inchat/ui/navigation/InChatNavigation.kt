@@ -69,6 +69,7 @@ import com.example.inchat.ui.chat.ChatScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
+import com.example.inchat.ui.profile.EditProfileScreen
 import com.example.inchat.ui.profile.ProfilePhotoScreen
 import com.example.inchat.ui.profile.ProfileScreen
 import com.example.inchat.ui.profile.PublicProfileScreen
@@ -487,6 +488,59 @@ fun InChatApp(
                             isSavingPhoto
                     )
                 }
+            }
+
+            /*
+             * ==================================================
+             * EDIT PROFILE
+             * ==================================================
+             */
+
+            composable(
+                "edit_profile"
+            ) {
+
+                EditProfileScreen(
+
+                    username =
+                        username,
+
+                    uid =
+                        uid,
+
+                    currentDisplayName =
+                        authViewModel
+                            .displayName
+                            .value,
+
+                    currentBio =
+                        authViewModel
+                            .bio
+                            .value,
+
+                    onBackClick = {
+
+                        navController
+                            .popBackStack()
+                    },
+
+                    onProfileSaved = {
+                            savedDisplayName,
+                            savedBio ->
+
+                        authViewModel
+                            .applySavedProfileState(
+                                displayName =
+                                    savedDisplayName,
+
+                                bio =
+                                    savedBio
+                            )
+
+                        navController
+                            .popBackStack()
+                    }
+                )
             }
 
             /*
@@ -959,7 +1013,18 @@ private fun MainTabPager(
                             launchSingleTop =
                                 true
                         }
-                    }
+                    },
+                        
+                        onEditProfileClick = {
+
+                            navController.navigate(
+                                "edit_profile"
+                            ) {
+
+                                launchSingleTop =
+                                    true
+                            }
+                        }
                 )
             }
         }
