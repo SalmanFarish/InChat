@@ -1133,7 +1133,7 @@ private fun ConversationItem(
                 Text(
 
                     text =
-                        "@${conversation.otherUsername}",
+                        conversation.otherUsername,
 
                     fontSize =
                         17.sp,
