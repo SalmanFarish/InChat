@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 class ChatRepository {
 
@@ -49,6 +50,20 @@ class ChatRepository {
                 "😢",
                 "😡"
             )
+
+        /*
+         * In-memory snapshots keep already-opened Home and Chat
+         * screens immediately populated while Firebase refreshes
+         * the latest server state in the background.
+         *
+         * Firebase Realtime Database disk persistence remains the
+         * source of truth across app restarts.
+         */
+        private val conversationCache =
+            ConcurrentHashMap<String, List<Conversation>>()
+
+        private val messageCache =
+            ConcurrentHashMap<String, List<Message>>()
     }
 
     /*
@@ -189,6 +204,19 @@ class ChatRepository {
                 true
             )
 
+            /*
+             * Reuse the last known in-memory snapshot immediately.
+             * The live Firebase listener below remains authoritative
+             * and will replace this snapshot as soon as fresh data
+             * is available.
+             */
+            messageCache[chatId]
+                ?.let { cachedMessages ->
+                    trySend(
+                        cachedMessages
+                    )
+                }
+
             val listener =
                 object :
                     ValueEventListener {
@@ -230,8 +258,14 @@ class ChatRepository {
                             it.timestamp
                         }
 
+                        val immutableMessages =
+                            messageList.toList()
+
+                        messageCache[chatId] =
+                            immutableMessages
+
                         trySend(
-                            messageList
+                            immutableMessages
                         )
                     }
 
@@ -290,6 +324,19 @@ class ChatRepository {
                 true
             )
 
+            /*
+             * Reuse the last known in-memory snapshot immediately.
+             * The live Firebase listener below remains authoritative
+             * and will replace this snapshot as soon as fresh data
+             * is available.
+             */
+            conversationCache[currentUserId]
+                ?.let { cachedConversations ->
+                    trySend(
+                        cachedConversations
+                    )
+                }
+
             val listener =
                 object :
                     ValueEventListener {
@@ -326,11 +373,18 @@ class ChatRepository {
                             }
                         }
 
-                        trySend(
+                        val immutableConversations =
                             conversations
                                 .sortedByDescending {
                                     it.lastTimestamp
                                 }
+                                .toList()
+
+                        conversationCache[currentUserId] =
+                            immutableConversations
+
+                        trySend(
+                            immutableConversations
                         )
                     }
 
@@ -544,6 +598,15 @@ class ChatRepository {
                 )
                 .removeValue()
                 .await()
+
+            conversationCache.computeIfPresent(
+                currentUserId
+            ) { _, conversations ->
+                conversations.filterNot {
+                    it.chatId ==
+                            chatId
+                }
+            }
 
             Result.success(
                 Unit
