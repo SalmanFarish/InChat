@@ -130,6 +130,11 @@ fun ChatScreen(
         .messages
         .collectAsState()
 
+    val messagesLoaded by
+    chatViewModel
+        .messagesLoaded
+        .collectAsState()
+
     val otherUserReadTimestamp by
     chatViewModel
         .otherUserReadTimestamp
@@ -552,6 +557,9 @@ fun ChatScreen(
 
             messages =
                 messages,
+
+            messagesLoaded =
+                messagesLoaded,
 
             currentUserId =
                 currentUserId,
