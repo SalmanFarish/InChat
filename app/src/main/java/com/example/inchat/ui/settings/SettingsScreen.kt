@@ -1290,6 +1290,8 @@ private fun SettingsRow(
                     ) {
 
                         Modifier.clickable(
+                            interactionSource = null,
+                            indication = null,
                             onClick =
                                 onClick
                         )
