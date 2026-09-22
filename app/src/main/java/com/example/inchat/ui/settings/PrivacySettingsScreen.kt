@@ -160,7 +160,7 @@ fun PrivacySettingsScreen(
                 )
                 .onSuccess {
 
-                    saving =
+                    savingReadReceipts =
                         false
                 }
                 .onFailure { error ->
@@ -200,7 +200,7 @@ fun PrivacySettingsScreen(
                 )
                 .onSuccess {
 
-                    saving =
+                    savingTypingIndicator =
                         false
                 }
                 .onFailure { error ->
@@ -240,7 +240,7 @@ fun PrivacySettingsScreen(
                 )
                 .onSuccess {
 
-                    saving =
+                    savingDiscoverability =
                         false
                 }
                 .onFailure { error ->
@@ -284,7 +284,7 @@ fun PrivacySettingsScreen(
                 )
                 .onSuccess {
 
-                    saving =
+                    savingVisibility =
                         false
                 }
                 .onFailure { error ->
