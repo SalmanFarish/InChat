@@ -517,7 +517,8 @@ class ChatRepository {
      */
     suspend fun markConversationRead(
         currentUserId: String,
-        chatId: String
+        chatId: String,
+        sendReadReceipt: Boolean = true
     ): Result<Unit> {
 
         return try {
@@ -535,14 +536,22 @@ class ChatRepository {
             }
 
             val updates =
-                mapOf<String, Any>(
+                mutableMapOf<String, Any?>(
 
                     "userChats/$currentUserId/$chatId/unreadCount" to
-                            0L,
-
-                    "chats/$chatId/readBy/$currentUserId" to
-                            ServerValue.TIMESTAMP
+                            0L
                 )
+
+            updates[
+                "chats/$chatId/readBy/$currentUserId"
+            ] =
+                if (
+                    sendReadReceipt
+                ) {
+                    ServerValue.TIMESTAMP
+                } else {
+                    null
+                }
 
             database.reference
                 .updateChildren(
