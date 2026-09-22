@@ -53,6 +53,7 @@ fun SwipeableMessageBubble(
     isMe: Boolean,
     deliveryStatus: MessageDeliveryStatus,
     currentUserId: String,
+    chatTheme: ChatTheme,
     onReply: () -> Unit,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
@@ -268,13 +269,9 @@ fun SwipeableMessageBubble(
                             )
                             .background(
                                 if (isMe) {
-                                    MaterialTheme
-                                        .colorScheme
-                                        .primary
+                                    chatTheme.outgoingBubbleColor
                                 } else {
-                                    MaterialTheme
-                                        .colorScheme
-                                        .surfaceVariant
+                                    chatTheme.incomingBubbleColor
                                 }
                             )
                             .padding(
@@ -290,6 +287,8 @@ fun SwipeableMessageBubble(
                                 reply,
                             isMe =
                                 isMe,
+                            chatTheme =
+                                chatTheme,
                             onClick = {
                                 onQuotedReplyClick(
                                     reply.messageId
@@ -318,13 +317,9 @@ fun SwipeableMessageBubble(
                                 ),
                         color =
                             if (isMe) {
-                                MaterialTheme
-                                    .colorScheme
-                                    .onPrimary
+                                chatTheme.outgoingTextColor
                             } else {
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurfaceVariant
+                                chatTheme.incomingTextColor
                             }
                     )
 
@@ -363,17 +358,13 @@ fun SwipeableMessageBubble(
                                             .labelSmall,
                                     color =
                                         if (isMe) {
-                                            MaterialTheme
-                                                .colorScheme
-                                                .onPrimary
+                                            chatTheme.outgoingTextColor
                                                 .copy(
                                                     alpha =
                                                         0.72f
                                                 )
                                         } else {
-                                            MaterialTheme
-                                                .colorScheme
-                                                .onSurfaceVariant
+                                            chatTheme.incomingTextColor
                                                 .copy(
                                                     alpha =
                                                         0.72f
