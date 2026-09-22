@@ -1,4 +1,4 @@
-const {onValueCreated} = require("firebase-functions/v2/database");
+const {onValueCreated, onValueUpdated, onValueDeleted} = require("firebase-functions/v2/database");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -285,7 +285,7 @@ exports.sendChatNotification = onValueCreated(
             "messaging/invalid-registration-token"
           ) {
             await database
-                .ref("users")
+                .ref("privateUsers")
                 .child(receiverId)
                 .child("fcmToken")
                 .removeValue();
@@ -312,5 +312,122 @@ exports.sendChatNotification = onValueCreated(
 
         throw error;
       }
+    },
+);
+
+
+/*
+ * Keeps both Home conversation previews synchronized when the
+ * latest message is edited or deleted.
+ */
+async function syncConversationPreview(chatId) {
+  const chatSnapshot = await database.ref("chats").child(chatId).once("value");
+
+  if (!chatSnapshot.exists()) {
+    return;
+  }
+
+  const chat = chatSnapshot.val();
+  const participantA = chat.participantA;
+  const participantB = chat.participantB;
+
+  if (
+    typeof participantA !== "string" ||
+    typeof participantB !== "string" ||
+    participantA === "" ||
+    participantB === "" ||
+    participantA === participantB
+  ) {
+    logger.warn("Cannot sync preview: invalid participants", {chatId});
+    return;
+  }
+
+  const messagesSnapshot = await database
+      .ref("chats")
+      .child(chatId)
+      .child("messages")
+      .orderByChild("timestamp")
+      .limitToLast(1)
+      .once("value");
+
+  const latest = messagesSnapshot.children[0];
+
+  const lastMessage = latest && typeof latest.child("text").val() === "string" ?
+    latest.child("text").val() :
+    "";
+
+  const lastSenderId = latest &&
+    typeof latest.child("senderId").val() === "string" ?
+    latest.child("senderId").val() :
+    "";
+
+  const lastTimestamp = latest &&
+    typeof latest.child("timestamp").val() === "number" ?
+    latest.child("timestamp").val() :
+    0;
+
+  const updates = {};
+
+  for (const uid of [participantA, participantB]) {
+    updates[`userChats/${uid}/${chatId}/lastMessage`] = lastMessage;
+    updates[`userChats/${uid}/${chatId}/lastSenderId`] = lastSenderId;
+    updates[`userChats/${uid}/${chatId}/lastTimestamp`] = lastTimestamp;
+  }
+
+  await database.ref().update(updates);
+}
+
+/*
+ * A text edit can change the Home preview only if the edited
+ * message is still the latest message.
+ */
+exports.syncEditedMessagePreview = onValueUpdated(
+    {
+      ref: "chats/{chatId}/messages/{messageId}",
+      region: "us-central1",
+    },
+    async (event) => {
+      const before = event.data.before.val();
+      const after = event.data.after.val();
+
+      if (
+        !before ||
+        !after ||
+        before.text === after.text
+      ) {
+        return;
+      }
+
+      const chatId = event.params.chatId;
+      const latestSnapshot = await database
+          .ref("chats")
+          .child(chatId)
+          .child("messages")
+          .orderByChild("timestamp")
+          .limitToLast(1)
+          .once("value");
+
+      const latest = latestSnapshot.children[0];
+
+      if (
+        latest &&
+        latest.key === event.params.messageId
+      ) {
+        await syncConversationPreview(chatId);
+      }
+    },
+);
+
+/*
+ * After deleting the latest message, rebuild both Home previews
+ * from the new latest message.
+ */
+exports.syncDeletedMessagePreview = onValueDeleted(
+    {
+      ref: "chats/{chatId}/messages/{messageId}",
+      region: "us-central1",
+    },
+    async (event) => {
+      await syncConversationPreview(event.params.chatId);
     },
 );
