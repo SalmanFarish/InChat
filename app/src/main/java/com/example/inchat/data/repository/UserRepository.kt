@@ -2260,7 +2260,7 @@ class UserRepository {
                     20
                 )
 
-        return try {
+        try {
 
             val snapshot =
                 database
@@ -2331,14 +2331,12 @@ class UserRepository {
                 }
             }
 
-            users.sortedBy {
-                it.username.lowercase(
-                    Locale.ROOT
-                )
-            }
-
+        users.sortedBy {
+            it.username.lowercase(
+                Locale.ROOT
+            )
+        }
     }
-
 
     /*
      * =========================================================
