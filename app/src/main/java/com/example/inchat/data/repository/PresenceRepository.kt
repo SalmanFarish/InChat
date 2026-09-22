@@ -1,6 +1,7 @@
 package com.example.inchat.data.repository
 
 import com.example.inchat.data.model.Presence
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -9,11 +10,15 @@ import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 
 object PresenceRepository {
 
     private val database =
         FirebaseDatabase.getInstance()
+
+    private val auth =
+        FirebaseAuth.getInstance()
 
     private var connectionListener:
             ValueEventListener? = null
@@ -53,10 +58,38 @@ object PresenceRepository {
                             .getValue(Long::class.java)
                             ?: 0L
 
+                    val onlineVisible =
+                        snapshot
+                            .child("onlineVisible")
+                            .getValue(Boolean::class.java)
+                            ?: true
+
+                    val lastSeenVisible =
+                        snapshot
+                            .child("lastSeenVisible")
+                            .getValue(Boolean::class.java)
+                            ?: true
+
                     trySend(
                         Presence(
-                            online = online,
-                            lastSeen = lastSeen
+                            online =
+                                online &&
+                                        onlineVisible,
+
+                            lastSeen =
+                                if (
+                                    lastSeenVisible
+                                ) {
+                                    lastSeen
+                                } else {
+                                    0L
+                                },
+
+                            onlineVisible =
+                                onlineVisible,
+
+                            lastSeenVisible =
+                                lastSeenVisible
                         )
                     )
                 }
@@ -75,6 +108,64 @@ object PresenceRepository {
         awaitClose {
             presenceRef.removeEventListener(
                 listener
+            )
+        }
+    }
+
+    suspend fun updateVisibility(
+        uid: String,
+        onlineVisible: Boolean,
+        lastSeenVisible: Boolean
+    ): Result<Unit> {
+
+        if (uid.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match presence owner"
+                )
+            )
+        }
+
+        return try {
+
+            database
+                .getReference("presence")
+                .child(uid)
+                .updateChildren(
+                    mapOf(
+                        "onlineVisible" to
+                                onlineVisible,
+
+                        "lastSeenVisible" to
+                                lastSeenVisible
+                    )
+                )
+                .await()
+
+            Result.success(
+                Unit
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
             )
         }
     }
