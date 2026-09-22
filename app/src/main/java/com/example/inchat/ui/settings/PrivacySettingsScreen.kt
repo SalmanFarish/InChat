@@ -495,7 +495,7 @@ fun PrivacySettingsScreen(
                         readReceiptsVisible,
 
                     enabled =
-                        !savingTypingIndicator,
+                        !savingReadReceipts,
 
                     onCheckedChange = { checked ->
 
@@ -520,7 +520,7 @@ fun PrivacySettingsScreen(
                         typingIndicatorVisible,
 
                     enabled =
-                        !savingDiscoverability,
+                        !savingTypingIndicator,
 
                     onCheckedChange = { checked ->
 
@@ -543,7 +543,7 @@ fun PrivacySettingsScreen(
                 PrivacyToggleRow(
 
                     title =
-                        "Find me by username",
+                        "Who can find me",
 
                     description =
                         "Allow other people to discover your account through username search.",
