@@ -14,6 +14,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -51,6 +53,20 @@ fun ChatThemeScreen(
         .collectAsState(initial = ChatTheme.MIDNIGHT.id)
 
     val coroutineScope = rememberCoroutineScope()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("Theme") },
+            text = { Text(errorMessage!!) },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -107,7 +123,10 @@ fun ChatThemeScreen(
                                     chatId = chatId,
                                     currentUserId = currentUserId,
                                     themeId = theme.id
-                                )
+                                ).onFailure { error ->
+                                    errorMessage =
+                                        error.message ?: "Could not change chat theme."
+                                }
                             }
                         }
                     )
