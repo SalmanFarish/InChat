@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -1125,12 +1126,15 @@ private fun InChatBottomBar(
                                 size.width /
                                         bottomNavItems.size.toFloat()
 
+                            var dragJob: kotlinx.coroutines.Job? = null
+
                             detectDragGesturesAfterLongPress(
 
                                 onDragStart = {
                                     // Intentionally do not trigger Search focus.
                                     // Crossing/touching Search while scrubbing must
                                     // remain a navigation gesture only.
+                                    dragJob?.cancel()
                                 },
 
                                 onDrag = {
@@ -1152,18 +1156,32 @@ private fun InChatBottomBar(
 
                                         change.consume()
 
-                                        pagerState
-                                            .dispatchRawDelta(
-                                                dragAmount.x *
-                                                        (
-                                                            pageWidthPx /
-                                                                    itemWidthPx
-                                                            )
-                                            )
+                                        val pageDelta =
+                                            dragAmount.x *
+                                                    (
+                                                        pageWidthPx /
+                                                                itemWidthPx
+                                                        )
+
+                                        dragJob?.cancel()
+
+                                        dragJob =
+                                            launch {
+                                                pagerState.scroll(
+                                                    MutatePriority.UserInput
+                                                ) {
+                                                    scrollBy(
+                                                        pageDelta
+                                                    )
+                                                }
+                                            }
                                     }
                                 },
 
                                 onDragEnd = {
+
+                                    dragJob?.cancel()
+                                    dragJob = null
 
                                     val targetPage =
                                         (
@@ -1182,6 +1200,9 @@ private fun InChatBottomBar(
                                 },
 
                                 onDragCancel = {
+
+                                    dragJob?.cancel()
+                                    dragJob = null
 
                                     val targetPage =
                                         (
