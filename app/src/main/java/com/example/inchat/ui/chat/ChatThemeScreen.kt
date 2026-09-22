@@ -15,6 +15,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -55,6 +57,7 @@ fun ChatThemeScreen(
         .collectAsState(initial = ChatTheme.DESSERT.id)
 
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val currentErrorMessage = errorMessage
@@ -74,6 +77,11 @@ fun ChatThemeScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState
+            )
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Chat theme") },
@@ -127,10 +135,16 @@ fun ChatThemeScreen(
                                     chatId = chatId,
                                     currentUserId = currentUserId,
                                     themeId = theme.id
-                                ).onFailure { error ->
-                                    errorMessage =
-                                        error.message ?: "Could not change chat theme."
-                                }
+                                )
+                                    .onSuccess {
+                                        snackbarHostState.showSnackbar(
+                                            "Theme updated"
+                                        )
+                                    }
+                                    .onFailure { error ->
+                                        errorMessage =
+                                            error.message ?: "Could not change chat theme."
+                                    }
                             }
                         }
                     )
