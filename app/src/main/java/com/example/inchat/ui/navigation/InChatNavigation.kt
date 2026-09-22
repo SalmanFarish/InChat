@@ -67,6 +67,7 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
+import com.example.inchat.ui.chat.ChatThemeScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
