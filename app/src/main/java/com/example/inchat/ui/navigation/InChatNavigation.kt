@@ -77,6 +77,7 @@ import com.example.inchat.ui.profile.PublicProfileScreen
 import com.example.inchat.ui.profile.PublicProfileViewModel
 import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
+import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -591,6 +592,36 @@ fun InChatApp(
 
                     authViewModel =
                         authViewModel,
+
+                    onBackClick = {
+
+                        navController
+                            .popBackStack()
+                    },
+
+                    onPrivacyClick = {
+
+                        navController.navigate(
+                            "privacy_settings"
+                        )
+                    }
+                )
+            }
+
+            /*
+             * ==================================================
+             * PRIVACY SETTINGS
+             * ==================================================
+             */
+
+            composable(
+                "privacy_settings"
+            ) {
+
+                PrivacySettingsScreen(
+
+                    uid =
+                        uid,
 
                     onBackClick = {
 
