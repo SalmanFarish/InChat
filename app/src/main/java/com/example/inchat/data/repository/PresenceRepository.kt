@@ -112,15 +112,25 @@ object PresenceRepository {
                 }
             }
 
-        /*
-         * Visibility settings are intentionally read only by the
-         * account owner. For other users, successful child reads
-         * imply that the corresponding visibility flag is enabled.
-         */
+        presenceRef
+            .child("online")
+            .addValueEventListener(
+                onlineListener
+            )
+
+        presenceRef
+            .child("lastSeen")
+            .addValueEventListener(
+                lastSeenListener
+            )
+
+        var visibilityListener:
+                ValueEventListener? = null
+
         if (
             auth.currentUser?.uid == uid
         ) {
-            val visibilityListener =
+            visibilityListener =
                 object : ValueEventListener {
 
                     override fun onDataChange(
@@ -128,16 +138,8 @@ object PresenceRepository {
                     ) {
                         onlineVisible =
                             snapshot
-                                .child("onlineVisible")
                                 .getValue(Boolean::class.java)
                                 ?: true
-
-                        lastSeenVisible =
-                            snapshot
-                                .child("lastSeenVisible")
-                                .getValue(Boolean::class.java)
-                                ?: true
-
                         emitPresence()
                     }
 
@@ -148,9 +150,41 @@ object PresenceRepository {
                     }
                 }
 
-            presenceRef.addValueEventListener(
-                visibilityListener
-            )
+            presenceRef
+                .child("onlineVisible")
+                .addValueEventListener(
+                    visibilityListener
+                )
+
+            /*
+             * lastSeenVisible is read separately so one hidden
+             * setting cannot expose the other.
+             */
+            val lastSeenVisibilityListener =
+                object : ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot: DataSnapshot
+                    ) {
+                        lastSeenVisible =
+                            snapshot
+                                .getValue(Boolean::class.java)
+                                ?: true
+                        emitPresence()
+                    }
+
+                    override fun onCancelled(
+                        error: DatabaseError
+                    ) {
+                        emitPresence()
+                    }
+                }
+
+            presenceRef
+                .child("lastSeenVisible")
+                .addValueEventListener(
+                    lastSeenVisibilityListener
+                )
 
             awaitClose {
                 presenceRef
@@ -165,24 +199,20 @@ object PresenceRepository {
                         lastSeenListener
                     )
 
-                presenceRef.removeEventListener(
-                    visibilityListener
-                )
+                presenceRef
+                    .child("onlineVisible")
+                    .removeEventListener(
+                        visibilityListener
+                    )
+
+                presenceRef
+                    .child("lastSeenVisible")
+                    .removeEventListener(
+                        lastSeenVisibilityListener
+                    )
             }
 
         } else {
-            presenceRef
-                .child("online")
-                .addValueEventListener(
-                    onlineListener
-                )
-
-            presenceRef
-                .child("lastSeen")
-                .addValueEventListener(
-                    lastSeenListener
-                )
-
             awaitClose {
                 presenceRef
                     .child("online")
