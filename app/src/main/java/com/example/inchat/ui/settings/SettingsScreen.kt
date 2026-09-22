@@ -231,7 +231,10 @@ fun SettingsScreen(
                                 "Read receipts",
 
                             subtitle =
-                                "Control read status for your messages"
+                                "Let other people see when you have read their messages",
+
+                            enabled =
+                                true
                         ),
 
                         SettingsItem(
@@ -239,7 +242,10 @@ fun SettingsScreen(
                                 "Typing indicator",
 
                             subtitle =
-                                "Control whether your typing status is shared"
+                                "Let other people see when you are typing",
+
+                            enabled =
+                                true
                         ),
 
                         SettingsItem(
@@ -1455,7 +1461,9 @@ private fun SettingsSectionCard(
                                     onRecoveryCodesClick()
 
                                 "Last seen",
-                                "Online status" ->
+                                "Online status",
+                                "Read receipts",
+                                "Typing indicator" ->
                                     onPrivacyClick()
                             }
                         }
