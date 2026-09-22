@@ -21,7 +21,7 @@ class ChatAppearanceRepository {
 
     fun observeTheme(
         chatId: String
-    ): Flow<String> =
+    ): Flow<String?> =
         callbackFlow {
 
             val themeRef =
@@ -58,11 +58,7 @@ class ChatAppearanceRepository {
                             )
 
                         trySend(
-                            ChatTheme
-                                .fromId(
-                                    themeId
-                                )
-                                .id
+                            themeId
                         )
                     }
 
