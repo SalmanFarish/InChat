@@ -526,6 +526,9 @@ fun ChatMessageList(
                                 currentUserId =
                                     currentUserId,
 
+                                chatTheme =
+                                    chatTheme,
+
                                 chatSwipeOffsetPx =
                                     chatSwipeOffsetPx,
 
