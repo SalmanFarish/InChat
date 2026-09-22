@@ -531,6 +531,147 @@ class UserRepository {
 
     /*
      * =========================================================
+     * TYPING INDICATOR VISIBILITY
+     * =========================================================
+     */
+
+    fun observeTypingIndicatorVisible(
+        uid: String
+    ): Flow<Boolean> =
+        callbackFlow {
+
+            if (
+                uid.isBlank()
+            ) {
+
+                trySend(true)
+
+                close()
+
+                return@callbackFlow
+            }
+
+            val typingVisibilityRef =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
+                    .child(
+                        "typingIndicatorVisible"
+                    )
+
+            typingVisibilityRef.keepSynced(
+                true
+            )
+
+            val listener =
+                object :
+                    ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot:
+                        DataSnapshot
+                    ) {
+
+                        trySend(
+                            snapshot.getValue(
+                                Boolean::class.java
+                            ) ?: true
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error:
+                        DatabaseError
+                    ) {
+
+                        close(
+                            error.toException()
+                        )
+                    }
+                }
+
+            typingVisibilityRef
+                .addValueEventListener(
+                    listener
+                )
+
+            awaitClose {
+
+                typingVisibilityRef
+                    .removeEventListener(
+                        listener
+                    )
+            }
+        }
+
+    suspend fun updateTypingIndicatorVisible(
+        uid: String,
+        visible: Boolean
+    ): Result<Unit> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match preference owner."
+                )
+            )
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "typingIndicatorVisible"
+                )
+                .setValue(
+                    visible
+                )
+                .await()
+
+            Result.success(
+                Unit
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
      * SAVE USER
      * =========================================================
      */
