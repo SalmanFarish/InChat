@@ -21,6 +21,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.max
@@ -48,6 +49,18 @@ class UserRepository {
 
         private const val PROFILE_PHOTO_MIN_QUALITY =
             45
+
+        /*
+         * Short-lived in-memory profile cache used by Home, Chat and
+         * search. Firebase disk persistence remains the offline source
+         * of truth; this cache prevents repeated identical reads while
+         * several Compose screens are alive.
+         */
+        private const val USER_CACHE_TTL_MS =
+            60_000L
+
+        private val userCache =
+            ConcurrentHashMap<String, CachedUser>()
     }
 
     private val database =
@@ -55,6 +68,12 @@ class UserRepository {
 
     private val auth =
         FirebaseAuth.getInstance()
+
+    private data class CachedUser(
+        val user: User,
+        val cachedAt: Long
+    )
+
 
     private fun usernameKey(
         username: String
@@ -2000,8 +2019,24 @@ class UserRepository {
         if (
             uid.isBlank()
         ) {
-
             return null
+        }
+
+        val now =
+            System.currentTimeMillis()
+
+        userCache[uid]?.let { cached ->
+            if (
+                now - cached.cachedAt <
+                USER_CACHE_TTL_MS
+            ) {
+                return cached.user
+            }
+
+            userCache.remove(
+                uid,
+                cached
+            )
         }
 
         val userRef =
@@ -2014,107 +2049,116 @@ class UserRepository {
                 )
 
         /*
-         * Keep this profile synchronized locally as well, so
-         * the app can still show the last known profile when
-         * the device is offline.
-         */
-        userRef.keepSynced(
-            true
-        )
-
-        /*
-         * IMPORTANT:
-         *
-         * Profile data can change from another device.
-         * Do not return the local listener result first because
-         * that can be an older cached User object.
-         *
-         * get() attempts to obtain the current server value.
+         * This is intentionally a one-shot read. Firebase persistence
+         * still provides offline data, while removing keepSynced(true)
+         * prevents every profile touched by Home/Search from becoming
+         * a permanently synchronized location.
          */
         return try {
 
-            userRef
-                .get()
-                .await()
-                .getValue(
-                    User::class.java
-                )
+            val user =
+                userRef
+                    .get()
+                    .await()
+                    .getValue(
+                        User::class.java
+                    )
+
+            if (
+                user != null
+            ) {
+                userCache[uid] =
+                    CachedUser(
+                        user = user,
+                        cachedAt =
+                            System.currentTimeMillis()
+                    )
+            }
+
+            user
 
         } catch (
             _: Exception
         ) {
 
             /*
-             * Offline fallback:
-             *
-             * If the server cannot be reached, use the locally
-             * synchronized profile so the app remains usable.
+             * Firebase may still have a locally persisted snapshot
+             * even when the current server read cannot complete.
              */
             try {
 
-                suspendCancellableCoroutine<DataSnapshot> {
-                        continuation ->
+                val user =
+                    suspendCancellableCoroutine<DataSnapshot> {
+                            continuation ->
 
-                    val listener =
-                        object :
-                            ValueEventListener {
+                        val listener =
+                            object :
+                                ValueEventListener {
 
-                            override fun onDataChange(
-                                snapshot:
-                                DataSnapshot
-                            ) {
-
-                                if (
-                                    continuation.isActive
+                                override fun onDataChange(
+                                    snapshot:
+                                    DataSnapshot
                                 ) {
+                                    if (
+                                        continuation.isActive
+                                    ) {
+                                        continuation.resume(
+                                            snapshot
+                                        )
+                                    }
+                                }
 
-                                    continuation.resume(
-                                        snapshot
-                                    )
+                                override fun onCancelled(
+                                    error:
+                                    DatabaseError
+                                ) {
+                                    if (
+                                        continuation.isActive
+                                    ) {
+                                        continuation.resumeWithException(
+                                            error.toException()
+                                        )
+                                    }
                                 }
                             }
-
-                            override fun onCancelled(
-                                error:
-                                DatabaseError
-                            ) {
-
-                                if (
-                                    continuation.isActive
-                                ) {
-
-                                    continuation.resumeWithException(
-                                        error.toException()
-                                    )
-                                }
-                            }
-                        }
-
-                    userRef
-                        .addListenerForSingleValueEvent(
-                            listener
-                        )
-
-                    continuation.invokeOnCancellation {
 
                         userRef
-                            .removeEventListener(
+                            .addListenerForSingleValueEvent(
                                 listener
                             )
+
+                        continuation.invokeOnCancellation {
+                            userRef
+                                .removeEventListener(
+                                    listener
+                                )
+                        }
                     }
+                        .getValue(
+                            User::class.java
+                        )
+
+                if (
+                    user != null
+                ) {
+                    userCache[uid] =
+                        CachedUser(
+                            user = user,
+                            cachedAt =
+                                System.currentTimeMillis()
+                        )
                 }
-                    .getValue(
-                        User::class.java
-                    )
+
+                user
 
             } catch (
                 _: Exception
             ) {
-
                 null
             }
         }
     }
+
 
     /*
      * =========================================================
