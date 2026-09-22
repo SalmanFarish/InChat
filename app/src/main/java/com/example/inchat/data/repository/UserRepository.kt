@@ -608,6 +608,43 @@ class UserRepository {
             }
         }
 
+    suspend fun getTypingIndicatorVisible(
+        uid: String
+    ): Boolean {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return true
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "typingIndicatorVisible"
+                )
+                .get()
+                .await()
+                .getValue(
+                    Boolean::class.java
+                ) ?: true
+
+        } catch (
+            e: Exception
+        ) {
+
+            true
+        }
+    }
+
     suspend fun updateTypingIndicatorVisible(
         uid: String,
         visible: Boolean
