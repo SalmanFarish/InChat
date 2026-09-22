@@ -95,6 +95,20 @@ class ChatRepository {
 
         return try {
 
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match chat owner."
+                    )
+                )
+            }
+
             if (
                 currentUserId.isBlank() ||
                 otherUserId.isBlank() ||
@@ -518,6 +532,20 @@ class ChatRepository {
 
         return try {
 
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match read-state owner."
+                    )
+                )
+            }
+
             if (
                 currentUserId.isBlank() ||
                 chatId.isBlank()
@@ -577,6 +605,20 @@ class ChatRepository {
     ): Result<Unit> {
 
         return try {
+
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match conversation owner."
+                    )
+                )
+            }
 
             if (
                 currentUserId.isBlank() ||
@@ -655,6 +697,20 @@ class ChatRepository {
                 return Result.failure(
                     IllegalArgumentException(
                         "Invalid message data"
+                    )
+                )
+            }
+
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != senderId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match message sender."
                     )
                 )
             }
