@@ -276,18 +276,18 @@
 
             ".validate": "newData.isString() &&
                           (
-                            newData.val() === 'midnight' ||
-                            newData.val() === 'ocean' ||
-                            newData.val() === 'forest' ||
-                            newData.val() === 'ember' ||
-                            newData.val() === 'violet' ||
-                            newData.val() === 'mono' ||
+                            newData.val() === 'dessert' ||
+                            newData.val() === 'starfield' ||
+                            newData.val() === 'signal' ||
+                            newData.val() === 'sticker' ||
+                            newData.val() === 'cosmos' ||
                             newData.val() === 'pure_black' ||
                             newData.val() === 'ascii_minimal' ||
                             newData.val() === 'dots' ||
                             newData.val() === 'wave' ||
                             newData.val() === 'grid' ||
-                            newData.val() === 'terminal'
+                            newData.val() === 'terminal' ||
+                            newData.val() === 'brackets'
                           )"
           }
         },
