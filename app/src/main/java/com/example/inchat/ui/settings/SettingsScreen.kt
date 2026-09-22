@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,14 +26,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,8 +48,8 @@ import com.example.inchat.ui.auth.AuthViewModel
 
 private data class SettingsItem(
     val title: String,
-    val subtitle: String = "",
-    val enabled: Boolean = true
+    val subtitle: String,
+    val enabled: Boolean = false
 )
 
 private data class SettingsSection(
@@ -117,176 +117,307 @@ fun SettingsScreen(
         )
     }
 
+    val cleanUsername =
+        username
+            .trim()
+
+    val cleanUid =
+        uid
+            .trim()
+
     val sections =
-        remember {
+        listOf(
 
-            listOf(
+            SettingsSection(
+                title =
+                    "ACCOUNT",
 
-                SettingsSection(
-                    title = "ACCOUNT",
-                    items = listOf(
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Username",
-                            subtitle = "@$username"
+                            title =
+                                "Username",
+
+                            subtitle =
+                                cleanUsername
+                                    .ifBlank {
+                                        "Your permanent InChat username"
+                                    },
+
+                            enabled =
+                                false
                         ),
+
                         SettingsItem(
-                            title = "Account ID",
-                            subtitle = uid
-                        ),
-                        SettingsItem(
-                            title = "Recovery codes",
-                            subtitle = "Generate and replace your recovery codes"
+                            title =
+                                "Account ID",
+
+                            subtitle =
+                                cleanUid
+                                    .ifBlank {
+                                        "Unavailable"
+                                    },
+
+                            enabled =
+                                false
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "PRIVACY",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "SECURITY",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Last seen",
-                            subtitle = "Control who can see when you were last active"
+                            title =
+                                "Recovery codes",
+
+                            subtitle =
+                                "Generate a fresh set and replace your previous codes",
+
+                            enabled =
+                                true
                         ),
+
                         SettingsItem(
-                            title = "Online status",
-                            subtitle = "Control your online visibility"
-                        ),
-                        SettingsItem(
-                            title = "Read receipts",
-                            subtitle = "Show when messages have been read"
-                        ),
-                        SettingsItem(
-                            title = "Typing indicator",
-                            subtitle = "Show when you are typing"
-                        ),
-                        SettingsItem(
-                            title = "Who can find me",
-                            subtitle = "Control how other users discover your account"
+                            title =
+                                "Change password",
+
+                            subtitle =
+                                "Update the password used to sign in",
+
+                            enabled =
+                                false
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "NOTIFICATIONS",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "PRIVACY",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Message notifications",
-                            subtitle = "Control notification delivery"
+                            title =
+                                "Last seen",
+
+                            subtitle =
+                                "Control who can see when you were last active"
                         ),
+
                         SettingsItem(
-                            title = "Notification previews",
-                            subtitle = "Control message previews"
+                            title =
+                                "Online status",
+
+                            subtitle =
+                                "Control whether other people can see you online"
                         ),
+
                         SettingsItem(
-                            title = "Sound",
-                            subtitle = "Notification sound preferences"
+                            title =
+                                "Read receipts",
+
+                            subtitle =
+                                "Control read status for your messages"
                         ),
+
                         SettingsItem(
-                            title = "Vibration",
-                            subtitle = "Notification vibration preferences"
+                            title =
+                                "Typing indicator",
+
+                            subtitle =
+                                "Control whether your typing status is shared"
+                        ),
+
+                        SettingsItem(
+                            title =
+                                "Who can find me",
+
+                            subtitle =
+                                "Control how other users can discover your account"
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "APPEARANCE",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "NOTIFICATIONS",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Theme",
-                            subtitle = "System, light or dark"
+                            title =
+                                "Message notifications",
+
+                            subtitle =
+                                "Control notifications for new messages"
                         ),
+
                         SettingsItem(
-                            title = "AMOLED mode",
-                            subtitle = "Use a deeper black interface"
+                            title =
+                                "Notification previews",
+
+                            subtitle =
+                                "Control message text shown in notifications"
                         ),
+
                         SettingsItem(
-                            title = "App icon",
-                            subtitle = "Monochrome adaptive icon preferences"
+                            title =
+                                "Sound",
+
+                            subtitle =
+                                "Control notification sound"
                         ),
+
                         SettingsItem(
-                            title = "Text size",
-                            subtitle = "Control the application's text scale"
+                            title =
+                                "Vibration",
+
+                            subtitle =
+                                "Control notification vibration"
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "CHATS",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "APPEARANCE",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Chat appearance",
-                            subtitle = "Conversation wallpaper and appearance"
+                            title =
+                                "Theme",
+
+                            subtitle =
+                                "Choose light, dark or system appearance"
                         ),
+
                         SettingsItem(
-                            title = "Enter key behavior",
-                            subtitle = "Choose what the enter key does"
-                        ),
-                        SettingsItem(
-                            title = "Media and data",
-                            subtitle = "Control media and data preferences"
+                            title =
+                                "AMOLED mode",
+
+                            subtitle =
+                                "Use a deeper black interface"
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "DATA & STORAGE",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "CHATS",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Storage usage",
-                            subtitle = "See local application storage"
+                            title =
+                                "Chat appearance",
+
+                            subtitle =
+                                "Customize the look of conversations"
                         ),
+
                         SettingsItem(
-                            title = "Clear cached data",
-                            subtitle = "Remove temporary local data"
+                            title =
+                                "Enter key behavior",
+
+                            subtitle =
+                                "Choose what the keyboard enter key does"
                         ),
+
                         SettingsItem(
-                            title = "Export account data",
-                            subtitle = "Export the information associated with this account"
+                            title =
+                                "Media and data",
+
+                            subtitle =
+                                "Control media handling and data usage"
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "SAFETY",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "SAFETY",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Blocked users",
-                            subtitle = "Manage accounts you have blocked"
+                            title =
+                                "Blocked users",
+
+                            subtitle =
+                                "Manage the people you have blocked"
                         ),
+
                         SettingsItem(
-                            title = "Safety information",
-                            subtitle = "Learn about safety and privacy in InChat"
+                            title =
+                                "Safety information",
+
+                            subtitle =
+                                "Learn about blocking, reporting and privacy"
                         )
                     )
-                ),
+            ),
 
-                SettingsSection(
-                    title = "SUPPORT",
-                    items = listOf(
+            SettingsSection(
+                title =
+                    "SUPPORT",
+
+                items =
+                    listOf(
+
                         SettingsItem(
-                            title = "Help",
-                            subtitle = "Get help using InChat"
+                            title =
+                                "Help",
+
+                            subtitle =
+                                "Get help using InChat"
                         ),
+
                         SettingsItem(
-                            title = "Contact support",
-                            subtitle = "Get in touch with InChat support"
+                            title =
+                                "Contact support",
+
+                            subtitle =
+                                "Get in touch with InChat support"
                         ),
+
                         SettingsItem(
-                            title = "Privacy policy",
-                            subtitle = "Read the InChat privacy policy"
+                            title =
+                                "Privacy policy",
+
+                            subtitle =
+                                "Read how InChat handles your information"
                         ),
+
                         SettingsItem(
-                            title = "Terms of service",
-                            subtitle = "Read the InChat terms"
+                            title =
+                                "Terms of service",
+
+                            subtitle =
+                                "Read the terms for using InChat"
                         ),
+
                         SettingsItem(
-                            title = "About InChat",
-                            subtitle = "Application information"
+                            title =
+                                "About InChat",
+
+                            subtitle =
+                                "Application information and version"
                         )
                     )
-                )
             )
-        }
+        )
 
     /*
      * =========================================================
@@ -993,292 +1124,396 @@ fun SettingsScreen(
                     ),
 
             contentPadding =
-                androidx.compose.foundation
+                androidx.compose
+                    .foundation
                     .layout
                     .PaddingValues(
+                        start =
+                            16.dp,
+
                         top =
-                            8.dp,
+                            10.dp,
+
+                        end =
+                            16.dp,
 
                         bottom =
-                            24.dp
-                    )
+                            28.dp
+                    ),
+
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    20.dp
+                )
         ) {
 
             item {
 
-                Text(
-
-                    text =
-                        "@$username",
+                Surface(
 
                     modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start =
-                                    20.dp,
+                        Modifier.fillMaxWidth(),
 
-                                top =
-                                    12.dp,
-
-                                end =
-                                    20.dp,
-
-                                bottom =
-                                    20.dp
+                    shape =
+                        androidx.compose
+                            .foundation
+                            .shape
+                            .RoundedCornerShape(
+                                22.dp
                             ),
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodyMedium,
 
                     color =
                         MaterialTheme
                             .colorScheme
-                            .onSurfaceVariant
-                )
+                            .surfaceVariant,
+
+                    tonalElevation =
+                        1.dp
+                ) {
+
+                    Column(
+
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    18.dp,
+
+                                vertical =
+                                    18.dp
+                            )
+                    ) {
+
+                        Text(
+
+                            text =
+                                "Your account",
+
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .titleMedium,
+
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    4.dp
+                                )
+                        )
+
+                        Text(
+
+                            text =
+                                cleanUsername
+                                    .ifBlank {
+                                        "Username unavailable"
+                                    },
+
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyLarge,
+
+                            fontWeight =
+                                FontWeight.SemiBold
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    2.dp
+                                )
+                        )
+
+                        Text(
+
+                            text =
+                                "Manage your InChat account and privacy.",
+
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+                    }
+                }
             }
 
             sections.forEach { section ->
 
                 item {
 
+                    SettingsSectionCard(
+
+                        section =
+                            section,
+
+                        onRecoveryCodesClick = {
+
+                            recoveryError =
+                                null
+
+                            showRecoveryConfirmation =
+                                true
+                        },
+
+                        onUsernameCopy = null,
+
+                        onAccountIdCopy = null
+                    )
+                }
+            }
+
+            item {
+
+                Column(
+
+                    modifier =
+                        Modifier.fillMaxWidth()
+                ) {
+
+                    SettingsSectionLabel(
+                        "ACCOUNT ACTIONS"
+                    )
+
+                    SettingsActionCard(
+
+                        title =
+                            "Log out",
+
+                        subtitle =
+                            "Sign out of this InChat account",
+
+                        onClick = {
+
+                            authViewModel
+                                .logout()
+                        }
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                1.dp
+                            )
+                    )
+
+                    SettingsActionCard(
+
+                        title =
+                            "Delete account",
+
+                        subtitle =
+                            "Permanently remove your InChat account",
+
+                        onClick = {
+
+                            deletePassword =
+                                ""
+
+                            deleteError =
+                                null
+
+                            showDeleteDialog =
+                                true
+                        }
+                    )
+                }
+            }
+
+            item {
+
+                Column(
+
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                top =
+                                    2.dp
+                            ),
+
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally
+                ) {
+
                     Text(
 
                         text =
-                            section.title,
-
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    start =
-                                        20.dp,
-
-                                    top =
-                                        18.dp,
-
-                                    end =
-                                        20.dp,
-
-                                    bottom =
-                                        7.dp
-                                ),
+                            "InChat",
 
                         style =
                             MaterialTheme
                                 .typography
-                                .labelSmall,
+                                .labelMedium,
 
                         fontWeight =
-                            FontWeight.SemiBold,
+                            FontWeight.SemiBold
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                3.dp
+                            )
+                    )
+
+                    Text(
+
+                        text =
+                            "Private conversations. Minimal identity.",
+
+                        style =
+                            MaterialTheme
+                                .typography
+                                .bodySmall,
 
                         color =
                             MaterialTheme
                                 .colorScheme
-                                .onSurfaceVariant
+                                .onSurfaceVariant,
+
+                        textAlign =
+                            TextAlign.Center
                     )
                 }
-
-                section.items.forEach { setting ->
-
-                    item {
-
-                        SettingsRow(
-
-                            item =
-                                setting,
-
-                            onClick = {
-
-                                when (
-                                    setting.title
-                                ) {
-
-                                    "Recovery codes" -> {
-
-                                        recoveryError =
-                                            null
-
-                                        showRecoveryConfirmation =
-                                            true
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-
-            item {
-
-                SettingsSectionDivider()
-            }
-
-            item {
-
-                Text(
-
-                    text =
-                        "ACCOUNT ACTIONS",
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start =
-                                    20.dp,
-
-                                top =
-                                    18.dp,
-
-                                end =
-                                    20.dp,
-
-                                bottom =
-                                    7.dp
-                            ),
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelSmall,
-
-                    fontWeight =
-                        FontWeight.SemiBold,
-
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
-            }
-
-            item {
-
-                SettingsRow(
-
-                    item =
-                        SettingsItem(
-                            title =
-                                "Log out",
-
-                            subtitle =
-                                "Sign out of this InChat account"
-                        ),
-
-                    onClick = {
-
-                        authViewModel
-                            .logout()
-                    }
-                )
-            }
-
-            item {
-
-                SettingsRow(
-
-                    item =
-                        SettingsItem(
-                            title =
-                                "Delete account",
-
-                            subtitle =
-                                "Permanently remove your InChat account"
-                        ),
-
-                    onClick = {
-
-                        deletePassword =
-                            ""
-
-                        deleteError =
-                            null
-
-                        showDeleteDialog =
-                            true
-                    }
-                )
-            }
-
-            item {
-
-                Text(
-
-                    text =
-                        "InChat",
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                top =
-                                    34.dp,
-
-                                bottom =
-                                    4.dp
-                            ),
-
-                    textAlign =
-                        TextAlign.Center,
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelMedium,
-
-                    fontWeight =
-                        FontWeight.SemiBold
-                )
-            }
-
-            item {
-
-                Text(
-
-                    text =
-                        "Private conversations. Minimal identity.",
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                bottom =
-                                    20.dp
-                            ),
-
-                    textAlign =
-                        TextAlign.Center,
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodySmall,
-
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
             }
         }
     }
 }
 
-/*
- * ============================================================
- * SETTINGS ROW
- * ============================================================
- */
+@Composable
+private fun SettingsSectionCard(
+    section: SettingsSection,
+    onRecoveryCodesClick: () -> Unit,
+    onUsernameCopy: (() -> Unit)?,
+    onAccountIdCopy: (() -> Unit)?
+) {
+
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+    ) {
+
+        SettingsSectionLabel(
+            section.title
+        )
+
+        Surface(
+
+            modifier =
+                Modifier.fillMaxWidth(),
+
+            shape =
+                androidx.compose
+                    .foundation
+                    .shape
+                    .RoundedCornerShape(
+                        20.dp
+                    ),
+
+            color =
+                MaterialTheme
+                    .colorScheme
+                    .surfaceVariant,
+
+            tonalElevation =
+                1.dp
+        ) {
+
+            Column {
+
+                section.items.forEachIndexed {
+                        index,
+                        item ->
+
+                    SettingsRow(
+
+                        item =
+                            item,
+
+                        onClick = {
+
+                            if (
+                                item.title ==
+                                "Recovery codes"
+                            ) {
+
+                                onRecoveryCodesClick()
+                            }
+                        }
+                    )
+
+                    if (
+                        index <
+                        section.items.lastIndex
+                    ) {
+
+                        SettingsDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionLabel(
+    title: String
+) {
+
+    Text(
+
+        text =
+            title,
+
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    start =
+                        4.dp,
+
+                    end =
+                        4.dp,
+
+                    bottom =
+                        7.dp
+                ),
+
+        style =
+            MaterialTheme
+                .typography
+                .labelSmall,
+
+        fontWeight =
+            FontWeight.Bold,
+
+        color =
+            MaterialTheme
+                .colorScheme
+                .onSurfaceVariant,
+
+        letterSpacing =
+            0.8.sp
+    )
+}
+
 @Composable
 private fun SettingsRow(
     item: SettingsItem,
     onClick: () -> Unit
 ) {
 
-    Column(
+    Row(
 
         modifier =
             Modifier
@@ -1303,127 +1538,235 @@ private fun SettingsRow(
                 )
                 .padding(
                     start =
-                        20.dp,
+                        18.dp,
 
                     top =
-                        14.dp,
+                        15.dp,
 
                     end =
-                        20.dp,
+                        18.dp,
 
                     bottom =
-                        14.dp
-                )
+                        15.dp
+                ),
+
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
-        Row(
+        Column(
 
             modifier =
-                Modifier.fillMaxWidth(),
-
-            verticalAlignment =
-                Alignment.CenterVertically
+                Modifier.weight(
+                    1f
+                )
         ) {
 
-            Column(
+            Text(
 
-                modifier =
-                    Modifier.weight(
-                        1f
-                    )
-            ) {
+                text =
+                    item.title,
 
-                Text(
+                fontSize =
+                    16.sp,
 
-                    text =
-                        item.title,
+                fontWeight =
+                    FontWeight.SemiBold,
 
-                    fontSize =
-                        16.sp,
+                color =
+                    if (
+                        item.enabled
+                    ) {
 
-                    fontWeight =
-                        FontWeight.Medium,
+                        MaterialTheme
+                            .colorScheme
+                            .onBackground
 
-                    color =
-                        if (
-                            item.enabled
-                        ) {
+                    } else {
 
-                            MaterialTheme
-                                .colorScheme
-                                .onBackground
-
-                        } else {
-
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                        }
-                )
-
-                if (
-                    item.subtitle.isNotBlank()
-                ) {
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                2.dp
-                            )
-                    )
-
-                    Text(
-
-                        text =
-                            item.subtitle,
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall,
-
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
-                    )
-                }
-            }
-
-            if (
-                item.enabled &&
-                item.title != "Username" &&
-                item.title != "Account ID"
-            ) {
-
-                Text(
-
-                    text =
-                        "›",
-
-                    fontSize =
-                        24.sp,
-
-                    color =
                         MaterialTheme
                             .colorScheme
                             .onSurfaceVariant
+                    }
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        2.dp
+                    )
+            )
+
+            Text(
+
+                text =
+                    item.subtitle,
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+        }
+
+        if (
+            item.enabled
+        ) {
+
+            Spacer(
+                modifier =
+                    Modifier.width(
+                        12.dp
+                    )
+            )
+
+            Text(
+
+                text =
+                    "›",
+
+                fontSize =
+                    24.sp,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+
+        } else {
+
+            Spacer(
+                modifier =
+                    Modifier.width(
+                        12.dp
+                    )
                 )
-            }
+
+            Text(
+
+                text =
+                    "Soon",
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelSmall,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
         }
     }
 }
 
-/*
- * ============================================================
- * SECTION DIVIDER
- * ============================================================
- */
 @Composable
-private fun SettingsSectionDivider() {
+private fun SettingsActionCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
 
-    Box(
+    Surface(
 
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = null,
+                    indication = null,
+                    onClick =
+                        onClick
+                ),
+
+        color =
+            MaterialTheme
+                .colorScheme
+                .surfaceVariant,
+
+        tonalElevation =
+            1.dp,
+
+        shape =
+            androidx.compose
+                .foundation
+                .shape
+                .RoundedCornerShape(
+                    topStart =
+                        20.dp,
+
+                    topEnd =
+                        20.dp,
+
+                    bottomStart =
+                        4.dp,
+
+                    bottomEnd =
+                        4.dp
+                )
+    ) {
+
+        Column(
+
+            modifier =
+                Modifier.padding(
+                    horizontal =
+                        18.dp,
+
+                    vertical =
+                        15.dp
+                )
+        ) {
+
+            Text(
+
+                text =
+                    title,
+
+                fontSize =
+                    16.sp,
+
+                fontWeight =
+                    FontWeight.SemiBold
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        2.dp
+                    )
+            )
+
+            Text(
+
+                text =
+                    subtitle,
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall,
+
+                color =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsDivider() {
+
+    Spacer(
         modifier =
             Modifier
                 .fillMaxWidth()
@@ -1432,7 +1775,7 @@ private fun SettingsSectionDivider() {
                 )
                 .padding(
                     horizontal =
-                        20.dp
+                        18.dp
                 )
     )
 }
