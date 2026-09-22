@@ -1700,6 +1700,11 @@ class UserRepository {
                 null
 
             updates[
+                "privateUsers/$uid"
+            ] =
+                null
+
+            updates[
                 "recoveryCodes/$uid"
             ] =
                 null
