@@ -1662,29 +1662,26 @@ class UserRepository {
             )
         }
 
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match account owner."
+                )
+            )
+        }
+
         return try {
 
-            val releaseResult =
-                releaseUsername(
-                    username =
-                        username,
-
-                    uid =
-                        uid
+            val usernameKey =
+                usernameKey(
+                    username
                 )
-
-            if (
-                releaseResult.isFailure
-            ) {
-
-                return Result.failure(
-                    releaseResult
-                        .exceptionOrNull()
-                        ?: IllegalStateException(
-                            "Could not release username"
-                        )
-                )
-            }
 
             val blockedSnapshot =
                 database
@@ -1731,6 +1728,15 @@ class UserRepository {
             ] =
                 null
 
+            if (
+                usernameKey.isNotBlank()
+            ) {
+                updates[
+                    "usernames/$usernameKey"
+                ] =
+                    null
+            }
+
             for (
             child in blockedSnapshot.children
             ) {
@@ -1767,6 +1773,11 @@ class UserRepository {
                 }
             }
 
+            /*
+             * Delete all account-owned database data in one
+             * multi-location update. This prevents the old
+             * "release username first" partial-delete state.
+             */
             if (
                 updates.isNotEmpty()
             ) {
@@ -1778,6 +1789,10 @@ class UserRepository {
                     )
                     .await()
             }
+
+            userCache.remove(
+                uid
+            )
 
             Result.success(
                 Unit
@@ -1944,7 +1959,7 @@ class UserRepository {
 
             database
                 .getReference(
-                    "users"
+                    "privateUsers"
                 )
                 .child(
                     uid
