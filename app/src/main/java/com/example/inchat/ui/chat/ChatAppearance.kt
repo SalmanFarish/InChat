@@ -56,122 +56,170 @@ enum class ChatTheme(
     val lightPalette: ChatThemePalette
 ) {
     DESSERT(
-        id = "dessert",
-        title = "Dessert",
-        description = "Playful ice-cream line art",
-        wallpaperName = "chat_wallpaper_dessert",
-        legacyIds = listOf("pure_black"),
+        id = "spectrum",
+        title = "Spectrum",
+        description = "Colorful stars, planets and rockets",
+        wallpaperName = "chat_wallpaper_spectrum",
+        legacyIds = listOf("dessert", "pure_black"),
         darkPalette = ChatThemePalette(
-            Color(0xFF080808),
-            Color(0xFF1B1B1B),
-            Color(0xFF404040),
-            Color(0xFFEAEAEA),
+            Color(0xFF050505),
+            Color(0xFF181818),
+            Color(0xFF46336E),
+            Color(0xFFF0F0F0),
             Color.White,
-            Color(0xFFB8B8B8)
+            Color(0xFFBDBDBD)
         ),
         lightPalette = ChatThemePalette(
-            Color(0xFFF5F5F5),
+            Color(0xFFF5F3F7),
             Color.White,
-            Color(0xFF303030),
-            Color(0xFF202020),
+            Color(0xFF6954A0),
+            Color(0xFF222026),
             Color.White,
-            Color(0xFF606060)
+            Color(0xFF66616D)
         )
     ),
 
     STARFIELD(
-        id = "starfield",
-        title = "Starfield",
-        description = "Stars, planets and drifting clouds",
-        wallpaperName = "chat_wallpaper_starfield",
-        legacyIds = listOf("ascii_minimal", "terminal"),
+        id = "space_cats",
+        title = "Space Cats",
+        description = "Playful cats, planets and rockets",
+        wallpaperName = "chat_wallpaper_space_cats",
+        legacyIds = listOf("starfield", "ascii_minimal"),
         darkPalette = ChatThemePalette(
-            Color(0xFF0A0A0B),
-            Color(0xFF1A1A1D),
-            Color(0xFF454548),
-            Color(0xFFEDEDF0),
+            Color(0xFF070707),
+            Color(0xFF1A1A1A),
+            Color(0xFF8A542D),
+            Color(0xFFECECEC),
             Color.White,
-            Color(0xFFB9B9BE)
+            Color(0xFFB8B8B8)
         ),
         lightPalette = ChatThemePalette(
-            Color(0xFFF5F5F6),
+            Color(0xFFF6F2EE),
             Color.White,
-            Color(0xFF303034),
-            Color(0xFF202024),
+            Color(0xFF8A5A32),
+            Color(0xFF25211E),
             Color.White,
-            Color(0xFF606066)
+            Color(0xFF6F6964)
         )
     ),
 
     SIGNAL(
-        id = "signal",
-        title = "Signal",
-        description = "Neon communication symbols",
-        wallpaperName = "chat_wallpaper_signal",
-        legacyIds = listOf("dots"),
+        id = "football",
+        title = "Football",
+        description = "Football, jerseys, boots and trophies",
+        wallpaperName = "chat_wallpaper_football",
+        legacyIds = listOf("signal", "dots"),
         darkPalette = ChatThemePalette(
-            Color(0xFF050507),
-            Color(0xFF171722),
-            Color(0xFF49386B),
-            Color(0xFFEDE9F7),
+            Color(0xFF111111),
+            Color(0xFF202020),
+            Color(0xFF47662F),
+            Color(0xFFF0F0F0),
             Color.White,
-            Color(0xFFC4BDD3)
+            Color(0xFFBDBDBD)
         ),
         lightPalette = ChatThemePalette(
-            Color(0xFFF5F4F8),
+            Color(0xFFF7F7F5),
             Color.White,
-            Color(0xFF5C447F),
-            Color(0xFF24212A),
+            Color(0xFF607C49),
+            Color(0xFF242424),
             Color.White,
-            Color(0xFF686071)
+            Color(0xFF666666)
         )
     ),
 
     STICKER(
-        id = "sticker",
-        title = "Sticker",
-        description = "Dense monochrome sticker collage",
-        wallpaperName = "chat_wallpaper_sticker",
-        legacyIds = listOf("wave"),
+        id = "star_dust",
+        title = "Star Dust",
+        description = "Minimal stars, moons and tiny planets",
+        wallpaperName = "chat_wallpaper_star_dust",
+        legacyIds = listOf("sticker", "wave"),
         darkPalette = ChatThemePalette(
-            Color(0xFF171717),
-            Color(0xFF2A2A2A),
-            Color(0xFF515151),
-            Color(0xFFEAEAEA),
+            Color(0xFF050505),
+            Color(0xFF151515),
+            Color(0xFF363636),
+            Color(0xFFEDEDED),
             Color.White,
-            Color(0xFFBEBEBE)
+            Color(0xFFB8B8B8)
         ),
         lightPalette = ChatThemePalette(
-            Color(0xFFEAEAEA),
+            Color(0xFFF3F3F3),
             Color.White,
-            Color(0xFF444444),
-            Color(0xFF242424),
+            Color(0xFF4A4A4A),
+            Color(0xFF202020),
             Color.White,
             Color(0xFF626262)
         )
     ),
 
     COSMOS(
-        id = "cosmos",
-        title = "Cosmos",
-        description = "Astronauts, rockets and planets",
-        wallpaperName = "chat_wallpaper_cosmos",
-        legacyIds = listOf("grid", "brackets", "signal"),
+        id = "cats",
+        title = "Cats",
+        description = "Hand-drawn cats, hearts and little icons",
+        wallpaperName = "chat_wallpaper_cats",
+        legacyIds = listOf("cosmos", "grid"),
+        darkPalette = ChatThemePalette(
+            Color(0xFF111111),
+            Color(0xFF202020),
+            Color(0xFF424242),
+            Color(0xFFF0F0F0),
+            Color.White,
+            Color(0xFFBEBEBE)
+        ),
+        lightPalette = ChatThemePalette(
+            Color(0xFFF3F3F3),
+            Color.White,
+            Color(0xFF454545),
+            Color(0xFF222222),
+            Color.White,
+            Color(0xFF666666)
+        )
+    ),
+
+    SPACE_WHITE(
+        id = "space_white",
+        title = "White Space",
+        description = "Clean white space doodles",
+        wallpaperName = "chat_wallpaper_space_white",
+        legacyIds = listOf("terminal"),
         darkPalette = ChatThemePalette(
             Color(0xFF050505),
             Color(0xFF151515),
-            Color(0xFF3D3D3D),
-            Color(0xFFE8E8E8),
+            Color(0xFF333333),
+            Color(0xFFECECEC),
             Color.White,
-            Color(0xFFB7B7B7)
+            Color(0xFFB5B5B5)
         ),
         lightPalette = ChatThemePalette(
-            Color(0xFFF1F1F1),
+            Color(0xFFF9F9F9),
             Color.White,
-            Color(0xFF383838),
+            Color(0xFF353535),
             Color(0xFF202020),
             Color.White,
-            Color(0xFF606060)
+            Color(0xFF666666)
+        )
+    ),
+
+    NIGHT_COSMOS(
+        id = "night_cosmos",
+        title = "Night Cosmos",
+        description = "Planets, constellations and shooting stars",
+        wallpaperName = "chat_wallpaper_night_cosmos",
+        legacyIds = listOf("brackets"),
+        darkPalette = ChatThemePalette(
+            Color(0xFF071018),
+            Color(0xFF121A23),
+            Color(0xFF2F526C),
+            Color(0xFFF2F3F5),
+            Color.White,
+            Color(0xFFB9C3CB)
+        ),
+        lightPalette = ChatThemePalette(
+            Color(0xFFF0F4F6),
+            Color.White,
+            Color(0xFF456B83),
+            Color(0xFF202830),
+            Color.White,
+            Color(0xFF65717A)
         )
     );
 
@@ -214,7 +262,6 @@ enum class ChatTheme(
             get() = entries
     }
 }
-
 @Composable
 fun ChatWallpaper(
     theme: ChatTheme,
