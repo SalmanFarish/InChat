@@ -15,8 +15,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -77,11 +75,6 @@ fun ChatThemeScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState
-            )
-        },
         topBar = {
             TopAppBar(
                 title = { Text("Chat theme") },
@@ -136,12 +129,7 @@ fun ChatThemeScreen(
                                     currentUserId = currentUserId,
                                     themeId = theme.id
                                 )
-                                    .onSuccess {
-                                        snackbarHostState.showSnackbar(
-                                            "Theme updated"
-                                        )
-                                    }
-                                    .onFailure { error ->
+.onFailure { error ->
                                         errorMessage =
                                             error.message ?: "Could not change chat theme."
                                     }
