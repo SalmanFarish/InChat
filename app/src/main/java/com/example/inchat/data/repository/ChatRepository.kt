@@ -929,113 +929,12 @@ class ChatRepository {
                 )
             }
 
-            /*
-             * Only update the Home preview when this message is
-             * still the latest message in the conversation.
-             *
-             * We determine that from the shared chat data instead
-             * of reading either participant's private userChats node.
-             */
-            val latestMessageSnapshot =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .orderByChild(
-                        "timestamp"
-                    )
-                    .limitToLast(
-                        1
-                    )
-                    .get()
-                    .await()
-
-            val latestMessageId =
-                latestMessageSnapshot
-                    .children
-                    .firstOrNull()
-                    ?.key
-
-            val chatSnapshot =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .get()
-                    .await()
-
-            val participantA =
-                chatSnapshot
-                    .child(
-                        "participantA"
-                    )
-                    .getValue(
-                        String::class.java
-                    )
-
-            val participantB =
-                chatSnapshot
-                    .child(
-                        "participantB"
-                    )
-                    .getValue(
-                        String::class.java
-                    )
-
-            if (
-                participantA.isNullOrBlank() ||
-                participantB.isNullOrBlank() ||
-                (
-                    participantA != userId &&
-                            participantB != userId
-                    )
-            ) {
-
-                return Result.failure(
-                    IllegalStateException(
-                        "You are not a participant in this chat."
-                    )
-                )
-            }
-
-            val updates =
-                mutableMapOf<String, Any>(
-                    "chats/$chatId/messages/$messageId/text" to
-                            cleanText,
-
-                    "chats/$chatId/messages/$messageId/edited" to
-                            true
-                )
-
-            if (
-                latestMessageId ==
-                messageId
-            ) {
-
-                updates[
-                    "userChats/$participantA/$chatId/lastMessage"
-                ] =
-                    cleanText
-
-                updates[
-                    "userChats/$participantB/$chatId/lastMessage"
-                ] =
-                    cleanText
-            }
-
-            database
-                .reference
+            messageRef
                 .updateChildren(
-                    updates
+                    mapOf<String, Any>(
+                        "text" to cleanText,
+                        "edited" to true
+                    )
                 )
                 .await()
 
@@ -1410,7 +1309,7 @@ class ChatRepository {
                 )
             }
 
-            val chatRef =
+            val messageRef =
                 database
                     .getReference(
                         "chats"
@@ -1418,66 +1317,15 @@ class ChatRepository {
                     .child(
                         chatId
                     )
-
-            val chatSnapshot =
-                chatRef
-                    .get()
-                    .await()
-
-            if (
-                !chatSnapshot.exists()
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Chat does not exist."
-                    )
-                )
-            }
-
-            val participantA =
-                chatSnapshot
-                    .child(
-                        "participantA"
-                    )
-                    .getValue(
-                        String::class.java
-                    )
-
-            val participantB =
-                chatSnapshot
-                    .child(
-                        "participantB"
-                    )
-                    .getValue(
-                        String::class.java
-                    )
-
-            if (
-                participantA.isNullOrBlank() ||
-                participantB.isNullOrBlank() ||
-                (
-                    firebaseUser.uid != participantA &&
-                            firebaseUser.uid != participantB
-                    )
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "You are not a participant in this chat."
-                    )
-                )
-            }
-
-            val messagesRef =
-                chatRef
                     .child(
                         "messages"
                     )
-
-            val messageSnapshot =
-                messagesRef
                     .child(
                         messageId
                     )
+
+            val messageSnapshot =
+                messageRef
                     .get()
                     .await()
 
@@ -1507,118 +1355,8 @@ class ChatRepository {
                 )
             }
 
-            /*
-             * The Home preview only needs repair when the message
-             * being deleted is currently the latest message.
-             */
-            val latestTwoBeforeDelete =
-                messagesRef
-                    .orderByChild(
-                        "timestamp"
-                    )
-                    .limitToLast(
-                        2
-                    )
-                    .get()
-                    .await()
-
-            val latestBeforeId =
-                latestTwoBeforeDelete
-                    .children
-                    .lastOrNull()
-                    ?.key
-
-            val updates =
-                mutableMapOf<String, Any?>()
-
-            updates[
-                "chats/$chatId/messages/$messageId"
-            ] =
-                null
-
-            if (
-                latestBeforeId ==
-                messageId
-            ) {
-
-                /*
-                 * Find the new latest message after excluding
-                 * the message we are deleting.
-                 *
-                 * We intentionally update only the preview fields
-                 * in userChats so unread counts remain untouched.
-                 */
-                val latestMessage =
-                    latestTwoBeforeDelete
-                        .children
-                        .lastOrNull { it.key != messageId }
-
-                val lastMessage =
-                    latestMessage
-                        ?.child(
-                            "text"
-                        )
-                        ?.getValue(
-                            String::class.java
-                        )
-                        .orEmpty()
-
-                val lastSenderId =
-                    latestMessage
-                        ?.child(
-                            "senderId"
-                        )
-                        ?.getValue(
-                            String::class.java
-                        )
-                        .orEmpty()
-
-                val lastTimestamp =
-                    latestMessage
-                        ?.child(
-                            "timestamp"
-                        )
-                        ?.getValue(
-                            Long::class.java
-                        )
-                        ?: 0L
-
-                updates[
-                    "userChats/$participantA/$chatId/lastMessage"
-                ] =
-                    lastMessage
-
-                updates[
-                    "userChats/$participantA/$chatId/lastTimestamp"
-                ] =
-                    lastTimestamp
-
-                updates[
-                    "userChats/$participantA/$chatId/lastSenderId"
-                ] =
-                    lastSenderId
-
-                updates[
-                    "userChats/$participantB/$chatId/lastMessage"
-                ] =
-                    lastMessage
-
-                updates[
-                    "userChats/$participantB/$chatId/lastTimestamp"
-                ] =
-                    lastTimestamp
-
-                updates[
-                    "userChats/$participantB/$chatId/lastSenderId"
-                ] =
-                    lastSenderId
-            }
-
-            database
-                .reference
-                .updateChildren(
-                    updates
-                )
+            messageRef
+                .removeValue()
                 .await()
 
             Result.success(
