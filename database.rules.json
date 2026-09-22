@@ -276,6 +276,13 @@
 
             ".validate": "newData.isString() &&
                           (
+                            newData.val() === 'spectrum' ||
+                            newData.val() === 'space_cats' ||
+                            newData.val() === 'football' ||
+                            newData.val() === 'star_dust' ||
+                            newData.val() === 'cats' ||
+                            newData.val() === 'space_white' ||
+                            newData.val() === 'night_cosmos' ||
                             newData.val() === 'dessert' ||
                             newData.val() === 'starfield' ||
                             newData.val() === 'signal' ||
