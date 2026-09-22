@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
 import com.example.inchat.data.repository.PresenceRepository
+import com.example.inchat.data.repository.UserRepository
 import kotlinx.coroutines.launch
 
 @OptIn(
@@ -55,6 +56,11 @@ fun PrivacySettingsScreen(
             PresenceRepository
         }
 
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
     val coroutineScope =
         rememberCoroutineScope()
 
@@ -68,6 +74,16 @@ fun PrivacySettingsScreen(
                 Presence()
         )
 
+    val readReceiptsVisible by
+    userRepository
+        .observeReadReceiptsVisible(
+            uid
+        )
+        .collectAsState(
+            initial =
+                true
+        )
+
     var saving by
     remember {
         mutableStateOf(false)
@@ -76,6 +92,46 @@ fun PrivacySettingsScreen(
     var errorMessage by
     remember {
         mutableStateOf<String?>(null)
+    }
+
+    fun updateReadReceiptsVisibility(
+        visible: Boolean
+    ) {
+
+        if (
+            saving
+        ) {
+            return
+        }
+
+        saving =
+            true
+
+        coroutineScope.launch {
+
+            userRepository
+                .updateReadReceiptsVisible(
+                    uid =
+                        uid,
+
+                    visible =
+                        visible
+                )
+                .onSuccess {
+
+                    saving =
+                        false
+                }
+                .onFailure { error ->
+
+                    saving =
+                        false
+
+                    errorMessage =
+                        error.message
+                            ?: "Could not update read receipt settings."
+                }
+        }
     }
 
     fun updateVisibility(
@@ -299,6 +355,38 @@ fun PrivacySettingsScreen(
 
             item {
 
+                PrivacySectionLabel(
+                    "MESSAGE PRIVACY"
+                )
+            }
+
+            item {
+
+                PrivacyToggleRow(
+
+                    title =
+                        "Read receipts",
+
+                    description =
+                        "Let other people see when you have read their messages.",
+
+                    checked =
+                        readReceiptsVisible,
+
+                    enabled =
+                        !saving,
+
+                    onCheckedChange = { checked ->
+
+                        updateReadReceiptsVisibility(
+                            checked
+                        )
+                    }
+                )
+            }
+
+            item {
+
                 PrivacyExplanation()
             }
 
@@ -456,7 +544,7 @@ private fun PrivacyHeader() {
         Text(
 
             text =
-                "These controls affect the presence information shown in chats and on your public profile.",
+                "These controls affect presence and message-read information that other people can see.",
 
             style =
                 MaterialTheme
@@ -630,7 +718,7 @@ private fun PrivacyExplanation() {
     Text(
 
         text =
-            "When a setting is off, InChat hides that information from other users. Your privacy choice does not remove your account or messages.",
+            "When a setting is off, InChat stops publishing that information to other users. Your privacy choice does not remove your account or messages.",
 
         modifier =
             Modifier
