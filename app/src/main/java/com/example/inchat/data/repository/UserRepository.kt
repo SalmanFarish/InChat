@@ -353,6 +353,184 @@ class UserRepository {
 
     /*
      * =========================================================
+     * READ RECEIPT VISIBILITY
+     * =========================================================
+     */
+
+    fun observeReadReceiptsVisible(
+        uid: String
+    ): Flow<Boolean> =
+        callbackFlow {
+
+            if (
+                uid.isBlank()
+            ) {
+
+                trySend(true)
+
+                close()
+
+                return@callbackFlow
+            }
+
+            val readReceiptRef =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
+                    .child(
+                        "readReceiptsVisible"
+                    )
+
+            readReceiptRef.keepSynced(
+                true
+            )
+
+            val listener =
+                object :
+                    ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot:
+                        DataSnapshot
+                    ) {
+
+                        trySend(
+                            snapshot.getValue(
+                                Boolean::class.java
+                            ) ?: true
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error:
+                        DatabaseError
+                    ) {
+
+                        close(
+                            error.toException()
+                        )
+                    }
+                }
+
+            readReceiptRef
+                .addValueEventListener(
+                    listener
+                )
+
+            awaitClose {
+
+                readReceiptRef
+                    .removeEventListener(
+                        listener
+                    )
+            }
+        }
+
+    suspend fun getReadReceiptsVisible(
+        uid: String
+    ): Boolean {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return true
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "readReceiptsVisible"
+                )
+                .get()
+                .await()
+                .getValue(
+                    Boolean::class.java
+                ) ?: true
+
+        } catch (
+            e: Exception
+        ) {
+
+            true
+        }
+    }
+
+    suspend fun updateReadReceiptsVisible(
+        uid: String,
+        visible: Boolean
+    ): Result<Unit> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match preference owner."
+                )
+            )
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "readReceiptsVisible"
+                )
+                .setValue(
+                    visible
+                )
+                .await()
+
+            Result.success(
+                Unit
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
      * SAVE USER
      * =========================================================
      */
