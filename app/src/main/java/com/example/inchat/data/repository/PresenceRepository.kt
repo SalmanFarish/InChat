@@ -38,80 +38,164 @@ object PresenceRepository {
             return@callbackFlow
         }
 
+        var online = false
+        var lastSeen = 0L
+        var onlineVisible = true
+        var lastSeenVisible = true
+
+        fun emitPresence() {
+            trySend(
+                Presence(
+                    online = online && onlineVisible,
+                    lastSeen =
+                        if (lastSeenVisible) {
+                            lastSeen
+                        } else {
+                            0L
+                        },
+                    onlineVisible = onlineVisible,
+                    lastSeenVisible = lastSeenVisible
+                )
+            )
+        }
+
         val presenceRef =
             database
                 .getReference("presence")
                 .child(uid)
 
-        val listener =
+        val onlineListener =
             object : ValueEventListener {
 
                 override fun onDataChange(
                     snapshot: DataSnapshot
                 ) {
-                    val online =
+                    online =
                         snapshot
-                            .child("online")
                             .getValue(Boolean::class.java)
                             ?: false
-
-                    val lastSeen =
-                        snapshot
-                            .child("lastSeen")
-                            .getValue(Long::class.java)
-                            ?: 0L
-
-                    val onlineVisible =
-                        snapshot
-                            .child("onlineVisible")
-                            .getValue(Boolean::class.java)
-                            ?: true
-
-                    val lastSeenVisible =
-                        snapshot
-                            .child("lastSeenVisible")
-                            .getValue(Boolean::class.java)
-                            ?: true
-
-                    trySend(
-                        Presence(
-                            online =
-                                online &&
-                                        onlineVisible,
-
-                            lastSeen =
-                                if (
-                                    lastSeenVisible
-                                ) {
-                                    lastSeen
-                                } else {
-                                    0L
-                                },
-
-                            onlineVisible =
-                                onlineVisible,
-
-                            lastSeenVisible =
-                                lastSeenVisible
-                        )
-                    )
+                    emitPresence()
                 }
 
                 override fun onCancelled(
                     error: DatabaseError
                 ) {
-                    close(error.toException())
+                    /*
+                     * A cancelled read normally means the owner has
+                     * hidden this field. Treat it as unavailable.
+                     */
+                    online = false
+                    onlineVisible = false
+                    emitPresence()
                 }
             }
 
-        presenceRef.addValueEventListener(
-            listener
-        )
+        val lastSeenListener =
+            object : ValueEventListener {
 
-        awaitClose {
-            presenceRef.removeEventListener(
-                listener
+                override fun onDataChange(
+                    snapshot: DataSnapshot
+                ) {
+                    lastSeen =
+                        snapshot
+                            .getValue(Long::class.java)
+                            ?: 0L
+                    emitPresence()
+                }
+
+                override fun onCancelled(
+                    error: DatabaseError
+                ) {
+                    lastSeen = 0L
+                    lastSeenVisible = false
+                    emitPresence()
+                }
+            }
+
+        /*
+         * Visibility settings are intentionally read only by the
+         * account owner. For other users, successful child reads
+         * imply that the corresponding visibility flag is enabled.
+         */
+        if (
+            auth.currentUser?.uid == uid
+        ) {
+            val visibilityListener =
+                object : ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot: DataSnapshot
+                    ) {
+                        onlineVisible =
+                            snapshot
+                                .child("onlineVisible")
+                                .getValue(Boolean::class.java)
+                                ?: true
+
+                        lastSeenVisible =
+                            snapshot
+                                .child("lastSeenVisible")
+                                .getValue(Boolean::class.java)
+                                ?: true
+
+                        emitPresence()
+                    }
+
+                    override fun onCancelled(
+                        error: DatabaseError
+                    ) {
+                        emitPresence()
+                    }
+                }
+
+            presenceRef.addValueEventListener(
+                visibilityListener
             )
+
+            awaitClose {
+                presenceRef
+                    .child("online")
+                    .removeEventListener(
+                        onlineListener
+                    )
+
+                presenceRef
+                    .child("lastSeen")
+                    .removeEventListener(
+                        lastSeenListener
+                    )
+
+                presenceRef.removeEventListener(
+                    visibilityListener
+                )
+            }
+
+        } else {
+            presenceRef
+                .child("online")
+                .addValueEventListener(
+                    onlineListener
+                )
+
+            presenceRef
+                .child("lastSeen")
+                .addValueEventListener(
+                    lastSeenListener
+                )
+
+            awaitClose {
+                presenceRef
+                    .child("online")
+                    .removeEventListener(
+                        onlineListener
+                    )
+
+                presenceRef
+                    .child("lastSeen")
+                    .removeEventListener(
+                        lastSeenListener
+                    )
+            }
         }
     }
 
