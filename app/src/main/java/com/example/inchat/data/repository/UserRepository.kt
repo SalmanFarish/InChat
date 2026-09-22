@@ -1867,16 +1867,16 @@ class UserRepository {
 
             database
                 .getReference(
-                    "users"
+                    "privateUsers"
                 )
                 .child(
                     uid
                 )
-                .updateChildren(
-                    mapOf(
-                        "fcmToken" to
-                                token
-                    )
+                .child(
+                    "fcmToken"
+                )
+                .setValue(
+                    token
                 )
                 .await()
 
