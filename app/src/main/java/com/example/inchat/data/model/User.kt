@@ -23,6 +23,12 @@ data class User(
     val typingIndicatorVisible: Boolean = true,
 
     /*
+     * Whether this account can be discovered through username search.
+     * Existing accounts default to true when the field is absent.
+     */
+    val discoverableByUsername: Boolean = true,
+
+    /*
      * Kept for backward compatibility with the existing app.
      * Older accounts may still contain a Storage URL here.
      */
