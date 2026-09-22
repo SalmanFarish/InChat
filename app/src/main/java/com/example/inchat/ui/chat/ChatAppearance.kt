@@ -15,6 +15,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -281,7 +282,7 @@ enum class ChatTheme(
 fun ChatWallpaper(
     theme: ChatTheme,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable BoxScope.() -> Unit
 ) {
     val context = LocalContext.current
     val darkTheme =
@@ -485,28 +486,22 @@ fun ChatThemePreview(
             }
 
             if (selected) {
-                Box(
+                Surface(
                     modifier =
                         Modifier
-                            .fillMaxSize()
+                            .align(Alignment.TopEnd)
+                            .padding(9.dp),
+                    shape = CircleShape,
+                    color = palette.outgoingBubble
                 ) {
-                    Surface(
-                        modifier =
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(9.dp),
-                        shape = CircleShape,
-                        color = palette.outgoingBubble
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "Selected",
-                            modifier = Modifier
-                                .padding(6.dp)
-                                .size(14.dp),
-                            tint = palette.outgoingText
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        modifier = Modifier
+                            .padding(6.dp)
+                            .size(14.dp),
+                        tint = palette.outgoingText
+                    )
                 }
             }
         }
