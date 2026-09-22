@@ -251,6 +251,20 @@ class MainActivity :
         notificationTarget
             .collectAsState()
 
+        var shouldRequestNotificationPermission by
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(
+                false
+            )
+        }
+
+        var notificationPermissionRequested by
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(
+                false
+            )
+        }
+
         LaunchedEffect(
             uiState
         ) {
@@ -313,7 +327,15 @@ class MainActivity :
 
                 is AuthUiState.LoggedIn -> {
 
-                    NotificationPermissionRequest()
+                    if (
+                        shouldRequestNotificationPermission &&
+                        !notificationPermissionRequested
+                    ) {
+                        notificationPermissionRequested =
+                            true
+
+                        NotificationPermissionRequest()
+                    }
 
                     InChatApp(
 
@@ -331,6 +353,11 @@ class MainActivity :
 
                         notificationTarget =
                             currentNotificationTarget,
+
+                        onChatOpened = {
+                            shouldRequestNotificationPermission =
+                                true
+                        },
 
                         onNotificationHandled = {
 
