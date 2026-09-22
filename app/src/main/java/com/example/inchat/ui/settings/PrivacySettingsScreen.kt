@@ -104,10 +104,31 @@ fun PrivacySettingsScreen(
                 true
         )
 
-    var saving by
+    var savingVisibility by
     remember {
         mutableStateOf(false)
     }
+
+    var savingReadReceipts by
+    remember {
+        mutableStateOf(false)
+    }
+
+    var savingTypingIndicator by
+    remember {
+        mutableStateOf(false)
+    }
+
+    var savingDiscoverability by
+    remember {
+        mutableStateOf(false)
+    }
+
+    val saving =
+        savingVisibility ||
+                savingReadReceipts ||
+                savingTypingIndicator ||
+                savingDiscoverability
 
     var errorMessage by
     remember {
@@ -119,12 +140,12 @@ fun PrivacySettingsScreen(
     ) {
 
         if (
-            saving
+            savingReadReceipts
         ) {
             return
         }
 
-        saving =
+        savingReadReceipts =
             true
 
         coroutineScope.launch {
@@ -144,7 +165,7 @@ fun PrivacySettingsScreen(
                 }
                 .onFailure { error ->
 
-                    saving =
+                    savingReadReceipts =
                         false
 
                     errorMessage =
@@ -159,12 +180,12 @@ fun PrivacySettingsScreen(
     ) {
 
         if (
-            saving
+            savingTypingIndicator
         ) {
             return
         }
 
-        saving =
+        savingTypingIndicator =
             true
 
         coroutineScope.launch {
@@ -184,7 +205,7 @@ fun PrivacySettingsScreen(
                 }
                 .onFailure { error ->
 
-                    saving =
+                    savingTypingIndicator =
                         false
 
                     errorMessage =
@@ -199,12 +220,12 @@ fun PrivacySettingsScreen(
     ) {
 
         if (
-            saving
+            savingDiscoverability
         ) {
             return
         }
 
-        saving =
+        savingDiscoverability =
             true
 
         coroutineScope.launch {
@@ -224,7 +245,7 @@ fun PrivacySettingsScreen(
                 }
                 .onFailure { error ->
 
-                    saving =
+                    savingDiscoverability =
                         false
 
                     errorMessage =
@@ -240,12 +261,12 @@ fun PrivacySettingsScreen(
     ) {
 
         if (
-            saving
+            savingVisibility
         ) {
             return
         }
 
-        saving =
+        savingVisibility =
             true
 
         coroutineScope.launch {
@@ -268,7 +289,7 @@ fun PrivacySettingsScreen(
                 }
                 .onFailure { error ->
 
-                    saving =
+                    savingVisibility =
                         false
 
                     errorMessage =
@@ -409,7 +430,7 @@ fun PrivacySettingsScreen(
                         presence.lastSeenVisible,
 
                     enabled =
-                        !saving,
+                        !savingVisibility,
 
                     onCheckedChange = { checked ->
 
@@ -438,7 +459,7 @@ fun PrivacySettingsScreen(
                         presence.onlineVisible,
 
                     enabled =
-                        !saving,
+                        !savingReadReceipts,
 
                     onCheckedChange = { checked ->
 
@@ -474,7 +495,7 @@ fun PrivacySettingsScreen(
                         readReceiptsVisible,
 
                     enabled =
-                        !saving,
+                        !savingTypingIndicator,
 
                     onCheckedChange = { checked ->
 
@@ -499,7 +520,7 @@ fun PrivacySettingsScreen(
                         typingIndicatorVisible,
 
                     enabled =
-                        !saving,
+                        !savingDiscoverability,
 
                     onCheckedChange = { checked ->
 
