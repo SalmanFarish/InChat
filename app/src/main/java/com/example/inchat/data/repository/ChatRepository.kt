@@ -930,22 +930,110 @@ class ChatRepository {
             }
 
             /*
-             * Do not rewrite the whole message object.
+             * Only update the Home preview when this message is
+             * still the latest message in the conversation.
              *
-             * Updating only these two children preserves
-             * replies, reactions and all other message data.
+             * We determine that from the shared chat data instead
+             * of reading either participant's private userChats node.
              */
-            val updates =
-                mapOf<String, Any>(
+            val latestMessageSnapshot =
+                database
+                    .getReference(
+                        "chats"
+                    )
+                    .child(
+                        chatId
+                    )
+                    .child(
+                        "messages"
+                    )
+                    .orderByChild(
+                        "timestamp"
+                    )
+                    .limitToLast(
+                        1
+                    )
+                    .get()
+                    .await()
 
-                    "text" to
+            val latestMessageId =
+                latestMessageSnapshot
+                    .children
+                    .firstOrNull()
+                    ?.key
+
+            val chatSnapshot =
+                database
+                    .getReference(
+                        "chats"
+                    )
+                    .child(
+                        chatId
+                    )
+                    .get()
+                    .await()
+
+            val participantA =
+                chatSnapshot
+                    .child(
+                        "participantA"
+                    )
+                    .getValue(
+                        String::class.java
+                    )
+
+            val participantB =
+                chatSnapshot
+                    .child(
+                        "participantB"
+                    )
+                    .getValue(
+                        String::class.java
+                    )
+
+            if (
+                participantA.isNullOrBlank() ||
+                participantB.isNullOrBlank() ||
+                (
+                    participantA != userId &&
+                            participantB != userId
+                    )
+            ) {
+
+                return Result.failure(
+                    IllegalStateException(
+                        "You are not a participant in this chat."
+                    )
+                )
+            }
+
+            val updates =
+                mutableMapOf<String, Any>(
+                    "chats/$chatId/messages/$messageId/text" to
                             cleanText,
 
-                    "edited" to
+                    "chats/$chatId/messages/$messageId/edited" to
                             true
                 )
 
-            messageRef
+            if (
+                latestMessageId ==
+                messageId
+            ) {
+
+                updates[
+                    "userChats/$participantA/$chatId/lastMessage"
+                ] =
+                    cleanText
+
+                updates[
+                    "userChats/$participantB/$chatId/lastMessage"
+                ] =
+                    cleanText
+            }
+
+            database
+                .reference
                 .updateChildren(
                     updates
                 )
