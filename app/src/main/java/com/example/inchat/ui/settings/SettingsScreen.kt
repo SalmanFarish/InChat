@@ -65,7 +65,8 @@ fun SettingsScreen(
     username: String,
     uid: String,
     authViewModel: AuthViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onPrivacyClick: () -> Unit
 ) {
 
     val context =
@@ -208,7 +209,10 @@ fun SettingsScreen(
                                 "Last seen",
 
                             subtitle =
-                                "Control who can see when you were last active"
+                                "Choose whether other people can see when you were last active",
+
+                            enabled =
+                                true
                         ),
 
                         SettingsItem(
@@ -216,7 +220,10 @@ fun SettingsScreen(
                                 "Online status",
 
                             subtitle =
-                                "Control whether other people can see you online"
+                                "Choose whether other people can see you online",
+
+                            enabled =
+                                true
                         ),
 
                         SettingsItem(
@@ -1265,9 +1272,8 @@ fun SettingsScreen(
                                 true
                         },
 
-                        onUsernameCopy = null,
-
-                        onAccountIdCopy = null
+                        onPrivacyClick =
+                            onPrivacyClick
                     )
                 }
             }
@@ -1394,8 +1400,7 @@ fun SettingsScreen(
 private fun SettingsSectionCard(
     section: SettingsSection,
     onRecoveryCodesClick: () -> Unit,
-    onUsernameCopy: (() -> Unit)?,
-    onAccountIdCopy: (() -> Unit)?
+    onPrivacyClick: () -> Unit
 ) {
 
     Column(
@@ -1442,12 +1447,16 @@ private fun SettingsSectionCard(
 
                         onClick = {
 
-                            if (
-                                item.title ==
-                                "Recovery codes"
+                            when (
+                                item.title
                             ) {
 
-                                onRecoveryCodesClick()
+                                "Recovery codes" ->
+                                    onRecoveryCodesClick()
+
+                                "Last seen",
+                                "Online status" ->
+                                    onPrivacyClick()
                             }
                         }
                     )
