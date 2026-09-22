@@ -350,7 +350,10 @@ async function syncConversationPreview(chatId) {
       .limitToLast(1)
       .once("value");
 
-  const latest = messagesSnapshot.children[0];
+  let latest = null;
+  messagesSnapshot.forEach((child) => {
+    latest = child;
+  });
 
   const lastMessage = latest && typeof latest.child("text").val() === "string" ?
     latest.child("text").val() :
@@ -407,7 +410,10 @@ exports.syncEditedMessagePreview = onValueUpdated(
           .limitToLast(1)
           .once("value");
 
-      const latest = latestSnapshot.children[0];
+      let latest = null;
+      latestSnapshot.forEach((child) => {
+        latest = child;
+      });
 
       if (
         latest &&
