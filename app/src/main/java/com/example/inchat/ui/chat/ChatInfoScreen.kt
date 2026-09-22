@@ -1079,6 +1079,8 @@ private fun ChatInfoActionRow(
                     ) {
 
                         Modifier.clickable(
+                            interactionSource = null,
+                            indication = null,
                             onClick =
                                 onClick
                         )
@@ -1203,6 +1205,8 @@ private fun ChatReportReason(
                 Modifier
                     .fillMaxWidth()
                     .clickable(
+                        interactionSource = null,
+                        indication = null,
                         onClick =
                             onClick
                     )
