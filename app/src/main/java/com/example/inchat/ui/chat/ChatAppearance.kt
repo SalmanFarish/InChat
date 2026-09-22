@@ -3,7 +3,6 @@ package com.example.inchat.ui.chat
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
-import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
@@ -12,6 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +34,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
-import kotlin.math.max
 
 data class ChatThemePalette(
     val background: Color,
@@ -175,6 +175,24 @@ enum class ChatTheme(
 
     fun palette(darkTheme: Boolean): ChatThemePalette =
         if (darkTheme) darkPalette else lightPalette
+
+    val backgroundColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).background
+
+    val incomingBubbleColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).incomingBubble
+
+    val outgoingBubbleColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).outgoingBubble
+
+    val incomingTextColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).incomingText
+
+    val outgoingTextColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).outgoingText
+
+    val secondaryTextColor: Color
+        @Composable get() = palette(isSystemInDarkTheme()).secondaryText
 
     companion object {
         fun fromId(id: String?): ChatTheme =
