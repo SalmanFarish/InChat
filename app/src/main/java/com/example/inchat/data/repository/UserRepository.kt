@@ -2280,27 +2280,38 @@ class UserRepository {
             val users =
                 mutableListOf<User>()
 
-            for (
-            child in snapshot.children
-            ) {
+            val candidateIds =
+                snapshot.children
+                    .mapNotNull { child ->
+                        child.getValue(
+                            String::class.java
+                        )
+                    }
+                    .filter {
+                        it.isNotBlank() &&
+                                it != currentUserId
+                    }
 
-                val uid =
-                    child.getValue(
-                        String::class.java
-                    )
-
-                if (
-                    uid.isNullOrBlank() ||
-                    uid == currentUserId
-                ) {
-
-                    continue
+            /*
+             * Fetch candidates concurrently. The previous implementation
+             * performed these reads one-by-one.
+             */
+            val candidateUsers =
+                coroutineScope {
+                    candidateIds
+                        .map { uid ->
+                            async {
+                                getUserByIdFast(
+                                    uid
+                                )
+                            }
+                        }
+                        .awaitAll()
                 }
 
-                val user =
-                    getUserByIdFast(
-                        uid
-                    )
+            for (
+                user in candidateUsers
+            ) {
 
                 if (
                     user != null &&
@@ -2311,7 +2322,6 @@ class UserRepository {
                         .lowercase(Locale.ROOT)
                         .startsWith(key)
                 ) {
-
                     users.add(
                         user
                     )
