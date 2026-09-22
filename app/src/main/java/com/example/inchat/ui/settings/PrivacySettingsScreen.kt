@@ -94,6 +94,16 @@ fun PrivacySettingsScreen(
                 true
         )
 
+    val discoverableByUsername by
+    userRepository
+        .observeDiscoverableByUsername(
+            uid
+        )
+        .collectAsState(
+            initial =
+                true
+        )
+
     var saving by
     remember {
         mutableStateOf(false)
@@ -180,6 +190,46 @@ fun PrivacySettingsScreen(
                     errorMessage =
                         error.message
                             ?: "Could not update typing indicator settings."
+                }
+        }
+    }
+
+    fun updateDiscoverability(
+        discoverable: Boolean
+    ) {
+
+        if (
+            saving
+        ) {
+            return
+        }
+
+        saving =
+            true
+
+        coroutineScope.launch {
+
+            userRepository
+                .updateDiscoverableByUsername(
+                    uid =
+                        uid,
+
+                    discoverable =
+                        discoverable
+                )
+                .onSuccess {
+
+                    saving =
+                        false
+                }
+                .onFailure { error ->
+
+                    saving =
+                        false
+
+                    errorMessage =
+                        error.message
+                            ?: "Could not update discovery settings."
                 }
         }
     }
@@ -454,6 +504,38 @@ fun PrivacySettingsScreen(
                     onCheckedChange = { checked ->
 
                         updateTypingIndicatorVisibility(
+                            checked
+                        )
+                    }
+                )
+            }
+
+            item {
+
+                PrivacySectionLabel(
+                    "DISCOVERY"
+                )
+            }
+
+            item {
+
+                PrivacyToggleRow(
+
+                    title =
+                        "Find me by username",
+
+                    description =
+                        "Allow other people to discover your account through username search.",
+
+                    checked =
+                        discoverableByUsername,
+
+                    enabled =
+                        !saving,
+
+                    onCheckedChange = { checked ->
+
+                        updateDiscoverability(
                             checked
                         )
                     }
