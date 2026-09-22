@@ -86,6 +86,13 @@ class ChatViewModel : ViewModel() {
     private val _otherUserTyping =
         MutableStateFlow(false)
 
+    private val _typingIndicatorEnabled =
+        MutableStateFlow(true)
+
+    val typingIndicatorEnabled:
+            StateFlow<Boolean> =
+        _typingIndicatorEnabled.asStateFlow()
+
     val otherUserTyping:
             StateFlow<Boolean> =
         _otherUserTyping.asStateFlow()
@@ -168,6 +175,9 @@ class ChatViewModel : ViewModel() {
             Job? = null
 
     private var typingListenerJob:
+            Job? = null
+
+    private var typingPreferenceJob:
             Job? = null
 
     private var typingResetJob:
@@ -327,6 +337,9 @@ class ChatViewModel : ViewModel() {
         _otherUserTyping.value =
             false
 
+        _typingIndicatorEnabled.value =
+            true
+
         _blockState.value =
             BlockState.NONE
 
@@ -370,6 +383,11 @@ class ChatViewModel : ViewModel() {
                 otherUserId
         )
 
+        startTypingPreferenceListener(
+            currentUserId =
+                currentUserId
+        )
+
         startBlockListener(
             currentUserId =
                 currentUserId,
@@ -390,6 +408,12 @@ class ChatViewModel : ViewModel() {
                 _readReceiptsEnabled.value =
                     userRepository
                         .getReadReceiptsVisible(
+                            currentUserId
+                        )
+
+                _typingIndicatorEnabled.value =
+                    userRepository
+                        .getTypingIndicatorVisible(
                             currentUserId
                         )
 
@@ -637,6 +661,69 @@ class ChatViewModel : ViewModel() {
                     Log.e(
                         "ChatViewModel",
                         "Read receipt preference listener failed",
+                        e
+                    )
+                }
+            }
+    }
+
+    /*
+     * =========================================================
+     * TYPING PREFERENCE LISTENER
+     * =========================================================
+     */
+    private fun startTypingPreferenceListener(
+        currentUserId: String
+    ) {
+
+        typingPreferenceJob?.cancel()
+
+        typingPreferenceJob =
+            viewModelScope.launch {
+
+                try {
+
+                    userRepository
+                        .observeTypingIndicatorVisible(
+                            currentUserId
+                        )
+                        .collect { enabled ->
+
+                            _typingIndicatorEnabled.value =
+                                enabled
+
+                            if (!enabled) {
+
+                                typingResetJob?.cancel()
+
+                                database
+                                    .getReference(
+                                        "typing"
+                                    )
+                                    .child(
+                                        currentChatId
+                                    )
+                                    .child(
+                                        currentUserId
+                                    )
+                                    .setValue(
+                                        false
+                                    )
+                            }
+                        }
+
+                } catch (
+                    e:
+                    kotlinx.coroutines.CancellationException
+                ) {
+
+                    throw e
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        "ChatViewModel",
+                        "Typing preference listener failed",
                         e
                     )
                 }
@@ -1334,6 +1421,9 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    private fun isTypingIndicatorEnabled(): Boolean =
+        _typingIndicatorEnabled.value
+
     /*
      * =========================================================
      * TYPING
@@ -1357,6 +1447,27 @@ class ChatViewModel : ViewModel() {
         if (
             _editingMessage.value != null
         ) {
+
+            return
+        }
+
+        if (!isTypingIndicatorEnabled()) {
+
+            typingResetJob?.cancel()
+
+            database
+                .getReference(
+                    "typing"
+                )
+                .child(
+                    currentChatId
+                )
+                .child(
+                    currentUserId
+                )
+                .setValue(
+                    false
+                )
 
             return
         }
@@ -1967,6 +2078,7 @@ class ChatViewModel : ViewModel() {
         readListenerJob?.cancel()
         presenceJob?.cancel()
         typingListenerJob?.cancel()
+        typingPreferenceJob?.cancel()
         typingResetJob?.cancel()
         blockListenerJob?.cancel()
 
