@@ -1,4 +1,4 @@
-const {onValueCreated, onValueUpdated, onValueDeleted} = require("firebase-functions/v2/database");
+const {onValueCreated, onValueUpdated, onValueDeleted, onValueWritten} = require("firebase-functions/v2/database");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -435,5 +435,35 @@ exports.syncDeletedMessagePreview = onValueDeleted(
     },
     async (event) => {
       await syncConversationPreview(event.params.chatId);
+    },
+);
+
+
+/*
+ * Derive account-wide presence from connection nodes.
+ * A disconnecting device can only remove its own connection;
+ * this function is the single writer of shared online state.
+ */
+exports.syncPresence = onValueWritten(
+    {
+      ref: "presence/{uid}/connections",
+      region: "us-central1",
+    },
+    async (event) => {
+      const uid = event.params.uid;
+      const connections = event.data.after.val() || {};
+
+      const online = Object.keys(connections).length > 0;
+
+      const updates = {
+        [`presence/${uid}/online`]: online,
+      };
+
+      if (!online) {
+        updates[`presence/${uid}/lastSeen`] =
+          admin.database.ServerValue.TIMESTAMP;
+      }
+
+      await database.ref().update(updates);
     },
 );
