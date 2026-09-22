@@ -675,6 +675,8 @@ fun ChatThemeRow(
             Modifier
                 .fillMaxWidth()
                 .clickable(
+                    interactionSource = null,
+                    indication = null,
                     onClick =
                         onClick
                 )
