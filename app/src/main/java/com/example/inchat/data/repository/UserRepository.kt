@@ -2240,16 +2240,9 @@ class UserRepository {
             )
 
         if (
-            key.isBlank()
-        ) {
-
-            return emptyList()
-        }
-
-        if (
+            key.isBlank() ||
             currentUserId.isBlank()
         ) {
-
             return emptyList()
         }
 
@@ -2260,7 +2253,7 @@ class UserRepository {
                     20
                 )
 
-        try {
+        return try {
 
             val snapshot =
                 database
@@ -2272,16 +2265,13 @@ class UserRepository {
                         key
                     )
                     .endAt(
-                        key + "\uf8ff"
+                        key + ""
                     )
                     .limitToFirst(
                         safeLimit
                     )
                     .get()
                     .await()
-
-            val users =
-                mutableListOf<User>()
 
             val candidateIds =
                 snapshot.children
@@ -2296,45 +2286,49 @@ class UserRepository {
                     }
 
             /*
-             * Fetch candidates concurrently. The previous implementation
-             * performed these reads one-by-one.
+             * Fetch candidates concurrently. A single failed
+             * candidate lookup should not hide the rest of the
+             * search result, so each lookup converts failure to null.
              */
             val candidateUsers =
                 coroutineScope {
                     candidateIds
                         .map { uid ->
                             async {
-                                getUserByIdFast(
-                                    uid
-                                )
+                                runCatching {
+                                    getUserByIdFast(
+                                        uid
+                                    )
+                                }.getOrNull()
                             }
                         }
                         .awaitAll()
                 }
 
-            for (
-                user in candidateUsers
-            ) {
-
-                if (
+            candidateUsers
+                .filter { user ->
                     user != null &&
-                    user.discoverableByUsername &&
-                    user.username.isNotBlank() &&
-                    user.username
-                        .trim()
-                        .lowercase(Locale.ROOT)
-                        .startsWith(key)
-                ) {
-                    users.add(
-                        user
+                            user.discoverableByUsername &&
+                            user.username.isNotBlank() &&
+                            user.username
+                                .trim()
+                                .lowercase(Locale.ROOT)
+                                .startsWith(key)
+                }
+                .map { user ->
+                    user!!
+                }
+                .sortedBy {
+                    it.username.lowercase(
+                        Locale.ROOT
                     )
                 }
-            }
 
-        users.sortedBy {
-            it.username.lowercase(
-                Locale.ROOT
-            )
+        } catch (
+            e: Exception
+        ) {
+
+            throw e
         }
     }
 
