@@ -35,6 +35,7 @@ import kotlin.math.sin
 enum class ChatTheme(
     val id: String,
     val title: String,
+    val legacyId: String,
     val description: String,
     val backgroundColor: Color,
     val incomingBubbleColor: Color,
@@ -47,6 +48,7 @@ enum class ChatTheme(
     MIDNIGHT(
         "midnight",
         "Midnight",
+        "pure_black",
         "Deep blue with a clean glow",
         Color(0xFF080B12),
         Color(0xFF171D29),
@@ -59,6 +61,7 @@ enum class ChatTheme(
     OCEAN(
         "ocean",
         "Ocean",
+        "ascii_minimal",
         "Dark teal with calm accents",
         Color(0xFF061216),
         Color(0xFF10252A),
@@ -71,6 +74,7 @@ enum class ChatTheme(
     FOREST(
         "forest",
         "Forest",
+        "dots",
         "Quiet green with soft contrast",
         Color(0xFF08120E),
         Color(0xFF13231C),
@@ -83,6 +87,7 @@ enum class ChatTheme(
     EMBER(
         "ember",
         "Ember",
+        "wave",
         "Warm rust over a dark base",
         Color(0xFF140B08),
         Color(0xFF281614),
@@ -95,6 +100,7 @@ enum class ChatTheme(
     VIOLET(
         "violet",
         "Violet",
+        "grid",
         "Dark plum with a vivid accent",
         Color(0xFF100A16),
         Color(0xFF25182F),
@@ -107,6 +113,7 @@ enum class ChatTheme(
     MONO(
         "mono",
         "Mono",
+        "terminal",
         "Minimal graphite, no distractions",
         Color(0xFF0C0D0F),
         Color(0xFF1B1D20),
@@ -119,10 +126,19 @@ enum class ChatTheme(
 
     companion object {
         fun fromId(id: String?): ChatTheme =
-            entries.firstOrNull { it.id == id } ?: MIDNIGHT
+            entries.firstOrNull {
+                it.id == id || it.legacyId == id
+            } ?: MIDNIGHT
 
         fun isValidId(id: String): Boolean =
-            entries.any { it.id == id }
+            entries.any {
+                it.id == id || it.legacyId == id
+            }
+
+        fun legacyIdFor(id: String): String? =
+            entries.firstOrNull {
+                it.id == id
+            }?.legacyId
 
         val all: List<ChatTheme>
             get() = entries
