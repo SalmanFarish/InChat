@@ -2255,6 +2255,7 @@ class UserRepository {
 
                 if (
                     user != null &&
+                    user.discoverableByUsername &&
                     user.username.isNotBlank() &&
                     user.username
                         .trim()
