@@ -163,7 +163,7 @@ exports.sendChatNotification = onValueCreated(
        * Load receiver profile.
        */
         const receiverSnapshot = await database
-            .ref("users")
+            .ref("privateUsers")
             .child(receiverId)
             .once("value");
 
