@@ -46,6 +46,8 @@ fun ChatTopBar(
                 modifier =
                     Modifier
                         .clickable(
+                            interactionSource = null,
+                            indication = null,
                             onClick =
                                 onChatInfoClick
                         )
