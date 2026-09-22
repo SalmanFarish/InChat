@@ -63,13 +63,13 @@ fun ChatThemeScreen(
         appearanceRepository
             .observeTheme(chatId)
             .collectAsState(
-                initial = ChatTheme.DESSERT.id
+                initial = null
             )
 
     val selectedTheme =
-        ChatTheme.fromId(
-            selectedThemeId
-        )
+        selectedThemeId?.let {
+            ChatTheme.fromId(it)
+        } ?: ChatTheme.DESSERT
 
     val coroutineScope =
         rememberCoroutineScope()
