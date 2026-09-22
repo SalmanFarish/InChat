@@ -25,6 +25,9 @@ object PresenceRepository {
 
     private var currentUid: String? = null
 
+    private var activeConnectionRef:
+            com.google.firebase.database.DatabaseReference? = null
+
     fun observePresence(
         uid: String
     ): Flow<Presence> = callbackFlow {
@@ -238,25 +241,21 @@ object PresenceRepository {
                         .onDisconnect()
                         .removeValue()
 
-                    onlineRef
-                        .onDisconnect()
-                        .setValue(false)
-
-                    lastSeenRef
-                        .onDisconnect()
-                        .setValue(
-                            ServerValue.TIMESTAMP
-                        )
-
                     /*
-                     * Mark this connection active.
+                     * Only this connection is owned by this app
+                     * instance. The server derives account-wide
+                     * online state from all active connections.
                      */
                     connectionRef.setValue(true)
 
+                    activeConnectionRef =
+                        connectionRef
+
                     /*
-                     * Mark the user online.
+                     * Do not set online=false or lastSeen on a
+                     * single connection's disconnect. Another
+                     * device may still be connected.
                      */
-                    onlineRef.setValue(true)
                 }
 
                 override fun onCancelled(
@@ -283,6 +282,9 @@ object PresenceRepository {
         val listener =
             connectionListener
 
+        val connectionRef =
+            activeConnectionRef
+
         if (listener != null) {
             database
                 .getReference(".info/connected")
@@ -292,26 +294,16 @@ object PresenceRepository {
         }
 
         connectionListener = null
+        activeConnectionRef = null
         currentUid = null
 
-        if (
-            markOffline &&
-            !uid.isNullOrBlank()
-        ) {
-            val presenceRef =
-                database
-                    .getReference("presence")
-                    .child(uid)
-
-            presenceRef
-                .child("online")
-                .setValue(false)
-
-            presenceRef
-                .child("lastSeen")
-                .setValue(
-                    ServerValue.TIMESTAMP
-                )
+        if (!uid.isNullOrBlank()) {
+            /*
+             * Removing only this device's connection lets the
+             * backend determine whether the user is still online
+             * elsewhere.
+             */
+            connectionRef?.removeValue()
         }
     }
 }
