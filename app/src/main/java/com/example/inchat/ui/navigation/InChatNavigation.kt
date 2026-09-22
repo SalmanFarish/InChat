@@ -741,70 +741,45 @@ fun InChatApp(
 
                 arguments =
                     listOf(
-
-                        navArgument(
-                            "otherUserId"
-                        ) {
-
-                            type =
-                                NavType.StringType
+                        navArgument("otherUserId") {
+                            type = NavType.StringType
                         },
-
-                        navArgument(
-                            "otherUserNickname"
-                        ) {
-
-                            type =
-                                NavType.StringType
-
-                            defaultValue =
-                                ""
+                        navArgument("otherUserNickname") {
+                            type = NavType.StringType
+                            defaultValue = ""
                         }
                     )
 
-            ) { chatInfoBackStackEntry ->
+            ) { entry ->
 
-                val infoUserId =
-                    chatInfoBackStackEntry
-                        .arguments
-                        ?.getString(
-                            "otherUserId"
-                        )
-                        .orEmpty()
-
-                val infoUsername =
-                    chatInfoBackStackEntry
-                        .arguments
-                        ?.getString(
-                            "otherUserNickname"
-                        )
-                        .orEmpty()
-
-                val infoChatViewModel:
-                        ChatViewModel =
-                    viewModel(
-                        chatInfoBackStackEntry
-                    )
+                val infoUserId = entry.arguments?.getString("otherUserId").orEmpty()
+                val infoUsername = entry.arguments?.getString("otherUserNickname").orEmpty()
+                val infoChatViewModel: ChatViewModel = viewModel(entry)
 
                 ChatInfoScreen(
-
-                    currentUserId =
-                        uid,
-
-                    otherUserId =
-                        infoUserId,
-
-                    otherUserNickname =
-                        infoUsername,
-
-                    chatViewModel =
-                        infoChatViewModel,
-
-                    onBackClick = {
-
-                        navController
-                            .popBackStack()
+                    currentUserId = uid,
+                    otherUserId = infoUserId,
+                    otherUserNickname = infoUsername,
+                    chatViewModel = infoChatViewModel,
+                    onBackClick = { navController.popBackStack() },
+                    onChatThemeClick = {
+                        navController.navigate("chat_theme/" + infoUserId)
                     }
+                )
+            }
+
+            composable(
+                route = "chat_theme/{otherUserId}",
+                arguments = listOf(
+                    navArgument("otherUserId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { entry ->
+                ChatThemeScreen(
+                    currentUserId = uid,
+                    otherUserId = entry.arguments?.getString("otherUserId").orEmpty(),
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 
