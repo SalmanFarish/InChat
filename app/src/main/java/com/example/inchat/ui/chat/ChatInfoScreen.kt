@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.launch
 
@@ -59,6 +61,32 @@ fun ChatInfoScreen(
         remember {
             UserRepository()
         }
+
+    val appearanceRepository =
+        remember {
+            ChatAppearanceRepository()
+        }
+
+    val chatId =
+        remember(currentUserId, otherUserId) {
+            com.example.inchat.data.repository.ChatRepository()
+                .getChatRoomId(
+                    currentUserId,
+                    otherUserId
+                )
+        }
+
+    val selectedThemeId by
+        appearanceRepository
+            .observeTheme(chatId)
+            .collectAsState(
+                initial = ChatTheme.DESSERT.id
+            )
+
+    val selectedTheme =
+        ChatTheme.fromId(
+            selectedThemeId
+        )
 
     var otherUserProfilePhoto by
     remember(otherUserId) {
@@ -82,6 +110,11 @@ fun ChatInfoScreen(
     val blockState by
         chatViewModel
             .blockState
+            .collectAsState()
+
+    val otherUserPresence by
+        chatViewModel
+            .otherUserPresence
             .collectAsState()
 
     LaunchedEffect(currentUserId, otherUserId) {
@@ -686,20 +719,10 @@ fun ChatInfoScreen(
                             )
                     )
 
-                    Text(
-
-                        text =
-                            "Chat settings and appearance",
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyMedium,
-
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurfaceVariant
+                    PresenceStatus(
+                        presence =
+                            otherUserPresence,
+                        isTyping = false
                     )
                 }
             }
@@ -793,7 +816,10 @@ fun ChatInfoScreen(
 
                 ChatInfoActionRow(
                     title = "Chat theme",
-                    subtitle = "Choose the look for this conversation",
+                    subtitle =
+                        selectedTheme.title +
+                                " · " +
+                                selectedTheme.description,
                     enabled = true,
                     onClick = onChatThemeClick
                 )
