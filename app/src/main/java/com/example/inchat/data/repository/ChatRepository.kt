@@ -1511,21 +1511,21 @@ class ChatRepository {
              * The Home preview only needs repair when the message
              * being deleted is currently the latest message.
              */
-            val latestBeforeDelete =
+            val latestTwoBeforeDelete =
                 messagesRef
                     .orderByChild(
                         "timestamp"
                     )
                     .limitToLast(
-                        1
+                        2
                     )
                     .get()
                     .await()
 
             val latestBeforeId =
-                latestBeforeDelete
+                latestTwoBeforeDelete
                     .children
-                    .firstOrNull()
+                    .lastOrNull()
                     ?.key
 
             val updates =
@@ -1548,21 +1548,10 @@ class ChatRepository {
                  * We intentionally update only the preview fields
                  * in userChats so unread counts remain untouched.
                  */
-                val latestAfterDelete =
-                    messagesRef
-                        .orderByChild(
-                            "timestamp"
-                        )
-                        .limitToLast(
-                            1
-                        )
-                        .get()
-                        .await()
-
                 val latestMessage =
-                    latestAfterDelete
+                    latestTwoBeforeDelete
                         .children
-                        .firstOrNull()
+                        .lastOrNull { it.key != messageId }
 
                 val lastMessage =
                     latestMessage
