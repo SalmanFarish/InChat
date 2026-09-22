@@ -250,6 +250,18 @@
 
           "themeId": {
 
+            ".read": "auth != null &&
+                      (
+                        data.parent()
+                            .parent()
+                            .child('participantA')
+                            .val() === auth.uid ||
+                        data.parent()
+                            .parent()
+                            .child('participantB')
+                            .val() === auth.uid
+                      )",
+
             ".write": "auth != null &&
                        data.parent()
                            .parent()
