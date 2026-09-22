@@ -285,10 +285,12 @@
 
           ".read": "auth != null &&
                     (
-                      data.parent().parent()
+                      root.child('chats')
+                          .child($chatId)
                           .child('participantA')
                           .val() === auth.uid ||
-                      data.parent().parent()
+                      root.child('chats')
+                          .child($chatId)
                           .child('participantB')
                           .val() === auth.uid
                     )",
