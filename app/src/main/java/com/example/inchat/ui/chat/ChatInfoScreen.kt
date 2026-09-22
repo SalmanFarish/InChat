@@ -55,6 +55,42 @@ fun ChatInfoScreen(
     onChatThemeClick: () -> Unit
 ) {
 
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
+    var otherUserProfilePhoto by
+    remember(otherUserId) {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(otherUserId) {
+        val user =
+            userRepository
+                .getUserByIdFast(otherUserId)
+
+        otherUserProfilePhoto =
+            user
+                ?.profilePhotoData
+                ?.ifBlank {
+                    user.profilePhotoUrl
+                }
+                .orEmpty()
+    }
+
+    val blockState by
+        chatViewModel
+            .blockState
+            .collectAsState()
+
+    LaunchedEffect(currentUserId, otherUserId) {
+        chatViewModel.startListening(
+            currentUserId = currentUserId,
+            otherUserId = otherUserId
+        )
+    }
+
     var showBlockDialog by
     remember {
         mutableStateOf(false)
@@ -758,6 +794,7 @@ fun ChatInfoScreen(
                 ChatInfoActionRow(
                     title = "Chat theme",
                     subtitle = "Choose the look for this conversation",
+                    enabled = true,
                     onClick = onChatThemeClick
                 )
             }
