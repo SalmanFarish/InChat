@@ -132,6 +132,20 @@ class ModerationRepository {
 
         return try {
 
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match block owner."
+                    )
+                )
+            }
+
             if (
                 currentUserId.isBlank() ||
                 userIdToBlock.isBlank()
@@ -185,6 +199,20 @@ class ModerationRepository {
 
         return try {
 
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match unblock owner."
+                    )
+                )
+            }
+
             if (
                 currentUserId.isBlank() ||
                 userIdToUnblock.isBlank()
@@ -234,6 +262,20 @@ class ModerationRepository {
     ): Result<Unit> {
 
         return try {
+
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != reporterId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match report owner."
+                    )
+                )
+            }
 
             if (
                 reporterId.isBlank() ||
