@@ -1,5 +1,6 @@
 package com.example.inchat.data.repository
 
+import com.google.firebase.auth.FirebaseAuth
 import com.example.inchat.data.model.BlockedUser
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -15,6 +16,9 @@ class ModerationRepository {
 
     private val database =
         FirebaseDatabase.getInstance()
+
+    private val auth =
+        FirebaseAuth.getInstance()
 
     /*
      * ---------------------------------------------------------
