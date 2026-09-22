@@ -9,6 +9,7 @@ import com.example.inchat.data.model.ReplyTo
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.ModerationRepository
 import com.example.inchat.data.repository.PresenceRepository
+import com.example.inchat.data.repository.UserRepository
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -35,6 +36,9 @@ class ChatViewModel : ViewModel() {
     private val moderationRepository =
         ModerationRepository()
 
+    private val userRepository =
+        UserRepository()
+
     private val database =
         FirebaseDatabase.getInstance()
 
@@ -56,6 +60,13 @@ class ChatViewModel : ViewModel() {
 
     private val _otherUserReadTimestamp =
         MutableStateFlow(0L)
+
+    private val _readReceiptsEnabled =
+        MutableStateFlow(true)
+
+    val readReceiptsEnabled:
+            StateFlow<Boolean> =
+        _readReceiptsEnabled.asStateFlow()
 
     val otherUserReadTimestamp:
             StateFlow<Long> =
@@ -148,6 +159,9 @@ class ChatViewModel : ViewModel() {
             Job? = null
 
     private var readListenerJob:
+            Job? = null
+
+    private var readReceiptPreferenceJob:
             Job? = null
 
     private var presenceJob:
@@ -307,6 +321,9 @@ class ChatViewModel : ViewModel() {
         _otherUserReadTimestamp.value =
             0L
 
+        _readReceiptsEnabled.value =
+            true
+
         _otherUserTyping.value =
             false
 
@@ -333,6 +350,11 @@ class ChatViewModel : ViewModel() {
 
             otherUserId =
                 otherUserId
+        )
+
+        startReadReceiptPreferenceListener(
+            currentUserId =
+                currentUserId
         )
 
         startPresenceListener(
@@ -364,6 +386,12 @@ class ChatViewModel : ViewModel() {
                     "ChatViewModel",
                     "Initializing chat: $chatId"
                 )
+
+                _readReceiptsEnabled.value =
+                    userRepository
+                        .getReadReceiptsVisible(
+                            currentUserId
+                        )
 
                 val result =
                     chatRepository.ensureChat(
@@ -558,6 +586,57 @@ class ChatViewModel : ViewModel() {
                     Log.e(
                         "ChatViewModel",
                         "Read listener failed",
+                        e
+                    )
+                }
+            }
+    }
+
+    /*
+     * =========================================================
+     * READ RECEIPT PREFERENCE LISTENER
+     * =========================================================
+     */
+    private fun startReadReceiptPreferenceListener(
+        currentUserId: String
+    ) {
+
+        readReceiptPreferenceJob?.cancel()
+
+        readReceiptPreferenceJob =
+            viewModelScope.launch {
+
+                try {
+
+                    userRepository
+                        .observeReadReceiptsVisible(
+                            currentUserId
+                        )
+                        .collect { enabled ->
+
+                            _readReceiptsEnabled.value =
+                                enabled
+
+                            if (!enabled) {
+
+                                markConversationRead(
+                                    currentUserId
+                                )
+                            }
+                        }
+
+                } catch (
+                    e:
+                    kotlinx.coroutines.CancellationException
+                ) {
+
+                    throw e
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        "ChatViewModel",
+                        "Read receipt preference listener failed",
                         e
                     )
                 }
@@ -1544,7 +1623,10 @@ class ChatViewModel : ViewModel() {
                         currentUserId,
 
                     chatId =
-                        currentChatId
+                        currentChatId,
+
+                    sendReadReceipt =
+                        _readReceiptsEnabled.value
                 )
                 .onFailure { error ->
 
