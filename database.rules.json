@@ -106,13 +106,13 @@
 
         "online": {
           ".read": "auth != null && (auth.uid == $uid || root.child('presence').child($uid).child('onlineVisible').val() == true)",
-          ".write": "auth != null && auth.uid == $uid",
+          ".write": false,
           ".validate": "newData.isBoolean()"
         },
 
         "lastSeen": {
           ".read": "auth != null && (auth.uid == $uid || root.child('presence').child($uid).child('lastSeenVisible').val() == true)",
-          ".write": "auth != null && auth.uid == $uid",
+          ".write": false,
           ".validate": "newData.isNumber()"
         },
 
