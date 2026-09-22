@@ -167,11 +167,15 @@ class SearchViewModel : ViewModel() {
                                 username
                             )
 
+                    val discoverable =
+                        user?.discoverableByUsername == true
+
                     when {
 
                         user == null ||
                                 user.uid ==
-                                currentUserId -> {
+                                currentUserId ||
+                                !discoverable -> {
 
                             _searchState.value =
                                 UserSearchState.NotFound
