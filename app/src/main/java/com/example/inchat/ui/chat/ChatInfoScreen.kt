@@ -38,8 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.inchat.data.repository.ChatAppearanceRepository
-import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.launch
@@ -53,7 +51,8 @@ fun ChatInfoScreen(
     otherUserId: String,
     otherUserNickname: String,
     chatViewModel: ChatViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onChatThemeClick: () -> Unit
 ) {
 
     val appearanceRepository =
@@ -837,54 +836,13 @@ fun ChatInfoScreen(
                 )
             }
 
-            /*
-             * =================================================
-             * THEME LIST
-             * =================================================
-             */
-            ChatTheme.all.forEach { theme ->
+            item {
 
-                item(
-                    key =
-                        "theme_${theme.id}"
-                ) {
-
-                    ChatThemeRow(
-
-                        theme =
-                            theme,
-
-                        selected =
-                            selectedThemeId ==
-                                    theme.id,
-
-                        onClick = {
-
-                            coroutineScope.launch {
-
-                                appearanceRepository
-                                    .setTheme(
-
-                                        chatId =
-                                            chatId,
-
-                                        currentUserId =
-                                            currentUserId,
-
-                                        themeId =
-                                            theme.id
-
-                                    )
-                                    .onFailure { error ->
-
-                                        actionMessage =
-                                            error.message
-                                                ?: "Could not change chat appearance"
-                                    }
-                            }
-                        }
-                    )
-                }
+                ChatInfoActionRow(
+                    title = "Chat theme",
+                    subtitle = "Choose the look for this conversation",
+                    onClick = onChatThemeClick
+                )
             }
 
             item {
