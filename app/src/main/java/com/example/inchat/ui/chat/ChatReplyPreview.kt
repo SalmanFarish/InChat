@@ -32,6 +32,7 @@ import com.example.inchat.data.model.ReplyTo
 fun ReplyMessagePreview(
     reply: ReplyTo,
     isMe: Boolean,
+    chatTheme: ChatTheme,
     onClick: () -> Unit
 ) {
 
@@ -40,9 +41,7 @@ fun ReplyMessagePreview(
             isMe
         ) {
 
-            MaterialTheme
-                .colorScheme
-                .onPrimary
+            chatTheme.outgoingTextColor
                 .copy(
                     alpha =
                         0.10f
@@ -50,9 +49,7 @@ fun ReplyMessagePreview(
 
         } else {
 
-            MaterialTheme
-                .colorScheme
-                .onSurface
+            chatTheme.incomingTextColor
                 .copy(
                     alpha =
                         0.06f
@@ -90,9 +87,7 @@ fun ReplyMessagePreview(
 
         } else {
 
-            MaterialTheme
-                .colorScheme
-                .onSurfaceVariant
+            chatTheme.secondaryTextColor
         }
 
     Row(
@@ -142,9 +137,7 @@ fun ReplyMessagePreview(
                         )
                     )
                     .background(
-                        MaterialTheme
-                            .colorScheme
-                            .primary
+                        chatTheme.outgoingBubbleColor
                     )
         )
 
