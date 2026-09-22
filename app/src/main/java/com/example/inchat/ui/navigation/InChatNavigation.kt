@@ -149,6 +149,7 @@ fun InChatApp(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     notificationTarget: NotificationChatTarget?,
+    onChatOpened: () -> Unit,
     onNotificationHandled: () -> Unit
 ) {
 
@@ -198,6 +199,14 @@ fun InChatApp(
     LaunchedEffect(
         currentRoute
     ) {
+
+        if (
+            currentRoute?.startsWith(
+                "chat/"
+            ) == true
+        ) {
+            onChatOpened()
+        }
 
         if (
             currentRoute ==
