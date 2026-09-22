@@ -11,6 +11,12 @@ data class User(
     val bio: String = "",
 
     /*
+     * Whether this user allows read receipts to be published to other users.
+     * Existing accounts default to true when the field is absent.
+     */
+    val readReceiptsVisible: Boolean = true,
+
+    /*
      * Kept for backward compatibility with the existing app.
      * Older accounts may still contain a Storage URL here.
      */
