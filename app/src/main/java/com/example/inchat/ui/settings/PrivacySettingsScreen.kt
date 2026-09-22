@@ -84,6 +84,16 @@ fun PrivacySettingsScreen(
                 true
         )
 
+    val typingIndicatorVisible by
+    userRepository
+        .observeTypingIndicatorVisible(
+            uid
+        )
+        .collectAsState(
+            initial =
+                true
+        )
+
     var saving by
     remember {
         mutableStateOf(false)
@@ -130,6 +140,46 @@ fun PrivacySettingsScreen(
                     errorMessage =
                         error.message
                             ?: "Could not update read receipt settings."
+                }
+        }
+    }
+
+    fun updateTypingIndicatorVisibility(
+        visible: Boolean
+    ) {
+
+        if (
+            saving
+        ) {
+            return
+        }
+
+        saving =
+            true
+
+        coroutineScope.launch {
+
+            userRepository
+                .updateTypingIndicatorVisible(
+                    uid =
+                        uid,
+
+                    visible =
+                        visible
+                )
+                .onSuccess {
+
+                    saving =
+                        false
+                }
+                .onFailure { error ->
+
+                    saving =
+                        false
+
+                    errorMessage =
+                        error.message
+                            ?: "Could not update typing indicator settings."
                 }
         }
     }
@@ -379,6 +429,31 @@ fun PrivacySettingsScreen(
                     onCheckedChange = { checked ->
 
                         updateReadReceiptsVisibility(
+                            checked
+                        )
+                    }
+                )
+            }
+
+            item {
+
+                PrivacyToggleRow(
+
+                    title =
+                        "Typing indicator",
+
+                    description =
+                        "Let other people see when you are typing a message.",
+
+                    checked =
+                        typingIndicatorVisible,
+
+                    enabled =
+                        !saving,
+
+                    onCheckedChange = { checked ->
+
+                        updateTypingIndicatorVisibility(
                             checked
                         )
                     }
