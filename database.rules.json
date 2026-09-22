@@ -281,7 +281,13 @@
                             newData.val() === 'forest' ||
                             newData.val() === 'ember' ||
                             newData.val() === 'violet' ||
-                            newData.val() === 'mono'
+                            newData.val() === 'mono' ||
+                            newData.val() === 'pure_black' ||
+                            newData.val() === 'ascii_minimal' ||
+                            newData.val() === 'dots' ||
+                            newData.val() === 'wave' ||
+                            newData.val() === 'grid' ||
+                            newData.val() === 'terminal'
                           )"
           }
         },
