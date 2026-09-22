@@ -276,27 +276,37 @@ class UserRepository {
     suspend fun releaseUsername(
         username: String,
         uid: String
-    ): Result<Unit> =
-        suspendCancellableCoroutine { continuation ->
+    ): Result<Unit> {
 
-            val key =
-                usernameKey(
-                    username
+        val key =
+            usernameKey(
+                username
+            )
+
+        if (
+            key.isBlank() ||
+            uid.isBlank()
+        ) {
+            return Result.success(
+                Unit
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match username owner."
                 )
+            )
+        }
 
-            if (
-                key.isBlank() ||
-                uid.isBlank()
-            ) {
-
-                continuation.resume(
-                    Result.success(
-                        Unit
-                    )
-                )
-
-                return@suspendCancellableCoroutine
-            }
+        return try {
 
             val usernameRef =
                 database
@@ -307,114 +317,42 @@ class UserRepository {
                         key
                     )
 
-            usernameRef.runTransaction(
+            val snapshot =
+                usernameRef
+                    .get()
+                    .await()
 
-                object :
-                    Transaction.Handler {
+            val existingUid =
+                snapshot.getValue(
+                    String::class.java
+                )
 
-                    override fun doTransaction(
-                        currentData:
-                        MutableData
-                    ): Transaction.Result {
+            if (
+                existingUid == uid
+            ) {
 
-                        val existingUid =
-                            currentData.getValue(
-                                String::class.java
-                            )
+                usernameRef
+                    .removeValue()
+                    .await()
+            }
 
-                        return if (
-                            existingUid == uid
-                        ) {
+            /*
+             * The public search index is cleaned separately during
+             * account deletion and whenever discoverability changes.
+             */
+            Result.success(
+                Unit
+            )
 
-                            currentData.value =
-                                null
+        } catch (
+            e: Exception
+        ) {
 
-                            Transaction.success(
-                                currentData
-                            )
-
-                        } else {
-
-                            Transaction.success(
-                                currentData
-                            )
-                        }
-                    }
-
-                    override fun onComplete(
-                        error:
-                        DatabaseError?,
-                        committed:
-                        Boolean,
-                        currentData:
-                        DataSnapshot?
-                    ) {
-
-                        if (
-                            error != null
-                        ) {
-
-                            continuation.resume(
-                                Result.failure(
-                                    error.toException()
-                                )
-                            )
-
-                            return
-                        }
-
-                        database
-                            .getReference(
-                                "publicUsernames"
-                            )
-                            .child(
-                                key
-                            )
-                            .get()
-                            .addOnSuccessListener { snapshot ->
-
-                                if (
-                                    snapshot.getValue(
-                                        String::class.java
-                                    ) != uid
-                                ) {
-                                    continuation.resume(
-                                        Result.success(
-                                            Unit
-                                        )
-                                    )
-
-                                    return@addOnSuccessListener
-                                }
-
-                                snapshot.ref
-                                    .removeValue()
-                                    .addOnSuccessListener {
-                                        continuation.resume(
-                                            Result.success(
-                                                Unit
-                                            )
-                                        }
-                                    }
-                                    .addOnFailureListener { publicError ->
-                                        continuation.resume(
-                                            Result.failure(
-                                                publicError
-                                            )
-                                        )
-                                    }
-                            }
-                            .addOnFailureListener { publicError ->
-                                continuation.resume(
-                                    Result.failure(
-                                        publicError
-                                    )
-                                )
-                            }
-                    }
-                }
+            Result.failure(
+                e
             )
         }
+    }
 
     /*
      * =========================================================
