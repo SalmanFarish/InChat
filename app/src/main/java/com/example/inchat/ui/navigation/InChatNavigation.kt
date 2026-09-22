@@ -1084,6 +1084,9 @@ private fun InChatBottomBar(
         (Int) -> Unit
 ) {
 
+    val dragScope =
+        rememberCoroutineScope()
+
     val selectedPage =
         pagerState.currentPage
 
@@ -1193,7 +1196,7 @@ private fun InChatBottomBar(
                                         dragJob?.cancel()
 
                                         dragJob =
-                                            launch {
+                                            dragScope.launch {
                                                 pagerState.scroll(
                                                     MutatePriority.UserInput
                                                 ) {
