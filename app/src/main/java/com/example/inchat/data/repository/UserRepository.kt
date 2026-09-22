@@ -709,6 +709,182 @@ class UserRepository {
 
     /*
      * =========================================================
+     * USERNAME DISCOVERY VISIBILITY
+     * =========================================================
+     */
+
+    fun observeDiscoverableByUsername(
+        uid: String
+    ): Flow<Boolean> =
+        callbackFlow {
+
+            if (
+                uid.isBlank()
+            ) {
+
+                trySend(true)
+                close()
+                return@callbackFlow
+            }
+
+            val discoverableRef =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
+                    .child(
+                        "discoverableByUsername"
+                    )
+
+            discoverableRef.keepSynced(
+                true
+            )
+
+            val listener =
+                object :
+                    ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot:
+                        DataSnapshot
+                    ) {
+
+                        trySend(
+                            snapshot.getValue(
+                                Boolean::class.java
+                            ) ?: true
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error:
+                        DatabaseError
+                    ) {
+
+                        close(
+                            error.toException()
+                        )
+                    }
+                }
+
+            discoverableRef
+                .addValueEventListener(
+                    listener
+                )
+
+            awaitClose {
+
+                discoverableRef
+                    .removeEventListener(
+                        listener
+                    )
+            }
+        }
+
+    suspend fun getDiscoverableByUsername(
+        uid: String
+    ): Boolean {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return true
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "discoverableByUsername"
+                )
+                .get()
+                .await()
+                .getValue(
+                    Boolean::class.java
+                ) ?: true
+
+        } catch (
+            _: Exception
+        ) {
+
+            true
+        }
+    }
+
+    suspend fun updateDiscoverableByUsername(
+        uid: String,
+        discoverable: Boolean
+    ): Result<Unit> {
+
+        if (
+            uid.isBlank()
+        ) {
+
+            return Result.failure(
+                IllegalArgumentException(
+                    "UID cannot be blank"
+                )
+            )
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != uid
+        ) {
+
+            return Result.failure(
+                IllegalStateException(
+                    "Authenticated user does not match preference owner."
+                )
+            )
+        }
+
+        return try {
+
+            database
+                .getReference(
+                    "users"
+                )
+                .child(
+                    uid
+                )
+                .child(
+                    "discoverableByUsername"
+                )
+                .setValue(
+                    discoverable
+                )
+                .await()
+
+            Result.success(
+                Unit
+            )
+
+        } catch (
+            e: Exception
+        ) {
+
+            Result.failure(
+                e
+            )
+        }
+    }
+
+    /*
+     * =========================================================
      * SAVE USER
      * =========================================================
      */
