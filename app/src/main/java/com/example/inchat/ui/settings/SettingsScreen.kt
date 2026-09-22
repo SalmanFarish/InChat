@@ -253,7 +253,10 @@ fun SettingsScreen(
                                 "Who can find me",
 
                             subtitle =
-                                "Control how other users can discover your account"
+                                "Choose whether people can discover you by username",
+
+                            enabled =
+                                true
                         )
                     )
             ),
@@ -1463,7 +1466,8 @@ private fun SettingsSectionCard(
                                 "Last seen",
                                 "Online status",
                                 "Read receipts",
-                                "Typing indicator" ->
+                                "Typing indicator",
+                                "Who can find me" ->
                                     onPrivacyClick()
                             }
                         }
