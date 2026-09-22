@@ -23,7 +23,7 @@
       "$uid": {
         ".read": false,
         ".write": "auth != null && auth.uid == $uid",
-        ".validate": "newData.hasChildren(['codes']) && newData.child('codes').hasChildren()"
+        ".validate": "newData.hasChildren(['salt', 'codes']) && newData.child('salt').isString() && newData.child('salt').val().length <= 128 && newData.child('codes').hasChildren() && newData.child('codes').numChildren() == 5"
       }
     },
 
