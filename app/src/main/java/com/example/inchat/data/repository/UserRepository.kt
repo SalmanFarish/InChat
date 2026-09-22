@@ -363,11 +363,54 @@ class UserRepository {
                             return
                         }
 
-                        continuation.resume(
-                            Result.success(
-                                Unit
+                        database
+                            .getReference(
+                                "publicUsernames"
                             )
-                        )
+                            .child(
+                                key
+                            )
+                            .get()
+                            .addOnSuccessListener { snapshot ->
+
+                                if (
+                                    snapshot.getValue(
+                                        String::class.java
+                                    ) != uid
+                                ) {
+                                    continuation.resume(
+                                        Result.success(
+                                            Unit
+                                        )
+                                    )
+
+                                    return@addOnSuccessListener
+                                }
+
+                                snapshot.ref
+                                    .removeValue()
+                                    .addOnSuccessListener {
+                                        continuation.resume(
+                                            Result.success(
+                                                Unit
+                                            )
+                                        }
+                                    }
+                                    .addOnFailureListener { publicError ->
+                                        continuation.resume(
+                                            Result.failure(
+                                                publicError
+                                            )
+                                        )
+                                    }
+                            }
+                            .addOnFailureListener { publicError ->
+                                continuation.resume(
+                                    Result.failure(
+                                        publicError
+                                    )
+                                )
+                            }
                     }
                 }
             )
@@ -876,20 +919,57 @@ class UserRepository {
 
         return try {
 
-            database
-                .getReference(
-                    "users"
+            val userSnapshot =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
+                    .get()
+                    .await()
+
+            val username =
+                userSnapshot
+                    .child(
+                        "username"
+                    )
+                    .getValue(
+                        String::class.java
+                    )
+                    ?.trim()
+                    .orEmpty()
+
+            if (
+                username.isBlank()
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "User profile is missing a username."
+                    )
                 )
-                .child(
-                    uid
-                )
-                .child(
-                    "discoverableByUsername"
-                )
-                .setValue(
-                    discoverable
+            }
+
+            database.reference
+                .updateChildren(
+                    mapOf(
+                        "users/$uid/discoverableByUsername" to
+                                discoverable
+                    )
                 )
                 .await()
+
+            setPublicUsernameIndex(
+                username =
+                    username,
+
+                uid =
+                    uid,
+
+                discoverable =
+                    discoverable
+            )
 
             Result.success(
                 Unit
@@ -1003,6 +1083,17 @@ class UserRepository {
                     data
                 )
                 .await()
+
+            setPublicUsernameIndex(
+                username =
+                    cleanUsername,
+
+                uid =
+                    uid,
+
+                discoverable =
+                    true
+            )
 
             Result.success(
                 Unit
@@ -2273,7 +2364,7 @@ class UserRepository {
             val snapshot =
                 database
                     .getReference(
-                        "usernames"
+                        "publicUsernames"
                     )
                     .orderByKey()
                     .startAt(
@@ -2344,6 +2435,59 @@ class UserRepository {
         ) {
 
             throw e
+        }
+    }
+
+    /*
+     * =========================================================
+     * PUBLIC USERNAME SEARCH INDEX
+     * =========================================================
+     *
+     * Only accounts that opt in to username discovery are
+     * represented in this public index.
+     */
+    private suspend fun setPublicUsernameIndex(
+        username: String,
+        uid: String,
+        discoverable: Boolean
+    ) {
+
+        val key =
+            usernameKey(
+                username
+            )
+
+        if (
+            key.isBlank() ||
+            uid.isBlank()
+        ) {
+            return
+        }
+
+        val publicRef =
+            database
+                .getReference(
+                    "publicUsernames"
+                )
+                .child(
+                    key
+                )
+
+        if (
+            discoverable
+        ) {
+
+            publicRef
+                .setValue(
+                    uid
+                )
+                .await()
+
+        } else {
+
+            publicRef
+                .removeValue()
+                .await()
         }
     }
 
