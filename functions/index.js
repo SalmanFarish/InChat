@@ -234,6 +234,7 @@ exports.sendChatNotification = onValueCreated(
 
             notification: {
               channelId: "inchat_messages",
+              icon: "ic_stat_inchat",
             },
           },
         };
