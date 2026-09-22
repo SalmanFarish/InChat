@@ -182,26 +182,7 @@
     "chats": {
       "$chatId": {
 
-        ".read": "auth != null &&
-                  data.exists() &&
-                  (
-                    data.child('participantA').val() === auth.uid ||
-                    data.child('participantB').val() === auth.uid
-                  )",
-
-        /*
-         * Only a participant may create a new chat.
-         */
-        ".write": "auth != null &&
-                   !data.exists() &&
-                   newData.child('participantA').isString() &&
-                   newData.child('participantB').isString() &&
-                   newData.child('participantA').val() !==
-                   newData.child('participantB').val() &&
-                   (
-                     newData.child('participantA').val() === auth.uid ||
-                     newData.child('participantB').val() === auth.uid
-                   )",
+        ".read": false,
 
         ".validate": "newData.hasChildren([
                         'participantA',
@@ -218,6 +199,7 @@
          * =====================================================
          */
         "participantA": {
+          ".read": "auth != null && data.parent().exists() && (data.parent().child('participantA').val() === auth.uid || data.parent().child('participantB').val() === auth.uid)",
           ".write": "auth != null &&
                      data.exists() &&
                      (
@@ -237,6 +219,7 @@
          * =====================================================
          */
         "participantB": {
+          ".read": "auth != null && data.parent().exists() && (data.parent().child('participantA').val() === auth.uid || data.parent().child('participantB').val() === auth.uid)",
           ".write": "auth != null &&
                      data.exists() &&
                      (
@@ -716,22 +699,11 @@
         "readBy": {
           "$uid": {
 
-            ".write": "auth != null &&
-                       auth.uid === $uid &&
-                       (
-                         root.child('chats')
-                             .child($chatId)
-                             .child('participantA')
-                             .val() === auth.uid ||
+            ".read": "auth != null && data.exists() && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid) && (auth.uid === $uid || (root.child('users').child($uid).child('readReceiptsVisible').val() !== false && !root.child('blockedUsers').child($uid).child(auth.uid).exists() && !root.child('blockedUsers').child(auth.uid).child($uid).exists()))",
 
-                         root.child('chats')
-                             .child($chatId)
-                             .child('participantB')
-                             .val() === auth.uid
-                       )",
+            ".write": "auth != null && auth.uid === $uid && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid) && (!newData.exists() || root.child('users').child(auth.uid).child('readReceiptsVisible').val() !== false) && !root.child('blockedUsers').child(auth.uid).child(\n              root.child('chats').child($chatId).child('participantA').val() === auth.uid\n                ? root.child('chats').child($chatId).child('participantB').val()\n                : root.child('chats').child($chatId).child('participantA').val()\n            ).exists() && !root.child('blockedUsers').child(\n              root.child('chats').child($chatId).child('participantA').val() === auth.uid\n                ? root.child('chats').child($chatId).child('participantB').val()\n                : root.child('chats').child($chatId).child('participantA').val()\n            ).child(auth.uid).exists()",
 
-            ".validate": "newData.isNumber() &&
-                          newData.val() >= 0"
+            ".validate": "newData.isNumber() && newData.val() >= 0"
           }
         }
       }
@@ -994,33 +966,9 @@
 
         "$uid": {
 
-          ".read": "auth != null &&
-                    (
-                      root.child('chats')
-                          .child($chatId)
-                          .child('participantA')
-                          .val() === auth.uid ||
+          ".read": "auth != null && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid) && root.child('users').child($uid).child('typingIndicatorVisible').val() !== false && !root.child('blockedUsers').child($uid).child(auth.uid).exists() && !root.child('blockedUsers').child(auth.uid).child($uid).exists()",
 
-                      root.child('chats')
-                          .child($chatId)
-                          .child('participantB')
-                          .val() === auth.uid
-                    )",
-
-          ".write": "auth != null &&
-                     auth.uid === $uid &&
-
-                     (
-                       root.child('chats')
-                           .child($chatId)
-                           .child('participantA')
-                           .val() === auth.uid ||
-
-                       root.child('chats')
-                           .child($chatId)
-                           .child('participantB')
-                           .val() === auth.uid
-                     )",
+          ".write": "auth != null && auth.uid === $uid && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid) && (!newData.exists() || newData.val() === false || root.child('users').child($uid).child('typingIndicatorVisible').val() !== false) && !root.child('blockedUsers').child(auth.uid).child(\n            root.child('chats').child($chatId).child('participantA').val() === auth.uid\n              ? root.child('chats').child($chatId).child('participantB').val()\n              : root.child('chats').child($chatId).child('participantA').val()\n          ).exists() && !root.child('blockedUsers').child(\n            root.child('chats').child($chatId).child('participantA').val() === auth.uid\n              ? root.child('chats').child($chatId).child('participantB').val()\n              : root.child('chats').child($chatId).child('participantA').val()\n          ).child(auth.uid).exists()",
 
           ".validate": "newData.isBoolean()"
         }
