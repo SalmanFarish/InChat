@@ -253,7 +253,7 @@ class InChatFirebaseMessagingService :
                     CHANNEL_ID
                 )
                 .setSmallIcon(
-                    android.R.drawable.ic_dialog_info
+                    com.example.inchat.R.drawable.ic_stat_inchat
                 )
                 .setContentTitle(
                     "@$senderName"
