@@ -418,10 +418,13 @@ private fun PrivacyHeader() {
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal =
+                    start =
                         4.dp,
 
                     top =
+                        4.dp,
+
+                    end =
                         4.dp
                 )
     ) {
