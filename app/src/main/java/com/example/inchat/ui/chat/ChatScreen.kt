@@ -81,7 +81,7 @@ fun ChatScreen(
         )
         .collectAsState(
             initial =
-                ChatTheme.MIDNIGHT.id
+                ChatTheme.DESSERT.id
         )
 
     val chatTheme =
