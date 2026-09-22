@@ -17,6 +17,12 @@ data class User(
     val readReceiptsVisible: Boolean = true,
 
     /*
+     * Whether this user allows their typing status to be shared.
+     * Existing accounts default to true when the field is absent.
+     */
+    val typingIndicatorVisible: Boolean = true,
+
+    /*
      * Kept for backward compatibility with the existing app.
      * Older accounts may still contain a Storage URL here.
      */
