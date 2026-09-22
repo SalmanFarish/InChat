@@ -17,9 +17,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
 class ChatRepository {
@@ -35,8 +32,6 @@ class ChatRepository {
         private const val TAG =
             "ChatRepository"
 
-        private const val NOTIFICATION_WORKER_URL =
-            "https://icy-base-2bc4.s91670002.workers.dev/send"
 
         /*
          * Reactions currently supported by InChat.
@@ -797,25 +792,6 @@ class ChatRepository {
                 )
                 .await()
 
-            notifyWorker(
-                chatId =
-                    chatId,
-
-                messageId =
-                    messageId,
-
-                senderId =
-                    senderId,
-
-                receiverId =
-                    receiverId,
-
-                senderName =
-                    senderNickname,
-
-                message =
-                    text
-            )
 
             Result.success(
                 messageId
@@ -953,25 +929,12 @@ class ChatRepository {
                 )
             }
 
-            /*
-             * Do not rewrite the whole message object.
-             *
-             * Updating only these two children preserves
-             * replies, reactions and all other message data.
-             */
-            val updates =
-                mapOf<String, Any>(
-
-                    "text" to
-                            cleanText,
-
-                    "edited" to
-                            true
-                )
-
             messageRef
                 .updateChildren(
-                    updates
+                    mapOf<String, Any>(
+                        "text" to cleanText,
+                        "edited" to true
+                    )
                 )
                 .await()
 
@@ -1312,222 +1275,6 @@ class ChatRepository {
 
     /*
      * =========================================================
-     * NOTIFICATION WORKER
-     * =========================================================
-     */
-    private suspend fun notifyWorker(
-        chatId: String,
-        messageId: String,
-        senderId: String,
-        receiverId: String,
-        senderName: String,
-        message: String
-    ) {
-
-        try {
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null
-            ) {
-
-                Log.w(
-                    TAG,
-                    "Notification skipped: no authenticated user"
-                )
-
-                return
-            }
-
-            if (
-                firebaseUser.uid !=
-                senderId
-            ) {
-
-                Log.w(
-                    TAG,
-                    "Notification skipped: sender ID mismatch"
-                )
-
-                return
-            }
-
-            val tokenResult =
-                firebaseUser
-                    .getIdToken(
-                        false
-                    )
-                    .await()
-
-            val firebaseIdToken =
-                tokenResult.token
-
-            if (
-                firebaseIdToken.isNullOrBlank()
-            ) {
-
-                Log.w(
-                    TAG,
-                    "Notification skipped: Firebase ID token unavailable"
-                )
-
-                return
-            }
-
-            val requestBody =
-                JSONObject().apply {
-
-                    put(
-                        "chatId",
-                        chatId
-                    )
-
-                    put(
-                        "messageId",
-                        messageId
-                    )
-
-                    put(
-                        "senderId",
-                        senderId
-                    )
-
-                    put(
-                        "receiverId",
-                        receiverId
-                    )
-
-                    put(
-                        "senderName",
-                        senderName
-                    )
-
-                    put(
-                        "message",
-                        message
-                    )
-                }.toString()
-
-            val response =
-                withContext(
-                    Dispatchers.IO
-                ) {
-
-                    val connection =
-                        URL(
-                            NOTIFICATION_WORKER_URL
-                        )
-                            .openConnection()
-                                as HttpURLConnection
-
-                    try {
-
-                        connection.requestMethod =
-                            "POST"
-
-                        connection.connectTimeout =
-                            10_000
-
-                        connection.readTimeout =
-                            15_000
-
-                        connection.doOutput =
-                            true
-
-                        connection.setRequestProperty(
-                            "Authorization",
-                            "Bearer $firebaseIdToken"
-                        )
-
-                        connection.setRequestProperty(
-                            "Content-Type",
-                            "application/json"
-                        )
-
-                        connection.setRequestProperty(
-                            "Accept",
-                            "application/json"
-                        )
-
-                        connection
-                            .outputStream
-                            .use { outputStream ->
-
-                                outputStream.write(
-                                    requestBody
-                                        .toByteArray(
-                                            Charsets.UTF_8
-                                        )
-                                )
-                            }
-
-                        val responseCode =
-                            connection
-                                .responseCode
-
-                        val stream =
-                            if (
-                                responseCode in
-                                200..299
-                            ) {
-
-                                connection
-                                    .inputStream
-
-                            } else {
-
-                                connection
-                                    .errorStream
-                            }
-
-                        val responseText =
-                            stream
-                                ?.bufferedReader()
-                                ?.use {
-                                    it.readText()
-                                }
-                                .orEmpty()
-
-                        Log.d(
-                            TAG,
-                            "Notification Worker response: HTTP $responseCode"
-                        )
-
-                        responseText
-
-                    } finally {
-
-                        connection.disconnect()
-                    }
-                }
-
-            if (
-                response.isNotBlank()
-            ) {
-
-                Log.d(
-                    TAG,
-                    "Notification Worker result: $response"
-                )
-            }
-
-        } catch (e: Exception) {
-
-            /*
-             * Notification failure never fails the message.
-             */
-            Log.e(
-                TAG,
-                "Notification Worker request failed",
-                e
-            )
-        }
-    }
-
-    /*
-     * =========================================================
      * DELETE MESSAGE
      * =========================================================
      */
@@ -1538,19 +1285,77 @@ class ChatRepository {
 
         return try {
 
-            database
-                .getReference(
-                    "chats"
+            if (
+                chatId.isBlank() ||
+                messageId.isBlank()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Invalid message data"
+                    )
                 )
-                .child(
-                    chatId
+            }
+
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You are not authenticated."
+                    )
                 )
-                .child(
-                    "messages"
+            }
+
+            val messageRef =
+                database
+                    .getReference(
+                        "chats"
+                    )
+                    .child(
+                        chatId
+                    )
+                    .child(
+                        "messages"
+                    )
+                    .child(
+                        messageId
+                    )
+
+            val messageSnapshot =
+                messageRef
+                    .get()
+                    .await()
+
+            if (
+                !messageSnapshot.exists()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Message does not exist."
+                    )
                 )
-                .child(
-                    messageId
+            }
+
+            if (
+                messageSnapshot
+                    .child(
+                        "senderId"
+                    )
+                    .getValue(
+                        String::class.java
+                    ) != firebaseUser.uid
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You can only delete your own messages."
+                    )
                 )
+            }
+
+            messageRef
                 .removeValue()
                 .await()
 
