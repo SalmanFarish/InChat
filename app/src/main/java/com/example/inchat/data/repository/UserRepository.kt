@@ -1826,6 +1826,11 @@ class UserRepository {
                     "usernames/$usernameKey"
                 ] =
                     null
+
+                updates[
+                    "publicUsernames/$usernameKey"
+                ] =
+                    null
             }
 
             for (
