@@ -101,8 +101,8 @@
 
     "presence": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
-        ".write": "auth != null && auth.uid == $uid",
+        ".read": false,
+        ".write": false,
 
         "online": {
           ".read": "auth != null && (auth.uid == $uid || root.child('presence').child($uid).child('onlineVisible').val() == true)",
