@@ -2,6 +2,8 @@ package com.example.inchat.ui.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -107,6 +109,9 @@ fun LoginScreen(
     val showingRegistrationRecoveryCodes =
         recoveryCodes != null
 
+    val scrollState =
+        rememberScrollState()
+
     /*
      * =========================================================
      * AUTHENTICATION SCREEN
@@ -130,6 +135,9 @@ fun LoginScreen(
                     .fillMaxSize()
                     .safeDrawingPadding()
                     .imePadding()
+                    .verticalScroll(
+                        scrollState
+                    )
                     .padding(
                         24.dp
                     ),
