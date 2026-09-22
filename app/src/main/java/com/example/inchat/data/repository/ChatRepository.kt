@@ -32,8 +32,6 @@ class ChatRepository {
         private const val TAG =
             "ChatRepository"
 
-        private const val NOTIFICATION_WORKER_URL =
-            "https://icy-base-2bc4.s91670002.workers.dev/send"
 
         /*
          * Reactions currently supported by InChat.
@@ -794,25 +792,6 @@ class ChatRepository {
                 )
                 .await()
 
-            notifyWorker(
-                chatId =
-                    chatId,
-
-                messageId =
-                    messageId,
-
-                senderId =
-                    senderId,
-
-                receiverId =
-                    receiverId,
-
-                senderName =
-                    senderNickname,
-
-                message =
-                    text
-            )
 
             Result.success(
                 messageId
