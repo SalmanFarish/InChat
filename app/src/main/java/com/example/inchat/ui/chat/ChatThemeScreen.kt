@@ -53,7 +53,7 @@ fun ChatThemeScreen(
 
     val selectedThemeId by appearanceRepository
         .observeTheme(chatId)
-        .collectAsState(initial = ChatTheme.MIDNIGHT.id)
+        .collectAsState(initial = ChatTheme.DESSERT.id)
 
     val coroutineScope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
