@@ -81,13 +81,13 @@ fun ChatScreen(
         )
         .collectAsState(
             initial =
-                ChatTheme.DESSERT.id
+                null
         )
 
     val chatTheme =
-        ChatTheme.fromId(
-            chatThemeId
-        )
+        chatThemeId?.let {
+            ChatTheme.fromId(it)
+        }
 
     LaunchedEffect(
         otherUserId
@@ -551,72 +551,83 @@ fun ChatScreen(
 
     ) { innerPadding ->
 
-        ChatMessageList(
+        if (chatTheme != null) {
+            ChatMessageList(
 
-            messages =
-                messages,
+                messages =
+                    messages,
 
-            messagesLoaded =
-                messagesLoaded,
+                messagesLoaded =
+                    messagesLoaded,
 
-            currentUserId =
-                currentUserId,
+                currentUserId =
+                    currentUserId,
 
-            otherUserNickname =
-                otherUserNickname,
+                otherUserNickname =
+                    otherUserNickname,
 
-            blockState =
-                blockState,
+                blockState =
+                    blockState,
 
-            messagingBlocked =
-                messagingBlocked,
+                messagingBlocked =
+                    messagingBlocked,
 
-            otherUserReadTimestamp =
-                otherUserReadTimestamp,
+                otherUserReadTimestamp =
+                    otherUserReadTimestamp,
 
-            pendingMessageIds =
-                pendingMessageIds,
+                pendingMessageIds =
+                    pendingMessageIds,
 
-            isConnected =
-                isConnected,
+                isConnected =
+                    isConnected,
 
-            chatTheme =
-                chatTheme,
+                chatTheme =
+                    chatTheme,
 
-            onReply = {
-                    message ->
+                onReply = {
+                        message ->
 
-                if (
-                    !messagingBlocked
-                ) {
+                    if (
+                        !messagingBlocked
+                    ) {
 
-                    chatViewModel
-                        .clearEditingMessage()
+                        chatViewModel
+                            .clearEditingMessage()
 
-                    messageText =
-                        ""
+                        messageText =
+                            ""
 
-                    chatViewModel
-                        .setReplyingTo(
+                        chatViewModel
+                            .setReplyingTo(
+                                message
+                            )
+                    }
+                },
+
+                onLongClick = {
+                        message ->
+
+                    if (
+                        !messagingBlocked
+                    ) {
+
+                        messageForActions =
                             message
+                    }
+                },
+
+                innerPadding =
+                    innerPadding
+            )
+        } else {
+            androidx.compose.foundation.layout.Box(
+                modifier =
+                    androidx.compose.ui.Modifier
+                        .fillMaxSize()
+                        .padding(
+                            innerPadding
                         )
-                }
-            },
-
-            onLongClick = {
-                    message ->
-
-                if (
-                    !messagingBlocked
-                ) {
-
-                    messageForActions =
-                        message
-                }
-            },
-
-            innerPadding =
-                innerPadding
-        )
+            )
+        }
     }
 }
