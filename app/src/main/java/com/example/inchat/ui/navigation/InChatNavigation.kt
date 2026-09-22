@@ -188,6 +188,33 @@ fun InChatApp(
                 "home"
 
     /*
+     * When returning from a nested destination, make sure the
+     * persistent tab pager is fully settled before the Home
+     * destination is displayed again. This prevents a partially
+     * positioned pager from leaving the content area blank while
+     * the bottom dock is already visible.
+     */
+    LaunchedEffect(
+        currentRoute
+    ) {
+
+        if (
+            currentRoute ==
+            "home" &&
+            pagerState.currentPageOffsetFraction !=
+            0f
+        ) {
+
+            pagerState.scrollToPage(
+                pagerState.currentPage.coerceIn(
+                    0,
+                    bottomNavItems.lastIndex
+                )
+            )
+        }
+    }
+
+    /*
      * =========================================================
      * NOTIFICATION CHAT
      * =========================================================
