@@ -138,27 +138,38 @@ class ChatAppearanceRepository {
                 )
             }
 
-            database
-                .getReference(
-                    "chats"
-                )
-                .child(
-                    chatId
-                )
-                .child(
-                    "appearance"
-                )
-                .child(
-                    "themeId"
-                )
-                .setValue(
-                    themeId
-                )
-                .await()
+            val themeRef =
+                database
+                    .getReference("chats")
+                    .child(chatId)
+                    .child("appearance")
+                    .child("themeId")
 
-            Result.success(
-                Unit
-            )
+            try {
+                themeRef
+                    .setValue(themeId)
+                    .await()
+            } catch (primaryError: Exception) {
+                val legacyId =
+                    ChatTheme.legacyIdFor(themeId)
+
+                if (
+                    legacyId.isNullOrBlank() ||
+                    legacyId == themeId
+                ) {
+                    throw primaryError
+                }
+
+                /*
+                 * Keep compatibility with older deployed Firebase rules
+                 * that still accept the original theme storage IDs.
+                 */
+                themeRef
+                    .setValue(legacyId)
+                    .await()
+            }
+
+            Result.success(Unit)
 
         } catch (
             e: Exception
