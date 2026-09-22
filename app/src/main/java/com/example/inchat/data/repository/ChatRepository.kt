@@ -1376,11 +1376,6 @@ class ChatRepository {
 
     /*
      * =========================================================
-     * NOTIFICATION WORKER
-     * =========================================================
-     */
-    /*
-     * =========================================================
      * DELETE MESSAGE
      * =========================================================
      */
@@ -1391,20 +1386,250 @@ class ChatRepository {
 
         return try {
 
+            if (
+                chatId.isBlank() ||
+                messageId.isBlank()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Invalid message data"
+                    )
+                )
+            }
+
+            val firebaseUser =
+                auth.currentUser
+
+            if (
+                firebaseUser == null
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You are not authenticated."
+                    )
+                )
+            }
+
+            val chatRef =
+                database
+                    .getReference(
+                        "chats"
+                    )
+                    .child(
+                        chatId
+                    )
+
+            val chatSnapshot =
+                chatRef
+                    .get()
+                    .await()
+
+            if (
+                !chatSnapshot.exists()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Chat does not exist."
+                    )
+                )
+            }
+
+            val participantA =
+                chatSnapshot
+                    .child(
+                        "participantA"
+                    )
+                    .getValue(
+                        String::class.java
+                    )
+
+            val participantB =
+                chatSnapshot
+                    .child(
+                        "participantB"
+                    )
+                    .getValue(
+                        String::class.java
+                    )
+
+            if (
+                participantA.isNullOrBlank() ||
+                participantB.isNullOrBlank() ||
+                (
+                    firebaseUser.uid != participantA &&
+                            firebaseUser.uid != participantB
+                    )
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You are not a participant in this chat."
+                    )
+                )
+            }
+
+            val messagesRef =
+                chatRef
+                    .child(
+                        "messages"
+                    )
+
+            val messageSnapshot =
+                messagesRef
+                    .child(
+                        messageId
+                    )
+                    .get()
+                    .await()
+
+            if (
+                !messageSnapshot.exists()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Message does not exist."
+                    )
+                )
+            }
+
+            if (
+                messageSnapshot
+                    .child(
+                        "senderId"
+                    )
+                    .getValue(
+                        String::class.java
+                    ) != firebaseUser.uid
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You can only delete your own messages."
+                    )
+                )
+            }
+
+            /*
+             * The Home preview only needs repair when the message
+             * being deleted is currently the latest message.
+             */
+            val latestBeforeDelete =
+                messagesRef
+                    .orderByChild(
+                        "timestamp"
+                    )
+                    .limitToLast(
+                        1
+                    )
+                    .get()
+                    .await()
+
+            val latestBeforeId =
+                latestBeforeDelete
+                    .children
+                    .firstOrNull()
+                    ?.key
+
+            val updates =
+                mutableMapOf<String, Any?>()
+
+            updates[
+                "chats/$chatId/messages/$messageId"
+            ] =
+                null
+
+            if (
+                latestBeforeId ==
+                messageId
+            ) {
+
+                /*
+                 * Find the new latest message after excluding
+                 * the message we are deleting.
+                 *
+                 * We intentionally update only the preview fields
+                 * in userChats so unread counts remain untouched.
+                 */
+                val latestAfterDelete =
+                    messagesRef
+                        .orderByChild(
+                            "timestamp"
+                        )
+                        .limitToLast(
+                            1
+                        )
+                        .get()
+                        .await()
+
+                val latestMessage =
+                    latestAfterDelete
+                        .children
+                        .firstOrNull()
+
+                val lastMessage =
+                    latestMessage
+                        ?.child(
+                            "text"
+                        )
+                        ?.getValue(
+                            String::class.java
+                        )
+                        .orEmpty()
+
+                val lastSenderId =
+                    latestMessage
+                        ?.child(
+                            "senderId"
+                        )
+                        ?.getValue(
+                            String::class.java
+                        )
+                        .orEmpty()
+
+                val lastTimestamp =
+                    latestMessage
+                        ?.child(
+                            "timestamp"
+                        )
+                        ?.getValue(
+                            Long::class.java
+                        )
+                        ?: 0L
+
+                updates[
+                    "userChats/$participantA/$chatId/lastMessage"
+                ] =
+                    lastMessage
+
+                updates[
+                    "userChats/$participantA/$chatId/lastTimestamp"
+                ] =
+                    lastTimestamp
+
+                updates[
+                    "userChats/$participantA/$chatId/lastSenderId"
+                ] =
+                    lastSenderId
+
+                updates[
+                    "userChats/$participantB/$chatId/lastMessage"
+                ] =
+                    lastMessage
+
+                updates[
+                    "userChats/$participantB/$chatId/lastTimestamp"
+                ] =
+                    lastTimestamp
+
+                updates[
+                    "userChats/$participantB/$chatId/lastSenderId"
+                ] =
+                    lastSenderId
+            }
+
             database
-                .getReference(
-                    "chats"
+                .reference
+                .updateChildren(
+                    updates
                 )
-                .child(
-                    chatId
-                )
-                .child(
-                    "messages"
-                )
-                .child(
-                    messageId
-                )
-                .removeValue()
                 .await()
 
             Result.success(
