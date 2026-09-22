@@ -3,16 +3,18 @@ package com.example.inchat.ui.chat
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Shader
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +38,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 
 data class ChatThemePalette(
@@ -52,6 +56,7 @@ enum class ChatTheme(
     val description: String,
     val wallpaperName: String,
     val legacyIds: List<String>,
+    val lightArtwork: Boolean,
     val darkPalette: ChatThemePalette,
     val lightPalette: ChatThemePalette
 ) {
@@ -61,6 +66,7 @@ enum class ChatTheme(
         description = "Colorful stars, planets and rockets",
         wallpaperName = "chat_wallpaper_spectrum",
         legacyIds = listOf("dessert", "pure_black"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF050505),
             Color(0xFF181818),
@@ -85,6 +91,7 @@ enum class ChatTheme(
         description = "Playful cats, planets and rockets",
         wallpaperName = "chat_wallpaper_space_cats",
         legacyIds = listOf("starfield", "ascii_minimal"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF070707),
             Color(0xFF1A1A1A),
@@ -109,6 +116,7 @@ enum class ChatTheme(
         description = "Football, jerseys, boots and trophies",
         wallpaperName = "chat_wallpaper_football",
         legacyIds = listOf("signal", "dots"),
+        lightArtwork = true,
         darkPalette = ChatThemePalette(
             Color(0xFF111111),
             Color(0xFF202020),
@@ -133,6 +141,7 @@ enum class ChatTheme(
         description = "Minimal stars, moons and tiny planets",
         wallpaperName = "chat_wallpaper_star_dust",
         legacyIds = listOf("sticker", "wave"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF050505),
             Color(0xFF151515),
@@ -157,6 +166,7 @@ enum class ChatTheme(
         description = "Hand-drawn cats, hearts and little icons",
         wallpaperName = "chat_wallpaper_cats",
         legacyIds = listOf("cosmos", "grid"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF111111),
             Color(0xFF202020),
@@ -181,6 +191,7 @@ enum class ChatTheme(
         description = "Clean white space doodles",
         wallpaperName = "chat_wallpaper_space_white",
         legacyIds = listOf("terminal"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF050505),
             Color(0xFF151515),
@@ -205,6 +216,7 @@ enum class ChatTheme(
         description = "Planets, constellations and shooting stars",
         wallpaperName = "chat_wallpaper_night_cosmos",
         legacyIds = listOf("brackets"),
+        lightArtwork = false,
         darkPalette = ChatThemePalette(
             Color(0xFF071018),
             Color(0xFF121A23),
@@ -306,23 +318,6 @@ fun ChatWallpaper(
                                 Shader.TileMode.REPEAT,
                                 Shader.TileMode.REPEAT
                             )
-
-                        if (!darkTheme) {
-                            val matrix =
-                                ColorMatrix(
-                                    floatArrayOf(
-                                        -1f, 0f, 0f, 0f, 255f,
-                                        0f, -1f, 0f, 0f, 255f,
-                                        0f, 0f, -1f, 0f, 255f,
-                                        0f, 0f, 0f, 1f, 0f
-                                    )
-                                )
-
-                            colorFilter =
-                                ColorMatrixColorFilter(
-                                    matrix
-                                )
-                        }
                     }
 
                 drawContext
@@ -336,26 +331,35 @@ fun ChatWallpaper(
                         paint
                     )
 
+                /*
+                 * Keep the artwork visible while washing the image
+                 * toward the chat palette. This is more predictable
+                 * than color inversion, especially for the colorful
+                 * wallpapers and the light football artwork.
+                 */
+                val overlayAlpha =
+                    when {
+                        darkTheme && theme.lightArtwork -> 0.78f
+                        !darkTheme && theme.lightArtwork -> 0.06f
+                        darkTheme -> 0.20f
+                        else -> 0.76f
+                    }
+
                 val overlayPaint =
                     Paint(
                         Paint.ANTI_ALIAS_FLAG
                     ).apply {
                         color =
-                            if (darkTheme) {
-                                android.graphics.Color.argb(
-                                    20,
-                                    0,
-                                    0,
-                                    0
-                                )
-                            } else {
-                                android.graphics.Color.argb(
-                                    34,
-                                    255,
-                                    255,
-                                    255
-                                )
-                            }
+                            android.graphics.Color.argb(
+                                (overlayAlpha * 255f)
+                                    .roundToInt(),
+                                (palette.background.red * 255f)
+                                    .roundToInt(),
+                                (palette.background.green * 255f)
+                                    .roundToInt(),
+                                (palette.background.blue * 255f)
+                                    .roundToInt()
+                            )
                     }
 
                 drawContext
@@ -403,7 +407,7 @@ fun ChatThemePreview(
     modifier: Modifier = Modifier
 ) {
     val darkTheme =
-        androidx.compose.foundation.isSystemInDarkTheme()
+        isSystemInDarkTheme()
 
     val palette =
         theme.palette(darkTheme)
@@ -415,19 +419,13 @@ fun ChatThemePreview(
                     Modifier.border(
                         width = 1.5.dp,
                         color = palette.outgoingBubble,
-                        shape =
-                            androidx.compose.foundation.shape.RoundedCornerShape(
-                                16.dp
-                            )
+                        shape = RoundedCornerShape(18.dp)
                     )
                 } else {
                     Modifier
                 }
             ),
-        shape =
-            androidx.compose.foundation.shape.RoundedCornerShape(
-                16.dp
-            ),
+        shape = RoundedCornerShape(18.dp),
         color = palette.background
     ) {
         ChatWallpaper(
@@ -438,30 +436,24 @@ fun ChatThemePreview(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .padding(10.dp),
+                        .padding(12.dp),
                 verticalArrangement =
                     Arrangement.SpaceBetween
             ) {
                 Surface(
                     modifier =
                         Modifier
-                            .align(
-                                Alignment.Start
-                            )
-                            .width(92.dp),
-                    shape =
-                        androidx.compose.foundation.shape.RoundedCornerShape(
-                            12.dp
-                        ),
-                    color =
-                        palette.incomingBubble
+                            .align(Alignment.Start)
+                            .width(110.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    color = palette.incomingBubble
                 ) {
                     Text(
                         text = "Hello",
                         modifier =
                             Modifier.padding(
-                                horizontal = 9.dp,
-                                vertical = 6.dp
+                                horizontal = 10.dp,
+                                vertical = 7.dp
                             ),
                         fontSize = 10.sp,
                         color = palette.incomingText
@@ -471,31 +463,127 @@ fun ChatThemePreview(
                 Surface(
                     modifier =
                         Modifier
-                            .align(
-                                Alignment.End
-                            )
-                            .width(104.dp),
-                    shape =
-                        androidx.compose.foundation.shape.RoundedCornerShape(
-                            12.dp
-                        ),
-                    color =
-                        palette.outgoingBubble
+                            .align(Alignment.End)
+                            .width(124.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    color = palette.outgoingBubble
                 ) {
                     Text(
-                        text = "Looks good",
+                        text = "Looks great",
                         modifier =
                             Modifier.padding(
-                                horizontal = 9.dp,
-                                vertical = 6.dp
+                                horizontal = 10.dp,
+                                vertical = 7.dp
                             ),
                         fontSize = 10.sp,
                         color = palette.outgoingText
                     )
                 }
             }
+
+            if (selected) {
+                Surface(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(9.dp),
+                    shape = CircleShape,
+                    color = palette.outgoingBubble
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        modifier = Modifier
+                            .padding(6.dp)
+                            .size(14.dp),
+                        tint = palette.outgoingText
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+fun ChatThemeCard(
+    theme: ChatTheme,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val darkTheme =
+        isSystemInDarkTheme()
+
+    val palette =
+        theme.palette(darkTheme)
+
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialThemeProxy.surface(palette.background)
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 1.dp,
+            pressedElevation = 3.dp
+        ),
+        border =
+            if (selected) {
+                androidx.compose.foundation.BorderStroke(
+                    1.5.dp,
+                    palette.outgoingBubble
+                )
+            } else {
+                null
+            }
+    ) {
+        Column {
+            ChatThemePreview(
+                theme = theme,
+                selected = selected,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1.55f)
+                        .padding(8.dp)
+            )
+
+            Column(
+                modifier =
+                    Modifier.padding(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 2.dp,
+                        bottom = 13.dp
+                    )
+            ) {
+                Text(
+                    text = theme.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(
+                    modifier = Modifier.height(2.dp)
+                )
+
+                Text(
+                    text = theme.description,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+            }
+        }
+    }
+}
+
+private object MaterialThemeProxy {
+    fun surface(background: Color): Color =
+        background.copy(alpha = 0.96f)
 }
 
 @Composable
