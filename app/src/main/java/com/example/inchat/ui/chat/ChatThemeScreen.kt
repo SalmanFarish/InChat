@@ -22,6 +22,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -55,11 +58,13 @@ fun ChatThemeScreen(
     val coroutineScope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    if (errorMessage != null) {
+    val currentErrorMessage = errorMessage
+
+    if (currentErrorMessage != null) {
         AlertDialog(
             onDismissRequest = { errorMessage = null },
             title = { Text("Theme") },
-            text = { Text(errorMessage!!) },
+            text = { Text(currentErrorMessage) },
             confirmButton = {
                 TextButton(onClick = { errorMessage = null }) {
                     Text("OK")
