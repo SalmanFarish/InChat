@@ -172,10 +172,10 @@ fun ChatInfoScreen(
                     ) {
 
                         BlockState.NONE ->
-                            "Block @$otherUserNickname?"
+                            "Block $otherUserNickname?"
 
                         BlockState.I_BLOCKED_THEM ->
-                            "Unblock @$otherUserNickname?"
+                            "Unblock $otherUserNickname?"
 
                         BlockState.THEY_BLOCKED_ME ->
                             "You can't unblock this user"
@@ -337,7 +337,7 @@ fun ChatInfoScreen(
             title = {
 
                 Text(
-                    "Report @$otherUserNickname"
+                    "Report $otherUserNickname"
                 )
             },
 
@@ -698,7 +698,7 @@ fun ChatInfoScreen(
                     Text(
 
                         text =
-                            "@$otherUserNickname",
+                            "$otherUserNickname",
 
                         fontSize =
                             24.sp,
