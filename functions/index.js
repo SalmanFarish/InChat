@@ -341,7 +341,7 @@ exports.sendChatNotification = onValueCreated(
 );
 
 
-/*
+/**
  * Keeps both Home conversation previews synchronized when the
  * latest message is edited or deleted.
  */
@@ -417,6 +417,9 @@ async function syncConversationPreview(chatId) {
   await database.ref().update(updates);
 }
 
+/**
+ * Synchronizes a group's Home conversation preview for every member.
+ */
 async function syncGroupConversationPreview(chatId, chat) {
   const members = Object.keys(chat.members || {});
 
@@ -493,6 +496,9 @@ async function syncGroupConversationPreview(chatId, chat) {
   await database.ref().update(updates);
 }
 
+/**
+ * Sends a new group-message notification to each member except the sender.
+ */
 async function sendGroupChatNotifications(
     chatId,
     messageId,
