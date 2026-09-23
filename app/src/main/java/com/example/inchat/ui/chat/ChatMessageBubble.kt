@@ -57,6 +57,7 @@ fun SwipeableMessageBubble(
     onReply: () -> Unit,
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
+    onReactionClick: (String) -> Unit,
     chatSwipeOffsetPx: Float = 0f
 ) {
     val density =
@@ -436,7 +437,7 @@ fun SwipeableMessageBubble(
                             message.reactions,
                         currentUserId =
                             currentUserId,
-                        onReactionClick = {},
+                        onReactionClick = onReactionClick,
                         modifier =
                             Modifier
                                 .padding(
