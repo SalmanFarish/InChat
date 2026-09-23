@@ -43,6 +43,7 @@ fun ChatMessageList(
     chatTheme: ChatTheme,
     onReply: (Message) -> Unit,
     onLongClick: (Message) -> Unit,
+    onReactionClick: (Message, String) -> Unit,
     innerPadding: androidx.compose.foundation.layout.PaddingValues
 ) {
 
@@ -550,6 +551,19 @@ fun ChatMessageList(
 
                                         onLongClick(
                                             message
+                                        )
+                                    }
+                                },
+
+                                onReactionClick = { reaction ->
+
+                                    if (
+                                        !messagingBlocked
+                                    ) {
+
+                                        onReactionClick(
+                                            message,
+                                            reaction
                                         )
                                     }
                                 },
