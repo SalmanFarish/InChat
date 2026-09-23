@@ -69,6 +69,9 @@ import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
 import com.example.inchat.ui.chat.ChatThemeScreen
 import com.example.inchat.ui.chat.ChatViewModel
+import com.example.inchat.ui.chat.CreateGroupScreen
+import com.example.inchat.ui.chat.GroupChatScreen
+import com.example.inchat.ui.chat.GroupChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
 import com.example.inchat.ui.profile.EditProfileScreen
@@ -730,6 +733,90 @@ fun InChatApp(
 
             /*
              * ==================================================
+             * CREATE GROUP
+             * ==================================================
+             */
+
+            composable(
+                "create_group"
+            ) {
+
+                CreateGroupScreen(
+                    currentUserId =
+                        uid,
+
+                    onBackClick = {
+                        navController.popBackStack()
+                    },
+
+                    onGroupCreated = { groupId ->
+
+                        navController.navigate(
+                            "group_chat/" +
+                                    groupId
+                        ) {
+                            popUpTo(
+                                "create_group"
+                            ) {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
+            }
+
+            /*
+             * ==================================================
+             * GROUP CHAT
+             * ==================================================
+             */
+
+            composable(
+                route =
+                    "group_chat/{chatId}",
+                arguments =
+                    listOf(
+                        navArgument("chatId") {
+                            type =
+                                NavType.StringType
+                        }
+                    )
+            ) { entry ->
+
+                val groupId =
+                    entry.arguments
+                        ?.getString(
+                            "chatId"
+                        )
+                        .orEmpty()
+
+                val groupChatViewModel:
+                        GroupChatViewModel =
+                    viewModel(
+                        entry
+                    )
+
+                GroupChatScreen(
+                    currentUserId =
+                        uid,
+
+                    currentNickname =
+                        username,
+
+                    groupId =
+                        groupId,
+
+                    groupViewModel =
+                        groupChatViewModel,
+
+                    onBackClick = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            /*
+             * ==================================================
              * CHAT INFO
              * ==================================================
              */
@@ -958,16 +1045,36 @@ private fun MainTabPager(
                     onConversationClick = {
                             conversation ->
 
-                        val encodedUsername =
-                            Uri.encode(
-                                conversation.otherUsername
+                        if (
+                            conversation.chatType ==
+                            "group"
+                        ) {
+
+                            navController.navigate(
+                                "group_chat/" +
+                                        conversation.chatId
                             )
 
+                        } else {
+
+                            val encodedUsername =
+                                Uri.encode(
+                                    conversation.otherUsername
+                                )
+
+                            navController.navigate(
+                                "chat/" +
+                                        conversation.otherUserId +
+                                        "?otherUserNickname=" +
+                                        encodedUsername
+                            )
+                        }
+                    },
+
+                    onCreateGroupClick = {
+
                         navController.navigate(
-                            "chat/" +
-                                    conversation.otherUserId +
-                                    "?otherUserNickname=" +
-                                    encodedUsername
+                            "create_group"
                         )
                     },
 
