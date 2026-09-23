@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -545,7 +546,7 @@ private fun Modifier.clickableForGroupInfo(
     onClick: () -> Unit
 ): Modifier =
     this.then(
-        androidx.compose.foundation.clickable(
+        clickable(
             interactionSource = null,
             indication = null,
             onClick = onClick
