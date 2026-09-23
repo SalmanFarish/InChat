@@ -245,6 +245,11 @@ fun SwipeableMessageBubble(
                                 indication =
                                     null,
                                 onClick = {},
+                                onDoubleClick = {
+                                    onReactionClick(
+                                        "❤️"
+                                    )
+                                },
                                 onLongClick =
                                     onLongClick
                             )
@@ -437,7 +442,17 @@ fun SwipeableMessageBubble(
                             message.reactions,
                         currentUserId =
                             currentUserId,
-                        onReactionClick = onReactionClick,
+                        onReactionClick = {
+                            reaction ->
+                            if (
+                                reactions[currentUserId] ==
+                                reaction
+                            ) {
+                                onReactionClick(
+                                    reaction
+                                )
+                            }
+                        },
                         modifier =
                             Modifier
                                 .padding(
@@ -645,7 +660,11 @@ fun ReactionSummary(
 
                     Text(
                         text =
-                            "$reaction$count",
+                            if (count > 1) {
+                                "$reaction$count"
+                            } else {
+                                reaction
+                            },
                         fontSize =
                             13.sp,
                         fontWeight =
