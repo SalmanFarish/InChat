@@ -101,8 +101,8 @@
      * is enabled; only the owning UID may remove its entry.
      */
     "publicUsernames": {
+      ".read": "auth != null",
       "$username": {
-        ".read": "auth != null",
         ".write": "auth != null && ((newData.exists() && newData.isString() && newData.val() === auth.uid && root.child('users').child(auth.uid).child('discoverableByUsername').val() !== false && (!data.exists() || data.val() === auth.uid)) || (!newData.exists() && data.exists() && data.val() === auth.uid))",
         ".validate": "!newData.exists() || (newData.isString() && newData.val() === auth.uid && root.child('users').child(auth.uid).child('discoverableByUsername').val() !== false)"
       }
