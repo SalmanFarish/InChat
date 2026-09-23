@@ -2304,10 +2304,16 @@ class UserRepository {
 
         return try {
 
+            /*
+             * The "usernames" node is the authoritative username index
+             * created when an account claims its username. Use it for
+             * prefix search so existing accounts remain discoverable
+             * even if the newer publicUsernames mirror was never created.
+             */
             val snapshot =
                 database
                     .getReference(
-                        "publicUsernames"
+                        "usernames"
                     )
                     .orderByKey()
                     .startAt(
@@ -2334,11 +2340,6 @@ class UserRepository {
                                 it != currentUserId
                     }
 
-            /*
-             * Fetch candidates concurrently. A single failed
-             * candidate lookup should not hide the rest of the
-             * search result, so each lookup converts failure to null.
-             */
             val candidateUsers =
                 coroutineScope {
                     candidateIds
@@ -2361,8 +2362,12 @@ class UserRepository {
                             user.username.isNotBlank() &&
                             user.username
                                 .trim()
-                                .lowercase(Locale.ROOT)
-                                .startsWith(key)
+                                .lowercase(
+                                    Locale.ROOT
+                                )
+                                .startsWith(
+                                    key
+                                )
                 }
                 .map { user ->
                     user!!
