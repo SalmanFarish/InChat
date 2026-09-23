@@ -171,7 +171,19 @@ fun HomeScreen(
                                 )
                                 .contains(
                                     query
-                                )
+                                ) ||
+
+                            (
+                                conversation.chatType ==
+                                        "group" &&
+                                conversation.groupName
+                                    .lowercase(
+                                        Locale.getDefault()
+                                    )
+                                    .contains(
+                                        query
+                                    )
+                            )
                 }
             }
         }
