@@ -852,6 +852,68 @@
 
     /*
      * =====================================================
+     * GROUP MEMBERSHIP INDEX
+     * =====================================================
+     *
+     * Client-maintained index used by Home to discover groups
+     * without requiring Cloud Functions. The index contains no
+     * mutable group data; the group itself remains authoritative.
+     */
+    "groupMemberships": {
+      "$uid": {
+
+        ".read": "auth != null && auth.uid === $uid",
+
+        "$chatId": {
+
+          ".write": "auth != null &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('type')
+                         .val() === 'group' &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('members')
+                         .child(auth.uid)
+                         .exists() &&
+                     (
+                       (
+                         newData.exists() &&
+                         newData.isBoolean() &&
+                         newData.val() === true &&
+                         root.child('chats')
+                             .child($chatId)
+                             .child('members')
+                             .child($uid)
+                             .exists()
+                       ) ||
+                       (
+                         !newData.exists() &&
+                         data.exists() &&
+                         auth.uid === $uid
+                       )
+                     )",
+
+          ".validate": "!newData.exists() ||
+                        (
+                          newData.isBoolean() &&
+                          newData.val() === true &&
+                          root.child('chats')
+                              .child($chatId)
+                              .child('type')
+                              .val() === 'group' &&
+                          root.child('chats')
+                              .child($chatId)
+                              .child('members')
+                              .child($uid)
+                              .exists()
+                        )"
+        }
+      }
+    },
+
+    /*
+     * =====================================================
      * USER CHAT SUMMARIES
      * =====================================================
      */
