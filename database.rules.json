@@ -45,6 +45,7 @@
     },
 
     "usernames": {
+      ".read": "auth != null",
       "$username": {
 
         ".read": "auth != null",
