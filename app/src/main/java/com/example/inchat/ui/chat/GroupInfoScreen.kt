@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -201,66 +203,116 @@ private fun GroupInfoContent(
             PaddingValues(bottom = 28.dp)
     ) {
         item {
-            Column(
+            Surface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = 20.dp,
-                            top = 24.dp,
-                            end = 20.dp,
-                            bottom = 22.dp
+                            start = 16.dp,
+                            top = 14.dp,
+                            end = 16.dp,
+                            bottom = 8.dp
                         ),
-                horizontalAlignment =
-                    Alignment.CenterHorizontally
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                Surface(
-                    modifier = Modifier.size(88.dp),
-                    shape = CircleShape,
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .primaryContainer
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center
+                    Surface(
+                        modifier = Modifier.size(76.dp),
+                        shape = CircleShape,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .primaryContainer
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Groups,
-                            contentDescription = null,
-                            modifier = Modifier.size(44.dp),
-                            tint =
+                        Box(
+                            contentAlignment =
+                                Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Groups,
+                                contentDescription = null,
+                                modifier = Modifier.size(38.dp),
+                                tint =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    Spacer(
+                        modifier = Modifier.width(16.dp)
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = group.name.ifBlank { "Group" },
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2
+                        )
+
+                        Text(
+                            text =
+                                group.members.size.toString() +
+                                        if (
+                                            group.members.size == 1
+                                        ) {
+                                            " member"
+                                        } else {
+                                            " members"
+                                        },
+                            modifier =
+                                Modifier.padding(top = 3.dp),
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyMedium,
+                            color =
                                 MaterialTheme
                                     .colorScheme
-                                    .onPrimaryContainer
+                                    .onSurfaceVariant
+                        )
+
+                        val creator =
+                            memberUsers[group.createdBy]
+
+                        Text(
+                            text =
+                                when {
+                                    group.createdBy == currentUserId ->
+                                        "Created by you"
+                                    !creator?.username.isNullOrBlank() ->
+                                        "Created by @" +
+                                                creator?.username.orEmpty()
+                                    else ->
+                                        "Group creator"
+                                },
+                            modifier =
+                                Modifier.padding(top = 2.dp),
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
                         )
                     }
                 }
-
-                Spacer(
-                    modifier = Modifier.height(14.dp)
-                )
-
-                Text(
-                    text = group.name.ifBlank { "Group" },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text(
-                    text =
-                        group.members.size.toString() +
-                                " members",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
             }
         }
 
@@ -275,14 +327,17 @@ private fun GroupInfoContent(
                 title = "Chat theme",
                 subtitle =
                     selectedTheme.title +
-                            " · shared with all group members",
+                            " · shared with everyone",
+                icon = Icons.Default.Palette,
                 onClick = onGroupThemeClick
             )
         }
 
         item {
             GroupInfoSectionLabel(
-                text = "MEMBERS"
+                text =
+                    "MEMBERS · " +
+                            group.members.size
             )
         }
 
@@ -330,50 +385,6 @@ private fun GroupInfoContent(
             )
         }
 
-        item {
-            GroupInfoSectionLabel(
-                text = "GROUP"
-            )
-        }
-
-        item {
-            val creator =
-                memberUsers[group.createdBy]
-
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = 20.dp,
-                            vertical = 12.dp
-                        )
-            ) {
-                Text(
-                    text = "Created by",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Text(
-                    text =
-                        when {
-                            group.createdBy == currentUserId ->
-                                "You"
-                            !creator?.username.isNullOrBlank() ->
-                                creator?.username.orEmpty()
-                            else ->
-                                group.createdBy
-                        },
-                    modifier = Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
-            }
-        }
     }
 }
 
@@ -513,32 +524,73 @@ private fun GroupInfoSectionLabel(
 private fun GroupInfoActionRow(
     title: String,
     subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit
 ) {
-    Column(
+    Surface(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickableForGroupInfo(onClick)
                 .padding(
-                    horizontal = 20.dp,
-                    vertical = 14.dp
+                    horizontal = 16.dp,
+                    vertical = 4.dp
                 )
+                .clickableForGroupInfo(onClick),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Text(
-            text = title,
-            fontWeight = FontWeight.SemiBold
-        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 16.dp,
+                        vertical = 14.dp
+                    ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
 
-        Text(
-            text = subtitle,
-            modifier = Modifier.padding(top = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-        )
+            Spacer(
+                modifier = Modifier.width(14.dp)
+            )
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Text(
+                    text = subtitle,
+                    modifier = Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurfaceVariant,
+                    maxLines = 2
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Open",
+                tint =
+                    MaterialTheme
+                        .colorScheme
+                        .onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
