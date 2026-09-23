@@ -1,5 +1,11 @@
 const {onValueCreated, onValueUpdated, onValueDeleted, onValueWritten} = require("firebase-functions/v2/database");
 const {setGlobalOptions} = require("firebase-functions/v2");
+const {
+  onValueCreated,
+  onValueUpdated,
+  onValueDeleted,
+  onValueWritten,
+} = require("firebase-functions/v2/database");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -82,6 +88,19 @@ exports.sendChatNotification = onValueCreated(
         }
 
         const chat = chatSnapshot.val();
+
+        if (
+          chat &&
+          chat.type === "group"
+        ) {
+          await sendGroupChatNotifications(
+              chatId,
+              messageId,
+              message,
+              chat,
+          );
+          return;
+        }
 
         const participantA = chat.participantA;
         const participantB = chat.participantB;
@@ -329,6 +348,18 @@ async function syncConversationPreview(chatId) {
   }
 
   const chat = chatSnapshot.val();
+
+  if (
+    chat &&
+    chat.type === "group"
+  ) {
+    await syncGroupConversationPreview(
+        chatId,
+        chat,
+    );
+    return;
+  }
+
   const participantA = chat.participantA;
   const participantB = chat.participantB;
 
@@ -380,6 +411,249 @@ async function syncConversationPreview(chatId) {
 
   await database.ref().update(updates);
 }
+
+async function syncGroupConversationPreview(chatId, chat) {
+  const members = Object.keys(chat.members || {});
+
+  if (members.length < 2) {
+    logger.warn(
+        "Cannot sync group preview: invalid members",
+        {chatId},
+    );
+    return;
+  }
+
+  const messagesSnapshot = await database
+      .ref("chats")
+      .child(chatId)
+      .child("messages")
+      .orderByChild("timestamp")
+      .limitToLast(1)
+      .once("value");
+
+  let latest = null;
+  messagesSnapshot.forEach((child) => {
+    latest = child;
+  });
+
+  const lastMessage = latest &&
+    typeof latest.child("text").val() === "string" ?
+    latest.child("text").val() :
+    "";
+
+  const lastSenderId = latest &&
+    typeof latest.child("senderId").val() === "string" ?
+    latest.child("senderId").val() :
+    "";
+
+  const lastSenderNickname = latest &&
+    typeof latest.child("senderNickname").val() === "string" ?
+    latest.child("senderNickname").val() :
+    "";
+
+  const lastTimestamp = latest &&
+    typeof latest.child("timestamp").val() === "number" ?
+    latest.child("timestamp").val() :
+    0;
+
+  const groupName =
+    typeof chat.name === "string" ?
+    chat.name.trim() :
+    "";
+
+  const groupPhotoUrl =
+    typeof chat.photoUrl === "string" ?
+    chat.photoUrl :
+    "";
+
+  const updates = {};
+
+  for (const uid of members) {
+    updates[`userChats/${uid}/${chatId}`] = {
+      chatId: chatId,
+      chatType: "group",
+      groupName: groupName,
+      groupPhotoUrl: groupPhotoUrl,
+      memberCount: members.length,
+      otherUserId: "",
+      otherUsername: "",
+      lastMessage: lastMessage,
+      lastTimestamp: lastTimestamp,
+      lastSenderId: lastSenderId,
+      lastSenderNickname: lastSenderNickname,
+      unreadCount: 0,
+    };
+  }
+
+  await database.ref().update(updates);
+}
+
+async function sendGroupChatNotifications(
+    chatId,
+    messageId,
+    message,
+    chat,
+) {
+  const senderId =
+    typeof message.senderId === "string" ?
+    message.senderId.trim() :
+    "";
+
+  const messageText =
+    typeof message.text === "string" ?
+    message.text.trim() :
+    "";
+
+  const senderNickname =
+    typeof message.senderNickname === "string" &&
+    message.senderNickname.trim() !== "" ?
+    message.senderNickname.trim() :
+    "InChat user";
+
+  const groupName =
+    typeof chat.name === "string" &&
+    chat.name.trim() !== "" ?
+    chat.name.trim() :
+    "Group";
+
+  const memberIds =
+    Object.keys(chat.members || {})
+        .filter((uid) => uid && uid !== senderId);
+
+  if (
+    senderId === "" ||
+    messageText === "" ||
+    memberIds.length === 0
+  ) {
+    return;
+  }
+
+  const notificationMessages = [];
+
+  for (const receiverId of memberIds) {
+    const receiverSnapshot = await database
+        .ref("privateUsers")
+        .child(receiverId)
+        .once("value");
+
+    if (!receiverSnapshot.exists()) {
+      continue;
+    }
+
+    const receiver = receiverSnapshot.val();
+    const fcmToken = receiver.fcmToken;
+
+    if (
+      typeof fcmToken !== "string" ||
+      fcmToken.trim() === ""
+    ) {
+      continue;
+    }
+
+    notificationMessages.push({
+      receiverId: receiverId,
+      fcmToken: fcmToken,
+      message: {
+        token: fcmToken,
+        notification: {
+          title:
+            groupName + " • " + senderNickname,
+          body: messageText,
+        },
+        data: {
+          type: "group_message",
+          chatId: String(chatId),
+          messageId: String(messageId),
+          senderId: String(senderId),
+          senderName: String(senderNickname),
+          groupName: String(groupName),
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "inchat_messages",
+            icon: "ic_stat_inchat",
+          },
+        },
+      },
+    });
+  }
+
+  await Promise.all(
+      notificationMessages.map(async (entry) => {
+        try {
+          await messaging.send(entry.message);
+
+          logger.info(
+              "InChat group notification sent",
+              {
+                chatId: chatId,
+                messageId: messageId,
+                receiverId: entry.receiverId,
+              },
+          );
+        } catch (sendError) {
+          let errorCode = "";
+
+          if (
+            sendError &&
+            sendError.errorInfo &&
+            sendError.errorInfo.code
+          ) {
+            errorCode = sendError.errorInfo.code;
+          }
+
+          logger.error(
+              "InChat group notification failed",
+              {
+                code: errorCode,
+                message:
+                  sendError && sendError.message ?
+                    sendError.message :
+                    String(sendError),
+                receiverId: entry.receiverId,
+                chatId: chatId,
+                messageId: messageId,
+              },
+          );
+
+          if (
+            errorCode ===
+              "messaging/registration-token-not-registered" ||
+            errorCode ===
+              "messaging/invalid-registration-token"
+          ) {
+            await database
+                .ref("privateUsers")
+                .child(entry.receiverId)
+                .child("fcmToken")
+                .removeValue();
+          }
+        }
+      }),
+  );
+}
+
+exports.syncCreatedGroupPreview = onValueCreated(
+    {
+      ref: "chats/{chatId}",
+      region: "us-central1",
+    },
+    async (event) => {
+      const chat = event.data.val();
+
+      if (
+        chat &&
+        chat.type === "group"
+      ) {
+        await syncGroupConversationPreview(
+            event.params.chatId,
+            chat,
+        );
+      }
+    },
+);
+
 
 /*
  * A text edit can change the Home preview only if the edited
