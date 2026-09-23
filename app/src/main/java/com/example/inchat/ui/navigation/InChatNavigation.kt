@@ -71,6 +71,7 @@ import com.example.inchat.ui.chat.ChatThemeScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.chat.CreateGroupScreen
 import com.example.inchat.ui.chat.GroupChatScreen
+import com.example.inchat.ui.chat.GroupInfoScreen
 import com.example.inchat.ui.chat.GroupChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
@@ -811,7 +812,71 @@ fun InChatApp(
 
                     onBackClick = {
                         navController.popBackStack()
+                    },
+
+                    onGroupInfoClick = {
+                        navController.navigate(
+                            "group_info/" + groupId
+                        )
                     }
+                )
+            }
+
+            /*
+             * ==================================================
+             * GROUP INFO
+             * ==================================================
+             */
+
+            composable(
+                route = "group_info/{chatId}",
+                arguments = listOf(
+                    navArgument("chatId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { entry ->
+                val infoGroupId =
+                    entry.arguments
+                        ?.getString("chatId")
+                        .orEmpty()
+
+                GroupInfoScreen(
+                    currentUserId = uid,
+                    groupId = infoGroupId,
+                    onBackClick = {
+                        navController.popBackStack()
+                    },
+                    onGroupThemeClick = {
+                        navController.navigate(
+                            "group_theme/" + infoGroupId
+                        )
+                    }
+                )
+            }
+
+            composable(
+                route = "group_theme/{chatId}",
+                arguments = listOf(
+                    navArgument("chatId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { entry ->
+                ChatThemeScreen(
+                    currentUserId = uid,
+                    otherUserId = "",
+                    onBackClick = {
+                        navController.popBackStack()
+                    },
+                    chatIdOverride =
+                        entry.arguments
+                            ?.getString("chatId")
+                            .orEmpty(),
+                    screenTitle = "Group theme",
+                    sectionTitle = "Group theme",
+                    sharedDescription =
+                        "shared with all group members"
                 )
             }
 
