@@ -77,6 +77,21 @@ fun GroupChatScreen(
     val editingMessage by groupViewModel.editingMessage.collectAsState()
     val pendingMessageIds by groupViewModel.pendingMessageIds.collectAsState()
 
+    LaunchedEffect(messages, currentUserId) {
+        val newestTimestamp =
+            messages
+                .filter { it.senderId != currentUserId }
+                .maxOfOrNull { it.timestamp }
+                ?: 0L
+
+        if (newestTimestamp > 0L) {
+            groupViewModel.markGroupRead(
+                currentUserId = currentUserId,
+                timestamp = newestTimestamp
+            )
+        }
+    }
+
     var messageText by rememberSaveable { mutableStateOf("") }
     var messageForActions by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by rememberSaveable { mutableStateOf<String?>(null) }
