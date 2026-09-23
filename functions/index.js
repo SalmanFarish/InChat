@@ -1,4 +1,3 @@
-const {onValueCreated, onValueUpdated, onValueDeleted, onValueWritten} = require("firebase-functions/v2/database");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {
   onValueCreated,
@@ -93,12 +92,18 @@ exports.sendChatNotification = onValueCreated(
           chat &&
           chat.type === "group"
         ) {
+          await syncGroupConversationPreview(
+              chatId,
+              chat,
+          );
+
           await sendGroupChatNotifications(
               chatId,
               messageId,
               message,
               chat,
           );
+
           return;
         }
 
