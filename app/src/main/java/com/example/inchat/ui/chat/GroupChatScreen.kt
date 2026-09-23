@@ -26,9 +26,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.data.repository.ChatAppearanceRepository
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -56,6 +59,17 @@ fun GroupChatScreen(
             currentUserId = currentUserId
         )
     }
+
+    val appearanceRepository =
+        remember { ChatAppearanceRepository() }
+
+    val selectedThemeId by
+        appearanceRepository
+            .observeTheme(groupId)
+            .collectAsState(initial = null)
+
+    val chatTheme =
+        ChatTheme.fromId(selectedThemeId)
 
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
@@ -219,7 +233,7 @@ fun GroupChatScreen(
                 otherUserReadTimestamp = 0L,
                 pendingMessageIds = pendingMessageIds,
                 isConnected = true,
-                chatTheme = ChatTheme.DESSERT,
+                chatTheme = chatTheme,
                 onReply = { message ->
                     groupViewModel.setReplyingTo(message)
                 },
