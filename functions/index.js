@@ -344,6 +344,8 @@ exports.sendChatNotification = onValueCreated(
 /**
  * Keeps both Home conversation previews synchronized when the
  * latest message is edited or deleted.
+ *
+ * @param {string} chatId Firebase chat ID.
  */
 async function syncConversationPreview(chatId) {
   const chatSnapshot = await database.ref("chats").child(chatId).once("value");
@@ -419,6 +421,9 @@ async function syncConversationPreview(chatId) {
 
 /**
  * Synchronizes a group's Home conversation preview for every member.
+ *
+ * @param {string} chatId Firebase chat ID.
+ * @param {Object} chat Group chat data.
  */
 async function syncGroupConversationPreview(chatId, chat) {
   const members = Object.keys(chat.members || {});
@@ -498,6 +503,11 @@ async function syncGroupConversationPreview(chatId, chat) {
 
 /**
  * Sends a new group-message notification to each member except the sender.
+ *
+ * @param {string} chatId Firebase chat ID.
+ * @param {string} messageId Firebase message ID.
+ * @param {Object} message New message data.
+ * @param {Object} chat Group chat data.
  */
 async function sendGroupChatNotifications(
     chatId,
