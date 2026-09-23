@@ -219,8 +219,6 @@
                         newData.child('createdBy').isString() &&
                         newData.child('createdBy').val().length > 0 &&
                         newData.child('createdAt').isNumber() &&
-                        newData.child('members').numChildren() >= 2 &&
-                        newData.child('members').numChildren() <= 50 &&
                         newData.child('members').child(
                           newData.child('createdBy').val()
                         ).exists()
