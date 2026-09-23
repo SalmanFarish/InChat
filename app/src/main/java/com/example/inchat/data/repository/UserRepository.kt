@@ -2304,14 +2304,7 @@ class UserRepository {
 
         return try {
 
-            /*
-             * Newer accounts are searchable through the lightweight
-             * publicUsernames index. Older accounts may predate that
-             * index, so when the indexed result set is smaller than
-             * requested we fall back to the existing users collection.
-             * The fallback keeps the same discoverability/privacy check.
-             */
-            val indexSnapshot =
+            val snapshot =
                 database
                     .getReference(
                         "publicUsernames"
@@ -2330,7 +2323,7 @@ class UserRepository {
                     .await()
 
             val candidateIds =
-                indexSnapshot.children
+                snapshot.children
                     .mapNotNull { child ->
                         child.getValue(
                             String::class.java
@@ -2341,7 +2334,12 @@ class UserRepository {
                                 it != currentUserId
                     }
 
-            val indexedUsers =
+            /*
+             * Fetch candidates concurrently. A single failed
+             * candidate lookup should not hide the rest of the
+             * search result, so each lookup converts failure to null.
+             */
+            val candidateUsers =
                 coroutineScope {
                     candidateIds
                         .map { uid ->
@@ -2355,56 +2353,25 @@ class UserRepository {
                         }
                         .awaitAll()
                 }
-                    .filterNotNull()
 
-            val fallbackUsers =
-                if (
-                    indexedUsers.size < safeLimit
-                ) {
-                    database
-                        .getReference(
-                            "users"
-                        )
-                        .get()
-                        .await()
-                        .children
-                        .mapNotNull { child ->
-                            child.getValue(
-                                User::class.java
-                            )
-                        }
-                } else {
-                    emptyList()
-                }
-
-            (indexedUsers + fallbackUsers)
-                .asSequence()
+            candidateUsers
                 .filter { user ->
-                    user.uid.isNotBlank() &&
-                            user.uid != currentUserId &&
+                    user != null &&
                             user.discoverableByUsername &&
                             user.username.isNotBlank() &&
                             user.username
                                 .trim()
-                                .lowercase(
-                                    Locale.ROOT
-                                )
-                                .startsWith(
-                                    key
-                                )
+                                .lowercase(Locale.ROOT)
+                                .startsWith(key)
                 }
-                .distinctBy {
-                    it.uid
+                .map { user ->
+                    user!!
                 }
                 .sortedBy {
                     it.username.lowercase(
                         Locale.ROOT
                     )
                 }
-                .take(
-                    safeLimit
-                )
-                .toList()
 
         } catch (
             e: Exception
