@@ -320,6 +320,27 @@ class GroupChatViewModel : ViewModel() {
         }
     }
 
+    fun markGroupRead(
+        currentUserId: String,
+        timestamp: Long
+    ) {
+        if (
+            currentUserId.isBlank() ||
+            listeningGroupId.isBlank() ||
+            timestamp <= 0L
+        ) {
+            return
+        }
+
+        viewModelScope.launch {
+            groupRepository.markGroupRead(
+                currentUserId = currentUserId,
+                groupId = listeningGroupId,
+                timestamp = timestamp
+            )
+        }
+    }
+
     fun toggleReaction(
         messageId: String,
         reaction: String,
