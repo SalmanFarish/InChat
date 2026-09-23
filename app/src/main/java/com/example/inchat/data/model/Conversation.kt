@@ -7,5 +7,10 @@ data class Conversation(
     val lastMessage: String = "",
     val lastTimestamp: Long = 0L,
     val lastSenderId: String = "",
-    val unreadCount: Long = 0L
+    val unreadCount: Long = 0L,
+    val chatType: String = "direct",
+    val groupName: String = "",
+    val groupPhotoUrl: String = "",
+    val memberCount: Long = 0L,
+    val lastSenderNickname: String = ""
 )
