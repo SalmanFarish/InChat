@@ -1,5 +1,6 @@
 package com.example.inchat.data.repository
 
+import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -10,6 +11,9 @@ import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 
 class GroupChatRepository {
@@ -104,6 +108,15 @@ class GroupChatRepository {
                 .setValue(groupData)
                 .await()
 
+            val membershipUpdates =
+                uniqueMembers.associate { uid ->
+                    "groupMemberships/$uid/$groupId" to true
+                }
+
+            database.reference
+                .updateChildren(membershipUpdates)
+                .await()
+
             Result.success(groupId)
 
         } catch (e: Exception) {
@@ -125,6 +138,189 @@ class GroupChatRepository {
                 .await()
         )
     }
+
+    fun observeMyGroupIds(currentUserId: String): Flow<List<String>> =
+        callbackFlow {
+
+            if (
+                currentUserId.isBlank() ||
+                auth.currentUser?.uid != currentUserId
+            ) {
+                trySend(emptyList())
+                close()
+                return@callbackFlow
+            }
+
+            val ref =
+                database
+                    .getReference("groupMemberships")
+                    .child(currentUserId)
+
+            val listener =
+                object : com.google.firebase.database.ValueEventListener {
+
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        trySend(
+                            snapshot.children
+                                .mapNotNull { it.key }
+                                .filter { it.isNotBlank() }
+                                .distinct()
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error: com.google.firebase.database.DatabaseError
+                    ) {
+                        close(error.toException())
+                    }
+                }
+
+            ref.addValueEventListener(listener)
+
+            awaitClose {
+                ref.removeEventListener(listener)
+            }
+        }
+
+    fun observeGroupConversations(
+        currentUserId: String
+    ): Flow<List<Conversation>> =
+        observeMyGroupIds(currentUserId)
+            .flatMapLatest { groupIds ->
+                if (groupIds.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(
+                        groupIds.map {
+                            observeGroupConversation(it)
+                        }
+                    ) { summaries ->
+                        summaries
+                            .filterNotNull()
+                            .sortedByDescending {
+                                it.lastTimestamp
+                            }
+                    }
+                }
+            }
+
+    suspend fun removeMyGroupMembership(
+        currentUserId: String,
+        groupId: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group member."
+                    )
+                )
+            }
+
+            if (
+                currentUserId.isBlank() ||
+                groupId.isBlank()
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Invalid group membership."
+                    )
+                )
+            }
+
+            database
+                .getReference("groupMemberships")
+                .child(currentUserId)
+                .child(groupId)
+                .removeValue()
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun observeGroupConversation(
+        groupId: String
+    ): Flow<Conversation?> =
+        combine(
+            observeGroup(groupId),
+            observeLatestMessage(groupId)
+        ) { group, latestMessage ->
+
+            if (group == null) {
+                null
+            } else {
+                Conversation(
+                    chatId = group.chatId,
+                    chatType = "group",
+                    groupName = group.name,
+                    groupPhotoUrl = "",
+                    memberCount = group.members.size.toLong(),
+                    lastMessage = latestMessage?.text.orEmpty(),
+                    lastTimestamp =
+                        latestMessage?.timestamp
+                            ?: group.createdAt,
+                    lastSenderId =
+                        latestMessage?.senderId.orEmpty(),
+                    lastSenderNickname =
+                        latestMessage?.senderNickname.orEmpty(),
+                    unreadCount = 0L
+                )
+            }
+        }
+
+    private fun observeLatestMessage(
+        groupId: String
+    ): Flow<Message?> =
+        callbackFlow {
+
+            val messagesRef =
+                database
+                    .getReference("chats")
+                    .child(groupId)
+                    .child("messages")
+                    .orderByChild("timestamp")
+                    .limitToLast(1)
+
+            val listener =
+                object : com.google.firebase.database.ValueEventListener {
+
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val latest =
+                            snapshot.children
+                                .mapNotNull {
+                                    it.getValue(Message::class.java)
+                                }
+                                .maxByOrNull {
+                                    it.timestamp
+                                }
+
+                        trySend(latest)
+                    }
+
+                    override fun onCancelled(
+                        error: com.google.firebase.database.DatabaseError
+                    ) {
+                        close(error.toException())
+                    }
+                }
+
+            messagesRef.addValueEventListener(listener)
+
+            awaitClose {
+                messagesRef.removeEventListener(listener)
+            }
+        }
 
     fun observeGroup(groupId: String): Flow<Group?> =
         callbackFlow {
