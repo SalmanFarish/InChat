@@ -914,6 +914,36 @@
 
     /*
      * =====================================================
+     * GROUP READ STATE
+     * =====================================================
+     *
+     * Each member owns only their own read timestamp. This
+     * keeps group unread state Spark-compatible without
+     * requiring Cloud Functions.
+     */
+    "groupReads": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$chatId": {
+          ".write": "auth != null &&
+                     auth.uid === $uid &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('type')
+                         .val() === 'group' &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('members')
+                         .child(auth.uid)
+                         .exists()",
+          ".validate": "newData.isNumber() &&
+                        newData.val() >= 0"
+        }
+      }
+    },
+
+    /*
+     * =====================================================
      * USER CHAT SUMMARIES
      * =====================================================
      */
