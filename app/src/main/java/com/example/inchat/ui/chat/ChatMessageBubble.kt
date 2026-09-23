@@ -445,7 +445,7 @@ fun SwipeableMessageBubble(
                         onReactionClick = {
                             reaction ->
                             if (
-                                reactions[currentUserId] ==
+                                message.reactions[currentUserId] ==
                                 reaction
                             ) {
                                 onReactionClick(
