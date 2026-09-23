@@ -618,6 +618,26 @@ fun ChatScreen(
                     }
                 },
 
+                onReactionClick = {
+                        message,
+                        reaction ->
+
+                    if (
+                        !messagingBlocked
+                    ) {
+
+                        chatViewModel
+                            .toggleReaction(
+                                messageId =
+                                    message.id,
+                                reaction =
+                                    reaction,
+                                currentUserId =
+                                    currentUserId
+                            )
+                    }
+                },
+
                 innerPadding =
                     innerPadding
             )
