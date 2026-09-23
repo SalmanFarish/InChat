@@ -40,7 +40,11 @@ import kotlinx.coroutines.launch
 fun ChatThemeScreen(
     currentUserId: String,
     otherUserId: String,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    chatIdOverride: String? = null,
+    screenTitle: String = "Chat theme",
+    sectionTitle: String = "Conversation theme",
+    sharedDescription: String = "shared with both participants"
 ) {
     val appearanceRepository =
         remember {
@@ -50,13 +54,15 @@ fun ChatThemeScreen(
     val chatId =
         remember(
             currentUserId,
-            otherUserId
+            otherUserId,
+            chatIdOverride
         ) {
-            ChatRepository()
-                .getChatRoomId(
-                    currentUserId,
-                    otherUserId
-                )
+            chatIdOverride?.takeIf { it.isNotBlank() }
+                ?: ChatRepository()
+                    .getChatRoomId(
+                        currentUserId,
+                        otherUserId
+                    )
         }
 
     val selectedThemeId by
@@ -67,9 +73,7 @@ fun ChatThemeScreen(
             )
 
     val selectedTheme =
-        selectedThemeId?.let {
-            ChatTheme.fromId(it)
-        } ?: ChatTheme.DESSERT
+        ChatTheme.fromId(selectedThemeId)
 
     val coroutineScope =
         rememberCoroutineScope()
@@ -109,7 +113,7 @@ fun ChatThemeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Chat theme",
+                        text = screenTitle,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -151,7 +155,7 @@ fun ChatThemeScreen(
                         )
             ) {
                 Text(
-                    text = "Conversation theme",
+                    text = sectionTitle,
                     style =
                         MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
@@ -160,7 +164,7 @@ fun ChatThemeScreen(
                 Text(
                     text =
                         selectedTheme.title +
-                                " · shared with both participants",
+                                " · " + sharedDescription,
                     modifier =
                         Modifier.padding(top = 3.dp),
                     style =
@@ -195,8 +199,7 @@ fun ChatThemeScreen(
                     ChatThemeCard(
                         theme = theme,
                         selected =
-                            selectedThemeId ==
-                                    theme.id,
+                            selectedTheme.id == theme.id,
                         onClick = {
                             if (
                                 selectedThemeId ==
