@@ -182,16 +182,63 @@
     "chats": {
       "$chatId": {
 
-        ".read": false,
+        ".read": "auth != null && (
+                    (
+                      data.child('type').val() === 'group' &&
+                      data.child('members').child(auth.uid).exists()
+                    ) ||
+                    (
+                      data.child('type').val() !== 'group' &&
+                      (
+                        data.child('participantA').val() === auth.uid ||
+                        data.child('participantB').val() === auth.uid
+                      )
+                    )
+                  )",
 
-        ".validate": "newData.hasChildren([
-                        'participantA',
-                        'participantB'
-                      ]) &&
-                      newData.child('participantA').isString() &&
-                      newData.child('participantB').isString() &&
-                      newData.child('participantA').val() !==
-                      newData.child('participantB').val()",
+        ".write": "auth != null &&
+                   !data.exists() &&
+                   newData.child('type').val() === 'group' &&
+                   newData.child('createdBy').val() === auth.uid &&
+                   newData.child('members').child(auth.uid).exists()",
+
+        ".validate": "(
+                        newData.child('type').val() === 'group' &&
+                        newData.hasChildren([
+                          'chatId',
+                          'type',
+                          'name',
+                          'createdBy',
+                          'createdAt',
+                          'members'
+                        ]) &&
+                        newData.child('chatId').val() === $chatId &&
+                        newData.child('name').isString() &&
+                        newData.child('name').val().length >= 1 &&
+                        newData.child('name').val().length <= 50 &&
+                        newData.child('createdBy').isString() &&
+                        newData.child('createdBy').val().length > 0 &&
+                        newData.child('createdAt').isNumber() &&
+                        newData.child('members').numChildren() >= 2 &&
+                        newData.child('members').numChildren() <= 50 &&
+                        newData.child('members').child(
+                          newData.child('createdBy').val()
+                        ).exists()
+                      )
+
+                      ||
+
+                      (
+                        newData.child('type').val() !== 'group' &&
+                        newData.hasChildren([
+                          'participantA',
+                          'participantB'
+                        ]) &&
+                        newData.child('participantA').isString() &&
+                        newData.child('participantB').isString() &&
+                        newData.child('participantA').val() !==
+                        newData.child('participantB').val()
+                      )",
 
         /*
          * =====================================================
@@ -235,6 +282,24 @@
 
         /*
          * =====================================================
+         * GROUP MEMBERS
+         * =====================================================
+         */
+        "members": {
+          "$memberUid": {
+            ".validate": "newData.isString() &&
+                          (
+                            newData.val() === 'admin' ||
+                            newData.val() === 'member'
+                          ) &&
+                          root.child('users')
+                              .child($memberUid)
+                              .exists()"
+          }
+        },
+
+        /*
+         * =====================================================
          * CHAT APPEARANCE
          * =====================================================
          *
@@ -252,27 +317,65 @@
 
             ".read": "auth != null &&
                       (
-                        data.parent()
-                            .parent()
-                            .child('participantA')
-                            .val() === auth.uid ||
-                        data.parent()
-                            .parent()
-                            .child('participantB')
-                            .val() === auth.uid
+                        (
+                          data.parent()
+                              .parent()
+                              .child('type')
+                              .val() === 'group' &&
+                          data.parent()
+                              .parent()
+                              .child('members')
+                              .child(auth.uid)
+                              .exists()
+                        ) ||
+                        (
+                          data.parent()
+                              .parent()
+                              .child('type')
+                              .val() !== 'group' &&
+                          (
+                            data.parent()
+                                .parent()
+                                .child('participantA')
+                                .val() === auth.uid ||
+                            data.parent()
+                                .parent()
+                                .child('participantB')
+                                .val() === auth.uid
+                          )
+                        )
                       )",
 
             ".write": "auth != null &&
-                       data.parent()
-                           .parent()
-                           .child('participantA')
-                           .val() === auth.uid ||
-
-                       auth != null &&
-                       data.parent()
-                           .parent()
-                           .child('participantB')
-                           .val() === auth.uid",
+                       (
+                         (
+                           data.parent()
+                               .parent()
+                               .child('type')
+                               .val() === 'group' &&
+                           data.parent()
+                               .parent()
+                               .child('members')
+                               .child(auth.uid)
+                               .exists()
+                         ) ||
+                         (
+                           data.parent()
+                               .parent()
+                               .child('type')
+                               .val() !== 'group' &&
+                           (
+                             data.parent()
+                                 .parent()
+                                 .child('participantA')
+                                 .val() === auth.uid ||
+                             data.parent()
+                                 .parent()
+                                 .child('participantB')
+                                 .val() === auth.uid
+                           )
+                         )
+                       )",
 
             ".validate": "newData.isString() &&
                           (
@@ -308,356 +411,65 @@
 
           ".read": "auth != null &&
                     (
-                      root.child('chats')
-                          .child($chatId)
-                          .child('participantA')
-                          .val() === auth.uid ||
-                      root.child('chats')
-                          .child($chatId)
-                          .child('participantB')
-                          .val() === auth.uid
+                      (
+                        root.child('chats')
+                            .child($chatId)
+                            .child('type')
+                            .val() === 'group' &&
+                        root.child('chats')
+                            .child($chatId)
+                            .child('members')
+                            .child(auth.uid)
+                            .exists()
+                      ) ||
+                      (
+                        root.child('chats')
+                            .child($chatId)
+                            .child('type')
+                            .val() !== 'group' &&
+                        (
+                          root.child('chats')
+                              .child($chatId)
+                              .child('participantA')
+                              .val() === auth.uid ||
+                          root.child('chats')
+                              .child($chatId)
+                              .child('participantB')
+                              .val() === auth.uid
+                        )
+                      )
                     )",
 
           "$messageId": {
 
-            /*
-             * Create:
-             *     participant creates their own message.
-             *
-             * Delete:
-             *     sender deletes their own message.
-             *
-             * Editing is intentionally NOT granted here.
-             * Editing is granted specifically at the text and
-             * edited child nodes below.
-             */
             ".write": "auth != null &&
-
-                       (
-                         root.child('chats')
-                             .child($chatId)
-                             .child('participantA')
-                             .val() === auth.uid ||
-                         root.child('chats')
-                             .child($chatId)
-                             .child('participantB')
-                             .val() === auth.uid
-                       ) &&
-
-                       (
-                         !root.child('blockedUsers')
-                              .child(auth.uid)
-                              .child(
-                                root.child('chats')
-                                    .child($chatId)
-                                    .child('participantA')
-                                    .val() === auth.uid
-                                  ?
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantB')
-                                      .val()
-                                  :
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val()
-                              )
-                              .exists()
-                       ) &&
-
-                       (
-                         !root.child('blockedUsers')
-                              .child(
-                                root.child('chats')
-                                    .child($chatId)
-                                    .child('participantA')
-                                    .val() === auth.uid
-                                  ?
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantB')
-                                      .val()
-                                  :
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val()
-                              )
-                              .child(auth.uid)
-                              .exists()
-                       ) &&
-
                        (
                          (
-                           !data.exists() &&
-                           newData.exists() &&
-                           newData.child('id').val() === $messageId &&
-                           newData.child('senderId').val() === auth.uid
-                         )
-                         ||
-                         (
-                           data.exists() &&
-                           !newData.exists() &&
-                           data.child('senderId').val() === auth.uid
-                         )
-                       )",
-
-            /*
-             * Message validation.
-             */
-            ".validate": "(
-                            !data.exists() &&
-                            newData.exists() &&
-
-                            newData.hasChildren([
-                              'id',
-                              'senderId',
-                              'senderNickname',
-                              'text',
-                              'timestamp'
-                            ]) &&
-
-                            newData.child('id').val() === $messageId &&
-
-                            newData.child('senderId').isString() &&
-                            newData.child('senderId').val() === auth.uid &&
-
-                            newData.child('senderNickname').isString() &&
-                            newData.child('senderNickname').val().length >= 1 &&
-                            newData.child('senderNickname').val().length <= 20 &&
-
-                            newData.child('text').isString() &&
-                            newData.child('text').val().length >= 1 &&
-                            newData.child('text').val().length <= 5000 &&
-
-                            newData.child('timestamp').isNumber() &&
-
-                            (
-                              !newData.child('edited').exists() ||
-                              newData.child('edited').isBoolean()
-                            )
-                          )
-
-                          ||
-
-                          (
-                            data.exists() &&
-                            newData.exists() &&
-
-                            newData.child('id').val() ===
-                            data.child('id').val() &&
-
-                            newData.child('senderId').val() ===
-                            data.child('senderId').val() &&
-
-                            newData.child('senderNickname').val() ===
-                            data.child('senderNickname').val() &&
-
-                            newData.child('timestamp').val() ===
-                            data.child('timestamp').val() &&
-
-                            newData.child('text').isString() &&
-                            newData.child('text').val().length >= 1 &&
-                            newData.child('text').val().length <= 5000 &&
-
-                            (
-                              !newData.child('edited').exists() ||
-                              newData.child('edited').isBoolean()
-                            )
-                          )",
-
-            /*
-             * =================================================
-             * EDIT MESSAGE TEXT
-             * =================================================
-             */
-            "text": {
-
-              ".write": "auth != null &&
-
-                         data.parent()
-                             .child('senderId')
-                             .val() === auth.uid &&
-
-                         data.parent()
-                             .exists() &&
-
+                           root.child('chats')
+                               .child($chatId)
+                               .child('type')
+                               .val() === 'group' &&
+                           root.child('chats')
+                               .child($chatId)
+                               .child('members')
+                               .child(auth.uid)
+                               .exists()
+                         ) ||
                          (
                            root.child('chats')
                                .child($chatId)
-                               .child('participantA')
-                               .val() === auth.uid ||
-
-                           root.child('chats')
-                               .child($chatId)
-                               .child('participantB')
-                               .val() === auth.uid
-                         ) &&
-
-                         (
-                           !root.child('blockedUsers')
-                                .child(auth.uid)
-                                .child(
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val() === auth.uid
-                                    ?
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantB')
-                                        .val()
-                                    :
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantA')
-                                        .val()
-                                )
-                                .exists()
-                         ) &&
-
-                         (
-                           !root.child('blockedUsers')
-                                .child(
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val() === auth.uid
-                                    ?
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantB')
-                                        .val()
-                                    :
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantA')
-                                        .val()
-                                )
-                                .child(auth.uid)
-                                .exists()
-                         ) &&
-
-                         newData.exists() &&
-
-                         newData.parent()
-                             .child('edited')
-                             .val() === true",
-
-              ".validate": "newData.isString() &&
-                            newData.val().length >= 1 &&
-                            newData.val().length <= 5000"
-            },
-
-            /*
-             * =================================================
-             * EDITED FLAG
-             * =================================================
-             */
-            "edited": {
-
-              ".write": "auth != null &&
-
-                         auth.uid ===
-                         data.parent()
-                             .child('senderId')
-                             .val() &&
-
-                         data.parent()
-                             .exists() &&
-
-                         (
-                           root.child('chats')
-                               .child($chatId)
-                               .child('participantA')
-                               .val() === auth.uid ||
-
-                           root.child('chats')
-                               .child($chatId)
-                               .child('participantB')
-                               .val() === auth.uid
-                         ) &&
-
-                         (
-                           !root.child('blockedUsers')
-                                .child(auth.uid)
-                                .child(
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val() === auth.uid
-                                    ?
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantB')
-                                        .val()
-                                    :
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantA')
-                                        .val()
-                                )
-                                .exists()
-                         ) &&
-
-                         (
-                           !root.child('blockedUsers')
-                                .child(
-                                  root.child('chats')
-                                      .child($chatId)
-                                      .child('participantA')
-                                      .val() === auth.uid
-                                    ?
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantB')
-                                        .val()
-                                    :
-                                    root.child('chats')
-                                        .child($chatId)
-                                        .child('participantA')
-                                        .val()
-                                )
-                                .child(auth.uid)
-                                .exists()
-                         ) &&
-
-                         newData.val() === true",
-
-              ".validate": "newData.isBoolean() &&
-                            newData.val() === true"
-            },
-
-            /*
-             * =================================================
-             * REACTIONS
-             * =================================================
-             */
-            "reactions": {
-              "$reactionUserId": {
-
-                ".write": "auth != null &&
-                           auth.uid === $reactionUserId &&
-
-                           root.child('chats')
-                               .child($chatId)
-                               .child('messages')
-                               .child($messageId)
-                               .exists() &&
-
+                               .child('type')
+                               .val() !== 'group' &&
                            (
                              root.child('chats')
                                  .child($chatId)
                                  .child('participantA')
                                  .val() === auth.uid ||
-
                              root.child('chats')
                                  .child($chatId)
                                  .child('participantB')
                                  .val() === auth.uid
                            ) &&
-
                            !root.child('blockedUsers')
                                 .child(auth.uid)
                                 .child(
@@ -677,7 +489,6 @@
                                         .val()
                                 )
                                 .exists() &&
-
                            !root.child('blockedUsers')
                                 .child(
                                   root.child('chats')
@@ -696,12 +507,318 @@
                                         .val()
                                 )
                                 .child(auth.uid)
-                                .exists()",
+                                .exists()
+                         )
+                       ) &&
+
+                       (
+                         (
+                           !data.exists() &&
+                           newData.exists() &&
+                           newData.child('id').val() === $messageId &&
+                           newData.child('senderId').val() === auth.uid
+                         )
+                         ||
+                         (
+                           data.exists() &&
+                           !newData.exists() &&
+                           data.child('senderId').val() === auth.uid
+                         )
+                       )",
+
+            ".validate": "(
+                            !data.exists() &&
+                            newData.exists() &&
+                            newData.hasChildren([
+                              'id',
+                              'senderId',
+                              'senderNickname',
+                              'text',
+                              'timestamp'
+                            ]) &&
+                            newData.child('id').val() === $messageId &&
+                            newData.child('senderId').isString() &&
+                            newData.child('senderId').val() === auth.uid &&
+                            newData.child('senderNickname').isString() &&
+                            newData.child('senderNickname').val().length >= 1 &&
+                            newData.child('senderNickname').val().length <= 20 &&
+                            newData.child('text').isString() &&
+                            newData.child('text').val().length >= 1 &&
+                            newData.child('text').val().length <= 5000 &&
+                            newData.child('timestamp').isNumber() &&
+                            (
+                              !newData.child('edited').exists() ||
+                              newData.child('edited').isBoolean()
+                            )
+                          )
+                          ||
+                          (
+                            data.exists() &&
+                            newData.exists() &&
+                            newData.child('id').val() ===
+                            data.child('id').val() &&
+                            newData.child('senderId').val() ===
+                            data.child('senderId').val() &&
+                            newData.child('senderNickname').val() ===
+                            data.child('senderNickname').val() &&
+                            newData.child('timestamp').val() ===
+                            data.child('timestamp').val() &&
+                            newData.child('text').isString() &&
+                            newData.child('text').val().length >= 1 &&
+                            newData.child('text').val().length <= 5000 &&
+                            (
+                              !newData.child('edited').exists() ||
+                              newData.child('edited').isBoolean()
+                            )
+                          )",
+
+            "text": {
+
+              ".write": "auth != null &&
+                         data.parent()
+                             .exists() &&
+                         data.parent()
+                             .child('senderId')
+                             .val() === auth.uid &&
+                         (
+                           (
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('type')
+                                 .val() === 'group' &&
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('members')
+                                 .child(auth.uid)
+                                 .exists()
+                           ) ||
+                           (
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('type')
+                                 .val() !== 'group' &&
+                             (
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('participantA')
+                                   .val() === auth.uid ||
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('participantB')
+                                   .val() === auth.uid
+                             ) &&
+                             !root.child('blockedUsers')
+                                  .child(auth.uid)
+                                  .child(
+                                    root.child('chats')
+                                        .child($chatId)
+                                        .child('participantA')
+                                        .val() === auth.uid
+                                      ?
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantB')
+                                          .val()
+                                      :
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val()
+                                  )
+                                  .exists() &&
+                             !root.child('blockedUsers')
+                                  .child(
+                                    root.child('chats')
+                                        .child($chatId)
+                                        .child('participantA')
+                                        .val() === auth.uid
+                                      ?
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantB')
+                                          .val()
+                                      :
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val()
+                                  )
+                                  .child(auth.uid)
+                                  .exists()
+                           )
+                         ) &&
+                         newData.exists() &&
+                         newData.parent()
+                             .child('edited')
+                             .val() === true",
+
+              ".validate": "newData.isString() &&
+                            newData.val().length >= 1 &&
+                            newData.val().length <= 5000"
+            },
+
+            "edited": {
+
+              ".write": "auth != null &&
+                         data.parent()
+                             .exists() &&
+                         data.parent()
+                             .child('senderId')
+                             .val() === auth.uid &&
+                         (
+                           (
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('type')
+                                 .val() === 'group' &&
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('members')
+                                 .child(auth.uid)
+                                 .exists()
+                           ) ||
+                           (
+                             root.child('chats')
+                                 .child($chatId)
+                                 .child('type')
+                                 .val() !== 'group' &&
+                             (
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('participantA')
+                                   .val() === auth.uid ||
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('participantB')
+                                   .val() === auth.uid
+                             ) &&
+                             !root.child('blockedUsers')
+                                  .child(auth.uid)
+                                  .child(
+                                    root.child('chats')
+                                        .child($chatId)
+                                        .child('participantA')
+                                        .val() === auth.uid
+                                      ?
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantB')
+                                          .val()
+                                      :
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val()
+                                  )
+                                  .exists() &&
+                             !root.child('blockedUsers')
+                                  .child(
+                                    root.child('chats')
+                                        .child($chatId)
+                                        .child('participantA')
+                                        .val() === auth.uid
+                                      ?
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantB')
+                                          .val()
+                                      :
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val()
+                                  )
+                                  .child(auth.uid)
+                                  .exists()
+                           )
+                         ) &&
+                         newData.val() === true",
+
+              ".validate": "newData.isBoolean() &&
+                            newData.val() === true"
+            },
+
+            "reactions": {
+              "$reactionUserId": {
+
+                ".write": "auth != null &&
+                           auth.uid === $reactionUserId &&
+                           root.child('chats')
+                               .child($chatId)
+                               .child('messages')
+                               .child($messageId)
+                               .exists() &&
+                           (
+                             (
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('type')
+                                   .val() === 'group' &&
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('members')
+                                   .child(auth.uid)
+                                   .exists()
+                             ) ||
+                             (
+                               root.child('chats')
+                                   .child($chatId)
+                                   .child('type')
+                                   .val() !== 'group' &&
+                               (
+                                 root.child('chats')
+                                     .child($chatId)
+                                     .child('participantA')
+                                     .val() === auth.uid ||
+                                 root.child('chats')
+                                     .child($chatId)
+                                     .child('participantB')
+                                     .val() === auth.uid
+                               ) &&
+                               !root.child('blockedUsers')
+                                    .child(auth.uid)
+                                    .child(
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val() === auth.uid
+                                        ?
+                                        root.child('chats')
+                                            .child($chatId)
+                                            .child('participantB')
+                                            .val()
+                                        :
+                                        root.child('chats')
+                                            .child($chatId)
+                                            .child('participantA')
+                                            .val()
+                                    )
+                                    .exists() &&
+                               !root.child('blockedUsers')
+                                    .child(
+                                      root.child('chats')
+                                          .child($chatId)
+                                          .child('participantA')
+                                          .val() === auth.uid
+                                        ?
+                                        root.child('chats')
+                                            .child($chatId)
+                                            .child('participantB')
+                                            .val()
+                                        :
+                                        root.child('chats')
+                                            .child($chatId)
+                                            .child('participantA')
+                                            .val()
+                                    )
+                                    .child(auth.uid)
+                                    .exists()
+                             )
+                           )",
 
                 ".validate": "!newData.exists() ||
                               (
                                 newData.isString() &&
-
                                 (
                                   newData.val() === '❤️' ||
                                   newData.val() === '😂' ||
@@ -843,7 +960,46 @@
                        )
                      )",
 
-          ".validate": "newData.hasChildren([
+          ".validate": "(
+                            newData.child('chatType').val() === 'group' &&
+                            newData.hasChildren([
+                              'chatId',
+                              'chatType',
+                              'groupName',
+                              'groupPhotoUrl',
+                              'memberCount',
+                              'lastMessage',
+                              'lastTimestamp',
+                              'lastSenderId',
+                              'lastSenderNickname',
+                              'unreadCount'
+                            ]) &&
+                            newData.child('chatId').val() === $chatId &&
+                            newData.child('chatType').val() === 'group' &&
+                            newData.child('groupName').isString() &&
+                            newData.child('groupName').val().length >= 1 &&
+                            newData.child('groupName').val().length <= 50 &&
+                            newData.child('groupPhotoUrl').isString() &&
+                            newData.child('memberCount').isNumber() &&
+                            newData.child('memberCount').val() >= 2 &&
+                            newData.child('memberCount').val() <= 50 &&
+                            newData.child('lastMessage').isString() &&
+                            newData.child('lastMessage').val().length <= 5000 &&
+                            newData.child('lastTimestamp').isNumber() &&
+                            newData.child('lastSenderId').isString() &&
+                            (
+                              newData.child('lastSenderId').val() === '' ||
+                              root.child('chats').child($chatId).child('members').child(
+                                newData.child('lastSenderId').val()
+                              ).exists()
+                            ) &&
+                            newData.child('lastSenderNickname').isString() &&
+                            newData.child('lastSenderNickname').val().length <= 20 &&
+                            newData.child('unreadCount').isNumber() &&
+                            newData.child('unreadCount').val() >= 0
+                          )
+                          ||
+                                    ".validate": "newData.hasChildren([
                           'chatId',
                           'otherUserId',
                           'otherUsername',
@@ -922,8 +1078,7 @@
                                 .child('participantA')
                                 .val()
                           )
-                        )"
-        }
+                        )"        }
       }
     },
 
