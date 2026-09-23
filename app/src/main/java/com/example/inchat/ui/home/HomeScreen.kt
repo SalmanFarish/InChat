@@ -208,7 +208,11 @@ fun HomeScreen(
             title = {
 
                 Text(
-                    "Delete conversation?"
+                    if (conversationToDelete?.chatType == "group") {
+                        "Hide group from Home?"
+                    } else {
+                        "Delete conversation?"
+                    }
                 )
             },
 
