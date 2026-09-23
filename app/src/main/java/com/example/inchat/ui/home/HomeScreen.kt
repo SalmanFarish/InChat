@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -66,6 +68,7 @@ fun HomeScreen(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     onConversationClick: (Conversation) -> Unit,
+    onCreateGroupClick: () -> Unit,
     onProfileClick: () -> Unit
 ) {
 
@@ -356,6 +359,20 @@ fun HomeScreen(
                         letterSpacing =
                             (-0.4).sp
                     )
+                },
+
+                actions = {
+                    IconButton(
+                        onClick =
+                            onCreateGroupClick
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.GroupAdd,
+                            contentDescription =
+                                "Create group"
+                        )
+                    }
                 },
 
                 colors =
@@ -988,7 +1005,7 @@ private fun EmptyConversationState() {
         Text(
 
             text =
-                "Find someone in Search to start a private conversation.",
+                "Find someone in Search to start a private chat, or create a group.",
 
             style =
                 MaterialTheme
@@ -1031,23 +1048,27 @@ private fun ConversationItem(
         mutableStateOf("")
     }
 
-    LaunchedEffect(
-        conversation.otherUserId
+    if (
+        conversation.chatType != "group"
     ) {
+        LaunchedEffect(
+            conversation.otherUserId
+        ) {
 
-        val user =
-            userRepository
-                .getUserByIdFast(
-                    conversation.otherUserId
-                )
+            val user =
+                userRepository
+                    .getUserByIdFast(
+                        conversation.otherUserId
+                    )
 
-        otherUserProfilePhoto =
-            user
-                ?.profilePhotoData
-                ?.ifBlank {
-                    user.profilePhotoUrl
-                }
-                .orEmpty()
+            otherUserProfilePhoto =
+                user
+                    ?.profilePhotoData
+                    ?.ifBlank {
+                        user.profilePhotoUrl
+                    }
+                    .orEmpty()
+        }
     }
 
     val hasUnread =
@@ -1093,22 +1114,60 @@ private fun ConversationItem(
              * AVATAR
              * =================================================
              */
-            InChatProfileAvatar(
+            if (
+                conversation.chatType ==
+                "group"
+            ) {
+                Surface(
+                    modifier =
+                        Modifier.size(
+                            48.dp
+                        ),
+                    shape =
+                        CircleShape,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .primaryContainer
+                ) {
+                    Box(
+                        contentAlignment =
+                            Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.Groups,
+                            contentDescription =
+                                "Group",
+                            modifier =
+                                Modifier.size(
+                                    26.dp
+                                ),
+                            tint =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onPrimaryContainer
+                        )
+                    }
+                }
+            } else {
+                InChatProfileAvatar(
 
-                profilePhotoUrl =
-                    otherUserProfilePhoto,
+                    profilePhotoUrl =
+                        otherUserProfilePhoto,
 
-                modifier =
-                    Modifier.size(
-                        48.dp
-                    ),
+                    modifier =
+                        Modifier.size(
+                            48.dp
+                        ),
 
-                iconSize =
-                    25.dp,
+                    iconSize =
+                        25.dp,
 
-                contentDescription =
-                    "Profile picture"
-            )
+                    contentDescription =
+                        "Profile picture"
+                )
+            }
 
             Spacer(
                 modifier =
@@ -1133,7 +1192,14 @@ private fun ConversationItem(
                 Text(
 
                     text =
-                        conversation.otherUsername,
+                        if (
+                            conversation.chatType ==
+                            "group"
+                        ) {
+                            conversation.groupName
+                        } else {
+                            conversation.otherUsername
+                        },
 
                     fontSize =
                         17.sp,
@@ -1171,22 +1237,49 @@ private fun ConversationItem(
 
                 val messagePrefix =
                     if (
+                        conversation.chatType ==
+                        "group"
+                    ) {
+                        when {
+                            conversation.lastSenderId ==
+                                    currentUserId ->
+                                "You: "
+
+                            conversation.lastSenderNickname
+                                .isNotBlank() ->
+                                conversation.lastSenderNickname +
+                                        ": "
+
+                            else ->
+                                ""
+                        }
+                    } else if (
                         conversation.lastSenderId ==
                         currentUserId
                     ) {
-
                         "You: "
-
                     } else {
-
                         ""
                     }
+
+                val previewText =
+                    conversation.lastMessage
+                        .ifBlank {
+                            if (
+                                conversation.chatType ==
+                                "group"
+                            ) {
+                                "No messages yet"
+                            } else {
+                                ""
+                            }
+                        }
 
                 Text(
 
                     text =
                         messagePrefix +
-                                conversation.lastMessage,
+                                previewText,
 
                     style =
                         MaterialTheme
