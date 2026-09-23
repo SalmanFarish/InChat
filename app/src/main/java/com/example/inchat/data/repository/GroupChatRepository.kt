@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
 class GroupChatRepository {
@@ -192,7 +193,10 @@ class GroupChatRepository {
                 } else {
                     combine(
                         groupIds.map {
-                            observeGroupConversation(it)
+                            observeGroupConversation(
+                                groupId = it,
+                                currentUserId = currentUserId
+                            )
                         }
                     ) { summaries ->
                         summaries
@@ -250,12 +254,17 @@ class GroupChatRepository {
     }
 
     private fun observeGroupConversation(
-        groupId: String
+        groupId: String,
+        currentUserId: String = ""
     ): Flow<Conversation?> =
         combine(
             observeGroup(groupId),
-            observeLatestMessage(groupId)
-        ) { group, latestMessage ->
+            observeLatestMessage(groupId),
+            observeGroupUnreadCount(
+                currentUserId = currentUserId,
+                groupId = groupId
+            )
+        ) { group, latestMessage, unreadCount ->
 
             if (group == null) {
                 null
@@ -274,10 +283,162 @@ class GroupChatRepository {
                         latestMessage?.senderId.orEmpty(),
                     lastSenderNickname =
                         latestMessage?.senderNickname.orEmpty(),
-                    unreadCount = 0L
+                    unreadCount = unreadCount
                 )
             }
         }
+
+    private fun observeGroupUnreadCount(
+        currentUserId: String,
+        groupId: String
+    ): Flow<Long> =
+        combine(
+            observeGroupReadTimestamp(
+                currentUserId = currentUserId,
+                groupId = groupId
+            ),
+            observeGroupMessagesSince(
+                groupId = groupId
+            )
+        ) { lastReadTimestamp, messages ->
+            messages.count { message ->
+                message.timestamp > lastReadTimestamp &&
+                        message.senderId != currentUserId
+            }.toLong()
+        }
+
+    private fun observeGroupReadTimestamp(
+        currentUserId: String,
+        groupId: String
+    ): Flow<Long> =
+        callbackFlow {
+            if (
+                currentUserId.isBlank() ||
+                groupId.isBlank()
+            ) {
+                trySend(0L)
+                close()
+                return@callbackFlow
+            }
+
+            val ref =
+                database
+                    .getReference("groupReads")
+                    .child(currentUserId)
+                    .child(groupId)
+
+            val listener =
+                object : com.google.firebase.database.ValueEventListener {
+                    override fun onDataChange(
+                        snapshot: DataSnapshot
+                    ) {
+                        trySend(
+                            snapshot.getValue(Long::class.java) ?: 0L
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error: DatabaseError
+                    ) {
+                        close(error.toException())
+                    }
+                }
+
+            ref.addValueEventListener(listener)
+
+            awaitClose {
+                ref.removeEventListener(listener)
+            }
+        }
+
+    private fun observeGroupMessagesSince(
+        groupId: String
+    ): Flow<List<Message>> =
+        callbackFlow {
+            if (groupId.isBlank()) {
+                trySend(emptyList())
+                close()
+                return@callbackFlow
+            }
+
+            val ref =
+                database
+                    .getReference("chats")
+                    .child(groupId)
+                    .child("messages")
+                    .orderByChild("timestamp")
+
+            val listener =
+                object : com.google.firebase.database.ValueEventListener {
+                    override fun onDataChange(
+                        snapshot: DataSnapshot
+                    ) {
+                        trySend(
+                            snapshot.children
+                                .mapNotNull {
+                                    it.getValue(Message::class.java)
+                                }
+                                .sortedBy { it.timestamp }
+                        )
+                    }
+
+                    override fun onCancelled(
+                        error: DatabaseError
+                    ) {
+                        close(error.toException())
+                    }
+                }
+
+            ref.addValueEventListener(listener)
+
+            awaitClose {
+                ref.removeEventListener(listener)
+            }
+        }
+
+    suspend fun markGroupRead(
+        currentUserId: String,
+        groupId: String,
+        timestamp: Long
+    ): Result<Unit> {
+        return try {
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group read owner."
+                    )
+                )
+            }
+
+            if (
+                currentUserId.isBlank() ||
+                groupId.isBlank() ||
+                timestamp < 0L
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Invalid group read state."
+                    )
+                )
+            }
+
+            database
+                .getReference("groupReads")
+                .child(currentUserId)
+                .child(groupId)
+                .setValue(timestamp)
+                .await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     private fun observeLatestMessage(
         groupId: String
