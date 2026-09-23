@@ -30,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -475,7 +476,10 @@ fun HomeScreen(
                 conversations.isEmpty()
             ) {
 
-                EmptyConversationState()
+                EmptyConversationState(
+                    onCreateGroupClick =
+                        onCreateGroupClick
+                )
 
             } else if (
                 filteredConversations.isEmpty()
@@ -932,7 +936,9 @@ private fun HomeConversationLoadingState() {
  * ============================================================
  */
 @Composable
-private fun EmptyConversationState() {
+private fun EmptyConversationState(
+    onCreateGroupClick: () -> Unit
+) {
 
     Column(
 
@@ -1044,6 +1050,35 @@ private fun EmptyConversationState() {
                     .colorScheme
                     .onSurfaceVariant
         )
+
+        Spacer(
+            modifier =
+                Modifier.height(
+                    18.dp
+                )
+        )
+
+        OutlinedButton(
+            onClick =
+                onCreateGroupClick
+        ) {
+            Icon(
+                imageVector =
+                    Icons.Default.GroupAdd,
+                contentDescription = null
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.width(
+                        8.dp
+                    )
+            )
+
+            Text(
+                text = "Create a group"
+            )
+        }
     }
 }
 
