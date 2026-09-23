@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.GroupChatRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -14,6 +17,9 @@ class HomeViewModel : ViewModel() {
 
     private val chatRepository =
         ChatRepository()
+
+    private val groupChatRepository =
+        GroupChatRepository()
 
     private val _conversations =
         MutableStateFlow<List<Conversation>>(
@@ -86,11 +92,22 @@ class HomeViewModel : ViewModel() {
         conversationsJob =
             viewModelScope.launch {
 
-                chatRepository
-                    .getConversationsFlow(
-                        currentUserId
-                    )
-                    .collect { list ->
+                combine(
+                    chatRepository
+                        .getConversationsFlow(currentUserId)
+                        .map { list ->
+                            list.filter {
+                                it.chatType != "group"
+                            }
+                        },
+                    groupChatRepository
+                        .observeGroupConversations(currentUserId)
+                ) { directConversations, groupConversations ->
+                    (directConversations + groupConversations)
+                        .distinctBy { it.chatId }
+                        .sortedByDescending { it.lastTimestamp }
+                        .take(50)
+                }.collect { list ->
 
                         _conversations.value =
                             list
@@ -114,6 +131,7 @@ class HomeViewModel : ViewModel() {
     fun deleteConversation(
         currentUserId: String,
         chatId: String,
+        chatType: String = "direct",
         onResult:
             (Boolean, String?) -> Unit
     ) {
@@ -133,14 +151,22 @@ class HomeViewModel : ViewModel() {
 
         viewModelScope.launch {
 
-            chatRepository
-                .deleteConversation(
-                    currentUserId =
-                        currentUserId,
+            val deleteResult =
+                if (chatType == "group") {
+                    groupChatRepository
+                        .removeMyGroupMembership(
+                            currentUserId = currentUserId,
+                            groupId = chatId
+                        )
+                } else {
+                    chatRepository
+                        .deleteConversation(
+                            currentUserId = currentUserId,
+                            chatId = chatId
+                        )
+                }
 
-                    chatId =
-                        chatId
-                )
+            deleteResult
                 .onSuccess {
 
                     /*
