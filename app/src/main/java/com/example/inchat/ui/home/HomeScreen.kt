@@ -214,9 +214,17 @@ fun HomeScreen(
 
             text = {
 
+                val conversation =
+                    conversationToDelete
+
                 Text(
-                    "This removes the conversation from your chats. " +
-                            "Your messages will not be deleted."
+                    if (conversation?.chatType == "group") {
+                        "This removes the group from your chats. " +
+                                "You remain a member of the group."
+                    } else {
+                        "This removes the conversation from your chats. " +
+                                "Your messages will not be deleted."
+                    }
                 )
             },
 
@@ -240,7 +248,10 @@ fun HomeScreen(
                                         currentUserId,
 
                                     chatId =
-                                        conversation.chatId
+                                        conversation.chatId,
+
+                                    chatType =
+                                        conversation.chatType
 
                                 ) { success, error ->
 
