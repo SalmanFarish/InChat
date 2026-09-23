@@ -372,8 +372,19 @@ class ChatRepository {
                             if (
                                 conversation != null &&
                                 conversation.chatId.isNotBlank() &&
-                                conversation.otherUserId.isNotBlank() &&
-                                conversation.otherUsername.isNotBlank()
+                                (
+                                    (
+                                        conversation.chatType ==
+                                                "group" &&
+                                        conversation.groupName.isNotBlank()
+                                    ) ||
+                                    (
+                                        conversation.chatType !=
+                                                "group" &&
+                                        conversation.otherUserId.isNotBlank() &&
+                                        conversation.otherUsername.isNotBlank()
+                                    )
+                                )
                             ) {
 
                                 conversations.add(
