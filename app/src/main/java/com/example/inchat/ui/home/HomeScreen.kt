@@ -57,6 +57,7 @@ import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.auth.AuthViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,27 +106,29 @@ fun HomeScreen(
         conversations
     ) {
 
-        conversations
-            .asSequence()
-            .filter {
-                it.chatType != "group"
-            }
-            .map {
-                it.otherUserId
-            }
-            .filter {
-                it.isNotBlank()
-            }
-            .distinct()
-            .forEach { otherUserId ->
-
-                launch {
-                    userRepository
-                        .getUserByIdFast(
-                            otherUserId
-                        )
+        val userIds =
+            conversations
+                .asSequence()
+                .filter {
+                    it.chatType != "group"
                 }
+                .map {
+                    it.otherUserId
+                }
+                .filter {
+                    it.isNotBlank()
+                }
+                .distinct()
+                .toList()
+
+        for (otherUserId in userIds) {
+            launch {
+                userRepository
+                    .getUserByIdFast(
+                        otherUserId
+                    )
             }
+        }
     }
 
     var searchQuery by
@@ -430,6 +433,18 @@ fun HomeScreen(
                 },
 
                 actions = {
+                    IconButton(
+                        onClick =
+                            onProfileClick
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.Person,
+                            contentDescription =
+                                "Profile"
+                        )
+                    }
+
                     IconButton(
                         onClick =
                             onCreateGroupClick
