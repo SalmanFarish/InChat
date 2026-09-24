@@ -678,6 +678,17 @@ fun InChatApp(
 
                             defaultValue =
                                 ""
+                        },
+
+                        navArgument(
+                            "uid"
+                        ) {
+
+                            type =
+                                NavType.StringType
+
+                            defaultValue =
+                                ""
                         }
                     )
 
