@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.tasks.await
 
 class GroupChatRepository {
@@ -264,7 +265,15 @@ class GroupChatRepository {
             observeGroupUnreadCount(
                 currentUserId = currentUserId,
                 groupId = groupId
-            )
+            ).onStart {
+                /*
+                 * The unread calculation may need to inspect message
+                 * history. Never make the Home row wait for that work.
+                 * Emit zero immediately, then replace it with the real
+                 * unread count when the listener finishes its first load.
+                 */
+                emit(0L)
+            }
         ) { group, latestMessage, unreadCount ->
 
             if (group == null) {
