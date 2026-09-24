@@ -654,7 +654,7 @@ fun InChatApp(
             composable(
 
                 route =
-                    "profile?username={username}",
+                    "profile?username={username}&uid={uid}",
 
                 deepLinks =
                     listOf(
@@ -691,6 +691,14 @@ fun InChatApp(
                         )
                         .orEmpty()
 
+                val otherUserId =
+                    publicProfileBackStackEntry
+                        .arguments
+                        ?.getString(
+                            "uid"
+                        )
+                        .orEmpty()
+
                 val publicProfileViewModel:
                         PublicProfileViewModel =
                     viewModel(
@@ -701,6 +709,9 @@ fun InChatApp(
 
                     username =
                         otherUsername,
+
+                    userId =
+                        otherUserId,
 
                     viewModel =
                         publicProfileViewModel,
@@ -1179,7 +1190,11 @@ private fun MainTabPager(
 
                         navController.navigate(
                             "profile?username=" +
-                                    encodedUsername
+                                    encodedUsername +
+                                    "&uid=" +
+                                    Uri.encode(
+                                        user.uid
+                                    )
                         )
                     }
                 )
