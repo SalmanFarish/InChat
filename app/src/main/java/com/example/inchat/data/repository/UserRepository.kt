@@ -2064,6 +2064,37 @@ class UserRepository {
      * =========================================================
      */
 
+    fun getCachedUser(
+        uid: String
+    ): User? {
+
+        if (
+            uid.isBlank()
+        ) {
+            return null
+        }
+
+        val cached =
+            userCache[uid]
+                ?: return null
+
+        val now =
+            System.currentTimeMillis()
+
+        if (
+            now - cached.cachedAt >=
+            USER_CACHE_TTL_MS
+        ) {
+            userCache.remove(
+                uid,
+                cached
+            )
+            return null
+        }
+
+        return cached.user
+    }
+
     suspend fun getUserByIdFast(
         uid: String
     ): User? {
@@ -2074,21 +2105,8 @@ class UserRepository {
             return null
         }
 
-        val now =
-            System.currentTimeMillis()
-
-        userCache[uid]?.let { cached ->
-            if (
-                now - cached.cachedAt <
-                USER_CACHE_TTL_MS
-            ) {
-                return cached.user
-            }
-
-            userCache.remove(
-                uid,
-                cached
-            )
+        getCachedUser(uid)?.let { cached ->
+            return cached
         }
 
         val userRef =
@@ -2101,17 +2119,65 @@ class UserRepository {
                 )
 
         /*
-         * This is intentionally a one-shot read. Firebase persistence
-         * still provides offline data, while removing keepSynced(true)
-         * prevents every profile touched by Home/Search from becoming
-         * a permanently synchronized location.
+         * A single-value listener is used instead of get().await().
+         *
+         * Realtime Database can satisfy this listener from the local
+         * persisted snapshot when available, while the Firebase
+         * persistence layer continues to refresh the value in the
+         * background. This keeps Home/Profile reads from waiting on a
+         * server round trip when the device already knows the user.
          */
         return try {
 
             val user =
-                userRef
-                    .get()
-                    .await()
+                suspendCancellableCoroutine<DataSnapshot> {
+                        continuation ->
+
+                    val listener =
+                        object :
+                            ValueEventListener {
+
+                        override fun onDataChange(
+                            snapshot:
+                            DataSnapshot
+                        ) {
+
+                            if (
+                                continuation.isActive
+                            ) {
+                                continuation.resume(
+                                    snapshot
+                                )
+                            }
+                        }
+
+                        override fun onCancelled(
+                            error:
+                            DatabaseError
+                        ) {
+
+                            if (
+                                continuation.isActive
+                            ) {
+                                continuation.resumeWithException(
+                                    error.toException()
+                                )
+                            }
+                        }
+                    }
+
+                    userRef
+                        .addListenerForSingleValueEvent(
+                            listener
+                        )
+
+                    continuation.invokeOnCancellation {
+                        userRef
+                            .removeEventListener(
+                                listener
+                            )
+                    }
+                }
                     .getValue(
                         User::class.java
                     )
@@ -2119,6 +2185,7 @@ class UserRepository {
             if (
                 user != null
             ) {
+
                 userCache[uid] =
                     CachedUser(
                         user = user,
@@ -2133,83 +2200,10 @@ class UserRepository {
             _: Exception
         ) {
 
-            /*
-             * Firebase may still have a locally persisted snapshot
-             * even when the current server read cannot complete.
-             */
-            try {
-
-                val user =
-                    suspendCancellableCoroutine<DataSnapshot> {
-                            continuation ->
-
-                        val listener =
-                            object :
-                                ValueEventListener {
-
-                                override fun onDataChange(
-                                    snapshot:
-                                    DataSnapshot
-                                ) {
-                                    if (
-                                        continuation.isActive
-                                    ) {
-                                        continuation.resume(
-                                            snapshot
-                                        )
-                                    }
-                                }
-
-                                override fun onCancelled(
-                                    error:
-                                    DatabaseError
-                                ) {
-                                    if (
-                                        continuation.isActive
-                                    ) {
-                                        continuation.resumeWithException(
-                                            error.toException()
-                                        )
-                                    }
-                                }
-                            }
-
-                        userRef
-                            .addListenerForSingleValueEvent(
-                                listener
-                            )
-
-                        continuation.invokeOnCancellation {
-                            userRef
-                                .removeEventListener(
-                                    listener
-                                )
-                        }
-                    }
-                        .getValue(
-                            User::class.java
-                        )
-
-                if (
-                    user != null
-                ) {
-                    userCache[uid] =
-                        CachedUser(
-                            user = user,
-                            cachedAt =
-                                System.currentTimeMillis()
-                        )
-                }
-
-                user
-
-            } catch (
-                _: Exception
-            ) {
-                null
-            }
+            null
         }
     }
+
 
 
     /*
