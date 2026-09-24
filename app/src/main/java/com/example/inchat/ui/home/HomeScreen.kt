@@ -88,6 +88,46 @@ fun HomeScreen(
         .conversationsLoaded
         .collectAsState()
 
+    /*
+     * Keep one repository for the whole Home screen so all visible
+     * conversation rows share the same in-memory profile cache.
+     */
+    val userRepository =
+        remember {
+            UserRepository()
+        }
+
+    /*
+     * Start profile reads as soon as the inbox arrives, before LazyColumn
+     * composes each individual row. This removes the per-row startup delay.
+     */
+    LaunchedEffect(
+        conversations
+    ) {
+
+        conversations
+            .asSequence()
+            .filter {
+                it.chatType != "group"
+            }
+            .map {
+                it.otherUserId
+            }
+            .filter {
+                it.isNotBlank()
+            }
+            .distinct()
+            .forEach { otherUserId ->
+
+                launch {
+                    userRepository
+                        .getUserByIdFast(
+                            otherUserId
+                        )
+                }
+            }
+    }
+
     var searchQuery by
     rememberSaveable {
         mutableStateOf("")
@@ -526,6 +566,9 @@ fun HomeScreen(
 
                             conversation =
                                 conversation,
+
+                            userRepository =
+                                userRepository,
 
                             currentUserId =
                                 currentUserId,
@@ -1093,21 +1136,31 @@ private fun EmptyConversationState(
 @Composable
 private fun ConversationItem(
     conversation: Conversation,
+    userRepository: UserRepository,
     currentUserId: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
 
-    val userRepository =
-        remember {
-            UserRepository()
-        }
-
     var otherUserProfilePhoto by
     remember(
         conversation.otherUserId
     ) {
-        mutableStateOf("")
+        mutableStateOf(
+            userRepository
+                .getCachedUser(
+                    conversation.otherUserId
+                )
+                ?.profilePhotoData
+                ?.ifBlank {
+                    userRepository
+                        .getCachedUser(
+                            conversation.otherUserId
+                        )
+                        ?.profilePhotoUrl
+                }
+                .orEmpty()
+        )
     }
 
     if (
