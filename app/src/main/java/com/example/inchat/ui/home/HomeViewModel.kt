@@ -7,10 +7,9 @@ import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class HomeViewModel : ViewModel() {
@@ -29,6 +28,30 @@ class HomeViewModel : ViewModel() {
     val conversations:
             StateFlow<List<Conversation>> =
         _conversations.asStateFlow()
+
+    /*
+     * The Home inbox is intentionally cache-first.
+     *
+     * Direct conversations are the primary Home data source and are
+     * allowed to populate the UI as soon as Firebase's local/server
+     * listener emits. Group conversations are merged in independently
+     * so a slow group sync can never block the normal chat list.
+     */
+    private val _directConversations =
+        MutableStateFlow<List<Conversation>>(
+            emptyList()
+        )
+
+    private val _groupConversations =
+        MutableStateFlow<List<Conversation>>(
+            emptyList()
+        )
+
+    private val _directConversationsLoaded =
+        MutableStateFlow(false)
+
+    private val _groupConversationsLoaded =
+        MutableStateFlow(false)
 
     private val _conversationsLoaded =
         MutableStateFlow(false)
@@ -59,6 +82,18 @@ class HomeViewModel : ViewModel() {
             _conversations.value =
                 emptyList()
 
+            _directConversations.value =
+                emptyList()
+
+            _groupConversations.value =
+                emptyList()
+
+            _directConversationsLoaded.value =
+                false
+
+            _groupConversationsLoaded.value =
+                false
+
             _conversationsLoaded.value =
                 false
 
@@ -84,38 +119,113 @@ class HomeViewModel : ViewModel() {
         listeningUserId =
             currentUserId
 
-        _conversationsLoaded.value =
+        conversationsJob?.cancel()
+
+        _conversations.value =
+            emptyList()
+
+        _directConversations.value =
+            emptyList()
+
+        _groupConversations.value =
+            emptyList()
+
+        _directConversationsLoaded.value =
             false
 
-        conversationsJob?.cancel()
+        _groupConversationsLoaded.value =
+            false
+
+        _conversationsLoaded.value =
+            false
 
         conversationsJob =
             viewModelScope.launch {
 
-                combine(
+                /*
+                 * Keep direct chats independent from group sync.
+                 *
+                 * This removes the old combine() bottleneck where Home
+                 * waited for the direct listener AND every group summary
+                 * before showing any conversation.
+                 */
+                launch {
+
                     chatRepository
-                        .getConversationsFlow(currentUserId)
+                        .getConversationsFlow(
+                            currentUserId
+                        )
                         .map { list ->
                             list.filter {
                                 it.chatType != "group"
                             }
-                        },
+                        }
+                        .collect { list ->
+
+                            _directConversations.value =
+                                list
+
+                            _directConversationsLoaded.value =
+                                true
+
+                            publishConversations()
+                        }
+                }
+
+                /*
+                 * Groups arrive independently and are merged into the
+                 * already-visible direct chat list.
+                 */
+                launch {
+
                     groupChatRepository
-                        .observeGroupConversations(currentUserId)
-                ) { directConversations, groupConversations ->
-                    (directConversations + groupConversations)
-                        .distinctBy { it.chatId }
-                        .sortedByDescending { it.lastTimestamp }
-                        .take(50)
-                }.collect { list ->
+                        .observeGroupConversations(
+                            currentUserId
+                        )
+                        .collect { list ->
 
-                        _conversations.value =
-                            list
+                            _groupConversations.value =
+                                list
 
-                        _conversationsLoaded.value =
-                            true
-                    }
+                            _groupConversationsLoaded.value =
+                                true
+
+                            publishConversations()
+                        }
+                }
             }
+    }
+
+    private fun publishConversations() {
+
+        val merged =
+            (
+                _directConversations.value +
+                        _groupConversations.value
+                )
+                .distinctBy {
+                    it.chatId
+                }
+                .sortedByDescending {
+                    it.lastTimestamp
+                }
+                .take(50)
+
+        _conversations.value =
+            merged
+
+        /*
+         * Show the normal inbox immediately once direct conversations
+         * have emitted. When there are no direct chats, wait for the
+         * group stream's first emission so a real group-only inbox does
+         * not briefly flash the empty state.
+         */
+        _conversationsLoaded.value =
+            _directConversationsLoaded.value &&
+                    (
+                        _groupConversationsLoaded.value ||
+                                _directConversations.value.isNotEmpty()
+                        )
     }
 
     /*
@@ -172,12 +282,21 @@ class HomeViewModel : ViewModel() {
                     /*
                      * Update local state immediately.
                      */
-                    _conversations.value =
-                        _conversations.value
+                    _directConversations.value =
+                        _directConversations.value
                             .filterNot {
                                 it.chatId ==
                                         chatId
                             }
+
+                    _groupConversations.value =
+                        _groupConversations.value
+                            .filterNot {
+                                it.chatId ==
+                                        chatId
+                            }
+
+                    publishConversations()
 
                     onResult(
                         true,
