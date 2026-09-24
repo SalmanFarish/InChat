@@ -50,21 +50,28 @@ class PublicProfileViewModel : ViewModel() {
             StateFlow<Presence> =
         _presence.asStateFlow()
 
-    private var loadedUsername:
+    private var loadedProfileKey:
             String? = null
 
     private var presenceJob:
             Job? = null
 
     fun loadProfile(
-        username: String
+        username: String,
+        userId: String = ""
     ) {
 
         val normalizedUsername =
-            username.trim()
+            username
+                .trim()
+                .removePrefix("@")
+
+        val normalizedUserId =
+            userId.trim()
 
         if (
-            normalizedUsername.isBlank()
+            normalizedUsername.isBlank() &&
+            normalizedUserId.isBlank()
         ) {
 
             _uiState.value =
@@ -74,17 +81,23 @@ class PublicProfileViewModel : ViewModel() {
         }
 
         val normalizedKey =
-            normalizedUsername.lowercase()
+            if (
+                normalizedUserId.isNotBlank()
+            ) {
+                "id:" + normalizedUserId
+            } else {
+                "username:" + normalizedUsername.lowercase()
+            }
 
         if (
-            loadedUsername ==
+            loadedProfileKey ==
             normalizedKey
         ) {
 
             return
         }
 
-        loadedUsername =
+        loadedProfileKey =
             normalizedKey
 
         presenceJob?.cancel()
@@ -92,16 +105,43 @@ class PublicProfileViewModel : ViewModel() {
 
         viewModelScope.launch {
 
-            _uiState.value =
-                PublicProfileUiState.Loading
+            /*
+             * Never clear an already-visible profile while refreshing.
+             * This avoids a loading flash when a profile is revisited.
+             */
+            if (
+                _uiState.value !is PublicProfileUiState.Success
+            ) {
+                _uiState.value =
+                    PublicProfileUiState.Loading
+            }
 
             try {
 
+                /*
+                 * Search results already load users through the shared
+                 * UserRepository cache. When navigation provides the UID,
+                 * read that cached user first so the profile can render
+                 * immediately instead of waiting on the username index.
+                 */
+                val cachedUser =
+                    if (
+                        normalizedUserId.isNotBlank()
+                    ) {
+                        userRepository
+                            .getUserByIdFast(
+                                normalizedUserId
+                            )
+                    } else {
+                        null
+                    }
+
                 val user =
-                    userRepository
-                        .getUserByUsername(
-                            normalizedUsername
-                        )
+                    cachedUser
+                        ?: userRepository
+                            .getUserByUsername(
+                                normalizedUsername
+                            )
 
                 if (
                     user == null ||
