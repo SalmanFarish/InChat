@@ -47,6 +47,7 @@ import com.example.inchat.data.model.User
 @Composable
 fun PublicProfileScreen(
     username: String,
+    userId: String = "",
     viewModel: PublicProfileViewModel,
     onStartChatClick: (User) -> Unit,
     onBackClick: () -> Unit
@@ -67,7 +68,8 @@ fun PublicProfileScreen(
     ) {
 
         viewModel.loadProfile(
-            username
+            username = username,
+            userId = userId
         )
     }
 
