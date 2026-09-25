@@ -31,6 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
 import com.example.inchat.data.model.User
+import com.example.inchat.data.repository.FirebaseServerClock
+import com.example.inchat.ui.chat.formatLastSeen
+import kotlinx.coroutines.delay
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -562,6 +568,29 @@ private fun ProfileContent(
 private fun PresenceText(
     presence: Presence
 ) {
+    var clock by remember {
+        mutableLongStateOf(
+            FirebaseServerClock.now()
+        )
+    }
+
+    LaunchedEffect(
+        presence.online,
+        presence.lastSeen
+    ) {
+        while (
+            !presence.online &&
+            presence.lastSeen > 0L
+        ) {
+            clock =
+                FirebaseServerClock.now()
+
+            delay(
+                15_000L
+            )
+        }
+    }
+
 
     if (
         presence.online
@@ -592,7 +621,8 @@ private fun PresenceText(
 
             text =
                 formatLastSeen(
-                    presence.lastSeen
+                    presence.lastSeen,
+                    clock
                 ),
 
             style =
@@ -605,51 +635,6 @@ private fun PresenceText(
                     .colorScheme
                     .onSurfaceVariant
         )
-    }
-}
-
-private fun formatLastSeen(
-    timestamp: Long
-): String {
-
-    if (
-        timestamp <= 0L
-    ) {
-
-        return "Offline"
-    }
-
-    val difference =
-        System.currentTimeMillis() -
-                timestamp
-
-    val minute =
-        60_000L
-
-    val hour =
-        60 *
-                minute
-
-    val day =
-        24 *
-                hour
-
-    return when {
-
-        difference < minute ->
-            "Last seen just now"
-
-        difference < hour ->
-            "Last seen \${difference / minute} min ago"
-
-        difference < day ->
-            "Last seen \${difference / hour} hr ago"
-
-        difference < 7 * day ->
-            "Last seen \${difference / day} days ago"
-
-        else ->
-            "Last seen recently"
     }
 }
 
