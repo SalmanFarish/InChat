@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.ChatAppearanceRepository
+import com.example.inchat.ui.profile.InChatProfileAvatar
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -181,12 +182,21 @@ fun GroupChatScreen(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Groups,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            if (group?.groupPhotoData?.isNotBlank() == true) {
+                                InChatProfileAvatar(
+                                    profilePhotoUrl = group?.groupPhotoData.orEmpty(),
+                                    modifier = Modifier.fillMaxSize(),
+                                    iconSize = 22.dp,
+                                    contentDescription = "Group photo"
                                 )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Groups,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
                             }
                         }
 
