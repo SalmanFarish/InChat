@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
+import com.example.inchat.data.repository.FirebaseServerClock
 
 @Composable
 fun PresenceStatus(
@@ -24,13 +25,13 @@ fun PresenceStatus(
     isTyping: Boolean
 ) {
     var clock by remember {
-        mutableLongStateOf(System.currentTimeMillis())
+        mutableLongStateOf(FirebaseServerClock.now())
     }
 
     LaunchedEffect(presence.online, presence.lastSeen) {
         while (!presence.online && presence.lastSeen > 0L) {
-            clock = System.currentTimeMillis()
-            delay(60_000L)
+            clock = FirebaseServerClock.now()
+            delay(15_000L)
         }
     }
 
