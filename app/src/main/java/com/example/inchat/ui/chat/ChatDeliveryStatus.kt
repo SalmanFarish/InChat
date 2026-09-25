@@ -9,6 +9,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class MessageDeliveryStatus {
     NONE,
@@ -148,6 +151,35 @@ fun getMessageDeliveryStatus(
      * but the other participant has not read it yet.
      */
     return MessageDeliveryStatus.SENT
+}
+
+fun formatSeenReceipt(
+    readTimestamp: Long,
+    currentTimeMillis: Long
+): String {
+    if (readTimestamp <= 0L) return "Seen"
+
+    val elapsed =
+        (currentTimeMillis - readTimestamp).coerceAtLeast(0L)
+
+    val minute = 60_000L
+    val hour = 60 * minute
+    val day = 24 * hour
+
+    return when {
+        elapsed < minute ->
+            "Seen just now"
+        elapsed < hour ->
+            "Seen " + (elapsed / minute) + " min ago"
+        elapsed < day ->
+            "Seen " + (elapsed / hour) + " hr ago"
+        else ->
+            "Seen " +
+                SimpleDateFormat(
+                    "h:mm a",
+                    Locale.getDefault()
+                ).format(Date(readTimestamp))
+    }
 }
 
 fun deliveryStatusText(
