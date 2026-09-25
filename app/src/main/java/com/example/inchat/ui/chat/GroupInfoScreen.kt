@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -102,6 +104,28 @@ fun GroupInfoScreen(
     var actionError by remember { mutableStateOf<String?>(null) }
     var isActionRunning by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
+    var showAddMembersDialog by remember { mutableStateOf(false) }
+    var memberSearch by remember { mutableStateOf("") }
+    var memberSearchResults by remember { mutableStateOf<List<User>>(emptyList()) }
+    var memberActionTarget by remember { mutableStateOf<User?>(null) }
+
+    LaunchedEffect(group?.members, memberSearch) {
+        val query = memberSearch.trim().removePrefix("@")
+        if (query.isBlank()) {
+            memberSearchResults = emptyList()
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(220)
+        memberSearchResults =
+            runCatching {
+                userRepository.searchUsersByUsernamePrefix(
+                    prefix = query,
+                    currentUserId = currentUserId,
+                    limit = 8
+                )
+            }.getOrDefault(emptyList())
+                .filterNot { group?.members?.containsKey(it.uid) == true }
+    }
 
     LaunchedEffect(group?.members) {
         val memberIds =
@@ -140,6 +164,81 @@ fun GroupInfoScreen(
     }
 
     val actionScope = rememberCoroutineScope()
+
+    if (showAddMembersDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!isActionRunning) showAddMembersDialog = false
+            },
+            title = { Text("Add members") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = memberSearch,
+                        onValueChange = { memberSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Search username") }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    memberSearchResults.forEach { user ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isActionRunning) {
+                                    isActionRunning = true
+                                    actionScope.launch {
+                                        groupRepository.addMembers(
+                                            currentUserId = currentUserId,
+                                            groupId = groupId,
+                                            memberIds = listOf(user.uid)
+                                        ).onSuccess {
+                                            memberSearch = ""
+                                            memberSearchResults = emptyList()
+                                            showAddMembersDialog = false
+                                        }.onFailure {
+                                            actionError = it.message ?: "Could not add member."
+                                        }
+                                        isActionRunning = false
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            InChatProfileAvatar(
+                                profilePhotoUrl = user.profilePhotoData.ifBlank { user.profilePhotoUrl },
+                                modifier = Modifier.size(42.dp),
+                                iconSize = 21.dp,
+                                contentDescription = null
+                            )
+                            Column(
+                                modifier = Modifier.weight(1f).padding(start = 10.dp)
+                            ) {
+                                Text(text = "@" + user.username, fontWeight = FontWeight.SemiBold)
+                                if (user.displayName.isNotBlank()) {
+                                    Text(
+                                        text = user.displayName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.Default.PersonAdd,
+                                contentDescription = "Add"
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isActionRunning,
+                    onClick = { showAddMembersDialog = false }
+                ) { Text("Done") }
+            }
+        )
+    }
 
     if (showRenameDialog) {
         AlertDialog(
@@ -240,6 +339,62 @@ fun GroupInfoScreen(
                 }
             }
         )
+    }
+
+    memberActionTarget?.let { target ->
+        val targetRole = group?.members?.get(target.uid)
+        val canManageTarget =
+            group?.members?.get(currentUserId) == "admin" &&
+                target.uid != group?.createdBy &&
+                target.uid != currentUserId
+
+        if (canManageTarget) {
+            AlertDialog(
+                onDismissRequest = { memberActionTarget = null },
+                title = { Text("@" + target.username) },
+                text = { Text("Choose a member action.") },
+                confirmButton = {
+                    TextButton(
+                        enabled = !isActionRunning,
+                        onClick = {
+                            val newRole = if (targetRole == "admin") "member" else "admin"
+                            isActionRunning = true
+                            actionScope.launch {
+                                groupRepository.setMemberRole(
+                                    currentUserId = currentUserId,
+                                    groupId = groupId,
+                                    memberId = target.uid,
+                                    role = newRole
+                                ).onFailure {
+                                    actionError = it.message ?: "Could not change member role."
+                                }
+                                isActionRunning = false
+                                memberActionTarget = null
+                            }
+                        }
+                    ) { Text(if (targetRole == "admin") "Remove admin" else "Make admin") }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !isActionRunning,
+                        onClick = {
+                            isActionRunning = true
+                            actionScope.launch {
+                                groupRepository.removeMember(
+                                    currentUserId = currentUserId,
+                                    groupId = groupId,
+                                    memberId = target.uid
+                                ).onFailure {
+                                    actionError = it.message ?: "Could not remove member."
+                                }
+                                isActionRunning = false
+                                memberActionTarget = null
+                            }
+                        }
+                    ) { Text("Remove") }
+                }
+            )
+        }
     }
 
     actionError?.let { message ->
@@ -482,6 +637,18 @@ private fun GroupInfoContent(
 
             item {
                 GroupInfoActionRow(
+                    title = "Add members",
+                    subtitle = "Invite people to this group",
+                    icon = Icons.Default.PersonAdd,
+                    onClick = {
+                        memberSearch = ""
+                        showAddMembersDialog = true
+                    }
+                )
+            }
+
+            item {
+                GroupInfoActionRow(
                     title = "Rename group",
                     subtitle = "Change the name for everyone",
                     icon = Icons.Default.Edit,
@@ -552,7 +719,13 @@ private fun GroupInfoContent(
                 user = user,
                 uid = uid,
                 role = role,
-                isCurrentUser = uid == currentUserId
+                isCurrentUser = uid == currentUserId,
+                canManage = group.members[currentUserId] == "admin" &&
+                    uid != group.createdBy &&
+                    uid != currentUserId,
+                onManageClick = {
+                    user?.let { memberActionTarget = it }
+                }
             )
         }
 
@@ -564,7 +737,9 @@ private fun GroupMemberRow(
     user: User?,
     uid: String,
     role: String,
-    isCurrentUser: Boolean
+    isCurrentUser: Boolean,
+    canManage: Boolean = false,
+    onManageClick: () -> Unit = {}
 ) {
     val username =
         user
@@ -590,6 +765,12 @@ private fun GroupMemberRow(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .clickable(
+                    enabled = canManage,
+                    interactionSource = null,
+                    indication = null,
+                    onClick = onManageClick
+                )
                 .padding(
                     horizontal = 20.dp,
                     vertical = 8.dp
