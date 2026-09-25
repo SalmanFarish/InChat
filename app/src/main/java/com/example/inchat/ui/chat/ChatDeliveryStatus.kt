@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.delay
 
@@ -174,5 +176,73 @@ fun deliveryStatusText(
 
         MessageDeliveryStatus.SEEN ->
             "Seen"
+    }
+}
+
+@Composable
+fun MessageDeliveryIndicator(
+    status: MessageDeliveryStatus,
+    tint: androidx.compose.ui.graphics.Color
+) {
+    androidx.compose.foundation.layout.Row(
+        horizontalArrangement =
+            androidx.compose.foundation.layout.Arrangement.spacedBy(
+                (-3).dp
+            ),
+        verticalAlignment =
+            androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        when (status) {
+            MessageDeliveryStatus.WAITING_FOR_CONNECTION -> {
+                androidx.compose.material3.Text(
+                    text = "!",
+                    fontSize = 10.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = tint
+                )
+            }
+
+            MessageDeliveryStatus.SENDING -> {
+                androidx.compose.material3.Text(
+                    text = "…",
+                    fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = tint
+                )
+            }
+
+            MessageDeliveryStatus.SENT -> {
+                androidx.compose.material3.Icon(
+                    imageVector =
+                        androidx.compose.material.icons.Icons.Filled.Check,
+                    contentDescription = "Sent",
+                    modifier =
+                        androidx.compose.ui.Modifier.size(13.dp),
+                    tint = tint
+                )
+            }
+
+            MessageDeliveryStatus.SEEN_JUST_NOW,
+            MessageDeliveryStatus.SEEN -> {
+                androidx.compose.material3.Icon(
+                    imageVector =
+                        androidx.compose.material.icons.Icons.Filled.Check,
+                    contentDescription = "Seen",
+                    modifier =
+                        androidx.compose.ui.Modifier.size(13.dp),
+                    tint = tint
+                )
+                androidx.compose.material3.Icon(
+                    imageVector =
+                        androidx.compose.material.icons.Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier =
+                        androidx.compose.ui.Modifier.size(13.dp),
+                    tint = tint
+                )
+            }
+
+            MessageDeliveryStatus.NONE -> Unit
+        }
     }
 }
