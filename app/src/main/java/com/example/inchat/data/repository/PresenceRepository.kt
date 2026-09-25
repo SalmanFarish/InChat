@@ -37,13 +37,12 @@ object PresenceRepository {
             com.google.firebase.database.DatabaseReference? = null
 
     /*
-     * Android Realtime Database can close an otherwise idle
-     * connection after a period of inactivity. Keeping a real
-     * data listener open prevents the presence connection from
-     * being considered idle while the app is active.
+     * The /.info/connected listener below intentionally stays
+     * registered for the lifetime of the signed-in session.
+     * Firebase also receives a real long-lived listener from the
+     * server-clock component, so the process has an active
+     * realtime listener while the user is signed in.
      */
-    private var activeKeepAliveListener:
-            ValueEventListener? = null
 
     fun observePresence(
         uid: String
@@ -473,8 +472,6 @@ object PresenceRepository {
         val connectionRef =
             activeConnectionRef
 
-        val keepAliveListener =
-            activeKeepAliveListener
 
         if (
             listener != null
@@ -490,7 +487,6 @@ object PresenceRepository {
 
         connectionListener = null
         activeConnectionRef = null
-        activeKeepAliveListener = null
         currentUid = null
 
         if (
@@ -507,13 +503,6 @@ object PresenceRepository {
         if (
             connectionRef != null
         ) {
-            keepAliveListener?.let {
-                connectionRef
-                    .removeEventListener(
-                        it
-                    )
-            }
-
             connectionRef
                 .onDisconnect()
                 .cancel()
