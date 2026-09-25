@@ -607,26 +607,14 @@ class GroupChatRepository {
                 )
             }
 
-            val group =
-                parseGroup(
-                    database
-                        .getReference("chats")
-                        .child(groupId)
-                        .get()
-                        .await()
-                )
-
-            if (
-                group == null ||
-                senderId !in group.members.keys
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "You are not a member of this group."
-                    )
-                )
-            }
-
+            /*
+             * Do not perform a remote get() before sending.
+             *
+             * A get() can suspend while offline, which prevents the
+             * message write from ever reaching Firebase's offline
+             * queue. Membership is enforced by Realtime Database
+             * security rules on the actual message write.
+             */
             val messageData =
                 mutableMapOf<String, Any>(
                     "id" to messageId,
