@@ -366,10 +366,7 @@ fun SwipeableMessageBubble(
                         when (deliveryStatus) {
                             MessageDeliveryStatus.SEEN_JUST_NOW,
                             MessageDeliveryStatus.SEEN ->
-                                formatSeenReceipt(
-                                    readTimestamp = readTimestamp,
-                                    currentTimeMillis = currentTimeMillis
-                                )
+                                "Seen"
 
                             MessageDeliveryStatus.SENT ->
                                 "Sent"
