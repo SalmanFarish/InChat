@@ -525,6 +525,12 @@ fun ChatMessageList(
                                 deliveryStatus =
                                     deliveryStatus,
 
+                                readTimestamp =
+                                    otherUserReadTimestamp,
+
+                                currentTimeMillis =
+                                    deliveryStatusClock,
+
                                 currentUserId =
                                     currentUserId,
 
