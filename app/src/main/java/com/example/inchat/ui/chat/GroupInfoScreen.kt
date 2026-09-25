@@ -469,7 +469,7 @@ fun GroupInfoScreen(
                 showAddMembersDialog = true
             },
             onRenameGroupClick = {
-                renameText = group.name
+                renameText = currentGroup.name
                 showRenameDialog = true
             },
             onLeaveGroupClick = {
