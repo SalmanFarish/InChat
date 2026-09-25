@@ -38,39 +38,24 @@ fun rememberDeliveryStatusClock(
         otherUserReadTimestamp
     ) {
 
-        clock =
-            System.currentTimeMillis()
-
         if (
             otherUserReadTimestamp <= 0L
         ) {
 
+            clock =
+                System.currentTimeMillis()
+
             return@LaunchedEffect
         }
 
-        val elapsed =
-            System.currentTimeMillis() -
-                    otherUserReadTimestamp
-
-        val remaining =
-            (
-                    60_000L -
-                            elapsed
-                    )
-                .coerceAtLeast(
-                    0L
-                )
-
-        if (
-            remaining > 0L
-        ) {
-
-            delay(
-                remaining + 100L
-            )
+        while (true) {
 
             clock =
                 System.currentTimeMillis()
+
+            delay(
+                60_000L
+            )
         }
     }
 
