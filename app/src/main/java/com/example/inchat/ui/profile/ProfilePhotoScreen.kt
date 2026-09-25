@@ -84,7 +84,11 @@ fun ProfilePhotoScreen(
     onBackClick: () -> Unit,
     onSavePhoto: (ByteArray) -> Unit,
     onRemovePhoto: () -> Unit,
-    isSaving: Boolean = false
+    isSaving: Boolean = false,
+    screenTitle: String = "Profile Photo",
+    adjustmentTitle: String = "Adjust your profile photo",
+    adjustmentDescription: String = "Use the 3×3 grid to frame your photo. Pinch to zoom and drag to position.",
+    removeButtonText: String = "Remove"
 ) {
     val context =
         androidx.compose.ui.platform.LocalContext.current
@@ -243,7 +247,7 @@ fun ProfilePhotoScreen(
                     Text(
 
                         text =
-                            "Profile Photo",
+                            screenTitle,
 
                         fontWeight =
                             FontWeight.SemiBold
@@ -302,7 +306,7 @@ fun ProfilePhotoScreen(
             Text(
 
                 text =
-                    "Adjust your profile photo",
+                    adjustmentTitle,
 
                 style =
                     MaterialTheme
@@ -326,7 +330,7 @@ fun ProfilePhotoScreen(
             Text(
 
                 text =
-                    "Use the 3×3 grid to frame your photo. Pinch to zoom and drag to position.",
+                    adjustmentDescription,
 
                 style =
                     MaterialTheme
@@ -745,7 +749,7 @@ fun ProfilePhotoScreen(
 
                     Text(
                         text =
-                            "Remove"
+                            removeButtonText
                     )
                 }
             }
