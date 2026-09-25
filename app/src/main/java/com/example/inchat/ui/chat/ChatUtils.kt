@@ -379,19 +379,27 @@ fun formatLastSeen(
         24 *
                 hour
 
+    val safeDifference =
+        difference.coerceAtLeast(0L)
+
     return when {
 
-        difference < minute ->
+        safeDifference < 10_000L ->
             "Last seen just now"
 
-        difference < hour ->
-            "Last seen ${difference / minute} min ago"
+        safeDifference < minute ->
+            "Last seen " +
+                    (safeDifference / 1_000L).coerceAtLeast(1L) +
+                    " sec ago"
 
-        difference < day ->
-            "Last seen ${difference / hour} hr ago"
+        safeDifference < hour ->
+            "Last seen " + (safeDifference / minute) + " min ago"
 
-        difference < 7 * day ->
-            "Last seen ${difference / day} days ago"
+        safeDifference < day ->
+            "Last seen " + (safeDifference / hour) + " hr ago"
+
+        safeDifference < 7 * day ->
+            "Last seen " + (safeDifference / day) + " days ago"
 
         else ->
             "Last seen recently"
