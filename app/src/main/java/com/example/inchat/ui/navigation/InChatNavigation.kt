@@ -64,6 +64,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
@@ -869,6 +870,11 @@ fun InChatApp(
                     onBackClick = {
                         navController.popBackStack()
                     },
+                    onGroupPhotoClick = {
+                        navController.navigate(
+                            "group_photo/" + infoGroupId
+                        )
+                    },
                     onGroupThemeClick = {
                         navController.navigate(
                             "group_theme/" + infoGroupId
@@ -881,6 +887,115 @@ fun InChatApp(
                         )
                     }
                 )
+            }
+
+            composable(
+                route = "group_photo/{chatId}",
+                arguments = listOf(
+                    navArgument("chatId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { entry ->
+
+                val groupId =
+                    entry.arguments
+                        ?.getString("chatId")
+                        .orEmpty()
+
+                val groupRepository =
+                    remember { GroupChatRepository() }
+
+                val coroutineScope =
+                    rememberCoroutineScope()
+
+                var currentPhotoData by
+                    remember(groupId) {
+                        mutableStateOf("")
+                    }
+
+                var isLoadingPhoto by
+                    remember(groupId) {
+                        mutableStateOf(true)
+                    }
+
+                var isSavingPhoto by
+                    remember(groupId) {
+                        mutableStateOf(false)
+                    }
+
+                LaunchedEffect(groupId) {
+                    isLoadingPhoto = true
+
+                    currentPhotoData =
+                        groupRepository
+                            .getGroup(groupId)
+                            ?.groupPhotoData
+                            .orEmpty()
+
+                    isLoadingPhoto = false
+                }
+
+                if (isLoadingPhoto) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    ProfilePhotoScreen(
+                        currentPhotoData = currentPhotoData,
+                        onBackClick = {
+                            if (!isSavingPhoto) {
+                                navController.popBackStack()
+                            }
+                        },
+                        onSavePhoto = { photoBytes ->
+                            if (!isSavingPhoto) {
+                                isSavingPhoto = true
+                                coroutineScope.launch {
+                                    groupRepository
+                                        .updateGroupPhoto(
+                                            currentUserId = uid,
+                                            groupId = groupId,
+                                            photoBytes = photoBytes
+                                        )
+                                        .onSuccess {
+                                            navController.popBackStack()
+                                        }
+                                        .onFailure {
+                                            isSavingPhoto = false
+                                        }
+                                }
+                            }
+                        },
+                        onRemovePhoto = {
+                            if (!isSavingPhoto) {
+                                isSavingPhoto = true
+                                coroutineScope.launch {
+                                    groupRepository
+                                        .removeGroupPhoto(
+                                            currentUserId = uid,
+                                            groupId = groupId
+                                        )
+                                        .onSuccess {
+                                            navController.popBackStack()
+                                        }
+                                        .onFailure {
+                                            isSavingPhoto = false
+                                        }
+                                }
+                            }
+                        },
+                        isSaving = isSavingPhoto,
+                        screenTitle = "Group Photo",
+                        adjustmentTitle = "Adjust your group photo",
+                        adjustmentDescription =
+                            "Frame the photo for your group. Pinch to zoom and drag to position.",
+                        removeButtonText = "Remove photo"
+                    )
+                }
             }
 
             composable(
