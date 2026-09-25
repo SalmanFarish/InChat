@@ -351,16 +351,24 @@ object PresenceRepository {
                      * Register disconnect handlers BEFORE
                      * declaring the connection online.
                      */
-                    connectionRef
-                        .onDisconnect()
-                        .removeValue()
-
                     /*
-                     * Only this connection is owned by this app
-                     * instance. The server derives account-wide
-                     * online state from all active connections.
+                     * Keep presence Spark-safe: this device owns its
+                     * connection and schedules its own offline state.
+                     * Realtime Database executes these disconnect
+                     * writes on the server even if the app disappears.
                      */
+                    onlineRef
+                        .onDisconnect()
+                        .setValue(false)
+
+                    lastSeenRef
+                        .onDisconnect()
+                        .setValue(
+                            ServerValue.TIMESTAMP
+                        )
+
                     connectionRef.setValue(true)
+                    onlineRef.setValue(true)
 
                     activeConnectionRef =
                         connectionRef
@@ -413,11 +421,23 @@ object PresenceRepository {
 
         if (!uid.isNullOrBlank()) {
             /*
-             * Removing only this device's connection lets the
-             * backend determine whether the user is still online
-             * elsewhere.
+             * This app uses direct Realtime Database presence, so
+             * explicitly mark this device/account offline when the
+             * foreground presence session ends.
              */
             connectionRef?.removeValue()
+
+            database
+                .getReference("presence")
+                .child(uid)
+                .child("online")
+                .setValue(false)
+
+            database
+                .getReference("presence")
+                .child(uid)
+                .child("lastSeen")
+                .setValue(ServerValue.TIMESTAMP)
         }
     }
 }
