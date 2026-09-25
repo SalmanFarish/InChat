@@ -68,6 +68,7 @@ fun GroupInfoScreen(
     groupId: String,
     onBackClick: () -> Unit,
     onGroupThemeClick: () -> Unit,
+    onGroupPhotoClick: () -> Unit = {},
     onGroupLeft: () -> Unit = {}
 ) {
     val groupRepository =
@@ -464,6 +465,7 @@ fun GroupInfoScreen(
             selectedTheme =
                 ChatTheme.fromId(selectedThemeId),
             onGroupThemeClick = onGroupThemeClick,
+            onGroupPhotoClick = onGroupPhotoClick,
             onAddMembersClick = {
                 memberSearch = ""
                 showAddMembersDialog = true
@@ -491,6 +493,7 @@ private fun GroupInfoContent(
     membersLoading: Boolean,
     selectedTheme: ChatTheme,
     onGroupThemeClick: () -> Unit,
+    onGroupPhotoClick: () -> Unit,
     onAddMembersClick: () -> Unit,
     onRenameGroupClick: () -> Unit,
     onLeaveGroupClick: () -> Unit,
@@ -527,26 +530,42 @@ private fun GroupInfoContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        modifier = Modifier.size(76.dp),
+                        modifier =
+                            Modifier
+                                .size(76.dp)
+                                .clickable(
+                                    enabled = group.members[currentUserId] == "admin",
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClick = onGroupPhotoClick
+                                ),
                         shape = CircleShape,
                         color =
                             MaterialTheme
                                 .colorScheme
                                 .primaryContainer
                     ) {
-                        Box(
-                            contentAlignment =
-                                Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Groups,
-                                contentDescription = null,
-                                modifier = Modifier.size(38.dp),
-                                tint =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .onPrimaryContainer
+                        if (group.groupPhotoData.isNotBlank()) {
+                            InChatProfileAvatar(
+                                profilePhotoUrl = group.groupPhotoData,
+                                modifier = Modifier.fillMaxSize(),
+                                iconSize = 38.dp,
+                                contentDescription = "Group photo"
                             )
+                        } else {
+                            Box(
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Groups,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(38.dp),
+                                    tint =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onPrimaryContainer
+                                )
+                            }
                         }
                     }
 
@@ -640,6 +659,15 @@ private fun GroupInfoContent(
             item {
                 GroupInfoSectionLabel(
                     text = "GROUP"
+                )
+            }
+
+            item {
+                GroupInfoActionRow(
+                    title = "Group photo",
+                    subtitle = "Choose a shared photo for everyone",
+                    icon = Icons.Default.Groups,
+                    onClick = onGroupPhotoClick
                 )
             }
 
