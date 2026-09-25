@@ -52,6 +52,8 @@ fun SwipeableMessageBubble(
     message: Message,
     isMe: Boolean,
     deliveryStatus: MessageDeliveryStatus,
+    readTimestamp: Long = 0L,
+    currentTimeMillis: Long = 0L,
     currentUserId: String,
     chatTheme: ChatTheme,
     onReply: () -> Unit,
@@ -364,7 +366,10 @@ fun SwipeableMessageBubble(
                         when (deliveryStatus) {
                             MessageDeliveryStatus.SEEN_JUST_NOW,
                             MessageDeliveryStatus.SEEN ->
-                                "Seen"
+                                formatSeenReceipt(
+                                    readTimestamp = readTimestamp,
+                                    currentTimeMillis = currentTimeMillis
+                                )
 
                             MessageDeliveryStatus.SENT ->
                                 "Sent"
