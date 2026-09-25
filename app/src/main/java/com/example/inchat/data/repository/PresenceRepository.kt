@@ -36,6 +36,15 @@ object PresenceRepository {
     private var activeConnectionRef:
             com.google.firebase.database.DatabaseReference? = null
 
+    /*
+     * Android Realtime Database can close an otherwise idle
+     * connection after a period of inactivity. Keeping a real
+     * data listener open prevents the presence connection from
+     * being considered idle while the app is active.
+     */
+    private var activeKeepAliveListener:
+            ValueEventListener? = null
+
     fun observePresence(
         uid: String
     ): Flow<Presence> = callbackFlow {
@@ -385,8 +394,40 @@ object PresenceRepository {
                     val connectionRef =
                         connectionsRef.push()
 
-                    activeConnectionRef =
-                        connectionRef
+                    /*
+                     * Keep a real Realtime Database value listener
+                     * open on this device's own connection node.
+                     * .info/connected alone does not prevent Android
+                     * from closing an otherwise idle database session.
+                     */
+                    val keepAliveListener =
+                        object :
+                            ValueEventListener {
+
+                            override fun onDataChange(
+                                snapshot: DataSnapshot
+                            ) {
+                                /*
+                                 * Intentionally empty. The listener
+                                 * itself keeps the realtime connection
+                                 * active.
+                                 */
+                            }
+
+                            override fun onCancelled(
+                                error: DatabaseError
+                            ) {
+                                /*
+                                 * The connection listener below will
+                                 * recover after Firebase reconnects.
+                                 */
+                            }
+                        }
+
+                    connectionRef
+                        .addValueEventListener(
+                            keepAliveListener
+                        )
 
                     /*
                      * Always register disconnect handlers before
@@ -423,11 +464,35 @@ object PresenceRepository {
                                         return@addOnCompleteListener
                                     }
 
+                                    activeConnectionRef =
+                                        connectionRef
+
+                                    activeKeepAliveListener =
+                                        keepAliveListener
+
                                     connectionRef
                                         .setValue(true)
                                         .addOnFailureListener {
-                                            activeConnectionRef =
-                                                null
+                                            connectionRef
+                                                .removeEventListener(
+                                                    keepAliveListener
+                                                )
+
+                                            if (
+                                                activeConnectionRef ===
+                                                        connectionRef
+                                            ) {
+                                                activeConnectionRef =
+                                                    null
+                                            }
+
+                                            if (
+                                                activeKeepAliveListener ===
+                                                        keepAliveListener
+                                            ) {
+                                                activeKeepAliveListener =
+                                                    null
+                                            }
                                         }
                                 }
                         }
@@ -461,6 +526,9 @@ object PresenceRepository {
         val connectionRef =
             activeConnectionRef
 
+        val keepAliveListener =
+            activeKeepAliveListener
+
         if (
             listener != null
         ) {
@@ -475,6 +543,7 @@ object PresenceRepository {
 
         connectionListener = null
         activeConnectionRef = null
+        activeKeepAliveListener = null
         currentUid = null
 
         if (
@@ -491,6 +560,13 @@ object PresenceRepository {
         if (
             connectionRef != null
         ) {
+            keepAliveListener?.let {
+                connectionRef
+                    .removeEventListener(
+                        it
+                    )
+            }
+
             connectionRef
                 .onDisconnect()
                 .cancel()
