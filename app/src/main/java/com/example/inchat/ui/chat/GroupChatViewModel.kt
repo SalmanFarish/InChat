@@ -108,7 +108,7 @@ class GroupChatViewModel : ViewModel() {
                                         try {
                                             groupRepository
                                                 .observeGroupReadTimestampForMember(
-                                                    groupId = group.id,
+                                                    groupId = group.chatId,
                                                     memberId = memberId
                                                 )
                                                 .collect { timestamp ->
