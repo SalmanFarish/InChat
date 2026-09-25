@@ -342,13 +342,21 @@ fun SwipeableMessageBubble(
                                 )
                         )
 
+                        /*
+                         * Content-sized metadata keeps the bubble width tied
+                         * to the actual message, never to a long status label.
+                         */
                         Row(
-                            modifier =
-                                Modifier.fillMaxWidth(),
                             horizontalArrangement =
-                                Arrangement.End,
+                                Arrangement.spacedBy(
+                                    4.dp
+                                ),
                             verticalAlignment =
-                                Alignment.CenterVertically
+                                Alignment.CenterVertically,
+                            modifier =
+                                Modifier.align(
+                                    Alignment.End
+                                )
                         ) {
                             if (
                                 message.edited
@@ -365,13 +373,13 @@ fun SwipeableMessageBubble(
                                             chatTheme.outgoingTextColor
                                                 .copy(
                                                     alpha =
-                                                        0.72f
+                                                        0.62f
                                                 )
                                         } else {
                                             chatTheme.incomingTextColor
                                                 .copy(
                                                     alpha =
-                                                        0.72f
+                                                        0.62f
                                                 )
                                         }
                                 )
@@ -382,29 +390,10 @@ fun SwipeableMessageBubble(
                                 deliveryStatus !=
                                 MessageDeliveryStatus.NONE
                             ) {
-                                if (
-                                    message.edited
-                                ) {
-                                    Spacer(
-                                        modifier =
-                                            Modifier.width(
-                                                5.dp
-                                            )
-                                    )
-                                }
-
-                                Text(
-                                    text =
-                                        deliveryStatusText(
-                                            deliveryStatus
-                                        ),
-                                    style =
-                                        MaterialTheme
-                                            .typography
-                                            .labelSmall,
-                                    fontWeight =
-                                        FontWeight.SemiBold,
-                                    color =
+                                MessageDeliveryIndicator(
+                                    status =
+                                        deliveryStatus,
+                                    tint =
                                         if (
                                             deliveryStatus ==
                                             MessageDeliveryStatus
@@ -415,15 +404,24 @@ fun SwipeableMessageBubble(
                                                 .error
                                                 .copy(
                                                     alpha =
-                                                        0.85f
+                                                        0.9f
                                                 )
                                         } else {
-                                            MaterialTheme
-                                                .colorScheme
-                                                .onPrimary
+                                            chatTheme.outgoingTextColor
                                                 .copy(
                                                     alpha =
-                                                        0.72f
+                                                        if (
+                                                            deliveryStatus ==
+                                                            MessageDeliveryStatus
+                                                                .SEEN_JUST_NOW ||
+                                                            deliveryStatus ==
+                                                            MessageDeliveryStatus
+                                                                .SEEN
+                                                        ) {
+                                                            1f
+                                                        } else {
+                                                            0.72f
+                                                        }
                                                 )
                                         }
                                 )
