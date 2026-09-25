@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
+import com.example.inchat.data.repository.FirebaseServerClock
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -30,7 +31,7 @@ fun rememberDeliveryStatusClock(
     var clock by
     remember {
         mutableLongStateOf(
-            System.currentTimeMillis()
+            FirebaseServerClock.now()
         )
     }
 
@@ -43,7 +44,7 @@ fun rememberDeliveryStatusClock(
         ) {
 
             clock =
-                System.currentTimeMillis()
+                FirebaseServerClock.now()
 
             return@LaunchedEffect
         }
@@ -54,7 +55,7 @@ fun rememberDeliveryStatusClock(
                 System.currentTimeMillis()
 
             delay(
-                60_000L
+                15_000L
             )
         }
     }
@@ -152,8 +153,10 @@ fun formatSeenReceipt(
     val day = 24 * hour
 
     return when {
-        elapsed < minute ->
+        elapsed < 10_000L ->
             "Seen just now"
+        elapsed < minute ->
+            "Seen " + (elapsed / 1_000L).coerceAtLeast(1L) + " sec ago"
         elapsed < hour ->
             "Seen " + (elapsed / minute) + " min ago"
         elapsed < day ->
