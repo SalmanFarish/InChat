@@ -261,21 +261,20 @@ fun GroupInfoScreen(
                         val name = renameText.trim()
                         isActionRunning = true
                         actionScope.launch {
-                                groupRepository
-                                    .renameGroup(
-                                        currentUserId = currentUserId,
-                                        groupId = groupId,
-                                        newName = name
-                                    )
-                                    .onSuccess {
-                                        showRenameDialog = false
-                                    }
-                                    .onFailure {
-                                        actionError =
-                                            it.message ?: "Could not rename group."
-                                    }
-                                isActionRunning = false
-                            }
+                            groupRepository
+                                .renameGroup(
+                                    currentUserId = currentUserId,
+                                    groupId = groupId,
+                                    newName = name
+                                )
+                                .onSuccess {
+                                    showRenameDialog = false
+                                }
+                                .onFailure {
+                                    actionError =
+                                        it.message ?: "Could not rename group."
+                                }
+                            isActionRunning = false
                         }
                     }
                 ) {
