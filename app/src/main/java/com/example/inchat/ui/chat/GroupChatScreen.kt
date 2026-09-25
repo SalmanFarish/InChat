@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 
@@ -174,7 +175,7 @@ fun GroupChatScreen(
                     0
                 },
             currentTimeMillis =
-                System.currentTimeMillis(),
+                FirebaseServerClock.now(),
             onDismiss = {
                 messageForInfo = null
             }
