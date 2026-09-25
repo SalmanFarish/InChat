@@ -292,12 +292,8 @@ fun MessageInfoDialog(
                             !isSeen -> "Not seen yet"
                             seenByCount > 1 ->
                                 "Seen by $seenByCount people"
-
                             else ->
-                                formatSeenReceipt(
-                                    readTimestamp = readTimestamp,
-                                    currentTimeMillis = currentTimeMillis
-                                )
+                                "Seen"
                         }
                     )
                 }
