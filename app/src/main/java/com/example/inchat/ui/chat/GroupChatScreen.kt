@@ -77,6 +77,7 @@ fun GroupChatScreen(
     val replyingTo by groupViewModel.replyingTo.collectAsState()
     val editingMessage by groupViewModel.editingMessage.collectAsState()
     val pendingMessageIds by groupViewModel.pendingMessageIds.collectAsState()
+    val groupReadTimestamps by groupViewModel.groupReadTimestamps.collectAsState()
 
     LaunchedEffect(messages, currentUserId) {
         val newestTimestamp =
@@ -254,7 +255,8 @@ fun GroupChatScreen(
                 otherUserNickname = group?.name ?: "group",
                 blockState = BlockState.NONE,
                 messagingBlocked = false,
-                otherUserReadTimestamp = 0L,
+                otherUserReadTimestamp =
+                    groupReadTimestamps.values.maxOrNull() ?: 0L,
                 pendingMessageIds = pendingMessageIds,
                 isConnected = true,
                 chatTheme = chatTheme,
