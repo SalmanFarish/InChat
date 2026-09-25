@@ -327,108 +327,96 @@ fun SwipeableMessageBubble(
                             }
                     )
 
-                    if (
-                        message.edited ||
-                        (
-                            isMe &&
-                                    deliveryStatus !=
-                                    MessageDeliveryStatus.NONE
-                            )
-                    ) {
+                    if (message.edited) {
                         Spacer(
                             modifier =
-                                Modifier.height(
-                                    3.dp
-                                )
+                                Modifier.height(3.dp)
                         )
 
-                        /*
-                         * Content-sized metadata keeps the bubble width tied
-                         * to the actual message, never to a long status label.
-                         */
-                        Row(
-                            horizontalArrangement =
-                                Arrangement.spacedBy(
-                                    4.dp
-                                ),
-                            verticalAlignment =
-                                Alignment.CenterVertically,
+                        Text(
+                            text = "edited",
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .labelSmall,
+                            color =
+                                if (isMe) {
+                                    chatTheme.outgoingTextColor
+                                        .copy(alpha = 0.62f)
+                                } else {
+                                    chatTheme.incomingTextColor
+                                        .copy(alpha = 0.62f)
+                                },
                             modifier =
                                 Modifier.align(
                                     Alignment.End
                                 )
-                        ) {
-                            if (
-                                message.edited
-                            ) {
-                                Text(
-                                    text =
-                                        "edited",
-                                    style =
-                                        MaterialTheme
-                                            .typography
-                                            .labelSmall,
-                                    color =
-                                        if (isMe) {
-                                            chatTheme.outgoingTextColor
-                                                .copy(
-                                                    alpha =
-                                                        0.62f
-                                                )
-                                        } else {
-                                            chatTheme.incomingTextColor
-                                                .copy(
-                                                    alpha =
-                                                        0.62f
-                                                )
-                                        }
-                                )
+                        )
+                    }
+
+                    if (
+                        isMe &&
+                        deliveryStatus !=
+                        MessageDeliveryStatus.NONE
+                    ) {
+                        val receiptText =
+                            when (deliveryStatus) {
+                                MessageDeliveryStatus.SEEN_JUST_NOW,
+                                MessageDeliveryStatus.SEEN ->
+                                    "Seen"
+
+                                MessageDeliveryStatus.SENT ->
+                                    "Sent"
+
+                                MessageDeliveryStatus.SENDING ->
+                                    "Sending…"
+
+                                MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
+                                    "Sending…"
+
+                                MessageDeliveryStatus.NONE ->
+                                    ""
                             }
 
-                            if (
-                                isMe &&
-                                deliveryStatus !=
-                                MessageDeliveryStatus.NONE
-                            ) {
-                                MessageDeliveryIndicator(
-                                    status =
-                                        deliveryStatus,
-                                    tint =
-                                        if (
-                                            deliveryStatus ==
-                                            MessageDeliveryStatus
-                                                .WAITING_FOR_CONNECTION
-                                        ) {
-                                            MaterialTheme
-                                                .colorScheme
-                                                .error
-                                                .copy(
-                                                    alpha =
-                                                        0.9f
-                                                )
-                                        } else {
-                                            chatTheme.outgoingTextColor
-                                                .copy(
-                                                    alpha =
-                                                        if (
-                                                            deliveryStatus ==
-                                                            MessageDeliveryStatus
-                                                                .SEEN_JUST_NOW ||
-                                                            deliveryStatus ==
-                                                            MessageDeliveryStatus
-                                                                .SEEN
-                                                        ) {
-                                                            1f
-                                                        } else {
-                                                            0.72f
-                                                        }
-                                                )
-                                        }
-                                )
-                            }
+                        if (receiptText.isNotBlank()) {
+                            Spacer(
+                                modifier =
+                                    Modifier.height(3.dp)
+                            )
+
+                            Text(
+                                text = receiptText,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .labelSmall
+                                        .copy(
+                                            fontSize = 11.sp
+                                        ),
+                                fontWeight =
+                                    FontWeight.Normal,
+                                color =
+                                    chatTheme.outgoingTextColor
+                                        .copy(
+                                            alpha =
+                                                if (
+                                                    deliveryStatus ==
+                                                    MessageDeliveryStatus.SEEN_JUST_NOW ||
+                                                    deliveryStatus ==
+                                                    MessageDeliveryStatus.SEEN
+                                                ) {
+                                                    0.9f
+                                                } else {
+                                                    0.62f
+                                                }
+                                        ),
+                                modifier =
+                                    Modifier.align(
+                                        Alignment.End
+                                    )
+                            )
                         }
-                    }
-                }
+                    }                }
 
                 if (
                     message.reactions.isNotEmpty()
