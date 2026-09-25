@@ -46,6 +46,11 @@ class GroupChatViewModel : ViewModel() {
 
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
+    private val groupReadJobs = mutableMapOf<String, Job>()
+    private val _groupReadTimestamps =
+        MutableStateFlow<Map<String, Long>>(emptyMap())
+    val groupReadTimestamps: StateFlow<Map<String, Long>> =
+        _groupReadTimestamps.asStateFlow()
     private var listeningGroupId = ""
 
     fun startListening(
@@ -64,6 +69,9 @@ class GroupChatViewModel : ViewModel() {
         listeningGroupId = groupId
         groupJob?.cancel()
         messagesJob?.cancel()
+        groupReadJobs.values.forEach { it.cancel() }
+        groupReadJobs.clear()
+        _groupReadTimestamps.value = emptyMap()
 
         _group.value = null
         _messages.value = emptyList()
@@ -75,6 +83,53 @@ class GroupChatViewModel : ViewModel() {
                     .observeGroup(groupId)
                     .collect { group ->
                         _group.value = group
+
+                        if (group != null) {
+                            val memberIds =
+                                group.members.keys
+                                    .filter { it != currentUserId }
+
+                            groupReadJobs.keys
+                                .filter { it !in memberIds }
+                                .forEach { memberId ->
+                                    groupReadJobs.remove(memberId)?.cancel()
+                                    _groupReadTimestamps.value =
+                                        _groupReadTimestamps.value -
+                                                memberId
+                                }
+
+                            memberIds.forEach { memberId ->
+                                if (groupReadJobs.containsKey(memberId)) {
+                                    return@forEach
+                                }
+
+                                groupReadJobs[memberId] =
+                                    viewModelScope.launch {
+                                        try {
+                                            groupRepository
+                                                .observeGroupReadTimestampForMember(
+                                                    groupId = group.id,
+                                                    memberId = memberId
+                                                )
+                                                .collect { timestamp ->
+                                                    _groupReadTimestamps.value =
+                                                        _groupReadTimestamps.value +
+                                                                (memberId to timestamp)
+                                                }
+                                        } catch (
+                                            e: kotlinx.coroutines.CancellationException
+                                        ) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            Log.e(
+                                                "GroupChatViewModel",
+                                                "Group read listener failed for $memberId",
+                                                e
+                                            )
+                                        }
+                                    }
+                            }
+                        }
 
                         if (
                             group == null ||
