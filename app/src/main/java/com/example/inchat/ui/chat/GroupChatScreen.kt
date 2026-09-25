@@ -96,6 +96,7 @@ fun GroupChatScreen(
 
     var messageText by rememberSaveable { mutableStateOf("") }
     var messageForActions by rememberSaveable { mutableStateOf<String?>(null) }
+    var messageForInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     val actionTarget =
@@ -120,6 +121,10 @@ fun GroupChatScreen(
                 messageForActions = null
                 groupViewModel.setReplyingTo(message)
             },
+            onInfo = {
+                messageForActions = null
+                messageForInfo = message.id
+            },
             onEdit = {
                 messageForActions = null
                 groupViewModel.setEditingMessage(
@@ -141,6 +146,37 @@ fun GroupChatScreen(
             },
             onCopied = {
                 messageForActions = null
+            }
+        )
+    }
+
+    val infoTarget =
+        messageForInfo?.let { id ->
+            messages.firstOrNull { it.id == id }
+        }
+
+    infoTarget?.let { message ->
+        MessageInfoDialog(
+            message = message,
+            isOwnMessage =
+                message.senderId == currentUserId,
+            readTimestamp =
+                groupReadTimestamps.values
+                    .filter { it >= message.timestamp && message.timestamp > 0L }
+                    .maxOrNull()
+                    ?: 0L,
+            seenByCount =
+                if (message.senderId == currentUserId && message.timestamp > 0L) {
+                    groupReadTimestamps.values.count {
+                        it >= message.timestamp
+                    }
+                } else {
+                    0
+                },
+            currentTimeMillis =
+                System.currentTimeMillis(),
+            onDismiss = {
+                messageForInfo = null
             }
         )
     }
