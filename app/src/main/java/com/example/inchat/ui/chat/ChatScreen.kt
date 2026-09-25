@@ -160,6 +160,11 @@ fun ChatScreen(
         .isConnected
         .collectAsState()
 
+    val readReceiptsEnabled by
+    chatViewModel
+        .readReceiptsEnabled
+        .collectAsState()
+
     val pendingMessageIds by
     chatViewModel
         .pendingMessageIds
@@ -582,6 +587,9 @@ fun ChatScreen(
 
                 isConnected =
                     isConnected,
+
+                readReceiptsEnabled =
+                    readReceiptsEnabled,
 
                 chatTheme =
                     chatTheme,
