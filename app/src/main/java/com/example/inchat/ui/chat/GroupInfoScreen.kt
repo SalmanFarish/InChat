@@ -210,10 +210,9 @@ fun GroupInfoScreen(
                     enabled = !isActionRunning,
                     onClick = {
                         isActionRunning = true
-                        coroutineScope {
-                            launch {
-                                groupRepository
-                                    .leaveGroup(
+                        actionScope.launch {
+                            groupRepository
+                                .leaveGroup(
                                         currentUserId = currentUserId,
                                         groupId = groupId
                                     )
@@ -221,12 +220,11 @@ fun GroupInfoScreen(
                                         showLeaveDialog = false
                                         onGroupLeft()
                                     }
-                                    .onFailure {
-                                        actionError =
-                                            it.message ?: "Could not leave group."
-                                    }
-                                isActionRunning = false
-                            }
+                                .onFailure {
+                                    actionError =
+                                        it.message ?: "Could not leave group."
+                                }
+                            isActionRunning = false
                         }
                     }
                 ) {
