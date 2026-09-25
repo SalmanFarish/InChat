@@ -217,6 +217,13 @@
                         newData.child('name').isString() &&
                         newData.child('name').val().length >= 1 &&
                         newData.child('name').val().length <= 50 &&
+                        (
+                          !newData.child('groupPhotoData').exists() ||
+                          (
+                            newData.child('groupPhotoData').isString() &&
+                            newData.child('groupPhotoData').val().length <= 210000
+                          )
+                        ) &&
                         newData.child('createdBy').isString() &&
                         newData.child('createdBy').val().length > 0 &&
                         newData.child('createdAt').isNumber() &&
