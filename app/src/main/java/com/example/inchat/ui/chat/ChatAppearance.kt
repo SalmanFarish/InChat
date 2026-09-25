@@ -189,31 +189,6 @@ enum class ChatTheme(
         )
     ),
 
-    SPACE_WHITE(
-        id = "space_white",
-        title = "White Space",
-        description = "Clean white space doodles",
-        wallpaperName = "chat_wallpaper_space_white",
-        legacyIds = listOf("terminal"),
-        lightArtwork = false,
-        darkPalette = ChatThemePalette(
-            Color(0xFF050505),
-            Color(0xFF151515),
-            Color(0xFF333333),
-            Color(0xFFECECEC),
-            Color.White,
-            Color(0xFFB5B5B5)
-        ),
-        lightPalette = ChatThemePalette(
-            Color(0xFFF9F9F9),
-            Color.White,
-            Color(0xFF353535),
-            Color(0xFF202020),
-            Color.White,
-            Color(0xFF666666)
-        )
-    ),
-
     NIGHT_COSMOS(
         id = "night_cosmos",
         title = "Night Cosmos",
