@@ -21,9 +21,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -35,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +57,7 @@ import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +65,8 @@ fun GroupInfoScreen(
     currentUserId: String,
     groupId: String,
     onBackClick: () -> Unit,
-    onGroupThemeClick: () -> Unit
+    onGroupThemeClick: () -> Unit,
+    onGroupLeft: () -> Unit = {}
 ) {
     val groupRepository =
         remember { GroupChatRepository() }
@@ -87,6 +96,12 @@ fun GroupInfoScreen(
         remember(group?.members) {
             mutableStateOf(false)
         }
+
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showLeaveDialog by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    var isActionRunning by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf("") }
 
     LaunchedEffect(group?.members) {
         val memberIds =
@@ -122,6 +137,124 @@ fun GroupInfoScreen(
             }
 
         membersLoading = false
+    }
+
+    val actionScope = rememberCoroutineScope()
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!isActionRunning) showRenameDialog = false
+            },
+            title = { Text("Rename group") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it.take(50) },
+                    singleLine = true,
+                    label = { Text("Group name") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isActionRunning && renameText.trim().isNotBlank(),
+                    onClick = {
+                        val name = renameText.trim()
+                        isActionRunning = true
+                        actionScope.launch {
+                                groupRepository
+                                    .renameGroup(
+                                        currentUserId = currentUserId,
+                                        groupId = groupId,
+                                        newName = name
+                                    )
+                                    .onSuccess {
+                                        showRenameDialog = false
+                                    }
+                                    .onFailure {
+                                        actionError =
+                                            it.message ?: "Could not rename group."
+                                    }
+                                isActionRunning = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isActionRunning,
+                    onClick = { showRenameDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLeaveDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!isActionRunning) showLeaveDialog = false
+            },
+            title = { Text("Leave group?") },
+            text = {
+                Text(
+                    "You will no longer receive messages from this group."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isActionRunning,
+                    onClick = {
+                        isActionRunning = true
+                        coroutineScope {
+                            launch {
+                                groupRepository
+                                    .leaveGroup(
+                                        currentUserId = currentUserId,
+                                        groupId = groupId
+                                    )
+                                    .onSuccess {
+                                        showLeaveDialog = false
+                                        onGroupLeft()
+                                    }
+                                    .onFailure {
+                                        actionError =
+                                            it.message ?: "Could not leave group."
+                                    }
+                                isActionRunning = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Leave")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isActionRunning,
+                    onClick = { showLeaveDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    actionError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { actionError = null },
+            title = { Text("Group") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { actionError = null }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -179,6 +312,13 @@ fun GroupInfoScreen(
             selectedTheme =
                 ChatTheme.fromId(selectedThemeId),
             onGroupThemeClick = onGroupThemeClick,
+            onRenameGroupClick = {
+                renameText = group.name
+                showRenameDialog = true
+            },
+            onLeaveGroupClick = {
+                showLeaveDialog = true
+            },
             innerPadding = innerPadding
         )
     }
@@ -192,6 +332,8 @@ private fun GroupInfoContent(
     membersLoading: Boolean,
     selectedTheme: ChatTheme,
     onGroupThemeClick: () -> Unit,
+    onRenameGroupClick: () -> Unit,
+    onLeaveGroupClick: () -> Unit,
     innerPadding: PaddingValues
 ) {
     LazyColumn(
@@ -330,6 +472,37 @@ private fun GroupInfoContent(
                             " · shared with everyone",
                 icon = Icons.Default.Palette,
                 onClick = onGroupThemeClick
+            )
+        }
+
+        if (group.members[currentUserId] == "admin") {
+            item {
+                GroupInfoSectionLabel(
+                    text = "GROUP"
+                )
+            }
+
+            item {
+                GroupInfoActionRow(
+                    title = "Rename group",
+                    subtitle = "Change the name for everyone",
+                    icon = Icons.Default.Edit,
+                    onClick = onRenameGroupClick
+                )
+            }
+        }
+
+        item {
+            GroupInfoActionRow(
+                title = "Leave group",
+                subtitle =
+                    if (group.createdBy == currentUserId) {
+                        "The creator cannot leave this group"
+                    } else {
+                        "Remove yourself from this group"
+                    },
+                icon = Icons.Default.ExitToApp,
+                onClick = onLeaveGroupClick
             )
         }
 
