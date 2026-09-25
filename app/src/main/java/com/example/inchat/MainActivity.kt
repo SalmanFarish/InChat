@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.repository.PresenceRepository
 import com.example.inchat.notification.InChatFirebaseMessagingService
 import com.example.inchat.ui.auth.AuthUiState
@@ -283,11 +284,17 @@ class MainActivity :
 
                 AuthUiState.LoggedOut -> {
 
+                    FirebaseServerClock
+                        .stop()
+
                     PresenceRepository
                         .stopPresence()
                 }
 
                 is AuthUiState.LoggedIn -> {
+
+                    FirebaseServerClock
+                        .start()
 
                     PresenceRepository
                         .startPresence(
