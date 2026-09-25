@@ -371,19 +371,19 @@ object PresenceRepository {
 
                     if (!connected) {
                         /*
-                         * The previous connection has been lost.
-                         * The registered onDisconnect handler removes
-                         * its node on the server. A new node is created
-                         * below when Firebase reports reconnection.
+                         * Firebase removes the previous connection
+                         * node server-side through onDisconnect().
+                         * Clear our local reference so the next
+                         * connected event creates a fresh node.
                          */
                         activeConnectionRef = null
                         return
                     }
 
                     /*
-                     * .info/connected can emit the same value more
-                     * than once. Do not create duplicate connection
-                     * nodes for the same realtime connection.
+                     * A single Firebase connection can trigger the
+                     * .info/connected listener more than once. Do
+                     * not create duplicate connection nodes.
                      */
                     if (
                         activeConnectionRef != null
@@ -395,43 +395,14 @@ object PresenceRepository {
                         connectionsRef.push()
 
                     /*
-                     * Keep a real Realtime Database value listener
-                     * open on this device's own connection node.
-                     * .info/connected alone does not prevent Android
-                     * from closing an otherwise idle database session.
-                     */
-                    val keepAliveListener =
-                        object :
-                            ValueEventListener {
-
-                            override fun onDataChange(
-                                snapshot: DataSnapshot
-                            ) {
-                                /*
-                                 * Intentionally empty. The listener
-                                 * itself keeps the realtime connection
-                                 * active.
-                                 */
-                            }
-
-                            override fun onCancelled(
-                                error: DatabaseError
-                            ) {
-                                /*
-                                 * The connection listener below will
-                                 * recover after Firebase reconnects.
-                                 */
-                            }
-                        }
-
-                    connectionRef
-                        .addValueEventListener(
-                            keepAliveListener
-                        )
-
-                    /*
-                     * Always register disconnect handlers before
-                     * advertising this device as connected.
+                     * Firebase's documented presence pattern is:
+                     * 1. create a unique connection node
+                     * 2. queue its disconnect removal
+                     * 3. queue lastSeen timestamp on disconnect
+                     * 4. mark this connection active
+                     *
+                     * Both disconnect operations are registered
+                     * before the connection node is written.
                      */
                     connectionRef
                         .onDisconnect()
@@ -455,44 +426,20 @@ object PresenceRepository {
                                     if (
                                         !lastSeenTask.isSuccessful
                                     ) {
-                                        connectionRef
-                                            .removeValue()
-
-                                        activeConnectionRef =
-                                            null
-
+                                        activeConnectionRef = null
                                         return@addOnCompleteListener
                                     }
 
-                                    activeConnectionRef =
-                                        connectionRef
-
-                                    activeKeepAliveListener =
-                                        keepAliveListener
-
                                     connectionRef
-                                        .setValue(true)
+                                        .setValue(
+                                            true
+                                        )
+                                        .addOnSuccessListener {
+                                            activeConnectionRef =
+                                                connectionRef
+                                        }
                                         .addOnFailureListener {
-                                            connectionRef
-                                                .removeEventListener(
-                                                    keepAliveListener
-                                                )
-
-                                            if (
-                                                activeConnectionRef ===
-                                                        connectionRef
-                                            ) {
-                                                activeConnectionRef =
-                                                    null
-                                            }
-
-                                            if (
-                                                activeKeepAliveListener ===
-                                                        keepAliveListener
-                                            ) {
-                                                activeKeepAliveListener =
-                                                    null
-                                            }
+                                            activeConnectionRef = null
                                         }
                                 }
                         }
