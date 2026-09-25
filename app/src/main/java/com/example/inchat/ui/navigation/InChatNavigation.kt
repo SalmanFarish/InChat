@@ -873,6 +873,12 @@ fun InChatApp(
                         navController.navigate(
                             "group_theme/" + infoGroupId
                         )
+                    },
+                    onGroupLeft = {
+                        navController.popBackStack(
+                            "home",
+                            false
+                        )
                     }
                 )
             }
