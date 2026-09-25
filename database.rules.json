@@ -496,7 +496,6 @@
                             newData.val() === 'football' ||
                             newData.val() === 'star_dust' ||
                             newData.val() === 'cats' ||
-                            newData.val() === 'space_white' ||
                             newData.val() === 'night_cosmos' ||
                             newData.val() === 'dessert' ||
                             newData.val() === 'starfield' ||
