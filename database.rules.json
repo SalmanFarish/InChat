@@ -291,6 +291,44 @@
          * GROUP MEMBERS
          * =====================================================
          */
+        "name": {
+          ".write": "auth != null &&
+                     data.parent().child('type').val() === 'group' &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('members')
+                         .child(auth.uid)
+                         .val() === 'admin' &&
+                     newData.isString() &&
+                     newData.val().length >= 1 &&
+                     newData.val().length <= 50",
+          ".validate": "newData.isString() &&
+                        newData.val().length >= 1 &&
+                        newData.val().length <= 50"
+        },
+
+        "groupPhotoData": {
+          ".write": "auth != null &&
+                     data.parent().child('type').val() === 'group' &&
+                     root.child('chats')
+                         .child($chatId)
+                         .child('members')
+                         .child(auth.uid)
+                         .val() === 'admin' &&
+                     (
+                       !newData.exists() ||
+                       (
+                         newData.isString() &&
+                         newData.val().length <= 210000
+                       )
+                     )",
+          ".validate": "!newData.exists() ||
+                        (
+                          newData.isString() &&
+                          newData.val().length <= 210000
+                        )"
+        },
+
         "members": {
           "$memberUid": {
             ".write": "auth != null &&
@@ -987,11 +1025,18 @@
                               .child($chatId)
                               .child('type')
                               .val() === 'group' &&
-                          root.child('chats')
-                              .child($chatId)
-                              .child('members')
-                              .child($uid)
-                              .exists()
+                          (
+                            root.child('chats')
+                                .child($chatId)
+                                .child('members')
+                                .child($uid)
+                                .exists() ||
+                            root.child('chats')
+                                .child($chatId)
+                                .child('members')
+                                .child(auth.uid)
+                                .val() === 'admin'
+                          )
                         )"
         }
       }
@@ -1011,7 +1056,14 @@
         ".read": "auth != null && auth.uid === $uid",
         "$chatId": {
           ".write": "auth != null &&
-                     auth.uid === $uid &&
+                     (
+                       auth.uid === $uid ||
+                       root.child('chats')
+                           .child($chatId)
+                           .child('members')
+                           .child(auth.uid)
+                           .val() === 'admin'
+                     ) &&
                      root.child('chats')
                          .child($chatId)
                          .child('type')
