@@ -353,7 +353,8 @@ fun formatDaySeparator(
 }
 
 fun formatLastSeen(
-    timestamp: Long
+    timestamp: Long,
+    currentTimeMillis: Long = System.currentTimeMillis()
 ): String {
 
     if (
@@ -364,7 +365,7 @@ fun formatLastSeen(
     }
 
     val difference =
-        System.currentTimeMillis() -
+        currentTimeMillis -
                 timestamp
 
     val minute =
