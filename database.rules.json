@@ -1290,10 +1290,13 @@
      * PRESENCE
      * =====================================================
      *
-     * Shared online/last-seen state is server-managed by the
-     * syncPresence Cloud Function. Clients may only manage:
+     * Presence is derived from per-device connection nodes.
+     * Clients may manage only:
      * - their own visibility preferences
      * - their own per-device connection nodes
+     *
+     * The client does not depend on Cloud Functions to decide
+     * whether an account is currently online.
      */
     "presence": {
       "$uid": {
