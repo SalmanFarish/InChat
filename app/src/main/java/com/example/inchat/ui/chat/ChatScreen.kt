@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.data.repository.UserRepository
@@ -362,7 +363,7 @@ fun ChatScreen(
             readTimestamp =
                 otherUserReadTimestamp,
             currentTimeMillis =
-                System.currentTimeMillis(),
+                FirebaseServerClock.now(),
             onDismiss = {
                 messageForInfo = null
             }
