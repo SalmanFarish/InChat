@@ -1053,7 +1053,15 @@
      */
     "groupReads": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null &&
+                  (
+                    auth.uid === $uid ||
+                    root.child('chats')
+                        .child($chatId)
+                        .child('members')
+                        .child(auth.uid)
+                        .exists()
+                  )",
         "$chatId": {
           ".write": "auth != null &&
                      (
