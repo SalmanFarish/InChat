@@ -1260,24 +1260,33 @@ private fun ConversationItem(
                             .colorScheme
                             .primaryContainer
                 ) {
-                    Box(
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.Groups,
-                            contentDescription =
-                                "Group",
-                            modifier =
-                                Modifier.size(
-                                    26.dp
-                                ),
-                            tint =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onPrimaryContainer
+                    if (conversation.groupPhotoData.isNotBlank()) {
+                        InChatProfileAvatar(
+                            profilePhotoUrl = conversation.groupPhotoData,
+                            modifier = Modifier.fillMaxSize(),
+                            iconSize = 26.dp,
+                            contentDescription = "Group photo"
                         )
+                    } else {
+                        Box(
+                            contentAlignment =
+                                Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector =
+                                    Icons.Default.Groups,
+                                contentDescription =
+                                    "Group",
+                                modifier =
+                                    Modifier.size(
+                                        26.dp
+                                    ),
+                                tint =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onPrimaryContainer
+                            )
+                        }
                     }
                 }
             } else {
