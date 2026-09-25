@@ -1062,7 +1062,7 @@
                           .child('members')
                           .child(auth.uid)
                           .exists()
-                    ),
+                    )",
           ".write": "auth != null &&
                      (
                        auth.uid === $uid ||
