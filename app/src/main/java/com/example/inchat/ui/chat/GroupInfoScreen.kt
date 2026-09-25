@@ -464,12 +464,19 @@ fun GroupInfoScreen(
             selectedTheme =
                 ChatTheme.fromId(selectedThemeId),
             onGroupThemeClick = onGroupThemeClick,
+            onAddMembersClick = {
+                memberSearch = ""
+                showAddMembersDialog = true
+            },
             onRenameGroupClick = {
                 renameText = group.name
                 showRenameDialog = true
             },
             onLeaveGroupClick = {
                 showLeaveDialog = true
+            },
+            onMemberClick = { user ->
+                memberActionTarget = user
             },
             innerPadding = innerPadding
         )
@@ -484,8 +491,10 @@ private fun GroupInfoContent(
     membersLoading: Boolean,
     selectedTheme: ChatTheme,
     onGroupThemeClick: () -> Unit,
+    onAddMembersClick: () -> Unit,
     onRenameGroupClick: () -> Unit,
     onLeaveGroupClick: () -> Unit,
+    onMemberClick: (User) -> Unit,
     innerPadding: PaddingValues
 ) {
     LazyColumn(
@@ -639,10 +648,7 @@ private fun GroupInfoContent(
                     title = "Add members",
                     subtitle = "Invite people to this group",
                     icon = Icons.Default.PersonAdd,
-                    onClick = {
-                        memberSearch = ""
-                        showAddMembersDialog = true
-                    }
+                    onClick = onAddMembersClick
                 )
             }
 
@@ -723,7 +729,7 @@ private fun GroupInfoContent(
                     uid != group.createdBy &&
                     uid != currentUserId,
                 onManageClick = {
-                    user?.let { memberActionTarget = it }
+                    user?.let(onMemberClick)
                 }
             )
         }
