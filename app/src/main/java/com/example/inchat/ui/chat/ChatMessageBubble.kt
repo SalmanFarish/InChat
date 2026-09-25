@@ -229,8 +229,6 @@ fun SwipeableMessageBubble(
                 modifier =
                     Modifier
                         .widthIn(
-                            min =
-                                68.dp,
                             max =
                                 maxBubbleWidth
                         )
