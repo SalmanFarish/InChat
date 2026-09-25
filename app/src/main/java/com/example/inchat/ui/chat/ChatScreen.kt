@@ -203,6 +203,13 @@ fun ChatScreen(
         )
     }
 
+    var messageForInfo by
+    remember {
+        mutableStateOf<Message?>(
+            null
+        )
+    }
+
     var actionMessage by
     remember {
         mutableStateOf<String?>(
@@ -295,6 +302,15 @@ fun ChatScreen(
                     )
             },
 
+            onInfo = {
+
+                messageForActions =
+                    null
+
+                messageForInfo =
+                    message
+            },
+
             onEdit = {
 
                 messageForActions =
@@ -333,6 +349,22 @@ fun ChatScreen(
 
                 actionMessage =
                     "Message copied"
+            }
+        )
+    }
+
+    messageForInfo?.let { message ->
+
+        MessageInfoDialog(
+            message = message,
+            isOwnMessage =
+                message.senderId == currentUserId,
+            readTimestamp =
+                otherUserReadTimestamp,
+            currentTimeMillis =
+                System.currentTimeMillis(),
+            onDismiss = {
+                messageForInfo = null
             }
         )
     }
