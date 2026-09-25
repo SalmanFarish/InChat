@@ -222,15 +222,21 @@ fun GroupChatComposer(
                                 currentUserId = currentUserId,
                                 senderNickname = currentNickname
                             ) { success, error ->
-                                if (success) {
-                                    onMessageSent()
-                                    keyboardController?.hide()
-                                } else {
+                                if (!success) {
                                     onActionMessage(
                                         error ?: "Could not send message."
                                     )
                                 }
                             }
+
+                            /*
+                             * Clear the composer immediately after handing
+                             * the message to Firebase. Realtime Database
+                             * writes are queued locally while offline, so
+                             * the input must not wait for server confirmation.
+                             */
+                            onMessageSent()
+                            keyboardController?.hide()
                         }
                     },
                     enabled = sendEnabled,
