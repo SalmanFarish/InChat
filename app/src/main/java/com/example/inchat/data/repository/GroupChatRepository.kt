@@ -361,6 +361,43 @@ class GroupChatRepository {
             }
         }
 
+    fun observeGroupReadTimestampForMember(
+        groupId: String,
+        memberId: String
+    ): Flow<Long> =
+        callbackFlow {
+            if (groupId.isBlank() || memberId.isBlank()) {
+                trySend(0L)
+                close()
+                return@callbackFlow
+            }
+
+            val ref =
+                database
+                    .getReference("groupReads")
+                    .child(memberId)
+                    .child(groupId)
+
+            val listener =
+                object : com.google.firebase.database.ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        trySend(
+                            snapshot.getValue(Long::class.java) ?: 0L
+                        )
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        close(error.toException())
+                    }
+                }
+
+            ref.addValueEventListener(listener)
+
+            awaitClose {
+                ref.removeEventListener(listener)
+            }
+        }
+
     private fun observeGroupMessagesSince(
         groupId: String
     ): Flow<List<Message>> =
