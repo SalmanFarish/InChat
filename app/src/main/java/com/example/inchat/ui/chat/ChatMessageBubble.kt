@@ -353,70 +353,68 @@ fun SwipeableMessageBubble(
                                 )
                         )
                     }
+                }
 
-                    if (
-                        isMe &&
-                        deliveryStatus !=
-                        MessageDeliveryStatus.NONE
-                    ) {
-                        val receiptText =
-                            when (deliveryStatus) {
-                                MessageDeliveryStatus.SEEN_JUST_NOW,
-                                MessageDeliveryStatus.SEEN ->
-                                    "Seen"
+                if (
+                    isMe &&
+                    deliveryStatus !=
+                    MessageDeliveryStatus.NONE
+                ) {
+                    val receiptText =
+                        when (deliveryStatus) {
+                            MessageDeliveryStatus.SEEN_JUST_NOW,
+                            MessageDeliveryStatus.SEEN ->
+                                "Seen"
 
-                                MessageDeliveryStatus.SENT ->
-                                    "Sent"
+                            MessageDeliveryStatus.SENT ->
+                                "Sent"
 
-                                MessageDeliveryStatus.SENDING ->
-                                    "Sending…"
+                            MessageDeliveryStatus.SENDING ->
+                                "Sending…"
 
-                                MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
-                                    "Sending…"
+                            MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
+                                "Sending…"
 
-                                MessageDeliveryStatus.NONE ->
-                                    ""
-                            }
-
-                        if (receiptText.isNotBlank()) {
-                            Spacer(
-                                modifier =
-                                    Modifier.height(3.dp)
-                            )
-
-                            Text(
-                                text = receiptText,
-                                style =
-                                    MaterialTheme
-                                        .typography
-                                        .labelSmall
-                                        .copy(
-                                            fontSize = 11.sp
-                                        ),
-                                fontWeight =
-                                    FontWeight.Normal,
-                                color =
-                                    chatTheme.outgoingTextColor
-                                        .copy(
-                                            alpha =
-                                                if (
-                                                    deliveryStatus ==
-                                                    MessageDeliveryStatus.SEEN_JUST_NOW ||
-                                                    deliveryStatus ==
-                                                    MessageDeliveryStatus.SEEN
-                                                ) {
-                                                    0.9f
-                                                } else {
-                                                    0.62f
-                                                }
-                                        ),
-                                modifier =
-                                    Modifier.align(
-                                        Alignment.End
-                                    )
-                            )
+                            MessageDeliveryStatus.NONE ->
+                                ""
                         }
-                    }                }
+
+                    if (receiptText.isNotBlank()) {
+                        Spacer(
+                            modifier =
+                                Modifier.height(3.dp)
+                        )
+
+                        Text(
+                            text = receiptText,
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .labelSmall
+                                    .copy(fontSize = 11.sp),
+                            fontWeight =
+                                FontWeight.Normal,
+                            color =
+                                chatTheme.outgoingTextColor.copy(
+                                    alpha =
+                                        if (
+                                            deliveryStatus ==
+                                            MessageDeliveryStatus.SEEN_JUST_NOW ||
+                                            deliveryStatus ==
+                                            MessageDeliveryStatus.SEEN
+                                        ) {
+                                            0.9f
+                                        } else {
+                                            0.62f
+                                        }
+                                ),
+                            modifier =
+                                Modifier.align(
+                                    Alignment.End
+                                )
+                        )
+                    }
+                }
 
                 if (
                     message.reactions.isNotEmpty()
