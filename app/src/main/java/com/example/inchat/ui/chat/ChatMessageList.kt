@@ -40,6 +40,7 @@ fun ChatMessageList(
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
+    readReceiptsEnabled: Boolean = true,
     chatTheme: ChatTheme,
     onReply: (Message) -> Unit,
     onLongClick: (Message) -> Unit,
