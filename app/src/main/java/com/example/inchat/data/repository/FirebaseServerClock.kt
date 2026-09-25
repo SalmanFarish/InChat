@@ -38,8 +38,7 @@ object FirebaseServerClock {
                     snapshot: DataSnapshot
                 ) {
                     serverTimeOffsetMillis =
-                        snapshot
-                            .getValue(Double::class.java)
+                        (snapshot.value as? Number)
                             ?.toLong()
                             ?: 0L
                 }
