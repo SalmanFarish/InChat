@@ -111,7 +111,8 @@ fun PresenceStatus(
 
             text =
                 formatLastSeen(
-                    presence.lastSeen
+                    presence.lastSeen,
+                    clock
                 ),
 
             style =
