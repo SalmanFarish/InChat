@@ -6,5 +6,6 @@ data class Group(
     val name: String = "",
     val createdBy: String = "",
     val createdAt: Long = 0L,
+    val groupPhotoData: String = "",
     val members: Map<String, String> = emptyMap()
 )
