@@ -25,6 +25,14 @@ object PresenceRepository {
 
     private var currentUid: String? = null
 
+    /*
+     * This is the connection node owned by this app process.
+     *
+     * Presence is derived from the existence of one or more
+     * active connection nodes instead of a single shared boolean.
+     * That keeps presence correct when the same account is signed
+     * in on multiple devices.
+     */
     private var activeConnectionRef:
             com.google.firebase.database.DatabaseReference? = null
 
@@ -38,7 +46,7 @@ object PresenceRepository {
             return@callbackFlow
         }
 
-        var online = false
+        var hasActiveConnection = false
         var lastSeen = 0L
         var onlineVisible = true
         var lastSeenVisible = true
@@ -46,15 +54,22 @@ object PresenceRepository {
         fun emitPresence() {
             trySend(
                 Presence(
-                    online = online && onlineVisible,
+                    online =
+                        hasActiveConnection &&
+                                onlineVisible,
+
                     lastSeen =
                         if (lastSeenVisible) {
                             lastSeen
                         } else {
                             0L
                         },
-                    onlineVisible = onlineVisible,
-                    lastSeenVisible = lastSeenVisible
+
+                    onlineVisible =
+                        onlineVisible,
+
+                    lastSeenVisible =
+                        lastSeenVisible
                 )
             )
         }
@@ -64,16 +79,26 @@ object PresenceRepository {
                 .getReference("presence")
                 .child(uid)
 
-        val onlineListener =
+        /*
+         * The connections collection is the authoritative online
+         * state. Any remaining connection node means the account
+         * has at least one active realtime connection.
+         */
+        val connectionsListener =
             object : ValueEventListener {
 
                 override fun onDataChange(
                     snapshot: DataSnapshot
                 ) {
-                    online =
+                    hasActiveConnection =
                         snapshot
-                            .getValue(Boolean::class.java)
-                            ?: false
+                            .children
+                            .any {
+                                it.getValue(
+                                    Boolean::class.java
+                                ) == true
+                            }
+
                     emitPresence()
                 }
 
@@ -81,10 +106,10 @@ object PresenceRepository {
                     error: DatabaseError
                 ) {
                     /*
-                     * A cancelled read normally means the owner has
-                     * hidden this field. Treat it as unavailable.
+                     * A denied read here normally means the owner
+                     * has hidden online status from this viewer.
                      */
-                    online = false
+                    hasActiveConnection = false
                     onlineVisible = false
                     emitPresence()
                 }
@@ -100,6 +125,7 @@ object PresenceRepository {
                         snapshot
                             .getValue(Long::class.java)
                             ?: 0L
+
                     emitPresence()
                 }
 
@@ -113,9 +139,9 @@ object PresenceRepository {
             }
 
         presenceRef
-            .child("online")
+            .child("connections")
             .addValueEventListener(
-                onlineListener
+                connectionsListener
             )
 
         presenceRef
@@ -124,22 +150,53 @@ object PresenceRepository {
                 lastSeenListener
             )
 
-        var visibilityListener:
+        var onlineVisibilityListener:
+                ValueEventListener? = null
+
+        var lastSeenVisibilityListener:
                 ValueEventListener? = null
 
         if (
             auth.currentUser?.uid == uid
         ) {
-            visibilityListener =
-                object : ValueEventListener {
+            onlineVisibilityListener =
+                object :
+                    ValueEventListener {
 
                     override fun onDataChange(
                         snapshot: DataSnapshot
                     ) {
                         onlineVisible =
                             snapshot
-                                .getValue(Boolean::class.java)
+                                .getValue(
+                                    Boolean::class.java
+                                )
                                 ?: true
+
+                        emitPresence()
+                    }
+
+                    override fun onCancelled(
+                        error: DatabaseError
+                    ) {
+                        emitPresence()
+                    }
+                }
+
+            lastSeenVisibilityListener =
+                object :
+                    ValueEventListener {
+
+                    override fun onDataChange(
+                        snapshot: DataSnapshot
+                    ) {
+                        lastSeenVisible =
+                            snapshot
+                                .getValue(
+                                    Boolean::class.java
+                                )
+                                ?: true
+
                         emitPresence()
                     }
 
@@ -153,77 +210,42 @@ object PresenceRepository {
             presenceRef
                 .child("onlineVisible")
                 .addValueEventListener(
-                    visibilityListener
+                    onlineVisibilityListener
                 )
-
-            /*
-             * lastSeenVisible is read separately so one hidden
-             * setting cannot expose the other.
-             */
-            val lastSeenVisibilityListener =
-                object : ValueEventListener {
-
-                    override fun onDataChange(
-                        snapshot: DataSnapshot
-                    ) {
-                        lastSeenVisible =
-                            snapshot
-                                .getValue(Boolean::class.java)
-                                ?: true
-                        emitPresence()
-                    }
-
-                    override fun onCancelled(
-                        error: DatabaseError
-                    ) {
-                        emitPresence()
-                    }
-                }
 
             presenceRef
                 .child("lastSeenVisible")
                 .addValueEventListener(
                     lastSeenVisibilityListener
                 )
+        }
 
-            awaitClose {
-                presenceRef
-                    .child("online")
-                    .removeEventListener(
-                        onlineListener
-                    )
+        awaitClose {
+            presenceRef
+                .child("connections")
+                .removeEventListener(
+                    connectionsListener
+                )
 
-                presenceRef
-                    .child("lastSeen")
-                    .removeEventListener(
-                        lastSeenListener
-                    )
+            presenceRef
+                .child("lastSeen")
+                .removeEventListener(
+                    lastSeenListener
+                )
 
+            onlineVisibilityListener?.let {
                 presenceRef
                     .child("onlineVisible")
                     .removeEventListener(
-                        visibilityListener
-                    )
-
-                presenceRef
-                    .child("lastSeenVisible")
-                    .removeEventListener(
-                        lastSeenVisibilityListener
+                        it
                     )
             }
 
-        } else {
-            awaitClose {
+            lastSeenVisibilityListener?.let {
                 presenceRef
-                    .child("online")
+                    .child("lastSeenVisible")
                     .removeEventListener(
-                        onlineListener
-                    )
-
-                presenceRef
-                    .child("lastSeen")
-                    .removeEventListener(
-                        lastSeenListener
+                        it
                     )
             }
         }
@@ -308,9 +330,10 @@ object PresenceRepository {
         currentUid = uid
 
         val connectedRef =
-            database.getReference(
-                ".info/connected"
-            )
+            database
+                .getReference(
+                    ".info/connected"
+                )
 
         val presenceRef =
             database
@@ -321,16 +344,13 @@ object PresenceRepository {
             presenceRef
                 .child("connections")
 
-        val onlineRef =
-            presenceRef
-                .child("online")
-
         val lastSeenRef =
             presenceRef
                 .child("lastSeen")
 
         val listener =
-            object : ValueEventListener {
+            object :
+                ValueEventListener {
 
                 override fun onDataChange(
                     snapshot: DataSnapshot
@@ -341,58 +361,92 @@ object PresenceRepository {
                         ) ?: false
 
                     if (!connected) {
+                        /*
+                         * The previous connection has been lost.
+                         * The registered onDisconnect handler removes
+                         * its node on the server. A new node is created
+                         * below when Firebase reports reconnection.
+                         */
+                        activeConnectionRef = null
+                        return
+                    }
+
+                    /*
+                     * .info/connected can emit the same value more
+                     * than once. Do not create duplicate connection
+                     * nodes for the same realtime connection.
+                     */
+                    if (
+                        activeConnectionRef != null
+                    ) {
                         return
                     }
 
                     val connectionRef =
                         connectionsRef.push()
 
-                    /*
-                     * Register disconnect handlers BEFORE
-                     * declaring the connection online.
-                     */
-                    /*
-                     * Keep presence Spark-safe: this device owns its
-                     * connection and schedules its own offline state.
-                     * Realtime Database executes these disconnect
-                     * writes on the server even if the app disappears.
-                     */
-                    onlineRef
-                        .onDisconnect()
-                        .setValue(false)
-
-                    lastSeenRef
-                        .onDisconnect()
-                        .setValue(
-                            ServerValue.TIMESTAMP
-                        )
-
-                    connectionRef.setValue(true)
-                    onlineRef.setValue(true)
-
                     activeConnectionRef =
                         connectionRef
 
                     /*
-                     * Do not set online=false or lastSeen on a
-                     * single connection's disconnect. Another
-                     * device may still be connected.
+                     * Always register disconnect handlers before
+                     * advertising this device as connected.
                      */
+                    connectionRef
+                        .onDisconnect()
+                        .removeValue()
+                        .addOnCompleteListener { removeTask ->
+
+                            if (
+                                !removeTask.isSuccessful
+                            ) {
+                                activeConnectionRef = null
+                                return@addOnCompleteListener
+                            }
+
+                            lastSeenRef
+                                .onDisconnect()
+                                .setValue(
+                                    ServerValue.TIMESTAMP
+                                )
+                                .addOnCompleteListener { lastSeenTask ->
+
+                                    if (
+                                        !lastSeenTask.isSuccessful
+                                    ) {
+                                        connectionRef
+                                            .removeValue()
+
+                                        activeConnectionRef =
+                                            null
+
+                                        return@addOnCompleteListener
+                                    }
+
+                                    connectionRef
+                                        .setValue(true)
+                                        .addOnFailureListener {
+                                            activeConnectionRef =
+                                                null
+                                        }
+                                }
+                        }
                 }
 
                 override fun onCancelled(
                     error: DatabaseError
                 ) {
-                    // Presence failures should not crash the app.
+                    activeConnectionRef = null
                 }
             }
 
         connectionListener =
             listener
 
-        connectedRef.addValueEventListener(
-            listener
-        )
+        connectedRef
+            .addValueEventListener(
+                listener
+            )
     }
 
     fun stopPresence(
@@ -407,9 +461,13 @@ object PresenceRepository {
         val connectionRef =
             activeConnectionRef
 
-        if (listener != null) {
+        if (
+            listener != null
+        ) {
             database
-                .getReference(".info/connected")
+                .getReference(
+                    ".info/connected"
+                )
                 .removeEventListener(
                     listener
                 )
@@ -419,25 +477,43 @@ object PresenceRepository {
         activeConnectionRef = null
         currentUid = null
 
-        if (!uid.isNullOrBlank()) {
-            /*
-             * This app uses direct Realtime Database presence, so
-             * explicitly mark this device/account offline when the
-             * foreground presence session ends.
-             */
-            connectionRef?.removeValue()
+        if (
+            uid.isNullOrBlank()
+        ) {
+            return
+        }
 
-            database
-                .getReference("presence")
-                .child(uid)
-                .child("online")
-                .setValue(false)
+        /*
+         * Remove only this device's connection. Other signed-in
+         * devices keep their own connection nodes alive, so the
+         * account remains online until the final connection ends.
+         */
+        if (
+            connectionRef != null
+        ) {
+            connectionRef
+                .onDisconnect()
+                .cancel()
 
+            connectionRef
+                .removeValue()
+        }
+
+        /*
+         * On a deliberate logout, record the current time. This
+         * does not determine online state; the connection collection
+         * does. The final disconnect handler also updates lastSeen.
+         */
+        if (
+            markOffline
+        ) {
             database
                 .getReference("presence")
                 .child(uid)
                 .child("lastSeen")
-                .setValue(ServerValue.TIMESTAMP)
+                .setValue(
+                    ServerValue.TIMESTAMP
+                )
         }
     }
 }
