@@ -624,6 +624,441 @@ class GroupChatRepository {
         }
     }
 
+
+    /*
+     * =========================================================
+     * RENAME GROUP
+     * =========================================================
+     *
+     * Only an existing group admin may change the group name.
+     */
+    suspend fun renameGroup(
+        currentUserId: String,
+        groupId: String,
+        newName: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            val cleanName = newName.trim()
+
+            if (
+                groupId.isBlank() ||
+                cleanName.isBlank() ||
+                cleanName.length > 50
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Group name must be between 1 and 50 characters."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can change the group name."
+                    )
+                )
+            }
+
+            database
+                .getReference("chats")
+                .child(groupId)
+                .child("name")
+                .setValue(cleanName)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /*
+     * =========================================================
+     * ADD GROUP MEMBERS
+     * =========================================================
+     *
+     * Membership and the Spark-only Home discovery index are
+     * updated atomically.
+     */
+    suspend fun addMembers(
+        currentUserId: String,
+        groupId: String,
+        memberIds: List<String>
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can add members."
+                    )
+                )
+            }
+
+            val newMemberIds =
+                memberIds
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .filterNot { group.members.containsKey(it) }
+
+            if (newMemberIds.isEmpty()) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "No new members were selected."
+                    )
+                )
+            }
+
+            if (
+                group.members.size +
+                        newMemberIds.size >
+                50
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "A group can contain at most 50 members."
+                    )
+                )
+            }
+
+            val updates =
+                mutableMapOf<String, Any?>()
+
+            newMemberIds.forEach { uid ->
+                updates[
+                    "chats/$groupId/members/$uid"
+                ] = "member"
+
+                updates[
+                    "groupMemberships/$uid/$groupId"
+                ] = true
+            }
+
+            database
+                .reference
+                .updateChildren(updates)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /*
+     * =========================================================
+     * CHANGE MEMBER ROLE
+     * =========================================================
+     *
+     * The creator is permanently an admin. Admins cannot change
+     * their own role, which guarantees that the group always keeps
+     * at least its creator as an administrator.
+     */
+    suspend fun setMemberRole(
+        currentUserId: String,
+        groupId: String,
+        memberId: String,
+        role: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            if (
+                memberId.isBlank() ||
+                role !in setOf("admin", "member")
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Invalid group role."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can change member roles."
+                    )
+                )
+            }
+
+            if (!group.members.containsKey(memberId)) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "That user is not a group member."
+                    )
+                )
+            }
+
+            if (
+                memberId == currentUserId ||
+                memberId == group.createdBy
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "The group creator remains an admin."
+                    )
+                )
+            }
+
+            if (group.members[memberId] == role) {
+                return Result.success(Unit)
+            }
+
+            database
+                .getReference("chats")
+                .child(groupId)
+                .child("members")
+                .child(memberId)
+                .setValue(role)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /*
+     * =========================================================
+     * REMOVE MEMBER
+     * =========================================================
+     *
+     * Removing someone also removes their Home membership index
+     * and private group read cursor in the same database update.
+     */
+    suspend fun removeMember(
+        currentUserId: String,
+        groupId: String,
+        memberId: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can remove members."
+                    )
+                )
+            }
+
+            if (!group.members.containsKey(memberId)) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "That user is not a group member."
+                    )
+                )
+            }
+
+            if (
+                memberId == group.createdBy ||
+                memberId == currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "The group creator cannot be removed."
+                    )
+                )
+            }
+
+            if (group.members.size <= 2) {
+                return Result.failure(
+                    IllegalStateException(
+                        "A group needs at least two members."
+                    )
+                )
+            }
+
+            val updates =
+                mapOf<String, Any?>(
+                    "chats/$groupId/members/$memberId" to null,
+                    "groupMemberships/$memberId/$groupId" to null,
+                    "groupReads/$memberId/$groupId" to null
+                )
+
+            database
+                .reference
+                .updateChildren(updates)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /*
+     * =========================================================
+     * LEAVE GROUP
+     * =========================================================
+     *
+     * The creator stays with the group so the group always keeps
+     * a permanent administrator.
+     */
+    suspend fun leaveGroup(
+        currentUserId: String,
+        groupId: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group member."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (!group.members.containsKey(currentUserId)) {
+                return Result.failure(
+                    IllegalStateException(
+                        "You are not a member of this group."
+                    )
+                )
+            }
+
+            if (currentUserId == group.createdBy) {
+                return Result.failure(
+                    IllegalStateException(
+                        "The group creator cannot leave. Transfer ownership is not available yet."
+                    )
+                )
+            }
+
+            if (group.members.size <= 2) {
+                return Result.failure(
+                    IllegalStateException(
+                        "A group needs at least two members."
+                    )
+                )
+            }
+
+            val updates =
+                mapOf<String, Any?>(
+                    "chats/$groupId/members/$currentUserId" to null,
+                    "groupMemberships/$currentUserId/$groupId" to null,
+                    "groupReads/$currentUserId/$groupId" to null
+                )
+
+            database
+                .reference
+                .updateChildren(updates)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun parseGroup(snapshot: DataSnapshot): Group? {
 
         if (
