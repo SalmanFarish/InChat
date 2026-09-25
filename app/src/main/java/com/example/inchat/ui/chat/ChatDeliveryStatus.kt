@@ -10,9 +10,6 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.FirebaseServerClock
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 enum class MessageDeliveryStatus {
     NONE,
@@ -139,36 +136,6 @@ fun getMessageDeliveryStatus(
     return MessageDeliveryStatus.SENT
 }
 
-fun formatSeenReceipt(
-    readTimestamp: Long,
-    currentTimeMillis: Long
-): String {
-    if (readTimestamp <= 0L) return "Seen"
-
-    val elapsed =
-        (currentTimeMillis - readTimestamp).coerceAtLeast(0L)
-
-    val minute = 60_000L
-    val hour = 60 * minute
-    val day = 24 * hour
-
-    return when {
-        elapsed < 10_000L ->
-            "Seen just now"
-        elapsed < minute ->
-            "Seen " + (elapsed / 1_000L).coerceAtLeast(1L) + " sec ago"
-        elapsed < hour ->
-            "Seen " + (elapsed / minute) + " min ago"
-        elapsed < day ->
-            "Seen " + (elapsed / hour) + " hr ago"
-        else ->
-            "Seen " +
-                SimpleDateFormat(
-                    "h:mm a",
-                    Locale.getDefault()
-                ).format(Date(readTimestamp))
-    }
-}
 
 fun deliveryStatusText(
     status: MessageDeliveryStatus
@@ -190,9 +157,7 @@ fun deliveryStatusText(
         MessageDeliveryStatus.SENT ->
             "Sent"
 
-        MessageDeliveryStatus.SEEN_JUST_NOW ->
-            "Seen just now"
-
+        MessageDeliveryStatus.SEEN_JUST_NOW,
         MessageDeliveryStatus.SEEN ->
             "Seen"
     }
