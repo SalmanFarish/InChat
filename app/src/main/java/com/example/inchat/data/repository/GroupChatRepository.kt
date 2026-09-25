@@ -1059,6 +1059,139 @@ class GroupChatRepository {
         }
     }
 
+
+    /*
+     * =========================================================
+     * GROUP PHOTO
+     * =========================================================
+     *
+     * Spark-safe group avatar storage. The Android client stores
+     * one compressed Base64 JPEG directly in the group record.
+     */
+    suspend fun updateGroupPhoto(
+        currentUserId: String,
+        groupId: String,
+        photoBytes: ByteArray
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            if (photoBytes.isEmpty()) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Group photo is empty."
+                    )
+                )
+            }
+
+            if (photoBytes.size > 150 * 1024) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Group photo is too large after compression."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can change the group photo."
+                    )
+                )
+            }
+
+            val photoData =
+                "data:image/jpeg;base64," +
+                        android.util.Base64.encodeToString(
+                            photoBytes,
+                            android.util.Base64.NO_WRAP
+                        )
+
+            database
+                .getReference("chats")
+                .child(groupId)
+                .child("groupPhotoData")
+                .setValue(photoData)
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeGroupPhoto(
+        currentUserId: String,
+        groupId: String
+    ): Result<Unit> {
+
+        return try {
+
+            val firebaseUser = auth.currentUser
+
+            if (
+                firebaseUser == null ||
+                firebaseUser.uid != currentUserId
+            ) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Authenticated user does not match group admin."
+                    )
+                )
+            }
+
+            val group =
+                getGroup(groupId)
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Group does not exist."
+                        )
+                    )
+
+            if (group.members[currentUserId] != "admin") {
+                return Result.failure(
+                    IllegalStateException(
+                        "Only group admins can change the group photo."
+                    )
+                )
+            }
+
+            database
+                .getReference("chats")
+                .child(groupId)
+                .child("groupPhotoData")
+                .removeValue()
+                .await()
+
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun parseGroup(snapshot: DataSnapshot): Group? {
 
         if (
@@ -1109,6 +1242,11 @@ class GroupChatRepository {
                     .child("createdAt")
                     .getValue(Long::class.java)
                     ?: 0L,
+            groupPhotoData =
+                snapshot
+                    .child("groupPhotoData")
+                    .getValue(String::class.java)
+                    .orEmpty(),
             members = members
         )
     }
