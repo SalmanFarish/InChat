@@ -458,6 +458,52 @@ class ChatRepository {
 
     /*
      * =========================================================
+     * DELIVERY RECEIPT
+     * =========================================================
+     */
+    fun getOtherUserDeliveredTimestampFlow(
+        chatId: String,
+        otherUserId: String
+    ): Flow<Long> = callbackFlow {
+        val deliveredRef = database
+            .getReference("chats")
+            .child(chatId)
+            .child("deliveredBy")
+            .child(otherUserId)
+        deliveredRef.keepSynced(true)
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                trySend(snapshot.getValue(Long::class.java) ?: 0L)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                close(error.toException())
+            }
+        }
+        deliveredRef.addValueEventListener(listener)
+        awaitClose { deliveredRef.removeEventListener(listener) }
+    }
+
+    suspend fun markConversationDelivered(
+        currentUserId: String,
+        chatId: String,
+        timestamp: Long
+    ): Result<Unit> {
+        return try {
+            if (currentUserId.isBlank() || chatId.isBlank() || timestamp <= 0L) {
+                return Result.failure(IllegalArgumentException("Invalid delivery state"))
+            }
+            val updates = mapOf<String, Any>(
+                "chats/$chatId/deliveredBy/$currentUserId" to timestamp
+            )
+            database.reference.updateChildren(updates).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /*
+     * =========================================================
      * READ RECEIPT
      * =========================================================
      */
