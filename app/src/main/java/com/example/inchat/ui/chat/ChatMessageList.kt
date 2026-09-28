@@ -37,6 +37,7 @@ fun ChatMessageList(
     otherUserNickname: String,
     blockState: BlockState,
     messagingBlocked: Boolean,
+    otherUserDeliveredTimestamp: Long,
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
@@ -494,6 +495,9 @@ fun ChatMessageList(
 
                                         message =
                                             message,
+
+                                        otherUserDeliveredTimestamp =
+                                            otherUserDeliveredTimestamp,
 
                                         otherUserReadTimestamp =
                                             otherUserReadTimestamp,
