@@ -674,7 +674,7 @@
                                 newData.child('attachment').child('type').isString() &&
                                 (
                                   newData.child('attachment').child('type').val() === 'voice' ||
-                                  newData.child('attachment').child('type').val() === 'file'
+                                  newData.child('attachment').child('type').val() === 'view_once_photo'
                                 ) &&
                                 newData.child('attachment').child('storageKey').isString() &&
                                 newData.child('attachment').child('storageKey').val().length >= 1 &&
