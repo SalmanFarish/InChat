@@ -736,7 +736,8 @@ class ChatRepository {
         senderNickname: String,
         receiverId: String,
         receiverNickname: String,
-        replyTo: ReplyTo? = null
+        replyTo: ReplyTo? = null,
+        attachment: com.example.inchat.data.model.Attachment? = null
     ): Result<String> {
 
         return try {
@@ -810,6 +811,16 @@ class ChatRepository {
                     "timestamp" to
                             timestamp
                 )
+
+            if (attachment != null) {
+                messageData["attachment"] = mapOf(
+                    "type" to attachment.type,
+                    "storageKey" to attachment.storageKey,
+                    "fileName" to attachment.fileName,
+                    "mimeType" to attachment.mimeType,
+                    "sizeBytes" to attachment.sizeBytes
+                )
+            }
 
             if (
                 replyTo != null
