@@ -64,6 +64,7 @@ fun rememberDeliveryStatusClock(
 fun getMessageDeliveryStatus(
     message: Message,
     otherUserDeliveredTimestamp: Long,
+    otherUserDeliveredTimestamp: Long,
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
@@ -125,6 +126,10 @@ fun getMessageDeliveryStatus(
         otherUserDeliveredTimestamp >= message.timestamp
     ) {
         return MessageDeliveryStatus.SENT
+    }
+
+    if (otherUserDeliveredTimestamp > 0L && message.timestamp > 0L && otherUserDeliveredTimestamp >= message.timestamp) {
+        return MessageDeliveryStatus.DELIVERED
     }
 
     /*
