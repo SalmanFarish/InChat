@@ -2,7 +2,7 @@ package com.example.inchat.data.model
 
 enum class AttachmentType {
     VOICE,
-    FILE
+    VIEW_ONCE_PHOTO
 }
 
 data class Attachment(
@@ -10,12 +10,13 @@ data class Attachment(
     val storageKey: String = "",
     val fileName: String = "",
     val mimeType: String = "",
-    val sizeBytes: Long = 0L
+    val sizeBytes: Long = 0L,
+    val viewedAt: Long = 0L
 ) {
     fun attachmentType(): AttachmentType? =
         when (type.lowercase()) {
             "voice" -> AttachmentType.VOICE
-            "file" -> AttachmentType.FILE
+            "view_once_photo" -> AttachmentType.VIEW_ONCE_PHOTO
             else -> null
         }
 }
