@@ -58,6 +58,12 @@ class ChatViewModel : ViewModel() {
             StateFlow<Boolean> =
         _messagesLoaded.asStateFlow()
 
+    private val _otherUserDeliveredTimestamp =
+        MutableStateFlow(0L)
+
+    val otherUserDeliveredTimestamp: StateFlow<Long> =
+        _otherUserDeliveredTimestamp.asStateFlow()
+
     private val _otherUserReadTimestamp =
         MutableStateFlow(0L)
 
@@ -328,6 +334,8 @@ class ChatViewModel : ViewModel() {
         _messagesLoaded.value =
             false
 
+        _otherUserDeliveredTimestamp.value = 0L
+
         _otherUserReadTimestamp.value =
             0L
 
@@ -355,6 +363,11 @@ class ChatViewModel : ViewModel() {
 
             currentUserId =
                 currentUserId
+        )
+
+        startDeliveryListener(
+            chatId = chatId,
+            otherUserId = otherUserId
         )
 
         startReadListener(
@@ -498,6 +511,20 @@ class ChatViewModel : ViewModel() {
                             val newestOtherMessage =
                                 messageList
                                     .asSequence()
+                                    .filter { it.senderId != currentUserId && it.timestamp > 0L }
+                                    .maxOfOrNull { it.timestamp }
+                                    ?: 0L
+
+                            if (newestOtherMessage > 0L) {
+                                markDelivered(
+                                    currentUserId = currentUserId,
+                                    timestamp = newestOtherMessage
+                                )
+                            }
+
+                            val newestOtherMessage =
+                                messageList
+                                    .asSequence()
                                     .filter {
                                         it.senderId !=
                                                 currentUserId
@@ -564,6 +591,39 @@ class ChatViewModel : ViewModel() {
                         true
                 }
             }
+    }
+
+    private fun startDeliveryListener(
+        chatId: String,
+        otherUserId: String
+    ) {
+        viewModelScope.launch {
+            try {
+                chatRepository
+                    .getOtherUserDeliveredTimestampFlow(chatId, otherUserId)
+                    .collect { timestamp ->
+                        _otherUserDeliveredTimestamp.value = timestamp
+                    }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Delivery listener failed", e)
+            }
+        }
+    }
+
+    private fun markDelivered(
+        currentUserId: String,
+        timestamp: Long
+    ) {
+        if (currentChatId.isBlank()) return
+        viewModelScope.launch {
+            chatRepository.markConversationDelivered(
+                currentUserId = currentUserId,
+                chatId = currentChatId,
+                timestamp = timestamp
+            )
+        }
     }
 
     /*
