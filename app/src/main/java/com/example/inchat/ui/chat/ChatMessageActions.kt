@@ -287,13 +287,13 @@ fun MessageInfoDialog(
 
                 if (isOwnMessage) {
                     MessageInfoRow(
-                        label = "Seen",
+                        label = "Read",
                         value = when {
-                            !isSeen -> "Not seen yet"
+                            !isSeen -> "Not read yet"
                             seenByCount > 1 ->
-                                "Seen by $seenByCount people"
+                                "Read by $seenByCount people"
                             else ->
-                                "Seen"
+                                "Read"
                         }
                     )
                 }
