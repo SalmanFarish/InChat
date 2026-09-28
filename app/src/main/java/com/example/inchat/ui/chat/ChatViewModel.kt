@@ -64,8 +64,11 @@ class ChatViewModel : ViewModel() {
     val otherUserDeliveredTimestamp: StateFlow<Long> =
         _otherUserDeliveredTimestamp.asStateFlow()
 
-    private val _otherUserReadTimestamp =
-        MutableStateFlow(0L)
+    private val _otherUserDeliveredTimestamp = MutableStateFlow(0L)
+
+    val otherUserDeliveredTimestamp: StateFlow<Long> = _otherUserDeliveredTimestamp.asStateFlow()
+
+    private val _otherUserReadTimestamp = MutableStateFlow(0L)
 
     private val _readReceiptsEnabled =
         MutableStateFlow(true)
@@ -333,6 +336,8 @@ class ChatViewModel : ViewModel() {
 
         _messagesLoaded.value =
             false
+
+        _otherUserDeliveredTimestamp.value = 0L
 
         _otherUserDeliveredTimestamp.value = 0L
 
