@@ -1,4 +1,4 @@
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
 
 function json(data, status = 200) {
@@ -149,8 +149,12 @@ async function upload(request, env, uid, chatId, messageId) {
     request.headers.get("X-InChat-File-Name"),
   );
 
+  if (attachmentType !== "voice" && attachmentType !== "view_once_photo") {
+    return json({ error: "Unsupported attachment type." }, 400);
+  }
+
   const maxBytes =
-    attachmentType === "voice" ? MAX_VOICE_BYTES : MAX_FILE_BYTES;
+    attachmentType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
 
   if (!Number.isFinite(contentLength) || contentLength <= 0) {
     return json({ error: "Content-Length is required." }, 400);
@@ -162,6 +166,10 @@ async function upload(request, env, uid, chatId, messageId) {
 
   if (attachmentType === "voice" && !contentType.startsWith("audio/")) {
     return json({ error: "Voice attachments must be audio files." }, 400);
+  }
+
+  if (attachmentType === "view_once_photo" && !contentType.startsWith("image/")) {
+    return json({ error: "View-once attachments must be images." }, 400);
   }
 
   const key = attachmentKey(chatId, messageId);
@@ -200,13 +208,18 @@ async function upload(request, env, uid, chatId, messageId) {
   }, 201);
 }
 
-async function download(env, chatId, messageId) {
+async function download(env, chatId, messageId, uid) {
   const object = await env.ATTACHMENTS.get(
     attachmentKey(chatId, messageId),
   );
 
   if (!object) {
     return new Response("Attachment not found", { status: 404 });
+  }
+
+  if (object.customMetadata?.attachmentType === "view_once_photo" &&
+      object.customMetadata?.senderId === uid) {
+    return new Response("Sender cannot consume a view-once photo", { status: 403 });
   }
 
   const headers = new Headers();
@@ -216,10 +229,13 @@ async function download(env, chatId, messageId) {
     "X-InChat-File-Name",
     object.customMetadata?.fileName || "attachment",
   );
-  headers.set(
-    "X-InChat-Attachment-Type",
-    object.customMetadata?.attachmentType || "file",
-  );
+  const attachmentType = object.customMetadata?.attachmentType || "voice";
+  headers.set("X-InChat-Attachment-Type", attachmentType);
+
+  if (attachmentType === "view_once_photo") {
+    headers.set("X-InChat-View-Once", "true");
+    await env.ATTACHMENTS.delete(attachmentKey(chatId, messageId));
+  }
 
   return new Response(object.body, { status: 200, headers });
 }
@@ -276,7 +292,7 @@ export default {
       }
 
       if (request.method === "GET") {
-        return download(env, chatId, messageId);
+        return download(env, chatId, messageId, user.uid);
       }
 
       if (request.method === "DELETE") {
