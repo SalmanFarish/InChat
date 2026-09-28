@@ -371,6 +371,9 @@ fun SwipeableMessageBubble(
                             MessageDeliveryStatus.SENT ->
                                 "Sent"
 
+                            MessageDeliveryStatus.DELIVERED ->
+                                "Delivered"
+
                             MessageDeliveryStatus.SENDING ->
                                 "Sending…"
 
