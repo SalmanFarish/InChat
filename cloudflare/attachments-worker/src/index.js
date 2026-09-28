@@ -99,6 +99,42 @@ async function authorizeChat(chatId, uid, token, env) {
   return chat;
 }
 
+async function authorizeMessageSender(
+  chatId,
+  messageId,
+  uid,
+  token,
+  env,
+) {
+  const base = env.FIREBASE_DATABASE_URL.replace(/\\/$/, "");
+  const url =
+    base +
+    "/chats/" +
+    encodeURIComponent(chatId) +
+    "/messages/" +
+    encodeURIComponent(messageId) +
+    ".json?auth=" +
+    encodeURIComponent(token);
+
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Response("Could not verify message access", { status: 403 });
+  }
+
+  const message = await response.json();
+
+  if (!message || message.senderId !== uid) {
+    throw new Response("Only the message sender can upload this attachment.", {
+      status: 403,
+    });
+  }
+
+  return message;
+}
+
 function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
@@ -188,19 +224,12 @@ async function download(env, chatId, messageId) {
   return new Response(object.body, { status: 200, headers });
 }
 
-async function remove(env, uid, chatId, messageId) {
+async function remove(env, chatId, messageId) {
   const key = attachmentKey(chatId, messageId);
   const object = await env.ATTACHMENTS.head(key);
 
   if (!object) {
     return json({ success: true, deleted: false });
-  }
-
-  if (object.customMetadata?.senderId !== uid) {
-    return json(
-      { error: "Only the sender can delete this attachment." },
-      403,
-    );
   }
 
   await env.ATTACHMENTS.delete(key);
@@ -236,6 +265,13 @@ export default {
       await authorizeChat(chatId, user.uid, user.token, env);
 
       if (request.method === "PUT") {
+        await authorizeMessageSender(
+          chatId,
+          messageId,
+          user.uid,
+          user.token,
+          env,
+        );
         return upload(request, env, user.uid, chatId, messageId);
       }
 
@@ -244,7 +280,7 @@ export default {
       }
 
       if (request.method === "DELETE") {
-        return remove(env, user.uid, chatId, messageId);
+        return remove(env, chatId, messageId);
       }
 
       return json({ error: "Method not allowed" }, 405);
