@@ -257,6 +257,7 @@ private fun MessageActionRow(
 fun MessageInfoDialog(
     message: Message,
     isOwnMessage: Boolean,
+    deliveredTimestamp: Long = 0L,
     readTimestamp: Long = 0L,
     seenByCount: Int = 0,
     currentTimeMillis: Long = System.currentTimeMillis(),
@@ -286,6 +287,15 @@ fun MessageInfoDialog(
                 )
 
                 if (isOwnMessage) {
+                    MessageInfoRow(
+                        label = "Delivered",
+                        value = if (deliveredTimestamp >= message.timestamp && deliveredTimestamp > 0L) {
+                            formatMessageTime(deliveredTimestamp)
+                        } else {
+                            "Not delivered yet"
+                        }
+                    )
+
                     MessageInfoRow(
                         label = "Read",
                         value = when {
