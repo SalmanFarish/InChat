@@ -16,6 +16,7 @@ enum class MessageDeliveryStatus {
     WAITING_FOR_CONNECTION,
     SENDING,
     SENT,
+    DELIVERED,
     SEEN_JUST_NOW,
     SEEN
 }
@@ -62,6 +63,7 @@ fun rememberDeliveryStatusClock(
 
 fun getMessageDeliveryStatus(
     message: Message,
+    otherUserDeliveredTimestamp: Long,
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
@@ -117,6 +119,14 @@ fun getMessageDeliveryStatus(
         return MessageDeliveryStatus.SEEN
     }
 
+    if (
+        otherUserDeliveredTimestamp > 0L &&
+        message.timestamp > 0L &&
+        otherUserDeliveredTimestamp >= message.timestamp
+    ) {
+        return MessageDeliveryStatus.SENT
+    }
+
     /*
      * The message has successfully left the pending queue,
      * but the other participant has not read it yet.
@@ -145,6 +155,9 @@ fun deliveryStatusText(
         MessageDeliveryStatus.SENT ->
             "Sent"
 
+        MessageDeliveryStatus.DELIVERED ->
+            "Delivered"
+
         MessageDeliveryStatus.SEEN_JUST_NOW,
         MessageDeliveryStatus.SEEN ->
             "Read"
@@ -166,6 +179,9 @@ fun MessageDeliveryIndicator(
 
             MessageDeliveryStatus.SENT ->
                 "✓"
+
+            MessageDeliveryStatus.DELIVERED ->
+                "✓✓"
 
             MessageDeliveryStatus.SEEN_JUST_NOW,
             MessageDeliveryStatus.SEEN ->
