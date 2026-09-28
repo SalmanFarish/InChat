@@ -136,6 +136,8 @@ fun ChatScreen(
         .messagesLoaded
         .collectAsState()
 
+    val otherUserDeliveredTimestamp by chatViewModel.otherUserDeliveredTimestamp.collectAsState()
+
     val otherUserReadTimestamp by
     chatViewModel
         .otherUserReadTimestamp
@@ -611,6 +613,8 @@ fun ChatScreen(
 
                 messagingBlocked =
                     messagingBlocked,
+
+                otherUserDeliveredTimestamp = otherUserDeliveredTimestamp,
 
                 otherUserReadTimestamp =
                     otherUserReadTimestamp,
