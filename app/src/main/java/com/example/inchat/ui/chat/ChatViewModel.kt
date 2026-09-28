@@ -375,6 +375,8 @@ class ChatViewModel : ViewModel() {
             otherUserId = otherUserId
         )
 
+        startDeliveryListener(chatId, otherUserId)
+
         startReadListener(
             chatId =
                 chatId,
