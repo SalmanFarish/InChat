@@ -522,7 +522,7 @@ class ChatViewModel : ViewModel() {
                                 )
                             }
 
-                            val newestOtherMessage =
+                            val newestOtherMessageForRead =
                                 messageList
                                     .asSequence()
                                     .filter {
@@ -535,13 +535,13 @@ class ChatViewModel : ViewModel() {
                                     ?: 0L
 
                             if (
-                                newestOtherMessage > 0L &&
-                                newestOtherMessage >
+                                newestOtherMessageForRead > 0L &&
+                                newestOtherMessageForRead >
                                 lastMarkedReadTimestamp
                             ) {
 
                                 lastMarkedReadTimestamp =
-                                    newestOtherMessage
+                                    newestOtherMessageForRead
 
                                 markConversationRead(
                                     currentUserId
