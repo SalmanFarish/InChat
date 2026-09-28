@@ -113,20 +113,8 @@ fun getMessageDeliveryStatus(
         message.timestamp
     ) {
 
-        val difference =
-            currentTimeMillis -
-                    otherUserReadTimestamp
-
-        return if (
-            difference <= 60_000L
-        ) {
-
-            MessageDeliveryStatus.SEEN_JUST_NOW
-
-        } else {
-
-            MessageDeliveryStatus.SEEN
-        }
+        // Read is a stable state. Relative "just now" labels are not used.
+        return MessageDeliveryStatus.SEEN
     }
 
     /*
@@ -159,7 +147,7 @@ fun deliveryStatusText(
 
         MessageDeliveryStatus.SEEN_JUST_NOW,
         MessageDeliveryStatus.SEEN ->
-            "Seen"
+            "Read"
     }
 }
 
