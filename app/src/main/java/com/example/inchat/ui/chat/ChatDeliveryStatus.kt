@@ -64,59 +64,29 @@ fun rememberDeliveryStatusClock(
 fun getMessageDeliveryStatus(
     message: Message,
     otherUserDeliveredTimestamp: Long,
-    otherUserDeliveredTimestamp: Long,
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
     currentTimeMillis: Long
 ): MessageDeliveryStatus {
 
-    if (
-        message.id.isBlank()
-    ) {
-
+    if (message.id.isBlank()) {
         return MessageDeliveryStatus.NONE
     }
 
-    /*
-     * Firebase persistence has not completed the write yet.
-     *
-     * Offline:
-     *     Waiting for connection…
-     *
-     * Online but still being written:
-     *     Sending…
-     */
-    if (
-        pendingMessageIds.contains(
-            message.id
-        )
-    ) {
-
-        return if (
-            isConnected
-        ) {
-
+    if (pendingMessageIds.contains(message.id)) {
+        return if (isConnected) {
             MessageDeliveryStatus.SENDING
-
         } else {
-
             MessageDeliveryStatus.WAITING_FOR_CONNECTION
         }
     }
 
-    /*
-     * Once the other participant has read beyond this
-     * message's timestamp, the message is considered seen.
-     */
     if (
         otherUserReadTimestamp > 0L &&
         message.timestamp > 0L &&
-        otherUserReadTimestamp >=
-        message.timestamp
+        otherUserReadTimestamp >= message.timestamp
     ) {
-
-        // Read is a stable state. Relative "just now" labels are not used.
         return MessageDeliveryStatus.SEEN
     }
 
@@ -125,20 +95,11 @@ fun getMessageDeliveryStatus(
         message.timestamp > 0L &&
         otherUserDeliveredTimestamp >= message.timestamp
     ) {
-        return MessageDeliveryStatus.SENT
-    }
-
-    if (otherUserDeliveredTimestamp > 0L && message.timestamp > 0L && otherUserDeliveredTimestamp >= message.timestamp) {
         return MessageDeliveryStatus.DELIVERED
     }
 
-    /*
-     * The message has successfully left the pending queue,
-     * but the other participant has not read it yet.
-     */
     return MessageDeliveryStatus.SENT
 }
-
 
 fun deliveryStatusText(
     status: MessageDeliveryStatus
