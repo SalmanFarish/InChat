@@ -660,6 +660,39 @@
                             (
                               !newData.child('edited').exists() ||
                               newData.child('edited').isBoolean()
+                            ) &&
+                            (
+                              !newData.child('attachment').exists() ||
+                              (
+                                newData.child('attachment').hasChildren([
+                                  'type',
+                                  'storageKey',
+                                  'fileName',
+                                  'mimeType',
+                                  'sizeBytes'
+                                ]) &&
+                                newData.child('attachment').child('type').isString() &&
+                                (
+                                  newData.child('attachment').child('type').val() === 'voice' ||
+                                  newData.child('attachment').child('type').val() === 'file'
+                                ) &&
+                                newData.child('attachment').child('storageKey').isString() &&
+                                newData.child('attachment').child('storageKey').val().length >= 1 &&
+                                newData.child('attachment').child('storageKey').val().length <= 300 &&
+                                newData.child('attachment').child('fileName').isString() &&
+                                newData.child('attachment').child('fileName').val().length >= 1 &&
+                                newData.child('attachment').child('fileName').val().length <= 180 &&
+                                newData.child('attachment').child('mimeType').isString() &&
+                                newData.child('attachment').child('mimeType').val().length >= 1 &&
+                                newData.child('attachment').child('mimeType').val().length <= 120 &&
+                                newData.child('attachment').child('sizeBytes').isNumber() &&
+                                newData.child('attachment').child('sizeBytes').val() > 0 &&
+                                newData.child('attachment').child('sizeBytes').val() <= 5242880 &&
+                                (
+                                  newData.child('attachment').child('type').val() !== 'voice' ||
+                                  newData.child('attachment').child('sizeBytes').val() <= 1048576
+                                )
+                              )
                             )
                           )
                           ||
