@@ -362,6 +362,8 @@ fun ChatScreen(
             message = message,
             isOwnMessage =
                 message.senderId == currentUserId,
+            deliveredTimestamp =
+                otherUserDeliveredTimestamp,
             readTimestamp =
                 otherUserReadTimestamp,
             currentTimeMillis =
