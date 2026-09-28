@@ -339,8 +339,6 @@ class ChatViewModel : ViewModel() {
 
         _otherUserDeliveredTimestamp.value = 0L
 
-        _otherUserDeliveredTimestamp.value = 0L
-
         _otherUserReadTimestamp.value =
             0L
 
