@@ -292,6 +292,7 @@ fun GroupChatScreen(
                 otherUserNickname = group?.name ?: "group",
                 blockState = BlockState.NONE,
                 messagingBlocked = false,
+                otherUserDeliveredTimestamp = 0L,
                 otherUserReadTimestamp =
                     groupReadTimestamps.values.maxOrNull() ?: 0L,
                 pendingMessageIds = pendingMessageIds,
