@@ -8,7 +8,8 @@ data class Message(
     val timestamp: Long = 0L,
     val replyTo: ReplyTo? = null,
     val reactions: Map<String, String> = emptyMap(),
-    val edited: Boolean = false
+    val edited: Boolean = false,
+    val attachment: Attachment? = null
 )
 
 data class ReplyTo(
