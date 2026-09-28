@@ -1,5 +1,6 @@
 package com.example.inchat.data.repository
 
+import com.example.inchat.data.model.AttachmentType
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
