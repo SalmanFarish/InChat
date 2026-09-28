@@ -565,7 +565,8 @@ class GroupChatRepository {
         text: String,
         senderId: String,
         senderNickname: String,
-        replyTo: ReplyTo? = null
+        replyTo: ReplyTo? = null,
+        attachment: com.example.inchat.data.model.Attachment? = null
     ): Result<String> {
 
         return try {
@@ -623,6 +624,16 @@ class GroupChatRepository {
                     "text" to cleanText,
                     "timestamp" to ServerValue.TIMESTAMP
                 )
+
+            if (attachment != null) {
+                messageData["attachment"] = mapOf(
+                    "type" to attachment.type,
+                    "storageKey" to attachment.storageKey,
+                    "fileName" to attachment.fileName,
+                    "mimeType" to attachment.mimeType,
+                    "sizeBytes" to attachment.sizeBytes
+                )
+            }
 
             replyTo?.let { reply ->
                 messageData["replyTo"] =
