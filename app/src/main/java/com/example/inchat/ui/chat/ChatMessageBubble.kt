@@ -332,7 +332,9 @@ fun SwipeableMessageBubble(
                     Row(
                         modifier =
                             Modifier
-                                .fillMaxWidth()
+                                .align(
+                                    Alignment.End
+                                )
                                 .padding(
                                     top = 2.dp
                                 ),
