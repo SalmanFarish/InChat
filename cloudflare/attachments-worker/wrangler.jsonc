@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inchat-attachments",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-28",
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "inchat-attachments"
+    }
+  ],
+  "vars": {
+    "FIREBASE_DATABASE_URL": "https://inchat-24b8b-default-rtdb.firebaseio.com"
+  }
+}
