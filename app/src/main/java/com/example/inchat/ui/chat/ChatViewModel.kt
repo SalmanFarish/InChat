@@ -368,11 +368,6 @@ class ChatViewModel : ViewModel() {
                 currentUserId
         )
 
-        startDeliveryListener(
-            chatId = chatId,
-            otherUserId = otherUserId
-        )
-
         startDeliveryListener(chatId, otherUserId)
 
         startReadListener(
