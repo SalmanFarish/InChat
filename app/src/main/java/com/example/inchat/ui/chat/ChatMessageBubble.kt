@@ -329,30 +329,63 @@ fun SwipeableMessageBubble(
                             }
                     )
 
-                    if (message.edited) {
-                        Spacer(
-                            modifier =
-                                Modifier.height(3.dp)
-                        )
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    top = 2.dp
+                                ),
+                        horizontalArrangement =
+                            Arrangement.End,
+                        verticalAlignment =
+                            Alignment.CenterVertically
+                    ) {
+                        if (message.edited) {
+                            Text(
+                                text = "edited",
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .labelSmall
+                                        .copy(fontSize = 9.sp),
+                                color =
+                                    if (isMe) {
+                                        chatTheme.outgoingTextColor
+                                            .copy(alpha = 0.58f)
+                                    } else {
+                                        chatTheme.incomingTextColor
+                                            .copy(alpha = 0.58f)
+                                    }
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(4.dp)
+                            )
+                        }
 
                         Text(
-                            text = "edited",
+                            text =
+                                formatMessageTime(
+                                    message.timestamp
+                                ),
                             style =
                                 MaterialTheme
                                     .typography
-                                    .labelSmall,
+                                    .labelSmall
+                                    .copy(fontSize = 10.sp),
+                            fontWeight =
+                                FontWeight.Medium,
                             color =
                                 if (isMe) {
                                     chatTheme.outgoingTextColor
                                         .copy(alpha = 0.62f)
                                 } else {
                                     chatTheme.incomingTextColor
-                                        .copy(alpha = 0.62f)
+                                        .copy(alpha = 0.58f)
                                 },
-                            modifier =
-                                Modifier.align(
-                                    Alignment.End
-                                )
+                            maxLines = 1
                         )
                     }
                 }
