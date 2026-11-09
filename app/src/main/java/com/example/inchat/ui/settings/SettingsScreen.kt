@@ -142,8 +142,8 @@ fun SettingsScreen(
 
                             enabled =
                                 false
-                        ),
-
+                        )
+                    )
             ),
 
             SettingsSection(
@@ -446,7 +446,7 @@ fun SettingsScreen(
                     Text(
 
                         text =
-                            "This permanently deletes your InChat profile, username reservation, recovery codes, presence data, blocked-user entries and recent-chat data.",
+                            "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data.",
 
                         style =
                             MaterialTheme
@@ -940,12 +940,9 @@ fun SettingsScreen(
             sections.forEach { section ->
 
                 item {
-
                     SettingsSectionCard(
                         section = section,
                         onPrivacyClick = onPrivacyClick
-                    )                        onPrivacyClick =
-                            onPrivacyClick
                     )
                 }
             }

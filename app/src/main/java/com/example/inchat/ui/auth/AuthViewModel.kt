@@ -246,7 +246,6 @@ class AuthViewModel(
         }
 
         viewModelScope.launch {
-        viewModelScope.launch {
 
             try {
 
