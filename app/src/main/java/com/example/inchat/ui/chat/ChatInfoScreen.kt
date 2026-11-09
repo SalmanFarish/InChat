@@ -80,7 +80,7 @@ fun ChatInfoScreen(
         appearanceRepository
             .observeTheme(chatId)
             .collectAsState(
-                initial = ChatTheme.DESSERT.id
+                initial = ChatTheme.AMOLED_BLACK.id
             )
 
     val selectedTheme =
