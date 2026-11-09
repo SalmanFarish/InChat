@@ -491,6 +491,8 @@
 
             ".validate": "newData.isString() &&
                           (
+                            newData.val() === 'amoled_black' ||
+                            newData.val() === 'pure_white' ||
                             newData.val() === 'spectrum' ||
                             newData.val() === 'space_cats' ||
                             newData.val() === 'football' ||
