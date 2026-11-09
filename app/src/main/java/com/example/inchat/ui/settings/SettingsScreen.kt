@@ -1,8 +1,5 @@
 package com.example.inchat.ui.settings
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,18 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -43,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,69 +75,6 @@ fun SettingsScreen(
 
     val isGoogleAccount =
         authViewModel.usesGoogleSignIn()
-
-    val isLegacyPasswordAccount =
-        authViewModel.usesLegacyUsernamePassword()
-
-    val currentAuthEmail =
-        authViewModel.currentAuthEmail()
-
-    val currentAuthEmailVerified =
-        authViewModel.isCurrentAuthEmailVerified()
-
-    var showRecoveryConfirmation by
-    remember {
-        mutableStateOf(false)
-    }
-
-    var showEmailUpdateDialog by
-    remember {
-        mutableStateOf(false)
-    }
-
-    var emailAddressInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var emailPasswordInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var emailUpdateLoading by
-    remember {
-        mutableStateOf(false)
-    }
-
-    var emailUpdateError by
-    remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var emailUpdateSuccess by
-    remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var recoveryCodes by
-    remember {
-        mutableStateOf<List<String>?>(
-            null
-        )
-    }
-
-    var recoveryError by
-    remember {
-        mutableStateOf<String?>(
-            null
-        )
-    }
-
-    var recoveryLoading by
-    remember {
-        mutableStateOf(false)
-    }
 
     var showDeleteDialog by
     remember {
@@ -214,32 +144,6 @@ fun SettingsScreen(
                                 false
                         ),
 
-                        SettingsItem(
-                            title =
-                                "Email address",
-
-                            subtitle =
-                                when {
-                                    isGoogleAccount ->
-                                        "Managed by Google"
-
-                                    isLegacyPasswordAccount ->
-                                        "Add a verified email for password recovery"
-
-                                    currentAuthEmailVerified ->
-                                        "Verified: " + currentAuthEmail
-
-                                    currentAuthEmail.isNotBlank() ->
-                                        "Verification pending: " + currentAuthEmail
-
-                                    else ->
-                                        "No email address available"
-                                },
-
-                            enabled =
-                                true
-                        )
-                    )
             ),
 
             SettingsSection(
@@ -248,26 +152,6 @@ fun SettingsScreen(
 
                 items =
                     listOf(
-
-                        SettingsItem(
-                            title =
-                                "Recovery codes",
-
-                            subtitle =
-                                when {
-                                    isGoogleAccount ->
-                                        "Account recovery is managed by Google"
-
-                                    isLegacyPasswordAccount ->
-                                        "Keep these until you add and verify a real email address"
-
-                                    else ->
-                                        "Email-based password recovery is active"
-                                },
-
-                            enabled =
-                                true
-                        ),
 
                         SettingsItem(
                             title =
@@ -519,528 +403,6 @@ fun SettingsScreen(
                     )
             )
         )
-
-    /*
-     * =========================================================
-     * EMAIL ADDRESS UPDATE
-     * =========================================================
-     */
-    if (showEmailUpdateDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!emailUpdateLoading) {
-                    showEmailUpdateDialog = false
-                    emailPasswordInput = ""
-                    emailUpdateError = null
-                }
-            },
-            title = {
-                Text(
-                    if (isLegacyPasswordAccount) {
-                        "Add a recovery email"
-                    } else {
-                        "Change email address"
-                    }
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        if (isLegacyPasswordAccount) {
-                            "Add an email address you can access. After you verify it, use that email address to sign in and reset your password. Your username, chats and groups will remain unchanged."
-                        } else {
-                            "Firebase will send a verification link to the new address. Your sign-in email changes only after you confirm the link."
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = emailAddressInput,
-                        onValueChange = {
-                            emailAddressInput = it
-                            emailUpdateError = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !emailUpdateLoading,
-                        label = {
-                            Text("New email address")
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Email
-                        )
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(10.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = emailPasswordInput,
-                        onValueChange = {
-                            emailPasswordInput = it
-                            emailUpdateError = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !emailUpdateLoading,
-                        label = {
-                            Text("Current password")
-                        },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password
-                        )
-                    )
-
-                    if (emailUpdateError != null) {
-                        Spacer(
-                            modifier = Modifier.height(8.dp)
-                        )
-                        Text(
-                            text = emailUpdateError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !emailUpdateLoading &&
-                            emailAddressInput.isNotBlank() &&
-                            emailPasswordInput.isNotBlank(),
-                    onClick = {
-                        emailUpdateLoading = true
-                        emailUpdateError = null
-
-                        authViewModel.requestEmailUpdate(
-                            rawEmail = emailAddressInput,
-                            currentPassword = emailPasswordInput
-                        ) { success, message ->
-                            emailUpdateLoading = false
-
-                            if (success) {
-                                showEmailUpdateDialog = false
-                                emailPasswordInput = ""
-                                emailUpdateSuccess = message
-                                    ?: "Verification email sent."
-                            } else {
-                                emailUpdateError = message
-                                    ?: "Could not update your email address."
-                            }
-                        }
-                    }
-                ) {
-                    if (emailUpdateLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.height(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                    Text("Send verification")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !emailUpdateLoading,
-                    onClick = {
-                        showEmailUpdateDialog = false
-                        emailPasswordInput = ""
-                        emailUpdateError = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (emailUpdateSuccess != null) {
-        AlertDialog(
-            onDismissRequest = {
-                emailUpdateSuccess = null
-            },
-            title = {
-                Text("Email account")
-            },
-            text = {
-                Text(emailUpdateSuccess!!)
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        emailUpdateSuccess = null
-                    }
-                ) {
-                    Text("OK")
-                }
-            }
-        )
-    }
-
-    /*
-     * =========================================================
-     * RECOVERY CONFIRMATION
-     * =========================================================
-     */
-    if (
-        showRecoveryConfirmation
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                if (
-                    !recoveryLoading
-                ) {
-
-                    showRecoveryConfirmation =
-                        false
-                }
-            },
-
-            title = {
-
-                Text(
-                    "Generate new recovery codes?"
-                )
-            },
-
-            text = {
-
-                Text(
-                    "This will immediately invalidate all previous recovery codes and create five new ones."
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    enabled =
-                        !recoveryLoading,
-
-                    onClick = {
-
-                        recoveryLoading =
-                            true
-
-                        recoveryError =
-                            null
-
-                        authViewModel
-                            .generateRecoveryCodes {
-
-                                    success,
-                                    codes,
-                                    error ->
-
-                                recoveryLoading =
-                                    false
-
-                                if (
-                                    success &&
-                                    codes != null
-                                ) {
-
-                                    showRecoveryConfirmation =
-                                        false
-
-                                    recoveryCodes =
-                                        codes
-
-                                } else {
-
-                                    recoveryError =
-                                        error
-                                            ?: "Could not generate recovery codes"
-                                }
-                            }
-                    }
-                ) {
-
-                    if (
-                        recoveryLoading
-                    ) {
-
-                        CircularProgressIndicator(
-
-                            modifier =
-                                Modifier
-                                    .padding(
-                                        end =
-                                            8.dp
-                                    )
-                                    .height(
-                                        18.dp
-                                    ),
-
-                            strokeWidth =
-                                2.dp
-                        )
-                    }
-
-                    Text(
-                        "Generate"
-                    )
-                }
-            },
-
-            dismissButton = {
-
-                TextButton(
-
-                    enabled =
-                        !recoveryLoading,
-
-                    onClick = {
-
-                        showRecoveryConfirmation =
-                            false
-                    }
-                ) {
-
-                    Text(
-                        "Cancel"
-                    )
-                }
-            }
-        )
-    }
-
-    /*
-     * =========================================================
-     * RECOVERY ERROR
-     * =========================================================
-     */
-    if (
-        recoveryError != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                recoveryError =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "Recovery Codes"
-                )
-            },
-
-            text = {
-
-                Text(
-                    recoveryError!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        recoveryError =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "OK"
-                    )
-                }
-            }
-        )
-    }
-
-    /*
-     * =========================================================
-     * RECOVERY CODES
-     * =========================================================
-     */
-    if (
-        recoveryCodes != null
-    ) {
-
-        val codes =
-            recoveryCodes!!
-
-        AlertDialog(
-
-            onDismissRequest = {
-                /*
-                 * Intentionally disabled.
-                 */
-            },
-
-            title = {
-
-                Text(
-
-                    text =
-                        "Your Recovery Codes",
-
-                    fontWeight =
-                        FontWeight.Bold
-                )
-            },
-
-            text = {
-
-                Column {
-
-                    Text(
-                        text =
-                            "Save these codes somewhere safe. Anyone with one of these codes may be able to recover the account.",
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyMedium
-                    )
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                12.dp
-                            )
-                    )
-
-                    Text(
-                        text =
-                            "Each code can be used only once.",
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall,
-
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .error
-                    )
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                14.dp
-                            )
-                    )
-
-                    codes.forEach { code ->
-
-                        Text(
-
-                            text =
-                                code,
-
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        vertical =
-                                            4.dp
-                                    ),
-
-                            textAlign =
-                                TextAlign.Center,
-
-                            style =
-                                MaterialTheme
-                                    .typography
-                                    .bodyLarge,
-
-                            fontWeight =
-                                FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                12.dp
-                            )
-                    )
-
-                    OutlinedButton(
-
-                        onClick = {
-
-                            val allCodes =
-                                codes.joinToString(
-                                    "\n"
-                                )
-
-                            val clipboard =
-                                context.getSystemService(
-                                    ClipboardManager::class.java
-                                )
-
-                            clipboard?.setPrimaryClip(
-                                ClipData.newPlainText(
-                                    "InChat Recovery Codes",
-                                    allCodes
-                                )
-                            )
-                        },
-
-                        modifier =
-                            Modifier.fillMaxWidth()
-                    ) {
-
-                        Icon(
-
-                            imageVector =
-                                Icons.Default.ContentCopy,
-
-                            contentDescription =
-                                null
-                        )
-
-                        Spacer(
-                            modifier =
-                                Modifier.width(
-                                    8.dp
-                                )
-                        )
-
-                        Text(
-                            "Copy all codes"
-                        )
-                    }
-                }
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        recoveryCodes =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "I've saved them"
-                    )
-                }
-            }
-        )
-    }
 
     /*
      * =========================================================
@@ -1580,47 +942,9 @@ fun SettingsScreen(
                 item {
 
                     SettingsSectionCard(
-
-                        section =
-                            section,
-
-                        onRecoveryCodesClick = {
-
-                            if (isLegacyPasswordAccount) {
-                                recoveryError =
-                                    null
-
-                                showRecoveryConfirmation =
-                                    true
-                            } else {
-                                emailUpdateSuccess =
-                                    if (isGoogleAccount) {
-                                        "Account recovery is managed by Google."
-                                    } else {
-                                        "This account uses email-based password recovery. Use Forgot password on the login screen."
-                                    }
-                            }
-                        },
-
-                        onEmailClick = {
-                            if (isGoogleAccount) {
-                                emailUpdateSuccess =
-                                    "This account uses Google sign-in. Manage its email address through your Google account."
-                            } else {
-                                emailAddressInput =
-                                    if (isLegacyPasswordAccount) {
-                                        ""
-                                    } else {
-                                        currentAuthEmail
-                                    }
-
-                                emailPasswordInput = ""
-                                emailUpdateError = null
-                                showEmailUpdateDialog = true
-                            }
-                        },
-
-                        onPrivacyClick =
+                        section = section,
+                        onPrivacyClick = onPrivacyClick
+                    )                        onPrivacyClick =
                             onPrivacyClick
                     )
                 }
@@ -1747,8 +1071,6 @@ fun SettingsScreen(
 @Composable
 private fun SettingsSectionCard(
     section: SettingsSection,
-    onRecoveryCodesClick: () -> Unit,
-    onEmailClick: () -> Unit,
     onPrivacyClick: () -> Unit
 ) {
 
@@ -1799,12 +1121,6 @@ private fun SettingsSectionCard(
                             when (
                                 item.title
                             ) {
-
-                                "Recovery codes" ->
-                                    onRecoveryCodesClick()
-
-                                "Email address" ->
-                                    onEmailClick()
 
                                 "Last seen",
                                 "Online status",

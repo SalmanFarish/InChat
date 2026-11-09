@@ -5,10 +5,8 @@ import android.util.Log
 import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.inchat.data.repository.PasswordRecoveryRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.UsernameAlreadyTakenException
-import com.example.inchat.data.security.RecoveryCodeManager
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -55,9 +53,6 @@ class AuthViewModel(
 
     private val userRepository =
         UserRepository()
-
-    private val passwordRecoveryRepository =
-        PasswordRecoveryRepository()
 
     private val messaging =
         FirebaseMessaging.getInstance()
@@ -230,7 +225,15 @@ class AuthViewModel(
 
         if (
             !isGoogleUser(firebaseUser) &&
-            extractUsernameFromAuthEmail(email).isBlank() &&
+            firebaseUser.email?.endsWith("@inchat.app", ignoreCase = true) == true
+        ) {
+            auth.signOut()
+            clearLocalAuthState()
+            return
+        }
+
+        if (
+            !isGoogleUser(firebaseUser) &&
             !firebaseUser.isEmailVerified
         ) {
             _currentUserId.value = uid
@@ -242,43 +245,7 @@ class AuthViewModel(
             return
         }
 
-        val quickUsername =
-            extractUsernameFromAuthEmail(
-                email
-            )
-
-        if (
-            quickUsername.isNotBlank()
-        ) {
-
-            applyUserProfile(
-                uid =
-                    uid,
-
-                username =
-                    quickUsername
-            )
-
-            _uiState.value =
-                AuthUiState.LoggedIn(
-                    uid =
-                        uid,
-
-                    username =
-                        quickUsername
-                )
-
-            refreshUserProfile(
-                uid
-            )
-
-            registerFcmToken(
-                uid
-            )
-
-            return
-        }
-
+        viewModelScope.launch {
         viewModelScope.launch {
 
             try {
@@ -364,42 +331,6 @@ class AuthViewModel(
                     AuthUiState.LoggedOut
             }
         }
-    }
-
-    private fun extractUsernameFromAuthEmail(
-        email: String?
-    ): String {
-
-        if (
-            email.isNullOrBlank()
-        ) {
-
-            return ""
-        }
-
-        val cleanEmail =
-            email.trim()
-
-        val suffix =
-            "@inchat.app"
-
-        if (
-            !cleanEmail.endsWith(
-                suffix,
-                ignoreCase = true
-            )
-        ) {
-
-            return ""
-        }
-
-        return cleanEmail
-            .substring(
-                0,
-                cleanEmail.length -
-                        suffix.length
-            )
-            .trim()
     }
 
     private fun isGoogleUser(
@@ -708,95 +639,6 @@ class AuthViewModel(
                 it.providerId ==
                         GoogleAuthProvider.PROVIDER_ID
             } == true
-    }
-
-    fun usesLegacyUsernamePassword(): Boolean {
-        val firebaseUser = auth.currentUser ?: return false
-        return !isGoogleUser(firebaseUser) &&
-                extractUsernameFromAuthEmail(firebaseUser.email).isNotBlank()
-    }
-
-    fun currentAuthEmail(): String {
-        return auth.currentUser?.email.orEmpty()
-    }
-
-    fun isCurrentAuthEmailVerified(): Boolean {
-        return auth.currentUser?.isEmailVerified == true
-    }
-
-    fun requestEmailUpdate(
-        rawEmail: String,
-        currentPassword: String,
-        onResult: (Boolean, String?) -> Unit
-    ) {
-        val firebaseUser = auth.currentUser
-        if (firebaseUser == null) {
-            onResult(false, "You are not logged in.")
-            return
-        }
-
-        if (isGoogleUser(firebaseUser)) {
-            onResult(false, "Manage this email address through your Google account.")
-            return
-        }
-
-        val currentEmail = firebaseUser.email
-        if (currentEmail.isNullOrBlank()) {
-            onResult(false, "This account has no email sign-in address.")
-            return
-        }
-
-        val cleanEmail = rawEmail.trim().lowercase(Locale.ROOT)
-        if (
-            cleanEmail.length > 254 ||
-            !Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()
-        ) {
-            onResult(false, "Enter a valid email address.")
-            return
-        }
-
-        if (cleanEmail.equals(currentEmail, ignoreCase = true)) {
-            onResult(false, "Enter a different email address.")
-            return
-        }
-
-        if (currentPassword.isBlank()) {
-            onResult(false, "Enter your current password.")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                val credential =
-                    EmailAuthProvider.getCredential(
-                        currentEmail,
-                        currentPassword
-                    )
-
-                firebaseUser.reauthenticate(credential).await()
-                firebaseUser.verifyBeforeUpdateEmail(cleanEmail).await()
-
-                onResult(
-                    true,
-                    "A verification link was sent to " + cleanEmail +
-                            ". After confirming it, sign out and sign in with this email address. Your InChat username, chats and groups will stay unchanged."
-                )
-            } catch (e: FirebaseAuthUserCollisionException) {
-                onResult(false, "That email address is already linked to another account.")
-            } catch (e: Exception) {
-                Log.e("AuthViewModel", "Email update request failed", e)
-                val message =
-                    when {
-                        e.message?.contains("password", ignoreCase = true) == true ->
-                            "Your current password is incorrect."
-                        e.message?.contains("recent", ignoreCase = true) == true ->
-                            "Please sign in again, then retry the email change."
-                        else ->
-                            "Could not send the verification email. Please check your connection and try again."
-                    }
-                onResult(false, message)
-            }
-        }
     }
 
     fun resendEmailVerification(
@@ -1664,262 +1506,41 @@ class AuthViewModel(
             )
     }
 
-    /*
-     * =========================================================
-     * GENERATE / REGENERATE RECOVERY CODES
-     * =========================================================
-     */
-    fun generateRecoveryCodes(
-        onResult:
-            (Boolean, List<String>?, String?) -> Unit
-    ) {
-
-        val uid =
-            _currentUserId.value
-
-        if (
-            uid.isBlank()
-        ) {
-
-            onResult(
-                false,
-                null,
-                "You are not logged in."
-            )
-
-            return
-        }
-
-        viewModelScope.launch {
-
-            try {
-
-                val recoveryCodeSet =
-                    RecoveryCodeManager
-                        .generateRecoveryCodeSet()
-
-                val saveResult =
-                    userRepository
-                        .saveRecoveryCodes(
-                            uid =
-                                uid,
-
-                            recoveryCodeSet =
-                                recoveryCodeSet
-                        )
-
-                saveResult
-                    .onSuccess {
-
-                        onResult(
-                            true,
-                            recoveryCodeSet.codes,
-                            null
-                        )
-                    }
-                    .onFailure { error ->
-
-                        onResult(
-                            false,
-                            null,
-                            error.message
-                                ?: "Could not generate recovery codes"
-                        )
-                    }
-
-            } catch (
-                e:
-                Exception
-            ) {
-
-                Log.e(
-                    "AuthViewModel",
-                    "Recovery-code generation failed",
-                    e
-                )
-
-                onResult(
-                    false,
-                    null,
-                    "Could not generate recovery codes"
-                )
-            }
-        }
-    }
-
-    /*
-     * =========================================================
-     * PASSWORD RECOVERY
-     * =========================================================
-     */
-    fun recoverPassword(
-        username: String,
-        recoveryCode: String,
-        newPassword: String,
-        onResult:
-            (String?) -> Unit
-    ) {
-
-        viewModelScope.launch {
-
-            val cleanUsername =
-                username.trim()
-
-            val cleanRecoveryCode =
-                recoveryCode.trim()
-
-            if (
-                cleanUsername.isBlank()
-            ) {
-
-                onResult(
-                    "Enter your username."
-                )
-
-                return@launch
-            }
-
-            if (
-                !cleanUsername.matches(
-                    Regex(
-                        "^[a-zA-Z0-9_.]{3,20}$"
-                    )
-                )
-            ) {
-
-                onResult(
-                    "Invalid username."
-                )
-
-                return@launch
-            }
-
-            if (
-                cleanRecoveryCode.isBlank()
-            ) {
-
-                onResult(
-                    "Enter your recovery code."
-                )
-
-                return@launch
-            }
-
-            if (
-                !cleanRecoveryCode
-                    .uppercase()
-                    .matches(
-                        Regex(
-                            "^INCH-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$"
-                        )
-                    )
-            ) {
-
-                onResult(
-                    "Invalid recovery code format."
-                )
-
-                return@launch
-            }
-
-            if (
-                newPassword.length < 6
-            ) {
-
-                onResult(
-                    "New password must be at least 6 characters."
-                )
-
-                return@launch
-            }
-
-            if (
-                newPassword.length > 4096
-            ) {
-
-                onResult(
-                    "New password is too long."
-                )
-
-                return@launch
-            }
-
-            passwordRecoveryRepository
-                .recoverPassword(
-                    username =
-                        cleanUsername,
-
-                    recoveryCode =
-                        cleanRecoveryCode,
-
-                    newPassword =
-                        newPassword
-                )
-                .onSuccess { message ->
-
-                    onResult(
-                        message
-                    )
-                }
-                .onFailure { error ->
-
-                    onResult(
-                        error.message
-                            ?: "Could not reset your password."
-                    )
-                }
-        }
-    }
-
-    /*
+        /*
      * =========================================================
      * LOGIN
      * =========================================================
      */
     fun login(
-        rawUsername: String,
+        rawEmail: String,
         password: String,
         onResult: (String?) -> Unit
     ) {
         viewModelScope.launch {
-            val loginIdentifier = rawUsername.trim()
+            val email = rawEmail.trim().lowercase(Locale.ROOT)
 
-            if (loginIdentifier.isBlank() || password.isBlank()) {
-                onResult("Enter your email or username and password.")
+            if (email.isBlank() || password.isBlank()) {
+                onResult("Enter your email address and password.")
                 return@launch
             }
 
-            val signInEmail =
-                if (loginIdentifier.contains("@")) {
-                    val normalizedEmail =
-                        loginIdentifier.lowercase(Locale.ROOT)
+            if (
+                email.length > 254 ||
+                !Patterns.EMAIL_ADDRESS.matcher(email).matches()
+            ) {
+                onResult("Enter a valid email address.")
+                return@launch
+            }
 
-                    if (
-                        normalizedEmail.length > 254 ||
-                        !Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()
-                    ) {
-                        onResult("Enter a valid email address.")
-                        return@launch
-                    }
-
-                    normalizedEmail
-                } else {
-                    if (
-                        !loginIdentifier.matches(
-                            Regex("^[a-zA-Z0-9_.]{3,20}$")
-                        )
-                    ) {
-                        onResult("Enter a valid email address or legacy username.")
-                        return@launch
-                    }
-
-                    loginIdentifier.lowercase(Locale.ROOT) + "@inchat.app"
-                }
+            if (email.endsWith("@inchat.app", ignoreCase = true)) {
+                onResult("That is an old InChat test account. Create a new account with a real email address.")
+                return@launch
+            }
 
             try {
                 val result =
                     auth.signInWithEmailAndPassword(
-                        signInEmail,
+                        email,
                         password
                     ).await()
 
@@ -1930,23 +1551,21 @@ class AuthViewModel(
                             "Firebase did not return a signed-in user."
                         )
 
-                val uid = firebaseUser.uid
-
                 if (
                     !isGoogleUser(firebaseUser) &&
-                    extractUsernameFromAuthEmail(firebaseUser.email).isBlank() &&
                     !firebaseUser.isEmailVerified
                 ) {
-                    _currentUserId.value = uid
+                    _currentUserId.value = firebaseUser.uid
                     _uiState.value =
                         AuthUiState.NeedsEmailVerification(
-                            uid = uid,
+                            uid = firebaseUser.uid,
                             email = firebaseUser.email.orEmpty()
                         )
                     onResult(null)
                     return@launch
                 }
 
+                val uid = firebaseUser.uid
                 val user =
                     userRepository.getUserById(uid)
 
@@ -1954,7 +1573,7 @@ class AuthViewModel(
                     auth.signOut()
                     clearLocalAuthState()
                     onResult(
-                        "This account is incomplete. Please contact support."
+                        "This account is incomplete. Please create a new account or contact support."
                     )
                     return@launch
                 }
@@ -1976,7 +1595,7 @@ class AuthViewModel(
                 onResult(null)
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "Login failed", e)
-                onResult("Invalid email/username or password.")
+                onResult("Invalid email address or password.")
             }
         }
     }

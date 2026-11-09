@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
-import com.example.inchat.data.model.RecoveryCodeSet
 import com.example.inchat.data.model.User
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -1752,11 +1751,6 @@ class UserRepository {
             ] =
                 null
 
-            updates[
-                "recoveryCodes/$uid"
-            ] =
-                null
-
             if (
                 usernameKey.isNotBlank()
             ) {
@@ -1827,80 +1821,6 @@ class UserRepository {
             userCache.remove(
                 uid
             )
-
-            Result.success(
-                Unit
-            )
-
-        } catch (
-            e: Exception
-        ) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
-
-    /*
-     * =========================================================
-     * SAVE RECOVERY CODES
-     * =========================================================
-     */
-
-    suspend fun saveRecoveryCodes(
-        uid: String,
-        recoveryCodeSet: RecoveryCodeSet
-    ): Result<Unit> {
-
-        if (
-            uid.isBlank() ||
-            recoveryCodeSet.saltHex.isBlank() ||
-            recoveryCodeSet.codeHashesHex.size != 5
-        ) {
-
-            return Result.failure(
-                IllegalArgumentException(
-                    "Invalid recovery-code data"
-                )
-            )
-        }
-
-        return try {
-
-            val codeMap =
-                recoveryCodeSet
-                    .codeHashesHex
-                    .mapIndexed {
-                            index,
-                            hash ->
-
-                        index.toString() to
-                                hash
-                    }
-                    .toMap()
-
-            val recoveryData =
-                mapOf<String, Any>(
-
-                    "salt" to
-                            recoveryCodeSet.saltHex,
-
-                    "codes" to
-                            codeMap
-                )
-
-            database
-                .getReference(
-                    "recoveryCodes"
-                )
-                .child(
-                    uid
-                )
-                .setValue(
-                    recoveryData
-                )
-                .await()
 
             Result.success(
                 Unit
