@@ -1346,6 +1346,11 @@ class AuthViewModel(
                 return@launch
             }
 
+            if (email.endsWith("@inchat.app", ignoreCase = true)) {
+                onResult("Please use a personal email address, not the old InChat test-account address.")
+                return@launch
+            }
+
             if (
                 !username.matches(
                     Regex("^[a-zA-Z0-9_.]{3,20}$")
