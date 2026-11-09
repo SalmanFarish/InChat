@@ -85,7 +85,9 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -251,13 +253,38 @@ fun InChatApp(
                 target.otherUserNickname
             )
 
-        navController.navigate(
-            "chat/${target.otherUserId}" +
-                    "?otherUserNickname=$encodedUsername"
-        ) {
+        val chatType =
+            runCatching {
+                FirebaseDatabase
+                    .getInstance()
+                    .getReference("chats")
+                    .child(target.chatId)
+                    .child("type")
+                    .get()
+                    .await()
+                    .getValue(String::class.java)
+            }.getOrNull()
 
-            launchSingleTop =
-                true
+        if (chatType == "group") {
+
+            navController.navigate(
+                "group_chat/${target.chatId}"
+            ) {
+
+                launchSingleTop =
+                    true
+            }
+
+        } else {
+
+            navController.navigate(
+                "chat/${target.otherUserId}" +
+                        "?otherUserNickname=$encodedUsername"
+            ) {
+
+                launchSingleTop =
+                    true
+            }
         }
 
         onNotificationHandled()

@@ -804,23 +804,55 @@ class GroupChatRepository {
                 )
             }
 
-            val updates =
-                mutableMapOf<String, Any?>()
-
-            newMemberIds.forEach { uid ->
-                updates[
-                    "chats/$groupId/members/$uid"
-                ] = "member"
-
-                updates[
-                    "groupMemberships/$uid/$groupId"
-                ] = true
-            }
+            /*
+             * Add chat membership first. The groupMemberships rules
+             * intentionally verify that the target is already a
+             * member, so the index must be written in a second step.
+             */
+            val memberUpdates =
+                newMemberIds.associate { uid ->
+                    "chats/$groupId/members/$uid" to "member"
+                }
 
             database
                 .reference
-                .updateChildren(updates)
+                .updateChildren(memberUpdates)
                 .await()
+
+            try {
+
+                val membershipUpdates =
+                    newMemberIds.associate { uid ->
+                        "groupMemberships/$uid/$groupId" to true
+                    }
+
+                database
+                    .reference
+                    .updateChildren(membershipUpdates)
+                    .await()
+
+            } catch (indexError: Exception) {
+
+                /*
+                 * The index update is atomic. If it fails, roll back
+                 * the newly-created chat memberships rather than
+                 * leaving people in a group that is absent from Home.
+                 */
+                runCatching {
+
+                    val rollbackUpdates =
+                        newMemberIds.associate { uid ->
+                            "chats/$groupId/members/$uid" to null
+                        }
+
+                    database
+                        .reference
+                        .updateChildren(rollbackUpdates)
+                        .await()
+                }
+
+                throw indexError
+            }
 
             Result.success(Unit)
 
