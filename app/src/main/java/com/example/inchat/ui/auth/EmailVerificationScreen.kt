@@ -59,7 +59,7 @@ fun EmailVerificationScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "We sent a verification link to:",
+                text = "A verification link should arrive at this address. Check your inbox and spam folder. If it does not arrive, use Resend below:",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
