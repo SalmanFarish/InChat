@@ -2,8 +2,6 @@ package com.example.inchat.ui.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +10,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,1235 +42,577 @@ import kotlinx.coroutines.launch
 private enum class AuthMode {
     Login,
     Register,
-    Recover
+    RecoverEmail,
+    RecoverCodes
 }
 
 @Composable
 fun LoginScreen(
     authViewModel: AuthViewModel
 ) {
-    val context =
-        LocalContext.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
 
-    val coroutineScope =
-        rememberCoroutineScope()
+    var mode by remember { mutableStateOf(AuthMode.Login) }
+    var loginIdentifierInput by remember { mutableStateOf("") }
+    var usernameInput by remember { mutableStateOf("") }
+    var emailInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var recoveryCodeInput by remember { mutableStateOf("") }
+    var newPasswordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var successMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    var mode by
-    remember {
-        mutableStateOf(
-            AuthMode.Login
-        )
-    }
-
-    var usernameInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var passwordInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var recoveryCodeInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var newPasswordInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var confirmPasswordInput by
-    remember {
-        mutableStateOf("")
-    }
-
-    var errorMessage by
-    remember {
-        mutableStateOf<String?>(
-            null
-        )
-    }
-
-    var successMessage by
-    remember {
-        mutableStateOf<String?>(
-            null
-        )
-    }
-
-    var isLoading by
-    remember {
-        mutableStateOf(false)
-    }
-
-    /*
-     * Recovery codes generated during registration.
-     */
-    var recoveryCodes by
-    remember {
-        mutableStateOf<List<String>?>(
-            null
-        )
-    }
-
-    val showingRegistrationRecoveryCodes =
-        recoveryCodes != null
-
-    val scrollState =
-        rememberScrollState()
-
-    /*
-     * =========================================================
-     * AUTHENTICATION SCREEN
-     * =========================================================
-     */
     Surface(
-
-        modifier =
-            Modifier.fillMaxSize(),
-
-        color =
-            MaterialTheme
-                .colorScheme
-                .background
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-
         Column(
-
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .imePadding()
-                    .verticalScroll(
-                        scrollState
-                    )
-                    .padding(
-                        24.dp
-                    ),
-
-            verticalArrangement =
-                Arrangement.Center,
-
-            horizontalAlignment =
-                Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .imePadding()
+                .verticalScroll(scrollState)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(
+                text = when (mode) {
+                    AuthMode.Login -> "Welcome to InChat"
+                    AuthMode.Register -> "Create your InChat account"
+                    AuthMode.RecoverEmail -> "Reset your InChat password"
+                    AuthMode.RecoverCodes -> "Recover an older InChat account"
+                },
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-
-                text =
-                    when (
-                        mode
-                    ) {
-
-                        AuthMode.Login ->
-                            "Welcome to InChat"
-
-                        AuthMode.Register ->
-                            "Create your InChat account"
-
-                        AuthMode.Recover ->
-                            "Recover your InChat account"
-                    },
-
-                fontSize =
-                    32.sp,
-
-                fontWeight =
-                    FontWeight.Bold,
-
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .primary,
-
-                textAlign =
-                    TextAlign.Center
+                text = when (mode) {
+                    AuthMode.Login ->
+                        "Sign in with your email. Older accounts can still use their username."
+                    AuthMode.Register ->
+                        "Add an email address, choose a unique username and create a password."
+                    AuthMode.RecoverEmail ->
+                        "Enter the email address linked to your InChat account. Firebase will email you a reset link."
+                    AuthMode.RecoverCodes ->
+                        "This option is for older username-only accounts that still use recovery codes."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
 
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        8.dp
-                    )
-            )
+            Spacer(modifier = Modifier.height(28.dp))
 
-            Text(
-
-                text =
-                    when (
-                        mode
-                    ) {
-
-                        AuthMode.Login ->
-                            "Log in with your username and password."
-
-                        AuthMode.Register ->
-                            "Pick a unique username and a password."
-
-                        AuthMode.Recover ->
-                            "Use one of your saved recovery codes to set a new password."
-                    },
-
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodyMedium,
-
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant,
-
-                textAlign =
-                    TextAlign.Center
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        32.dp
-                    )
-            )
-
-            /*
-             * =================================================
-             * RECOVERY MODE
-             * =================================================
-             */
-            if (
-                mode ==
-                AuthMode.Recover
-            ) {
-
-                OutlinedTextField(
-
-                    value =
-                        usernameInput,
-
-                    onValueChange = { value ->
-
-                        usernameInput =
-                            value
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "Username"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            12.dp
-                        )
-                )
-
-                OutlinedTextField(
-
-                    value =
-                        recoveryCodeInput,
-
-                    onValueChange = { value ->
-
-                        recoveryCodeInput =
-                            value
-                                .uppercase()
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "Recovery Code"
-                        )
-                    },
-
-                    placeholder = {
-                        Text(
-                            "INCH-XXXX-XXXX-XXXX-XXXX"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            12.dp
-                        )
-                )
-
-                OutlinedTextField(
-
-                    value =
-                        newPasswordInput,
-
-                    onValueChange = { value ->
-
-                        newPasswordInput =
-                            value
-
-                        errorMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "New Password"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    visualTransformation =
-                        PasswordVisualTransformation(),
-
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType =
-                                KeyboardType.Password
+            when (mode) {
+                AuthMode.RecoverEmail -> {
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = {
+                            emailInput = it
+                            errorMessage = null
+                            successMessage = null
+                        },
+                        label = { Text("Email address") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email
                         ),
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            12.dp
-                        )
-                )
-
-                OutlinedTextField(
-
-                    value =
-                        confirmPasswordInput,
-
-                    onValueChange = { value ->
-
-                        confirmPasswordInput =
-                            value
-
-                        errorMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "Confirm New Password"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    visualTransformation =
-                        PasswordVisualTransformation(),
-
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType =
-                                KeyboardType.Password
-                        ),
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading
-                )
-
-                if (
-                    errorMessage != null
-                ) {
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                8.dp
-                            )
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
                     )
 
-                    Text(
-                        text =
-                            errorMessage!!,
-
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .error,
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall,
-
-                        textAlign =
-                            TextAlign.Center
-                    )
-                }
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            24.dp
-                        )
-                )
-
-                Button(
-
-                    onClick = {
-
-                        if (
-                            usernameInput
-                                .isBlank() ||
-                            recoveryCodeInput
-                                .isBlank() ||
-                            newPasswordInput
-                                .isBlank() ||
-                            confirmPasswordInput
-                                .isBlank()
-                        ) {
-
-                            errorMessage =
-                                "Fill in all fields"
-
-                            return@Button
-                        }
-
-                        if (
-                            newPasswordInput.length <
-                            6
-                        ) {
-
-                            errorMessage =
-                                "New password must be at least 6 characters"
-
-                            return@Button
-                        }
-
-                        if (
-                            newPasswordInput !=
-                            confirmPasswordInput
-                        ) {
-
-                            errorMessage =
-                                "Passwords do not match"
-
-                            return@Button
-                        }
-
-                        isLoading =
-                            true
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-
-                        authViewModel
-                            .recoverPassword(
-                                username =
-                                    usernameInput,
-
-                                recoveryCode =
-                                    recoveryCodeInput,
-
-                                newPassword =
-                                    newPasswordInput
-                            ) { message ->
-
-                                isLoading =
-                                    false
-
-                                if (
-                                    message == null
-                                ) {
-
-                                    errorMessage =
-                                        "Could not reset your password."
-
-                                } else {
-
-                                    successMessage =
-                                        message
-
-                                    /*
-                                     * Clear the sensitive fields
-                                     * immediately after success.
-                                     */
-                                    recoveryCodeInput =
-                                        ""
-
-                                    newPasswordInput =
-                                        ""
-
-                                    confirmPasswordInput =
-                                        ""
-
-                                    /*
-                                     * Return to the normal login
-                                     * screen.
-                                     */
-                                    mode =
-                                        AuthMode.Login
-                                }
-                            }
-                    },
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(
-                                50.dp
-                            ),
-
-                    enabled =
-                        !isLoading
-                ) {
-
-                    if (
-                        isLoading
-                    ) {
-
-                        CircularProgressIndicator(
-
-                            modifier =
-                                Modifier.size(
-                                    24.dp
-                                ),
-
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onPrimary
-                        )
-
-                    } else {
-
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text =
-                                "Reset Password",
-
-                            fontSize =
-                                16.sp,
-
-                            fontWeight =
-                                FontWeight.Bold
+                            text = errorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center
                         )
                     }
-                }
 
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            16.dp
-                        )
-                )
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                TextButton(
+                    Button(
+                        onClick = {
+                            if (emailInput.isBlank()) {
+                                errorMessage = "Enter your email address."
+                                return@Button
+                            }
 
-                    onClick = {
-
-                        mode =
-                            AuthMode.Login
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-                    },
-
-                    enabled =
-                        !isLoading
-                ) {
-
-                    Text(
-                        "Back to Log In"
-                    )
-                }
-            }
-
-            /*
-             * =================================================
-             * LOGIN / REGISTER MODE
-             * =================================================
-             */
-            else {
-
-                OutlinedTextField(
-
-                    value =
-                        usernameInput,
-
-                    onValueChange = { value ->
-
-                        usernameInput =
-                            value
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "Username"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading &&
-                                !showingRegistrationRecoveryCodes
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            12.dp
-                        )
-                )
-
-                OutlinedTextField(
-
-                    value =
-                        passwordInput,
-
-                    onValueChange = { value ->
-
-                        passwordInput =
-                            value
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-                    },
-
-                    label = {
-                        Text(
-                            "Password"
-                        )
-                    },
-
-                    singleLine =
-                        true,
-
-                    visualTransformation =
-                        PasswordVisualTransformation(),
-
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType =
-                                KeyboardType.Password
-                        ),
-
-                    modifier =
-                        Modifier.fillMaxWidth(),
-
-                    enabled =
-                        !isLoading &&
-                                !showingRegistrationRecoveryCodes
-                )
-
-                if (
-                    errorMessage != null
-                ) {
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                8.dp
-                            )
-                    )
-
-                    Text(
-                        text =
-                            errorMessage!!,
-
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .error,
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall,
-
-                        textAlign =
-                            TextAlign.Center
-                    )
-                }
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            24.dp
-                        )
-                )
-
-                Button(
-
-                    onClick = {
-
-                        if (
-                            usernameInput
-                                .isBlank() ||
-                            passwordInput
-                                .isBlank()
-                        ) {
-
-                            errorMessage =
-                                "Fill in both fields"
-
-                            return@Button
-                        }
-
-                        isLoading =
-                            true
-
-                        errorMessage =
-                            null
-
-                        successMessage =
-                            null
-
-                        if (
-                            mode ==
-                            AuthMode.Login
-                        ) {
-
-                            authViewModel
-                                .login(
-                                    usernameInput,
-                                    passwordInput
-                                ) { error ->
-
-                                    isLoading =
-                                        false
-
-                                    errorMessage =
-                                        error
+                            isLoading = true
+                            errorMessage = null
+                            authViewModel.sendPasswordResetEmail(emailInput) { success, message ->
+                                isLoading = false
+                                if (success) {
+                                    successMessage = message
+                                    mode = AuthMode.Login
+                                } else {
+                                    errorMessage = message
+                                        ?: "Could not send the reset email."
                                 }
-
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
                         } else {
-
-                            authViewModel
-                                .register(
-                                    usernameInput,
-                                    passwordInput
-                                ) { error, codes ->
-
-                                    isLoading =
-                                        false
-
-                                    errorMessage =
-                                        error
-
-                                    if (
-                                        codes != null
-                                    ) {
-
-                                        recoveryCodes =
-                                            codes
-                                    }
-                                }
-                        }
-                    },
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(
-                                50.dp
-                            ),
-
-                    enabled =
-                        !isLoading &&
-                                !showingRegistrationRecoveryCodes
-                ) {
-
-                    if (
-                        isLoading
-                    ) {
-
-                        CircularProgressIndicator(
-
-                            modifier =
-                                Modifier.size(
-                                    24.dp
-                                ),
-
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onPrimary
-                        )
-
-                    } else {
-
-                        Text(
-
-                            text =
-                                if (
-                                    mode ==
-                                    AuthMode.Login
-                                ) {
-                                    "Log In"
-                                } else {
-                                    "Create Account"
-                                },
-
-                            fontSize =
-                                16.sp,
-
-                            fontWeight =
-                                FontWeight.Bold
-                        )
-                    }
-                }
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            14.dp
-                        )
-                )
-
-                Text(
-                    text =
-                        "OR",
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelMedium,
-
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            10.dp
-                        )
-                )
-
-                OutlinedButton(
-
-                    onClick = {
-
-                        if (!isLoading) {
-
-                            isLoading =
-                                true
-
-                            errorMessage =
-                                null
-
-                            coroutineScope.launch {
-
-                                try {
-
-                                    val idToken =
-                                        GoogleSignInHelper
-                                            .getIdToken(
-                                                context
-                                            )
-
-                                    authViewModel
-                                        .signInWithGoogle(
-                                            idToken
-                                        ) { error ->
-
-                                            isLoading =
-                                                false
-
-                                            errorMessage =
-                                                error
-                                        }
-
-                                } catch (e: Exception) {
-
-                                    isLoading =
-                                        false
-
-                                    val message =
-                                        e.message
-                                            ?: "Google sign-in failed. Please try again."
-
-                                    errorMessage =
-                                        if (
-                                            message.contains(
-                                                "cancel",
-                                                ignoreCase = true
-                                            )
-                                        ) {
-                                            "Google sign-in was cancelled."
-                                        } else {
-                                            message
-                                        }
-                                }
-                            }
-                        }
-                    },
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(
-                                50.dp
-                            ),
-
-                    enabled =
-                        !isLoading &&
-                                !showingRegistrationRecoveryCodes
-                ) {
-
-                    Text(
-                        text =
-                            "Continue with Google",
-
-                        fontSize =
-                            16.sp,
-
-                        fontWeight =
-                            FontWeight.SemiBold
-                    )
-                }
-
-                if (
-                    mode ==
-                    AuthMode.Login
-                ) {
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                8.dp
+                            Text(
+                                "Send reset link",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                    )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     TextButton(
-
                         onClick = {
-
-                            mode =
-                                AuthMode.Recover
-
-                            errorMessage =
-                                null
-
-                            successMessage =
-                                null
+                            mode = AuthMode.RecoverCodes
+                            errorMessage = null
+                            successMessage = null
                         },
-
-                        enabled =
-                            !isLoading &&
-                                    !showingRegistrationRecoveryCodes
+                        enabled = !isLoading
                     ) {
+                        Text("Using an older username-only account? Use a recovery code")
+                    }
 
-                        Text(
-                            "Forgot password?"
-                        )
+                    TextButton(
+                        onClick = {
+                            mode = AuthMode.Login
+                            errorMessage = null
+                        },
+                        enabled = !isLoading
+                    ) {
+                        Text("Back to Log In")
                     }
                 }
 
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            8.dp
+                AuthMode.RecoverCodes -> {
+                    OutlinedTextField(
+                        value = usernameInput,
+                        onValueChange = {
+                            usernameInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("Username") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = recoveryCodeInput,
+                        onValueChange = {
+                            recoveryCodeInput = it.uppercase()
+                            errorMessage = null
+                        },
+                        label = { Text("Recovery code") },
+                        placeholder = { Text("INCH-XXXX-XXXX-XXXX-XXXX") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = newPasswordInput,
+                        onValueChange = {
+                            newPasswordInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("New password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = confirmPasswordInput,
+                        onValueChange = {
+                            confirmPasswordInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("Confirm new password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    )
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center
                         )
-                )
+                    }
 
-                TextButton(
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    onClick = {
-
-                        mode =
+                    Button(
+                        onClick = {
                             if (
-                                mode ==
-                                AuthMode.Login
+                                usernameInput.isBlank() ||
+                                recoveryCodeInput.isBlank() ||
+                                newPasswordInput.isBlank() ||
+                                confirmPasswordInput.isBlank()
                             ) {
-                                AuthMode.Register
-                            } else {
-                                AuthMode.Login
+                                errorMessage = "Fill in all fields."
+                                return@Button
                             }
 
-                        errorMessage =
-                            null
+                            if (newPasswordInput.length < 6) {
+                                errorMessage = "New password must be at least 6 characters."
+                                return@Button
+                            }
 
-                        successMessage =
-                            null
-                    },
+                            if (newPasswordInput != confirmPasswordInput) {
+                                errorMessage = "Passwords do not match."
+                                return@Button
+                            }
 
-                    enabled =
-                        !isLoading &&
-                                !showingRegistrationRecoveryCodes
-                ) {
+                            isLoading = true
+                            errorMessage = null
 
-                    Text(
-
-                        if (
-                            mode ==
-                            AuthMode.Login
-                        ) {
-                            "New here? Create an account"
+                            authViewModel.recoverPassword(
+                                username = usernameInput,
+                                recoveryCode = recoveryCodeInput,
+                                newPassword = newPasswordInput
+                            ) { message ->
+                                isLoading = false
+                                if (message == null) {
+                                    errorMessage = "Could not reset your password."
+                                } else {
+                                    successMessage = message
+                                    recoveryCodeInput = ""
+                                    newPasswordInput = ""
+                                    confirmPasswordInput = ""
+                                    mode = AuthMode.Login
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
                         } else {
-                            "Already have an account? Log in"
+                            Text(
+                                "Reset password",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                    )
-                }
-            }
-        }
-    }
-
-    /*
-     * =========================================================
-     * SUCCESS MESSAGE
-     * =========================================================
-     */
-    if (
-        successMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                successMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "Password Reset"
-                )
-            },
-
-            text = {
-
-                Text(
-                    successMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        successMessage =
-                            null
                     }
-                ) {
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = {
+                            mode = AuthMode.RecoverEmail
+                            errorMessage = null
+                            successMessage = null
+                        },
+                        enabled = !isLoading
+                    ) {
+                        Text("Back to email reset")
+                    }
+
+                    TextButton(
+                        onClick = {
+                            mode = AuthMode.Login
+                            errorMessage = null
+                        },
+                        enabled = !isLoading
+                    ) {
+                        Text("Back to Log In")
+                    }
+                }
+
+                AuthMode.Login,
+                AuthMode.Register -> {
+                    if (mode == AuthMode.Register) {
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = {
+                                emailInput = it
+                                errorMessage = null
+                            },
+                            label = { Text("Email address") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = usernameInput,
+                            onValueChange = {
+                                usernameInput = it
+                                errorMessage = null
+                            },
+                            label = { Text("Choose a username") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = loginIdentifierInput,
+                            onValueChange = {
+                                loginIdentifierInput = it
+                                errorMessage = null
+                            },
+                            label = { Text("Email or legacy username") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isLoading
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            passwordInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading
+                    )
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(22.dp))
+
+                    Button(
+                        onClick = {
+                            if (passwordInput.isBlank()) {
+                                errorMessage = "Enter your password."
+                                return@Button
+                            }
+
+                            isLoading = true
+                            errorMessage = null
+                            successMessage = null
+
+                            if (mode == AuthMode.Login) {
+                                if (loginIdentifierInput.isBlank()) {
+                                    isLoading = false
+                                    errorMessage = "Enter your email address or username."
+                                    return@Button
+                                }
+
+                                authViewModel.login(
+                                    loginIdentifierInput,
+                                    passwordInput
+                                ) { error ->
+                                    isLoading = false
+                                    errorMessage = error
+                                }
+                            } else {
+                                if (
+                                    emailInput.isBlank() ||
+                                    usernameInput.isBlank()
+                                ) {
+                                    isLoading = false
+                                    errorMessage = "Enter your email address and choose a username."
+                                    return@Button
+                                }
+
+                                authViewModel.register(
+                                    rawEmail = emailInput,
+                                    rawUsername = usernameInput,
+                                    password = passwordInput
+                                ) { error ->
+                                    isLoading = false
+                                    errorMessage = error
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text(
+                                if (mode == AuthMode.Login) "Log In" else "Create Account",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        "OK"
+                        text = "OR",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-            }
-        )
-    }
 
-    /*
-     * =========================================================
-     * REGISTRATION RECOVERY CODES
-     * =========================================================
-     */
-    if (
-        recoveryCodes != null
-    ) {
+                    Spacer(modifier = Modifier.height(10.dp))
 
-        RecoveryCodesDialog(
+                    OutlinedButton(
+                        onClick = {
+                            if (!isLoading) {
+                                isLoading = true
+                                errorMessage = null
 
-            codes =
-                recoveryCodes!!,
+                                coroutineScope.launch {
+                                    try {
+                                        val idToken =
+                                            GoogleSignInHelper.getIdToken(context)
 
-            onSaved = {
+                                        authViewModel.signInWithGoogle(idToken) { error ->
+                                            isLoading = false
+                                            errorMessage = error
+                                        }
+                                    } catch (e: Exception) {
+                                        isLoading = false
+                                        val message =
+                                            e.message
+                                                ?: "Google sign-in failed. Please try again."
 
-                recoveryCodes =
-                    null
-
-                authViewModel
-                    .completeRegistration()
-            }
-        )
-    }
-}
-
-/*
- * =========================================================
- * REGISTRATION RECOVERY CODE DIALOG
- * =========================================================
- */
-@Composable
-private fun RecoveryCodesDialog(
-    codes: List<String>,
-    onSaved: () -> Unit
-) {
-    AlertDialog(
-
-        onDismissRequest = {
-            /*
-             * Intentionally empty.
-             *
-             * The user must explicitly confirm that
-             * they have saved the recovery codes.
-             */
-        },
-
-        title = {
-
-            Text(
-
-                text =
-                    "Save your recovery codes",
-
-                fontWeight =
-                    FontWeight.Bold
-            )
-        },
-
-        text = {
-
-            Column {
-
-                Text(
-                    text =
-                        "These codes are the only way to recover your account if you forget your password.",
-
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodyMedium
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            12.dp
+                                        errorMessage =
+                                            if (message.contains("cancel", ignoreCase = true)) {
+                                                "Google sign-in was cancelled."
+                                            } else {
+                                                message
+                                            }
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        enabled = !isLoading
+                    ) {
+                        Text(
+                            "Continue with Google",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
-                )
+                    }
 
-                Text(
-                    text =
-                        "Save them somewhere safe. Each code can be used only once.",
+                    if (mode == AuthMode.Login) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodySmall,
+                        TextButton(
+                            onClick = {
+                                mode = AuthMode.RecoverEmail
+                                errorMessage = null
+                                successMessage = null
+                            },
+                            enabled = !isLoading
+                        ) {
+                            Text("Forgot password?")
+                        }
+                    }
 
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .error
-                )
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(
-                    modifier =
-                        Modifier.height(
-                            16.dp
+                    TextButton(
+                        onClick = {
+                            mode =
+                                if (mode == AuthMode.Login) {
+                                    AuthMode.Register
+                                } else {
+                                    AuthMode.Login
+                                }
+
+                            errorMessage = null
+                            successMessage = null
+                        },
+                        enabled = !isLoading
+                    ) {
+                        Text(
+                            if (mode == AuthMode.Login) {
+                                "New here? Create an account"
+                            } else {
+                                "Already have an account? Log in"
+                            }
                         )
-                )
-
-                codes.forEach { code ->
-
-                    Text(
-
-                        text =
-                            code,
-
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    vertical =
-                                        4.dp
-                                ),
-
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyLarge,
-
-                        fontWeight =
-                            FontWeight.Medium,
-
-                        textAlign =
-                            TextAlign.Center
-                    )
+                    }
                 }
-            }
-        },
-
-        confirmButton = {
-
-            TextButton(
-                onClick =
-                    onSaved
-            ) {
-
-                Text(
-                    "I've saved them"
-                )
             }
         }
-    )
+    }
+
+    if (successMessage != null) {
+        AlertDialog(
+            onDismissRequest = { successMessage = null },
+            title = { Text("Password reset") },
+            text = { Text(successMessage!!) },
+            confirmButton = {
+                TextButton(onClick = { successMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 }

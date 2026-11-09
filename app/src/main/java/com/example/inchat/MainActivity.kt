@@ -32,6 +32,7 @@ import com.example.inchat.notification.InChatFirebaseMessagingService
 import com.example.inchat.ui.auth.AuthUiState
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.auth.LoginScreen
+import com.example.inchat.ui.auth.EmailVerificationScreen
 import com.example.inchat.ui.auth.GoogleUsernameSetupScreen
 import com.example.inchat.ui.home.HomeViewModel
 import com.example.inchat.ui.navigation.InChatApp
@@ -284,7 +285,8 @@ class MainActivity :
                 }
 
                 AuthUiState.LoggedOut,
-                is AuthUiState.NeedsUsernameSetup -> {
+                is AuthUiState.NeedsUsernameSetup,
+                is AuthUiState.NeedsEmailVerification -> {
 
                     FirebaseServerClock
                         .stop()
@@ -343,6 +345,14 @@ class MainActivity :
 
                         authViewModel =
                             authViewModel
+                    )
+                }
+
+                is AuthUiState.NeedsEmailVerification -> {
+
+                    EmailVerificationScreen(
+                        state = state,
+                        authViewModel = authViewModel
                     )
                 }
 

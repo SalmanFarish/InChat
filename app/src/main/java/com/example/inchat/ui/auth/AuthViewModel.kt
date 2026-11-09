@@ -2,6 +2,7 @@ package com.example.inchat.ui.auth
 
 import android.app.Application
 import android.util.Log
+import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.repository.PasswordRecoveryRepository
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Locale
 
 sealed interface AuthUiState {
 
@@ -36,6 +38,11 @@ sealed interface AuthUiState {
         val uid: String,
         val email: String,
         val suggestedUsername: String
+    ) : AuthUiState
+
+    data class NeedsEmailVerification(
+        val uid: String,
+        val email: String
     ) : AuthUiState
 }
 
@@ -218,6 +225,20 @@ class AuthViewModel(
             _uiState.value =
                 AuthUiState.LoggedOut
 
+            return
+        }
+
+        if (
+            !isGoogleUser(firebaseUser) &&
+            extractUsernameFromAuthEmail(email).isBlank() &&
+            !firebaseUser.isEmailVerified
+        ) {
+            _currentUserId.value = uid
+            _uiState.value =
+                AuthUiState.NeedsEmailVerification(
+                    uid = uid,
+                    email = email.orEmpty()
+                )
             return
         }
 
@@ -687,6 +708,182 @@ class AuthViewModel(
                 it.providerId ==
                         GoogleAuthProvider.PROVIDER_ID
             } == true
+    }
+
+    fun usesLegacyUsernamePassword(): Boolean {
+        val firebaseUser = auth.currentUser ?: return false
+        return !isGoogleUser(firebaseUser) &&
+                extractUsernameFromAuthEmail(firebaseUser.email).isNotBlank()
+    }
+
+    fun currentAuthEmail(): String {
+        return auth.currentUser?.email.orEmpty()
+    }
+
+    fun isCurrentAuthEmailVerified(): Boolean {
+        return auth.currentUser?.isEmailVerified == true
+    }
+
+    fun requestEmailUpdate(
+        rawEmail: String,
+        currentPassword: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val firebaseUser = auth.currentUser
+        if (firebaseUser == null) {
+            onResult(false, "You are not logged in.")
+            return
+        }
+
+        if (isGoogleUser(firebaseUser)) {
+            onResult(false, "Manage this email address through your Google account.")
+            return
+        }
+
+        val currentEmail = firebaseUser.email
+        if (currentEmail.isNullOrBlank()) {
+            onResult(false, "This account has no email sign-in address.")
+            return
+        }
+
+        val cleanEmail = rawEmail.trim().lowercase(Locale.ROOT)
+        if (
+            cleanEmail.length > 254 ||
+            !Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()
+        ) {
+            onResult(false, "Enter a valid email address.")
+            return
+        }
+
+        if (cleanEmail.equals(currentEmail, ignoreCase = true)) {
+            onResult(false, "Enter a different email address.")
+            return
+        }
+
+        if (currentPassword.isBlank()) {
+            onResult(false, "Enter your current password.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val credential =
+                    EmailAuthProvider.getCredential(
+                        currentEmail,
+                        currentPassword
+                    )
+
+                firebaseUser.reauthenticate(credential).await()
+                firebaseUser.verifyBeforeUpdateEmail(cleanEmail).await()
+
+                onResult(
+                    true,
+                    "A verification link was sent to " + cleanEmail +
+                            ". After confirming it, sign out and sign in with this email address. Your InChat username, chats and groups will stay unchanged."
+                )
+            } catch (e: FirebaseAuthUserCollisionException) {
+                onResult(false, "That email address is already linked to another account.")
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Email update request failed", e)
+                val message =
+                    when {
+                        e.message?.contains("password", ignoreCase = true) == true ->
+                            "Your current password is incorrect."
+                        e.message?.contains("recent", ignoreCase = true) == true ->
+                            "Please sign in again, then retry the email change."
+                        else ->
+                            "Could not send the verification email. Please check your connection and try again."
+                    }
+                onResult(false, message)
+            }
+        }
+    }
+
+    fun resendEmailVerification(
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val firebaseUser = auth.currentUser
+        if (firebaseUser == null) {
+            onResult(false, "Your sign-in session has expired. Please log in again.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                firebaseUser.sendEmailVerification().await()
+                onResult(true, "A new verification email has been sent.")
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Email verification resend failed", e)
+                onResult(false, "Could not resend the verification email. Please try again later.")
+            }
+        }
+    }
+
+    fun checkEmailVerification(
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val firebaseUser = auth.currentUser
+        if (firebaseUser == null) {
+            onResult(false, "Your sign-in session has expired. Please log in again.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                firebaseUser.reload().await()
+                val refreshedUser = auth.currentUser ?: firebaseUser
+
+                if (refreshedUser.isEmailVerified) {
+                    initializeAuthenticatedSession(refreshedUser)
+                    onResult(true, null)
+                } else {
+                    onResult(false, "The email is not verified yet. Open the link in your inbox, then check again.")
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Email verification check failed", e)
+                onResult(false, "Could not check verification status. Please try again.")
+            }
+        }
+    }
+
+    fun sendPasswordResetEmail(
+        rawEmail: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val cleanEmail = rawEmail.trim().lowercase(Locale.ROOT)
+        if (
+            cleanEmail.length > 254 ||
+            !Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()
+        ) {
+            onResult(false, "Enter a valid email address.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                auth.sendPasswordResetEmail(cleanEmail).await()
+                onResult(
+                    true,
+                    "If an InChat account uses that email address, a password-reset link has been sent. Check your inbox and spam folder."
+                )
+            } catch (e: Exception) {
+                val errorText = e.message.orEmpty().lowercase(Locale.ROOT)
+                if (
+                    errorText.contains("user-not-found") ||
+                    errorText.contains("no user record") ||
+                    errorText.contains("no user found")
+                ) {
+                    // Keep the response indistinguishable from a successful request.
+                    onResult(
+                        true,
+                        "If an InChat account uses that email address, a password-reset link has been sent. Check your inbox and spam folder."
+                    )
+                } else {
+                    Log.e("AuthViewModel", "Password reset email request failed", e)
+                    onResult(false, "Could not send the reset email. Please try again later.")
+                }
+            }
+        }
     }
 
     fun deleteAccount(
@@ -1291,296 +1488,147 @@ class AuthViewModel(
      * =========================================================
      */
     fun register(
+        rawEmail: String,
         rawUsername: String,
         password: String,
-        onResult:
-            (String?, List<String>?) -> Unit
+        onResult: (String?) -> Unit
     ) {
-
         viewModelScope.launch {
+            val email = rawEmail.trim().lowercase(Locale.ROOT)
+            val username = rawUsername.trim()
 
-            val username =
-                rawUsername.trim()
-
-            val usernameKey =
-                username.lowercase()
+            if (
+                email.length > 254 ||
+                !Patterns.EMAIL_ADDRESS.matcher(email).matches()
+            ) {
+                onResult("Enter a valid email address.")
+                return@launch
+            }
 
             if (
                 !username.matches(
-                    Regex(
-                        "^[a-zA-Z0-9_.]{3,20}$"
-                    )
+                    Regex("^[a-zA-Z0-9_.]{3,20}$")
                 )
             ) {
-
-                onResult(
-                    "Username must be 3-20 characters: letters, numbers, _ or .",
-                    null
-                )
-
+                onResult("Username must be 3-20 characters: letters, numbers, _ or .")
                 return@launch
             }
 
-            if (
-                password.length < 6
-            ) {
-
-                onResult(
-                    "Password must be at least 6 characters",
-                    null
-                )
-
+            if (password.length < 6) {
+                onResult("Password must be at least 6 characters.")
                 return@launch
             }
 
-            var createdUid:
-                    String? =
-                null
-
-            var usernameClaimed =
-                false
+            var createdUid: String? = null
+            var usernameClaimed = false
 
             try {
-
-                val fakeEmail =
-                    "$usernameKey@inchat.app"
-
                 val authResult =
-                    auth
-                        .createUserWithEmailAndPassword(
-                            fakeEmail,
-                            password
-                        )
-                        .await()
+                    auth.createUserWithEmailAndPassword(
+                        email,
+                        password
+                    ).await()
 
-                val uid =
-                    authResult
-                        .user
-                        ?.uid
+                val firebaseUser =
+                    authResult.user
                         ?: throw IllegalStateException(
-                            "Firebase did not return a user ID"
+                            "Firebase did not return a user."
                         )
 
-                createdUid =
-                    uid
+                val uid = firebaseUser.uid
+                createdUid = uid
 
                 val claimResult =
-                    userRepository
-                        .claimUsername(
-                            username =
-                                username,
+                    userRepository.claimUsername(
+                        username = username,
+                        uid = uid
+                    )
 
-                            uid =
-                                uid
-                        )
+                if (claimResult.isFailure) {
+                    val error = claimResult.exceptionOrNull()
 
-                if (
-                    claimResult.isFailure
-                ) {
+                    rollbackRegistration(
+                        username = username,
+                        uid = uid,
+                        usernameClaimed = false
+                    )
 
-                    val error =
-                        claimResult
-                            .exceptionOrNull()
-
-                    if (
-                        error is
-                                UsernameAlreadyTakenException
-                    ) {
-
-                        rollbackRegistration(
-                            username =
-                                username,
-
-                            uid =
-                                uid,
-
-                            usernameClaimed =
-                                false
-                        )
-
-                        onResult(
-                            "That username is already taken",
-                            null
-                        )
-
-                    } else {
-
-                        rollbackRegistration(
-                            username =
-                                username,
-
-                            uid =
-                                uid,
-
-                            usernameClaimed =
-                                false
-                        )
-
-                        onResult(
-                            "Could not reserve that username. Please try again.",
-                            null
-                        )
-                    }
-
+                    onResult(
+                        if (error is UsernameAlreadyTakenException) {
+                            "That username is already taken."
+                        } else {
+                            "Could not reserve that username. Please try again."
+                        }
+                    )
                     return@launch
                 }
 
-                usernameClaimed =
-                    true
+                usernameClaimed = true
 
                 val saveResult =
-                    userRepository
-                        .saveUser(
-                            uid =
-                                uid,
+                    userRepository.saveUser(
+                        uid = uid,
+                        username = username,
+                        displayName = username,
+                        bio = ""
+                    )
 
-                            username =
-                                username,
-
-                            displayName =
-                                username,
-
-                            bio =
-                                ""
-                        )
-
-                if (
-                    saveResult.isFailure
-                ) {
-
+                if (saveResult.isFailure) {
                     rollbackRegistration(
-                        username =
-                            username,
-
-                        uid =
-                            uid,
-
-                        usernameClaimed =
-                            usernameClaimed
+                        username = username,
+                        uid = uid,
+                        usernameClaimed = usernameClaimed
                     )
-
-                    onResult(
-                        "Could not finish account creation. Please try again.",
-                        null
-                    )
-
-                    return@launch
-                }
-
-                val recoveryCodeSet =
-                    RecoveryCodeManager
-                        .generateRecoveryCodeSet()
-
-                val recoverySaveResult =
-                    userRepository
-                        .saveRecoveryCodes(
-                            uid =
-                                uid,
-
-                            recoveryCodeSet =
-                                recoveryCodeSet
-                        )
-
-                if (
-                    recoverySaveResult.isFailure
-                ) {
-
-                    rollbackRegistration(
-                        username =
-                            username,
-
-                        uid =
-                            uid,
-
-                        usernameClaimed =
-                            usernameClaimed
-                    )
-
-                    onResult(
-                        "Could not secure the new account. Please try again.",
-                        null
-                    )
-
+                    onResult("Could not finish account creation. Please try again.")
                     return@launch
                 }
 
                 applyUserProfile(
-                    uid =
-                        uid,
-
-                    username =
-                        username,
-
-                    displayName =
-                        username,
-
-                    bio =
-                        ""
+                    uid = uid,
+                    username = username,
+                    displayName = username,
+                    bio = ""
                 )
 
-                registerFcmToken(
-                    uid
-                )
+                _currentUserId.value = uid
+                _uiState.value =
+                    AuthUiState.NeedsEmailVerification(
+                        uid = uid,
+                        email = email
+                    )
 
-                onResult(
-                    null,
-                    recoveryCodeSet.codes
-                )
+                try {
+                    firebaseUser.sendEmailVerification().await()
+                } catch (emailError: Exception) {
+                    Log.e(
+                        "AuthViewModel",
+                        "Initial email verification message could not be sent",
+                        emailError
+                    )
+                    onResult(
+                        "Your account was created, but the verification email could not be sent. Use Resend on the next screen."
+                    )
+                    return@launch
+                }
 
-            } catch (
-                e:
-                FirebaseAuthUserCollisionException
-            ) {
+                onResult(null)
+            } catch (e: FirebaseAuthUserCollisionException) {
+                onResult("An account with this email address already exists.")
+            } catch (e: FirebaseAuthWeakPasswordException) {
+                onResult("Password is too weak. Use a stronger password.")
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Registration failed", e)
 
-                onResult(
-                    "That username is already taken",
-                    null
-                )
-
-            } catch (
-                e:
-                FirebaseAuthWeakPasswordException
-            ) {
-
-                onResult(
-                    "Password is too weak. Use a stronger password.",
-                    null
-                )
-
-            } catch (
-                e:
-                Exception
-            ) {
-
-                Log.e(
-                    "AuthViewModel",
-                    "Registration failed",
-                    e
-                )
-
-                val uid =
-                    createdUid
-
-                if (
-                    uid != null
-                ) {
-
+                val uid = createdUid
+                if (uid != null) {
                     rollbackRegistration(
-                        username =
-                            username,
-
-                        uid =
-                            uid,
-
-                        usernameClaimed =
-                            usernameClaimed
+                        username = username,
+                        uid = uid,
+                        usernameClaimed = usernameClaimed
                     )
                 }
 
-                onResult(
-                    "Registration failed. Please try again.",
-                    null
-                )
+                onResult("Registration failed. Please try again.")
             }
         }
     }
@@ -1831,126 +1879,104 @@ class AuthViewModel(
     fun login(
         rawUsername: String,
         password: String,
-        onResult:
-            (String?) -> Unit
+        onResult: (String?) -> Unit
     ) {
-
         viewModelScope.launch {
+            val loginIdentifier = rawUsername.trim()
 
-            val username =
-                rawUsername.trim()
-
-            if (
-                username.isBlank() ||
-                password.isBlank()
-            ) {
-
-                onResult(
-                    "Enter username and password"
-                )
-
+            if (loginIdentifier.isBlank() || password.isBlank()) {
+                onResult("Enter your email or username and password.")
                 return@launch
             }
 
-            try {
+            val signInEmail =
+                if (loginIdentifier.contains("@")) {
+                    val normalizedEmail =
+                        loginIdentifier.lowercase(Locale.ROOT)
 
-                val usernameKey =
-                    username.lowercase()
+                    if (
+                        normalizedEmail.length > 254 ||
+                        !Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()
+                    ) {
+                        onResult("Enter a valid email address.")
+                        return@launch
+                    }
 
-                val fakeEmail =
-                    "$usernameKey@inchat.app"
-
-                val result =
-                    auth
-                        .signInWithEmailAndPassword(
-                            fakeEmail,
-                            password
+                    normalizedEmail
+                } else {
+                    if (
+                        !loginIdentifier.matches(
+                            Regex("^[a-zA-Z0-9_.]{3,20}$")
                         )
-                        .await()
+                    ) {
+                        onResult("Enter a valid email address or legacy username.")
+                        return@launch
+                    }
 
-                val uid =
-                    result
-                        .user
-                        ?.uid
+                    loginIdentifier.lowercase(Locale.ROOT) + "@inchat.app"
+                }
+
+            try {
+                val result =
+                    auth.signInWithEmailAndPassword(
+                        signInEmail,
+                        password
+                    ).await()
+
+                val firebaseUser =
+                    result.user
+                        ?: auth.currentUser
+                        ?: throw IllegalStateException(
+                            "Firebase did not return a signed-in user."
+                        )
+
+                val uid = firebaseUser.uid
 
                 if (
-                    uid == null
+                    !isGoogleUser(firebaseUser) &&
+                    extractUsernameFromAuthEmail(firebaseUser.email).isBlank() &&
+                    !firebaseUser.isEmailVerified
                 ) {
-
-                    onResult(
-                        "Login failed"
-                    )
-
+                    _currentUserId.value = uid
+                    _uiState.value =
+                        AuthUiState.NeedsEmailVerification(
+                            uid = uid,
+                            email = firebaseUser.email.orEmpty()
+                        )
+                    onResult(null)
                     return@launch
                 }
 
                 val user =
-                    userRepository
-                        .getUserById(
-                            uid
-                        )
+                    userRepository.getUserById(uid)
 
-                if (
-                    user == null ||
-                    user.username.isBlank()
-                ) {
-
+                if (user == null || user.username.isBlank()) {
                     auth.signOut()
-
                     clearLocalAuthState()
-
                     onResult(
                         "This account is incomplete. Please contact support."
                     )
-
                     return@launch
                 }
 
                 applyUserProfile(
-                    uid =
-                        uid,
-
-                    username =
-                        user.username,
-
-                    displayName =
-                        user.displayName,
-
-                    bio =
-                        user.bio
+                    uid = uid,
+                    username = user.username,
+                    displayName = user.displayName,
+                    bio = user.bio
                 )
 
                 _uiState.value =
                     AuthUiState.LoggedIn(
-                        uid =
-                            uid,
-
-                        username =
-                            user.username
+                        uid = uid,
+                        username = user.username
                     )
 
-                registerFcmToken(
-                    uid
-                )
-
-                onResult(
-                    null
-                )
-
-            } catch (
-                e:
-                Exception
-            ) {
-
-                Log.e(
-                    "AuthViewModel",
-                    "Login failed",
-                    e
-                )
-
-                onResult(
-                    "Invalid username or password"
-                )
+                registerFcmToken(uid)
+                onResult(null)
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Login failed", e)
+                onResult("Invalid email/username or password.")
             }
         }
     }

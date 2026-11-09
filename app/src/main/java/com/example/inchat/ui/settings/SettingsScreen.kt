@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,9 +83,48 @@ fun SettingsScreen(
     val isGoogleAccount =
         authViewModel.usesGoogleSignIn()
 
+    val isLegacyPasswordAccount =
+        authViewModel.usesLegacyUsernamePassword()
+
+    val currentAuthEmail =
+        authViewModel.currentAuthEmail()
+
+    val currentAuthEmailVerified =
+        authViewModel.isCurrentAuthEmailVerified()
+
     var showRecoveryConfirmation by
     remember {
         mutableStateOf(false)
+    }
+
+    var showEmailUpdateDialog by
+    remember {
+        mutableStateOf(false)
+    }
+
+    var emailAddressInput by
+    remember {
+        mutableStateOf("")
+    }
+
+    var emailPasswordInput by
+    remember {
+        mutableStateOf("")
+    }
+
+    var emailUpdateLoading by
+    remember {
+        mutableStateOf(false)
+    }
+
+    var emailUpdateError by
+    remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var emailUpdateSuccess by
+    remember {
+        mutableStateOf<String?>(null)
     }
 
     var recoveryCodes by
@@ -171,6 +212,32 @@ fun SettingsScreen(
 
                             enabled =
                                 false
+                        ),
+
+                        SettingsItem(
+                            title =
+                                "Email address",
+
+                            subtitle =
+                                when {
+                                    isGoogleAccount ->
+                                        "Managed by Google"
+
+                                    isLegacyPasswordAccount ->
+                                        "Add a verified email for password recovery"
+
+                                    currentAuthEmailVerified ->
+                                        "Verified: " + currentAuthEmail
+
+                                    currentAuthEmail.isNotBlank() ->
+                                        "Verification pending: " + currentAuthEmail
+
+                                    else ->
+                                        "No email address available"
+                                },
+
+                            enabled =
+                                true
                         )
                     )
             ),
@@ -187,14 +254,19 @@ fun SettingsScreen(
                                 "Recovery codes",
 
                             subtitle =
-                                if (isGoogleAccount) {
-                                    "Account recovery is managed by Google"
-                                } else {
-                                    "Generate a fresh set and replace your previous codes"
+                                when {
+                                    isGoogleAccount ->
+                                        "Account recovery is managed by Google"
+
+                                    isLegacyPasswordAccount ->
+                                        "Keep these until you add and verify a real email address"
+
+                                    else ->
+                                        "Email-based password recovery is active"
                                 },
 
                             enabled =
-                                !isGoogleAccount
+                                true
                         ),
 
                         SettingsItem(
@@ -447,6 +519,169 @@ fun SettingsScreen(
                     )
             )
         )
+
+    /*
+     * =========================================================
+     * EMAIL ADDRESS UPDATE
+     * =========================================================
+     */
+    if (showEmailUpdateDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!emailUpdateLoading) {
+                    showEmailUpdateDialog = false
+                    emailPasswordInput = ""
+                    emailUpdateError = null
+                }
+            },
+            title = {
+                Text(
+                    if (isLegacyPasswordAccount) {
+                        "Add a recovery email"
+                    } else {
+                        "Change email address"
+                    }
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        if (isLegacyPasswordAccount) {
+                            "Add an email address you can access. After you verify it, use that email address to sign in and reset your password. Your username, chats and groups will remain unchanged."
+                        } else {
+                            "Firebase will send a verification link to the new address. Your sign-in email changes only after you confirm the link."
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = emailAddressInput,
+                        onValueChange = {
+                            emailAddressInput = it
+                            emailUpdateError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        enabled = !emailUpdateLoading,
+                        label = {
+                            Text("New email address")
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email
+                        )
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(10.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = emailPasswordInput,
+                        onValueChange = {
+                            emailPasswordInput = it
+                            emailUpdateError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        enabled = !emailUpdateLoading,
+                        label = {
+                            Text("Current password")
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password
+                        )
+                    )
+
+                    if (emailUpdateError != null) {
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
+                        )
+                        Text(
+                            text = emailUpdateError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !emailUpdateLoading &&
+                            emailAddressInput.isNotBlank() &&
+                            emailPasswordInput.isNotBlank(),
+                    onClick = {
+                        emailUpdateLoading = true
+                        emailUpdateError = null
+
+                        authViewModel.requestEmailUpdate(
+                            rawEmail = emailAddressInput,
+                            currentPassword = emailPasswordInput
+                        ) { success, message ->
+                            emailUpdateLoading = false
+
+                            if (success) {
+                                showEmailUpdateDialog = false
+                                emailPasswordInput = ""
+                                emailUpdateSuccess = message
+                                    ?: "Verification email sent."
+                            } else {
+                                emailUpdateError = message
+                                    ?: "Could not update your email address."
+                            }
+                        }
+                    }
+                ) {
+                    if (emailUpdateLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                    Text("Send verification")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !emailUpdateLoading,
+                    onClick = {
+                        showEmailUpdateDialog = false
+                        emailPasswordInput = ""
+                        emailUpdateError = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (emailUpdateSuccess != null) {
+        AlertDialog(
+            onDismissRequest = {
+                emailUpdateSuccess = null
+            },
+            title = {
+                Text("Email account")
+            },
+            text = {
+                Text(emailUpdateSuccess!!)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        emailUpdateSuccess = null
+                    }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     /*
      * =========================================================
@@ -1351,11 +1586,38 @@ fun SettingsScreen(
 
                         onRecoveryCodesClick = {
 
-                            recoveryError =
-                                null
+                            if (isLegacyPasswordAccount) {
+                                recoveryError =
+                                    null
 
-                            showRecoveryConfirmation =
-                                true
+                                showRecoveryConfirmation =
+                                    true
+                            } else {
+                                emailUpdateSuccess =
+                                    if (isGoogleAccount) {
+                                        "Account recovery is managed by Google."
+                                    } else {
+                                        "This account uses email-based password recovery. Use Forgot password on the login screen."
+                                    }
+                            }
+                        },
+
+                        onEmailClick = {
+                            if (isGoogleAccount) {
+                                emailUpdateSuccess =
+                                    "This account uses Google sign-in. Manage its email address through your Google account."
+                            } else {
+                                emailAddressInput =
+                                    if (isLegacyPasswordAccount) {
+                                        ""
+                                    } else {
+                                        currentAuthEmail
+                                    }
+
+                                emailPasswordInput = ""
+                                emailUpdateError = null
+                                showEmailUpdateDialog = true
+                            }
                         },
 
                         onPrivacyClick =
@@ -1486,6 +1748,7 @@ fun SettingsScreen(
 private fun SettingsSectionCard(
     section: SettingsSection,
     onRecoveryCodesClick: () -> Unit,
+    onEmailClick: () -> Unit,
     onPrivacyClick: () -> Unit
 ) {
 
@@ -1539,6 +1802,9 @@ private fun SettingsSectionCard(
 
                                 "Recovery codes" ->
                                     onRecoveryCodesClick()
+
+                                "Email address" ->
+                                    onEmailClick()
 
                                 "Last seen",
                                 "Online status",
