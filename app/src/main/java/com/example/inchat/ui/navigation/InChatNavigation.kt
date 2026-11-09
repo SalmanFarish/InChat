@@ -211,6 +211,9 @@ fun InChatApp(
         if (
             currentRoute?.startsWith(
                 "chat/"
+            ) == true ||
+            currentRoute?.startsWith(
+                "group_chat/"
             ) == true
         ) {
             onChatOpened()
