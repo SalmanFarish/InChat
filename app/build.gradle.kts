@@ -127,6 +127,19 @@ dependencies {
         "com.google.firebase:firebase-auth"
     )
 
+    // Google sign-in through Android Credential Manager (Firebase Spark compatible)
+    implementation(
+        "androidx.credentials:credentials:1.3.0"
+    )
+
+    implementation(
+        "androidx.credentials:credentials-play-services-auth:1.3.0"
+    )
+
+    implementation(
+        "com.google.android.libraries.identity.googleid:googleid:1.1.1"
+    )
+
     // Firebase Realtime Database
     implementation(
         "com.google.firebase:firebase-database"

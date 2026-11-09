@@ -10,6 +10,8 @@ import com.example.inchat.data.repository.UsernameAlreadyTakenException
 import com.example.inchat.data.security.RecoveryCodeManager
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.messaging.FirebaseMessaging
@@ -28,6 +30,12 @@ sealed interface AuthUiState {
     data class LoggedIn(
         val uid: String,
         val username: String
+    ) : AuthUiState
+
+    data class NeedsUsernameSetup(
+        val uid: String,
+        val email: String,
+        val suggestedUsername: String
     ) : AuthUiState
 }
 
@@ -170,11 +178,7 @@ class AuthViewModel(
                     }
 
                     initializeAuthenticatedSession(
-                        uid =
-                            restoredUser.uid,
-
-                        email =
-                            restoredUser.email
+                        restoredUser
                     )
 
                 } catch (e: Exception) {
@@ -194,18 +198,18 @@ class AuthViewModel(
         }
 
         initializeAuthenticatedSession(
-            uid =
-                firebaseUser.uid,
-
-            email =
-                firebaseUser.email
+            firebaseUser
         )
     }
 
     private fun initializeAuthenticatedSession(
-        uid: String,
-        email: String?
+        firebaseUser: FirebaseUser
     ) {
+        val uid =
+            firebaseUser.uid
+
+        val email =
+            firebaseUser.email
 
         if (
             uid.isBlank()
@@ -300,6 +304,27 @@ class AuthViewModel(
                         user.uid
                     )
 
+                } else if (
+                    isGoogleUser(firebaseUser)
+                ) {
+
+                    _currentUserId.value =
+                        uid
+
+                    _uiState.value =
+                        AuthUiState.NeedsUsernameSetup(
+                            uid =
+                                uid,
+
+                            email =
+                                email.orEmpty(),
+
+                            suggestedUsername =
+                                suggestedGoogleUsername(
+                                    firebaseUser
+                                )
+                        )
+
                 } else {
 
                     _uiState.value =
@@ -354,6 +379,52 @@ class AuthViewModel(
                         suffix.length
             )
             .trim()
+    }
+
+    private fun isGoogleUser(
+        firebaseUser: FirebaseUser
+    ): Boolean {
+
+        return firebaseUser.providerData.any {
+            it.providerId ==
+                    GoogleAuthProvider.PROVIDER_ID
+        }
+    }
+
+    private fun suggestedGoogleUsername(
+        firebaseUser: FirebaseUser
+    ): String {
+
+        val source =
+            firebaseUser.email
+                ?.substringBefore("@")
+                ?.lowercase()
+                ?: firebaseUser.displayName
+                    ?.lowercase()
+                    .orEmpty()
+
+        val candidate =
+            source
+                .replace(
+                    Regex("[^a-z0-9_.]"),
+                    "_"
+                )
+                .trim(
+                    '_',
+                    '.'
+                )
+                .take(20)
+
+        return if (
+            candidate.length >= 3 &&
+            candidate.matches(
+                Regex("^[a-z0-9_.]{3,20}$")
+            )
+        ) {
+            candidate
+        } else {
+            "inchatuser"
+        }
     }
 
     /*
@@ -607,10 +678,17 @@ class AuthViewModel(
      * =========================================================
      * DELETE ACCOUNT
      * =========================================================
-     *
-     * The password is required because Firebase may require
-     * recent authentication before deleting the Auth account.
      */
+    fun usesGoogleSignIn(): Boolean {
+
+        return auth.currentUser
+            ?.providerData
+            ?.any {
+                it.providerId ==
+                        GoogleAuthProvider.PROVIDER_ID
+            } == true
+    }
+
     fun deleteAccount(
         password: String,
         onResult:
@@ -640,33 +718,33 @@ class AuthViewModel(
             return
         }
 
+        if (usesGoogleSignIn()) {
+            onResult(
+                false,
+                "Confirm account deletion with Google."
+            )
+            return
+        }
+
         val email =
             firebaseUser.email
 
-        if (
-            email.isNullOrBlank()
-        ) {
-
+        if (email.isNullOrBlank()) {
             onResult(
                 false,
                 "This account cannot be deleted from the app."
             )
-
             return
         }
 
         val cleanPassword =
             password.trim()
 
-        if (
-            cleanPassword.isBlank()
-        ) {
-
+        if (cleanPassword.isBlank()) {
             onResult(
                 false,
                 "Enter your password."
             )
-
             return
         }
 
@@ -674,9 +752,6 @@ class AuthViewModel(
 
             try {
 
-                /*
-                 * Re-authenticate first.
-                 */
                 val credential =
                     EmailAuthProvider
                         .getCredential(
@@ -690,95 +765,471 @@ class AuthViewModel(
                     )
                     .await()
 
-                /*
-                 * Remove account-owned database data.
-                 */
-                val deleteDataResult =
-                    userRepository
-                        .deleteAccountData(
-                            uid =
-                                uid,
-
-                            username =
-                                currentUsername
-                        )
-
-                if (
-                    deleteDataResult.isFailure
-                ) {
-
-                    val error =
-                        deleteDataResult
-                            .exceptionOrNull()
-
-                    Log.e(
-                        "AuthViewModel",
-                        "Account data deletion failed",
-                        error
-                    )
-
-                    onResult(
-                        false,
-                        error?.message
-                            ?: "Could not delete your account data."
-                    )
-
-                    return@launch
-                }
-
-                /*
-                 * Delete the Firebase Auth account last.
-                 */
-                firebaseUser
-                    .delete()
-                    .await()
-
-                clearLocalAuthState()
+                deleteAccountDataAndAuth(
+                    firebaseUser =
+                        firebaseUser,
+                    uid =
+                        uid,
+                    username =
+                        currentUsername
+                )
 
                 onResult(
                     true,
                     null
                 )
 
-            } catch (
-                e:
-                Exception
-            ) {
+            } catch (e: Exception) {
 
-                Log.e(
-                    "AuthViewModel",
-                    "Account deletion failed",
-                    e
-                )
-
-                val message =
-                    when {
-
-                        e.message
-                            ?.contains(
-                                "password",
-                                ignoreCase = true
-                            ) == true ->
-                            "Incorrect password."
-
-                        e.message
-                            ?.contains(
-                                "recent",
-                                ignoreCase = true
-                            ) == true ->
-                            "Please sign in again and try deleting the account."
-
-                        else ->
-                            e.message
-                                ?: "Could not delete your account."
-                    }
-
-                onResult(
-                    false,
-                    message
+                reportAccountDeletionFailure(
+                    e,
+                    onResult
                 )
             }
         }
+    }
+
+    fun deleteAccountWithGoogle(
+        idToken: String,
+        onResult:
+            (Boolean, String?) -> Unit
+    ) {
+
+        val firebaseUser =
+            auth.currentUser
+
+        val uid =
+            _currentUserId.value
+
+        val currentUsername =
+            _username.value
+
+        if (
+            firebaseUser == null ||
+            uid.isBlank() ||
+            currentUsername.isBlank()
+        ) {
+            onResult(
+                false,
+                "You are not logged in."
+            )
+            return
+        }
+
+        if (!usesGoogleSignIn()) {
+            onResult(
+                false,
+                "This account does not use Google sign-in."
+            )
+            return
+        }
+
+        if (idToken.isBlank()) {
+            onResult(
+                false,
+                "Google did not return a valid sign-in token."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+
+            try {
+
+                val credential =
+                    GoogleAuthProvider
+                        .getCredential(
+                            idToken,
+                            null
+                        )
+
+                firebaseUser
+                    .reauthenticate(
+                        credential
+                    )
+                    .await()
+
+                deleteAccountDataAndAuth(
+                    firebaseUser =
+                        firebaseUser,
+                    uid =
+                        uid,
+                    username =
+                        currentUsername
+                )
+
+                onResult(
+                    true,
+                    null
+                )
+
+            } catch (e: Exception) {
+
+                reportAccountDeletionFailure(
+                    e,
+                    onResult
+                )
+            }
+        }
+    }
+
+    private suspend fun deleteAccountDataAndAuth(
+        firebaseUser: FirebaseUser,
+        uid: String,
+        username: String
+    ) {
+
+        val deleteDataResult =
+            userRepository
+                .deleteAccountData(
+                    uid =
+                        uid,
+                    username =
+                        username
+                )
+
+        if (deleteDataResult.isFailure) {
+            throw deleteDataResult.exceptionOrNull()
+                ?: IllegalStateException(
+                    "Could not delete your account data."
+                )
+        }
+
+        firebaseUser
+            .delete()
+            .await()
+
+        clearLocalAuthState()
+    }
+
+    private fun reportAccountDeletionFailure(
+        error: Exception,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+
+        Log.e(
+            "AuthViewModel",
+            "Account deletion failed",
+            error
+        )
+
+        val message =
+            when {
+                error.message
+                    ?.contains(
+                        "password",
+                        ignoreCase = true
+                    ) == true ->
+                    "Incorrect password."
+
+                error.message
+                    ?.contains(
+                        "recent",
+                        ignoreCase = true
+                    ) == true ->
+                    "Please sign in again and try deleting the account."
+
+                else ->
+                    error.message
+                        ?: "Could not delete your account."
+            }
+
+        onResult(
+            false,
+            message
+        )
+    }
+
+    /*
+     * =========================================================
+     * GOOGLE SIGN-IN
+     * =========================================================
+     */
+    fun signInWithGoogle(
+        idToken: String,
+        onResult: (String?) -> Unit
+    ) {
+
+        if (idToken.isBlank()) {
+            onResult(
+                "Google did not return a valid sign-in token."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+
+            try {
+
+                val credential =
+                    GoogleAuthProvider
+                        .getCredential(
+                            idToken,
+                            null
+                        )
+
+                val authResult =
+                    auth
+                        .signInWithCredential(
+                            credential
+                        )
+                        .await()
+
+                val firebaseUser =
+                    authResult.user
+                        ?: auth.currentUser
+                        ?: throw IllegalStateException(
+                            "Firebase did not return a signed-in user."
+                        )
+
+                val savedUser =
+                    userRepository
+                        .getUserById(
+                            firebaseUser.uid
+                        )
+
+                if (
+                    savedUser != null &&
+                    savedUser.username.isNotBlank()
+                ) {
+
+                    applyUserProfile(
+                        uid =
+                            savedUser.uid,
+                        username =
+                            savedUser.username,
+                        displayName =
+                            savedUser.displayName,
+                        bio =
+                            savedUser.bio
+                    )
+
+                    _uiState.value =
+                        AuthUiState.LoggedIn(
+                            uid =
+                                savedUser.uid,
+                            username =
+                                savedUser.username
+                        )
+
+                    registerFcmToken(
+                        savedUser.uid
+                    )
+
+                } else {
+
+                    _currentUserId.value =
+                        firebaseUser.uid
+
+                    _username.value =
+                        ""
+
+                    _displayName.value =
+                        ""
+
+                    _bio.value =
+                        ""
+
+                    _uiState.value =
+                        AuthUiState.NeedsUsernameSetup(
+                            uid =
+                                firebaseUser.uid,
+                            email =
+                                firebaseUser.email.orEmpty(),
+                            suggestedUsername =
+                                suggestedGoogleUsername(
+                                    firebaseUser
+                                )
+                        )
+                }
+
+                onResult(null)
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    "AuthViewModel",
+                    "Google sign-in failed",
+                    e
+                )
+
+                onResult(
+                    e.message
+                        ?: "Google sign-in failed. Please try again."
+                )
+            }
+        }
+    }
+
+    fun completeGoogleRegistration(
+        rawUsername: String,
+        onResult: (String?) -> Unit
+    ) {
+
+        val pending =
+            _uiState.value as?
+                    AuthUiState.NeedsUsernameSetup
+
+        if (pending == null) {
+            onResult(
+                "No Google account is waiting for username setup."
+            )
+            return
+        }
+
+        val firebaseUser =
+            auth.currentUser
+
+        if (
+            firebaseUser == null ||
+            firebaseUser.uid != pending.uid
+        ) {
+            onResult(
+                "Your Google session has expired. Please sign in again."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+
+            val username =
+                rawUsername.trim()
+
+            if (
+                !username.matches(
+                    Regex("^[a-zA-Z0-9_.]{3,20}$")
+                )
+            ) {
+                onResult(
+                    "Username must be 3-20 characters: letters, numbers, _ or ."
+                )
+                return@launch
+            }
+
+            try {
+
+                val claimResult =
+                    userRepository
+                        .claimUsername(
+                            username =
+                                username,
+                            uid =
+                                pending.uid
+                        )
+
+                if (claimResult.isFailure) {
+                    val claimError =
+                        claimResult.exceptionOrNull()
+
+                    onResult(
+                        if (claimError is UsernameAlreadyTakenException) {
+                            "That username is already taken."
+                        } else {
+                            claimError?.message
+                                ?: "Could not reserve that username. Please try again."
+                        }
+                    )
+                    return@launch
+                }
+
+                val saveResult =
+                    userRepository
+                        .saveUser(
+                            uid =
+                                pending.uid,
+                            username =
+                                username,
+                            displayName =
+                                firebaseUser.displayName
+                                    ?.trim()
+                                    .orEmpty()
+                                    .ifBlank {
+                                        username
+                                    },
+                            bio =
+                                ""
+                        )
+
+                if (saveResult.isFailure) {
+
+                    val persistedUser =
+                        runCatching {
+                            userRepository.getUserById(
+                                pending.uid
+                            )
+                        }.getOrNull()
+
+                    if (
+                        persistedUser == null ||
+                        persistedUser.username.isBlank()
+                    ) {
+                        userRepository.releaseUsername(
+                            username,
+                            pending.uid
+                        )
+                    }
+
+                    onResult(
+                        saveResult.exceptionOrNull()?.message
+                            ?: "Could not finish your InChat profile. Please try again."
+                    )
+                    return@launch
+                }
+
+                val displayName =
+                    firebaseUser.displayName
+                        ?.trim()
+                        .orEmpty()
+                        .ifBlank {
+                            username
+                        }
+
+                applyUserProfile(
+                    uid =
+                        pending.uid,
+                    username =
+                        username,
+                    displayName =
+                        displayName,
+                    bio =
+                        ""
+                )
+
+                _uiState.value =
+                    AuthUiState.LoggedIn(
+                        uid =
+                            pending.uid,
+                        username =
+                            username
+                    )
+
+                registerFcmToken(
+                    pending.uid
+                )
+
+                onResult(null)
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    "AuthViewModel",
+                    "Google profile setup failed",
+                    e
+                )
+
+                onResult(
+                    e.message
+                        ?: "Could not create your InChat profile. Please try again."
+                )
+            }
+        }
+    }
+
+    fun cancelGoogleRegistration() {
+
+        auth.signOut()
+
+        clearLocalAuthState()
     }
 
     /*

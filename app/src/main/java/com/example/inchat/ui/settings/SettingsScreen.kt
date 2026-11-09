@@ -34,6 +34,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,6 +46,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.ui.auth.AuthViewModel
+import com.example.inchat.ui.auth.GoogleSignInHelper
+import kotlinx.coroutines.launch
 
 private data class SettingsItem(
     val title: String,
@@ -71,6 +74,12 @@ fun SettingsScreen(
 
     val context =
         LocalContext.current
+
+    val coroutineScope =
+        rememberCoroutineScope()
+
+    val isGoogleAccount =
+        authViewModel.usesGoogleSignIn()
 
     var showRecoveryConfirmation by
     remember {
@@ -178,10 +187,14 @@ fun SettingsScreen(
                                 "Recovery codes",
 
                             subtitle =
-                                "Generate a fresh set and replace your previous codes",
+                                if (isGoogleAccount) {
+                                    "Account recovery is managed by Google"
+                                } else {
+                                    "Generate a fresh set and replace your previous codes"
+                                },
 
                             enabled =
-                                true
+                                !isGoogleAccount
                         ),
 
                         SettingsItem(
@@ -874,46 +887,61 @@ fun SettingsScreen(
                             )
                     )
 
-                    OutlinedTextField(
+                    if (isGoogleAccount) {
 
-                        value =
-                            deletePassword,
+                        Text(
+                            text =
+                                "Re-enter your Google account to confirm this action.",
 
-                        onValueChange = {
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyMedium
+                        )
 
-                            deletePassword =
-                                it
+                    } else {
 
-                            deleteError =
-                                null
-                        },
+                        OutlinedTextField(
 
-                        enabled =
-                            !deleteLoading,
+                            value =
+                                deletePassword,
 
-                        modifier =
-                            Modifier.fillMaxWidth(),
+                            onValueChange = {
 
-                        singleLine =
-                            true,
+                                deletePassword =
+                                    it
 
-                        label = {
+                                deleteError =
+                                    null
+                            },
 
-                            Text(
-                                "Password"
-                            )
-                        },
+                            enabled =
+                                !deleteLoading,
 
-                        placeholder = {
+                            modifier =
+                                Modifier.fillMaxWidth(),
 
-                            Text(
-                                "Enter your password"
-                            )
-                        },
+                            singleLine =
+                                true,
 
-                        visualTransformation =
-                            PasswordVisualTransformation()
-                    )
+                            label = {
+
+                                Text(
+                                    "Password"
+                                )
+                            },
+
+                            placeholder = {
+
+                                Text(
+                                    "Enter your password"
+                                )
+                            },
+
+                            visualTransformation =
+                                PasswordVisualTransformation()
+                        )
+                    }
 
                     if (
                         deleteError != null
@@ -951,8 +979,10 @@ fun SettingsScreen(
 
                     enabled =
                         !deleteLoading &&
-                                deletePassword
-                                    .isNotBlank(),
+                                (
+                                    isGoogleAccount ||
+                                    deletePassword.isNotBlank()
+                                ),
 
                     onClick = {
 
@@ -962,32 +992,79 @@ fun SettingsScreen(
                         deleteError =
                             null
 
-                        authViewModel
-                            .deleteAccount(
-                                password =
-                                    deletePassword
-                            ) { success, error ->
+                        if (isGoogleAccount) {
 
-                                deleteLoading =
-                                    false
+                            coroutineScope.launch {
 
-                                if (
-                                    success
-                                ) {
+                                try {
 
-                                    showDeleteDialog =
+                                    val idToken =
+                                        GoogleSignInHelper
+                                            .getIdToken(
+                                                context
+                                            )
+
+                                    authViewModel
+                                        .deleteAccountWithGoogle(
+                                            idToken
+                                        ) { success, error ->
+
+                                            deleteLoading =
+                                                false
+
+                                            if (success) {
+
+                                                showDeleteDialog =
+                                                    false
+
+                                            } else {
+
+                                                deleteError =
+                                                    error
+                                                        ?: "Could not delete your account."
+                                            }
+                                        }
+
+                                } catch (e: Exception) {
+
+                                    deleteLoading =
                                         false
 
-                                    deletePassword =
-                                        ""
-
-                                } else {
-
                                     deleteError =
-                                        error
-                                            ?: "Could not delete your account."
+                                        e.message
+                                            ?: "Google confirmation failed."
                                 }
                             }
+
+                        } else {
+
+                            authViewModel
+                                .deleteAccount(
+                                    password =
+                                        deletePassword
+                                ) { success, error ->
+
+                                    deleteLoading =
+                                        false
+
+                                    if (
+                                        success
+                                    ) {
+
+                                        showDeleteDialog =
+                                            false
+
+                                        deletePassword =
+                                            ""
+
+                                    } else {
+
+                                        deleteError =
+                                            error
+                                                ?: "Could not delete your account."
+                                    }
+                                }
+                        }
                     }
                 ) {
 
