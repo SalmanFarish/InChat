@@ -42,64 +42,41 @@ fun ChatThemeScreen(
     otherUserId: String,
     onBackClick: () -> Unit,
     chatIdOverride: String? = null,
-    screenTitle: String = "Chat theme",
-    sectionTitle: String = "Conversation theme",
-    sharedDescription: String = "shared with both participants"
+    screenTitle: String = "Chat appearance",
+    sectionTitle: String = "Choose a chat background",
+    sharedDescription: String = "shared with everyone in this conversation"
 ) {
-    val appearanceRepository =
-        remember {
-            ChatAppearanceRepository()
-        }
+    val appearanceRepository = remember {
+        ChatAppearanceRepository()
+    }
 
-    val chatId =
-        remember(
-            currentUserId,
-            otherUserId,
-            chatIdOverride
-        ) {
-            chatIdOverride?.takeIf { it.isNotBlank() }
-                ?: ChatRepository()
-                    .getChatRoomId(
-                        currentUserId,
-                        otherUserId
-                    )
-        }
+    val chatId = remember(
+        currentUserId,
+        otherUserId,
+        chatIdOverride
+    ) {
+        chatIdOverride?.takeIf { it.isNotBlank() }
+            ?: ChatRepository().getChatRoomId(currentUserId, otherUserId)
+    }
 
-    val selectedThemeId by
-        appearanceRepository
-            .observeTheme(chatId)
-            .collectAsState(
-                initial = null
-            )
+    val selectedThemeId by appearanceRepository
+        .observeTheme(chatId)
+        .collectAsState(initial = null)
 
-    val selectedTheme =
-        ChatTheme.fromId(selectedThemeId)
+    val selectedTheme = ChatTheme.fromId(selectedThemeId)
+    val coroutineScope = rememberCoroutineScope()
 
-    val coroutineScope =
-        rememberCoroutineScope()
-
-    var errorMessage by
-        remember {
-            mutableStateOf<String?>(null)
-        }
+    var errorMessage by remember {
+        mutableStateOf<String?>(null)
+    }
 
     errorMessage?.let { message ->
         AlertDialog(
-            onDismissRequest = {
-                errorMessage = null
-            },
-            title = {
-                Text("Theme")
-            },
-            text = {
-                Text(message)
-            },
+            onDismissRequest = { errorMessage = null },
+            title = { Text("Chat appearance") },
+            text = { Text(message) },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        errorMessage = null
-                    }
-                ) {
+                TextButton(onClick = { errorMessage = null }) {
                     Text("OK")
                 }
             }
@@ -107,8 +84,7 @@ fun ChatThemeScreen(
     }
 
     Scaffold(
-        containerColor =
-            MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -118,79 +94,58 @@ fun ChatThemeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = onBackClick
-                    ) {
+                    IconButton(onClick = onBackClick) {
                         Icon(
-                            imageVector =
-                                Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
                 },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor =
-                            MaterialTheme.colorScheme.background
-                    )
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { innerPadding ->
-
         Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
             Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = 20.dp,
-                            end = 20.dp,
-                            top = 8.dp,
-                            bottom = 12.dp
-                        )
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        top = 8.dp,
+                        bottom = 12.dp
+                    )
             ) {
                 Text(
                     text = sectionTitle,
-                    style =
-                        MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
 
                 Text(
-                    text =
-                        selectedTheme.title +
-                                " · " + sharedDescription,
-                    modifier =
-                        Modifier.padding(top = 3.dp),
-                    style =
-                        MaterialTheme.typography.bodySmall,
-                    color =
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    text = selectedTheme.title + " · " + sharedDescription,
+                    modifier = Modifier.padding(top = 3.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             LazyVerticalGrid(
-                columns =
-                    GridCells.Adaptive(
-                        minSize = 155.dp
-                    ),
-                modifier =
-                    Modifier.fillMaxSize(),
-                contentPadding =
-                    PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        bottom = 24.dp
-                    ),
-                horizontalArrangement =
-                    Arrangement.spacedBy(10.dp),
-                verticalArrangement =
-                    Arrangement.spacedBy(10.dp)
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = 24.dp
+                ),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(
                     items = ChatTheme.all,
@@ -198,30 +153,21 @@ fun ChatThemeScreen(
                 ) { theme ->
                     ChatThemeCard(
                         theme = theme,
-                        selected =
-                            selectedTheme.id == theme.id,
+                        selected = selectedTheme.id == theme.id,
                         onClick = {
-                            if (
-                                selectedThemeId ==
-                                        theme.id
-                            ) {
+                            if (selectedThemeId == theme.id) {
                                 return@ChatThemeCard
                             }
 
                             coroutineScope.launch {
-                                appearanceRepository
-                                    .setTheme(
-                                        chatId = chatId,
-                                        currentUserId =
-                                            currentUserId,
-                                        themeId =
-                                            theme.id
-                                    )
-                                    .onFailure { error ->
-                                        errorMessage =
-                                            error.message
-                                                ?: "Could not change chat theme."
-                                    }
+                                appearanceRepository.setTheme(
+                                    chatId = chatId,
+                                    currentUserId = currentUserId,
+                                    themeId = theme.id
+                                ).onFailure { error ->
+                                    errorMessage = error.message
+                                        ?: "Could not change chat appearance."
+                                }
                             }
                         }
                     )
