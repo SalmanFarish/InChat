@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "527739034761",
+    "firebase_url": "https://inchat-24b8b-default-rtdb.firebaseio.com",
+    "project_id": "inchat-24b8b",
+    "storage_bucket": "inchat-24b8b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:527739034761:android:7d8b1bd7e7acfef6533a58",
+        "android_client_info": {
+          "package_name": "com.example.inchat"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "527739034761-0fd0i5j3h1kg7u205a01bmhc0ghhfvgl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.inchat",
+            "certificate_hash": "cc5123bebe5a380dfe42302fe91d9dc71aaa1a69"
+          }
+        },
+        {
+          "client_id": "527739034761-vcn7934r0tgtkcmdp502vf5nl9mcloon.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpZ7lDM3eDsPd3SwniYjj4P_063DYpJ0g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "527739034761-vcn7934r0tgtkcmdp502vf5nl9mcloon.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
