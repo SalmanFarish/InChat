@@ -88,9 +88,7 @@ fun ChatScreen(
         )
 
     val chatTheme =
-        chatThemeId?.let {
-            ChatTheme.fromId(it)
-        }
+        ChatTheme.fromId(chatThemeId)
 
     LaunchedEffect(
         otherUserId
