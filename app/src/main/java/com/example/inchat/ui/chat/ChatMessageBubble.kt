@@ -1,6 +1,9 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -37,13 +41,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.compose.ui.zIndex
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
@@ -84,18 +91,22 @@ fun SwipeableMessageBubble(
 
     val replyTriggerDistancePx =
         with(density) {
-            30.dp.toPx()
+            54.dp.toPx()
         }
 
     val replyTravelDistancePx =
         with(density) {
-            56.dp.toPx()
+            76.dp.toPx()
         }
 
-    var replySwipeOffsetPx by
-    remember(message.id) {
-        mutableFloatStateOf(0f)
+    val replySwipeOffset = remember(message.id) {
+        Animatable(0f)
     }
+    var replyArmed by remember(message.id) {
+        mutableStateOf(false)
+    }
+    val replyHaptics = LocalHapticFeedback.current
+    val replyResetScope = rememberCoroutineScope()
 
     BoxWithConstraints(
         modifier =
@@ -109,77 +120,79 @@ fun SwipeableMessageBubble(
                  */
                 .pointerInput(
                     message.id,
-                    isMe
+                    isMe,
+                    replyTriggerDistancePx,
+                    replyTravelDistancePx
                 ) {
-                    var replyTriggered =
-                        false
+                    var replyTriggered = false
 
                     detectHorizontalDragGestures(
                         onDragStart = {
-                            replySwipeOffsetPx =
-                                0f
-
-                            replyTriggered =
-                                false
+                            replyTriggered = false
+                            replyArmed = false
+                            replyResetScope.launch {
+                                replySwipeOffset.snapTo(0f)
+                            }
                         },
-                        onHorizontalDrag = {
-                                change,
-                                dragAmount ->
-
+                        onHorizontalDrag = { change, dragAmount ->
                             val movingTowardCenter =
-                                if (isMe) {
-                                    dragAmount < 0f
-                                } else {
-                                    dragAmount > 0f
-                                }
+                                if (isMe) dragAmount < 0f else dragAmount > 0f
 
-                            if (
-                                movingTowardCenter &&
-                                !replyTriggered
-                            ) {
-                                replySwipeOffsetPx =
-                                    (
-                                        replySwipeOffsetPx +
-                                                kotlin.math.abs(
-                                                    dragAmount
-                                                )
-                                        )
-                                        .coerceIn(
-                                            0f,
-                                            replyTravelDistancePx
-                                        )
-
-                                /*
-                                 * Claim the horizontal movement so a
-                                 * sent-message left swipe is treated as
-                                 * reply, not as the global timestamp swipe.
-                                 */
+                            if (movingTowardCenter && !replyTriggered) {
                                 change.consume()
 
-                                if (
-                                    replySwipeOffsetPx >=
-                                    replyTriggerDistancePx
-                                ) {
-                                    replyTriggered =
-                                        true
+                                // Slight resistance makes the gesture deliberate
+                                // and keeps the icon reveal smooth on fast swipes.
+                                val nextOffset = (
+                                    replySwipeOffset.value +
+                                        kotlin.math.abs(dragAmount) * 0.92f
+                                    ).coerceIn(0f, replyTravelDistancePx)
 
-                                    onReply()
+                                replySwipeOffset.snapTo(nextOffset)
+
+                                val reachedReplyThreshold =
+                                    nextOffset >= replyTriggerDistancePx
+
+                                if (reachedReplyThreshold && !replyArmed) {
+                                    replyArmed = true
+                                    replyHaptics.performHapticFeedback(
+                                        HapticFeedbackType.TextHandleMove
+                                    )
+                                } else if (!reachedReplyThreshold && replyArmed) {
+                                    replyArmed = false
                                 }
                             }
                         },
                         onDragEnd = {
-                            replySwipeOffsetPx =
-                                0f
+                            val shouldReply = replyArmed && !replyTriggered
+                            replyTriggered = shouldReply
+                            replyArmed = false
 
-                            replyTriggered =
-                                false
+                            if (shouldReply) {
+                                onReply()
+                            }
+
+                            replyResetScope.launch {
+                                replySwipeOffset.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                            }
                         },
                         onDragCancel = {
-                            replySwipeOffsetPx =
-                                0f
-
-                            replyTriggered =
-                                false
+                            replyArmed = false
+                            replyResetScope.launch {
+                                replySwipeOffset.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                            }
                         }
                     )
                 }
@@ -212,9 +225,9 @@ fun SwipeableMessageBubble(
                     .graphicsLayer {
                         translationX =
                             if (isMe) {
-                                -replySwipeOffsetPx
+                                -replySwipeOffset.value
                             } else {
-                                replySwipeOffsetPx
+                                replySwipeOffset.value
                             }
                     }
                     .zIndex(
@@ -507,12 +520,12 @@ fun SwipeableMessageBubble(
                             4.dp
                     )
                     .size(
-                        34.dp
+                        38.dp
                     )
                     .graphicsLayer {
                         val progress =
                             (
-                                replySwipeOffsetPx /
+                                replySwipeOffset.value /
                                         replyTravelDistancePx
                                 )
                                 .coerceIn(
@@ -539,9 +552,11 @@ fun SwipeableMessageBubble(
             shape =
                 CircleShape,
             color =
-                MaterialTheme
-                    .colorScheme
-                    .primaryContainer
+                if (replyArmed) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
+                }
         ) {
             Box(
                 modifier =
@@ -559,9 +574,11 @@ fun SwipeableMessageBubble(
                             19.dp
                         ),
                     tint =
-                        MaterialTheme
-                            .colorScheme
-                            .onPrimaryContainer
+                        if (replyArmed) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        }
                 )
             }
         }
