@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -251,8 +252,10 @@ fun GroupChatScreen(
                         Column {
                             Text(
                                 text = group?.name?.ifBlank { "Group" } ?: "Group",
+                                fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 18.sp
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.primary
                             )
                             Text(
                                 text = (group?.members?.size ?: 0).toString() + " members",
