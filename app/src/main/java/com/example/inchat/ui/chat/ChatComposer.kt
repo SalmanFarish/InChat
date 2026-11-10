@@ -614,7 +614,7 @@ fun ChatComposer(
                                             onMessageTextChange(text)
                                         }
                                         onActionMessage(
-                                            error ?: "Message could not be sent. Your text has been restored."
+                                            error ?: "Message could not be sent."
                                         )
                                     }
                                 }
