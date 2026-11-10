@@ -2,28 +2,21 @@ package com.example.inchat.ui.navigation
 
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -53,8 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -86,11 +80,10 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
+import com.example.inchat.ui.theme.JetBrainsMono
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 data class NotificationChatTarget(
     val chatId: String,
@@ -1416,478 +1409,147 @@ private fun MainTabPager(
 
 /*
  * ============================================================
- * CUSTOM BOTTOM NAVIGATION
+ * INCHAT BOTTOM NAVIGATION
  * ============================================================
  *
- * The dock supports two independent interactions:
- * 1. Normal tap selects a tab.
- * 2. Long-press + horizontal drag scrubs between tabs continuously.
- *
- * The scrub gesture is mapped from dock distance to pager distance, so
- * moving one tab-width with the finger moves the HorizontalPager by one
- * full page-width. The indicator and page therefore track the finger.
+ * A compact floating dock with three equal destinations.
+ * HorizontalPager keeps its normal swipe gesture; the dock
+ * itself uses ordinary taps only.
  */
-@OptIn(
-    ExperimentalFoundationApi::class
-)
 @Composable
 private fun InChatBottomBar(
-    pagerState:
-        PagerState,
-
-    onPageSelected:
-        (Int) -> Unit
+    pagerState: PagerState,
+    onPageSelected: (Int) -> Unit
 ) {
-
-    val dragScope =
-        rememberCoroutineScope()
-
-    val selectedPage =
-        pagerState.currentPage
-
-    val pagePosition =
-        (
-            pagerState.currentPage +
-                    pagerState.currentPageOffsetFraction
-            )
-            .coerceIn(
-                0f,
-                bottomNavItems.lastIndex
-                    .toFloat()
-            )
-
     Box(
-
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(
-                    bottom =
-                        8.dp
-                ),
-
-        contentAlignment =
-            Alignment.Center
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(
+                horizontal = 18.dp,
+                vertical = 8.dp
+            ),
+        contentAlignment = Alignment.Center
     ) {
-
         Surface(
-
-            modifier =
-                Modifier.border(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
                     width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
-                    shape = RoundedCornerShape(26.dp)
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = RoundedCornerShape(24.dp)
                 ),
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .surface,
-
-            shape =
-                RoundedCornerShape(
-                    26.dp
-                ),
-
-            shadowElevation =
-                5.dp,
-
-            tonalElevation =
-                0.dp
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp,
+            tonalElevation = 0.dp
         ) {
-
-            BoxWithConstraints(
-
-                modifier =
-                    Modifier
-                        .width(
-                            216.dp
-                        )
-                        .height(
-                            58.dp
-                        )
-                        .padding(
-                            4.dp
-                        )
-                        .pointerInput(
-                            pagerState
-                        ) {
-
-                            val itemWidthPx =
-                                size.width /
-                                        bottomNavItems.size.toFloat()
-
-                            var dragJob: kotlinx.coroutines.Job? = null
-
-                            detectDragGesturesAfterLongPress(
-
-                                onDragStart = {
-                                    // Intentionally do not trigger Search focus.
-                                    // Crossing/touching Search while scrubbing must
-                                    // remain a navigation gesture only.
-                                    dragJob?.cancel()
-                                },
-
-                                onDrag = {
-                                        change,
-                                        dragAmount ->
-
-                                    val pageWidthPx =
-                                        pagerState
-                                            .layoutInfo
-                                            .pageSize
-                                            .toFloat()
-
-                                    if (
-                                        pageWidthPx >
-                                        0f &&
-                                        itemWidthPx >
-                                        0f
-                                    ) {
-
-                                        change.consume()
-
-                                        val pageDelta =
-                                            dragAmount.x *
-                                                    (
-                                                        pageWidthPx /
-                                                                itemWidthPx
-                                                        )
-
-                                        dragJob?.cancel()
-
-                                        dragJob =
-                                            dragScope.launch {
-                                                pagerState.scroll(
-                                                    MutatePriority.UserInput
-                                                ) {
-                                                    scrollBy(
-                                                        pageDelta
-                                                    )
-                                                }
-                                            }
-                                    }
-                                },
-
-                                onDragEnd = {
-
-                                    dragJob?.cancel()
-                                    dragJob = null
-
-                                    val targetPage =
-                                        (
-                                            pagerState.currentPage +
-                                                    pagerState.currentPageOffsetFraction
-                                            )
-                                            .roundToInt()
-                                            .coerceIn(
-                                                0,
-                                                bottomNavItems.lastIndex
-                                            )
-
-                                    onPageSelected(
-                                        targetPage
-                                    )
-                                },
-
-                                onDragCancel = {
-
-                                    dragJob?.cancel()
-                                    dragJob = null
-
-                                    val targetPage =
-                                        (
-                                            pagerState.currentPage +
-                                                    pagerState.currentPageOffsetFraction
-                                            )
-                                            .roundToInt()
-                                            .coerceIn(
-                                                0,
-                                                bottomNavItems.lastIndex
-                                            )
-
-                                    onPageSelected(
-                                        targetPage
-                                    )
-                                }
-                            )
-                        }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(70.dp)
+                    .padding(5.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-
-                val itemWidth =
-                    maxWidth /
-                            bottomNavItems.size
-
-                val swipeDistance =
-                    abs(
-                        pagePosition -
-                                pagerState.settledPage
-                        )
-                        .coerceIn(
-                            0f,
-                            1f
-                        )
-
-                val liquidWidth =
-                    itemWidth *
-                            (
-                                1f +
-                                        swipeDistance * 0.50f
-                                )
-
-                val itemCenter =
-                    itemWidth *
-                            pagePosition +
-                            itemWidth / 2f
-
-                val liquidLeft =
-                    (
-                        itemCenter -
-                                liquidWidth / 2f
-                        )
-                        .coerceIn(
-                            0.dp,
-                            maxWidth -
-                                    liquidWidth
-                        )
-
-                val liquidAlpha =
-                    0.12f +
-                            swipeDistance * 0.04f
-
-                Box(
-
-                    modifier =
-                        Modifier
-                            .offset(
-                                x =
-                                    liquidLeft
-                            )
-                            .width(
-                                liquidWidth
-                            )
-                            .height(
-                                50.dp
-                            )
-                            .clip(
-                                RoundedCornerShape(
-                                    25.dp
-                                )
-                            )
-                            .background(
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary
-                                    .copy(
-                                        alpha =
-                                            liquidAlpha
-                                    )
-                            )
-                )
-
-                Row(
-
-                    modifier =
-                        Modifier.fillMaxSize(),
-
-                    verticalAlignment =
-                        Alignment.CenterVertically
-                ) {
-
-                    bottomNavItems.forEachIndexed {
-                            index,
-                            item ->
-
-                        val selected =
-                            selectedPage ==
-                                    index
-
-                        BottomNavigationItem(
-
-                            item =
-                                item,
-
-                            selected =
-                                selected,
-
-                            modifier =
-                                Modifier
-                                    .weight(
-                                        1f
-                                    )
-                                    .fillMaxSize(),
-
-                            onClick = {
-
-                                onPageSelected(
-                                    index
-                                )
-                            }
-                        )
-                    }
+                bottomNavItems.forEachIndexed { index, item ->
+                    BottomNavigationItem(
+                        item = item,
+                        selected = pagerState.currentPage == index,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxSize(),
+                        onClick = {
+                            onPageSelected(index)
+                        }
+                    )
                 }
             }
         }
     }
 }
 
-/*
- * ============================================================
- * BOTTOM NAVIGATION ITEM
- * ============================================================
- */
 @Composable
 private fun BottomNavigationItem(
-    item:
-        BottomNavItem,
-
-    selected:
-        Boolean,
-
-    modifier:
-        Modifier,
-
-    onClick:
-        () -> Unit
+    item: BottomNavItem,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit
 ) {
-
-    val iconColor by
-    animateColorAsState(
-
-        targetValue =
-            if (
-                selected
-            ) {
-
-                MaterialTheme
-                    .colorScheme
-                    .primary
-
-            } else {
-
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-            },
-
-        animationSpec =
-            spring(
-                dampingRatio =
-                    0.85f,
-
-                stiffness =
-                    500f
-            ),
-
-        label =
-            "bottomIconColor"
+    val selectedBackground by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = 520f
+        ),
+        label = "bottomNavBackground"
     )
 
-    val iconSize by
-    animateDpAsState(
-
-        targetValue =
-            if (
-                selected
-            ) {
-
-                25.dp
-
-            } else {
-
-                21.dp
-            },
-
-        animationSpec =
-            spring(
-                dampingRatio =
-                    0.82f,
-
-                stiffness =
-                    560f
-            ),
-
-        label =
-            "bottomIconSize"
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = spring(
+            dampingRatio = 0.86f,
+            stiffness = 560f
+        ),
+        label = "bottomNavContent"
     )
 
-    val iconScale by
-    animateFloatAsState(
-
-        targetValue =
-            if (
-                selected
-            ) {
-
-                1f
-
-            } else {
-
-                0.95f
-            },
-
-        animationSpec =
-            spring(
-                dampingRatio =
-                    0.80f,
-
-                stiffness =
-                    520f
-            ),
-
-        label =
-            "bottomIconScale"
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.94f,
+        animationSpec = spring(
+            dampingRatio = 0.72f,
+            stiffness = 620f
+        ),
+        label = "bottomNavIconScale"
     )
 
-    Box(
-
-        modifier =
-            modifier
-                .clickable(
-                    interactionSource = null,
-                    indication = null,
-                    onClick =
-                        onClick
-                ),
-
-        contentAlignment =
-            Alignment.Center
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(19.dp))
+            .background(selectedBackground)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-
         Icon(
+            imageVector = if (selected) {
+                item.selectedIcon
+            } else {
+                item.unselectedIcon
+            },
+            contentDescription = item.label,
+            tint = contentColor,
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                }
+        )
 
-            imageVector =
-                if (
-                    selected
-                ) {
+        Spacer(Modifier.height(3.dp))
 
-                    item.selectedIcon
-
+        Text(
+            text = item.label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = JetBrainsMono,
+                fontSize = 9.sp,
+                fontWeight = if (selected) {
+                    FontWeight.SemiBold
                 } else {
-
-                    item.unselectedIcon
+                    FontWeight.Medium
                 },
-
-            contentDescription =
-                item.label,
-
-            tint =
-                iconColor,
-
-            modifier =
-                Modifier
-                    .size(
-                        iconSize
-                    )
-                    .graphicsLayer {
-
-                        scaleX =
-                            iconScale
-
-                        scaleY =
-                            iconScale
-                    }
+                letterSpacing = 0.15.sp
+            ),
+            color = contentColor
         )
     }
 }
