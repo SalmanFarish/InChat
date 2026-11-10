@@ -1,5 +1,7 @@
 package com.example.inchat.data.repository
 
+import android.util.Log
+
 import com.example.inchat.ui.chat.ChatTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -68,6 +70,10 @@ class ChatAppearanceRepository {
                          * collectAsState and crash the Compose destination.
                          * The caller can keep the default theme.
                          */
+                        Log.w(
+                            "ChatAppearanceRepository",
+                            "Theme listener cancelled for $chatId: ${error.message}"
+                        )
                         trySend(null)
                         close()
                     }
