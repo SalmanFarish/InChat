@@ -29,19 +29,26 @@ if errorlevel 1 (
   goto :finish
 )
 
-set "GOOGLE_APPLICATION_CREDENTIALS=C:\InChat-secrets\inchat-admin-key.json"
-if not exist "%GOOGLE_APPLICATION_CREDENTIALS%" (
-  echo ERROR: Firebase service-account key was not found:
-  echo %GOOGLE_APPLICATION_CREDENTIALS%
+echo A file picker will open. Select the Firebase private-key JSON you downloaded.
+echo Keep that file private. It will not be copied into your InChat project.
+echo.
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title='Select Firebase service-account JSON'; $d.Filter='JSON files (*.json)|*.json|All files (*.*)|*.*'; if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){[Console]::Write($d.FileName)}"`) do set "GOOGLE_APPLICATION_CREDENTIALS=%%I"
+
+if not defined GOOGLE_APPLICATION_CREDENTIALS (
   echo.
-  echo Put your downloaded key there and name it inchat-admin-key.json.
+  echo No file was selected. Nothing was changed.
+  goto :finish
+)
+if not exist "%GOOGLE_APPLICATION_CREDENTIALS%" (
+  echo.
+  echo ERROR: The selected file could not be found.
   goto :finish
 )
 
 if not exist "..\..\app\google-services.json" (
+  echo.
   echo Your local app\google-services.json was not found.
   echo Enter the exact Realtime Database URL from Firebase Console.
-  echo Example format only: https://PROJECT-default-rtdb.firebaseio.com
   set /p "FIREBASE_DATABASE_URL=Realtime Database URL: "
   if not defined FIREBASE_DATABASE_URL (
     echo ERROR: A Realtime Database URL is required.
