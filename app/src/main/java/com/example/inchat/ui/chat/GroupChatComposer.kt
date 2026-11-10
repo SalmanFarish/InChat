@@ -72,6 +72,12 @@ fun GroupChatComposer(
     val textScrollState = rememberScrollState()
     var savingEdit by remember { mutableStateOf(false) }
 
+    LaunchedEffect(editingMessage?.id) {
+        if (editingMessage == null) {
+            savingEdit = false
+        }
+    }
+
     LaunchedEffect(replyingTo?.id, editingMessage?.id) {
         if (replyingTo != null || editingMessage != null) {
             focusRequester.requestFocus()
@@ -83,6 +89,7 @@ fun GroupChatComposer(
         enabled = replyingTo != null || editingMessage != null
     ) {
         if (editingMessage != null) onClearEdit() else onClearReply()
+        keyboardController?.hide()
     }
 
     Surface(
