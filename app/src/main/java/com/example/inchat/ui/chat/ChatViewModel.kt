@@ -357,8 +357,13 @@ class ChatViewModel : ViewModel() {
         _chatInitializationError.value = null
 
         lastMarkedReadTimestamp = 0L
-        _messages.value = emptyList()
-        _messagesLoaded.value = false
+
+        // Populate from the last in-memory snapshot before waiting for
+        // chat initialization or the next Firebase listener callback.
+        val cachedMessages = chatRepository.getCachedMessages(chatId)
+        _messages.value = cachedMessages ?: emptyList()
+        _messagesLoaded.value = cachedMessages != null
+
         _otherUserDeliveredTimestamp.value = 0L
         _otherUserReadTimestamp.value = 0L
         _readReceiptsEnabled.value = true
