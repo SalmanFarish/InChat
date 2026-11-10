@@ -83,6 +83,11 @@ fun ChatScreen(
         .readyChatId
         .collectAsState()
 
+    val chatInitializationError by
+    chatViewModel
+        .chatInitializationError
+        .collectAsState()
+
     // Do not reuse the previous conversation's ready state during navigation.
     val chatReady = readyChatId == chatId
 
@@ -233,6 +238,13 @@ fun ChatScreen(
         mutableStateOf<String?>(
             null
         )
+    }
+
+    LaunchedEffect(chatInitializationError) {
+        if (!chatInitializationError.isNullOrBlank()) {
+            actionMessage =
+                "Couldn't open this conversation: $chatInitializationError"
+        }
     }
 
     fun clearReplyMode() {
