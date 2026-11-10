@@ -137,7 +137,9 @@ fun GroupChatScreen(
             },
             onEdit = {
                 messageForActions = null
-                draftBeforeEdit = messageText
+                if (draftBeforeEdit == null) {
+                    draftBeforeEdit = messageText
+                }
                 messageText = message.text
                 groupViewModel.setEditingMessage(
                     message = message,
