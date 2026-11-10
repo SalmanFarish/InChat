@@ -1533,7 +1533,7 @@ private fun ConversationItem(
                         color =
                             MaterialTheme
                                 .colorScheme
-                                .onBackground
+                                .primary
                     ) {
 
                         Box(
@@ -1571,7 +1571,7 @@ private fun ConversationItem(
                                 color =
                                     MaterialTheme
                                         .colorScheme
-                                        .background
+                                        .onPrimary
                             )
                         }
                     }
