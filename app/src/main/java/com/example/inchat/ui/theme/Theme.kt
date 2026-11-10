@@ -1,147 +1,56 @@
 package com.example.inchat.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
-/*
- * ============================================================
- * INCHAT DARK THEME
- * ============================================================
- *
- * Cyberpunk Neon palette for the dark interface.
- * No dynamic system colors are used, so the palette stays consistent.
- */
-private val DarkColorScheme =
+private val CyberpunkColorScheme =
     darkColorScheme(
         primary = NeonCyan,
-        onPrimary = AppBackground,
-        primaryContainer = Color(0xFF103447),
-        onPrimaryContainer = Color(0xFFBDF8FF),
-        secondary = ElectricBlue,
-        onSecondary = White,
-        secondaryContainer = Color(0xFF172B4A),
-        onSecondaryContainer = Color(0xFFD6E8FF),
-        tertiary = NeonMagenta,
-        onTertiary = AppBackground,
-        tertiaryContainer = Color(0xFF381B3D),
-        onTertiaryContainer = Color(0xFFFFD8F7),
+        onPrimary = Black,
+        primaryContainer = Color(0xFF06212A),
+        onPrimaryContainer = Color(0xFFC7F9FF),
+
+        secondary = NeonMagenta,
+        onSecondary = Black,
+        secondaryContainer = Color(0xFF260D25),
+        onSecondaryContainer = Color(0xFFFFD5F7),
+
+        tertiary = NeonCyan,
+        onTertiary = Black,
+        tertiaryContainer = Color(0xFF09202A),
+        onTertiaryContainer = Color(0xFFD7FAFF),
+
         background = AppBackground,
         onBackground = TextPrimary,
+
         surface = AppSurface,
         onSurface = TextPrimary,
         surfaceVariant = AppSurfaceVariant,
         onSurfaceVariant = SoftLavender,
+
         outline = AppOutline,
         outlineVariant = AppOutlineVariant,
+
         error = NeonError,
-        onError = AppBackground,
-        errorContainer = Color(0xFF3C1D32),
-        onErrorContainer = Color(0xFFFFD9E5)
+        onError = Black,
+        errorContainer = Color(0xFF35121F),
+        onErrorContainer = Color(0xFFFFD9E2)
     )
 
-/*
- * ============================================================
- * INCHAT LIGHT THEME
- * ============================================================
- *
- * The existing clean monochrome light theme remains available.
- */
-private val LightColorScheme =
-    lightColorScheme(
-
-        primary =
-            Black,
-
-        onPrimary =
-            White,
-
-        secondary =
-            SurfaceElevated,
-
-        onSecondary =
-            White,
-
-        tertiary =
-            SurfaceElevated,
-
-        onTertiary =
-            White,
-
-        background =
-            White,
-
-        onBackground =
-            Black,
-
-        surface =
-            White,
-
-        onSurface =
-            Black,
-
-        surfaceVariant =
-            TextSecondary,
-
-        onSurfaceVariant =
-            Black,
-
-        outline =
-            Divider,
-
-        outlineVariant =
-            Divider,
-
-        error =
-            Black,
-
-        onError =
-            White,
-
-        errorContainer =
-            TextSecondary,
-
-        onErrorContainer =
-            Black
-    )
-
-/*
- * ============================================================
- * INCHAT THEME
- * ============================================================
+/**
+ * InChat uses its AMOLED Cyberpunk appearance on every device.
+ * The system light/dark setting no longer switches the app to a
+ * white interface.
  */
 @Composable
 fun InChatTheme(
-    darkTheme: Boolean =
-        isSystemInDarkTheme(),
-
     content: @Composable () -> Unit
 ) {
-
-    val colorScheme =
-        if (
-            darkTheme
-        ) {
-
-            DarkColorScheme
-
-        } else {
-
-            LightColorScheme
-        }
-
     MaterialTheme(
-
-        colorScheme =
-            colorScheme,
-
-        typography =
-            Typography,
-
-        content =
-            content
+        colorScheme = CyberpunkColorScheme,
+        typography = Typography,
+        content = content
     )
 }
