@@ -389,70 +389,40 @@ fun SwipeableMessageBubble(
                                 },
                             maxLines = 1
                         )
-                    }
-                }
 
-                if (
-                    isMe &&
-                    deliveryStatus !=
-                    MessageDeliveryStatus.NONE
-                ) {
-                    val receiptText =
-                        when (deliveryStatus) {
-                            MessageDeliveryStatus.SEEN_JUST_NOW,
-                            MessageDeliveryStatus.SEEN ->
-                                "Read"
+                        if (
+                            isMe &&
+                            deliveryStatus != MessageDeliveryStatus.NONE
+                        ) {
+                            val receiptText =
+                                when (deliveryStatus) {
+                                    MessageDeliveryStatus.SEEN_JUST_NOW,
+                                    MessageDeliveryStatus.SEEN -> "READ"
+                                    MessageDeliveryStatus.SENT -> "SENT"
+                                    MessageDeliveryStatus.DELIVERED -> "DELIVERED"
+                                    MessageDeliveryStatus.SENDING -> "SENDING…"
+                                    MessageDeliveryStatus.WAITING_FOR_CONNECTION -> "SAVING…"
+                                    MessageDeliveryStatus.NONE -> ""
+                                }
 
-                            MessageDeliveryStatus.SENT ->
-                                "Sent"
-
-                            MessageDeliveryStatus.DELIVERED ->
-                                "Delivered"
-
-                            MessageDeliveryStatus.SENDING ->
-                                "Sending…"
-
-                            MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
-                                "Sending…"
-
-                            MessageDeliveryStatus.NONE ->
-                                ""
-                        }
-
-                    if (receiptText.isNotBlank()) {
-                        Spacer(
-                            modifier =
-                                Modifier.height(3.dp)
-                        )
-
-                        Text(
-                            text = receiptText,
-                            style =
-                                MaterialTheme
-                                    .typography
-                                    .labelSmall
-                                    .copy(fontSize = 11.sp),
-                            fontWeight =
-                                FontWeight.Normal,
-                            color =
-                                chatTheme.outgoingTextColor.copy(
-                                    alpha =
-                                        if (
-                                            deliveryStatus ==
-                                            MessageDeliveryStatus.SEEN_JUST_NOW ||
-                                            deliveryStatus ==
-                                            MessageDeliveryStatus.SEEN
-                                        ) {
-                                            0.9f
-                                        } else {
-                                            0.62f
-                                        }
-                                ),
-                            modifier =
-                                Modifier.align(
-                                    Alignment.End
+                            if (receiptText.isNotBlank()) {
+                                Spacer(
+                                    modifier = Modifier.width(5.dp)
                                 )
-                        )
+
+                                Text(
+                                    text = receiptText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        letterSpacing = 0.45.sp
+                                    ),
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = chatTheme.statusAccentColor,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
 
