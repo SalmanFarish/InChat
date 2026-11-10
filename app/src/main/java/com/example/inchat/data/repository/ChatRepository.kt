@@ -59,6 +59,11 @@ class ChatRepository {
 
         private val messageCache =
             ConcurrentHashMap<String, List<Message>>()
+
+        // Chat IDs verified during this process do not need another
+        // network existence check every time the user reopens them.
+        private val knownChatIds =
+            ConcurrentHashMap.newKeySet<String>()
     }
 
     /*
@@ -112,6 +117,11 @@ class ChatRepository {
             }
 
             val chatId = getChatRoomId(currentUserId, otherUserId)
+
+            if (knownChatIds.contains(chatId)) {
+                return Result.success(chatId)
+            }
+
             val participantA =
                 if (currentUserId < otherUserId) currentUserId else otherUserId
             val participantB =
@@ -149,6 +159,7 @@ class ChatRepository {
                         "The existing chat record has different participants."
                     )
                 }
+                knownChatIds.add(chatId)
                 return Result.success(chatId)
             }
 
@@ -174,12 +185,21 @@ class ChatRepository {
                 }
             }
 
+            knownChatIds.add(chatId)
             Result.success(chatId)
         } catch (e: Exception) {
             Log.e(TAG, "Could not create or verify direct chat", e)
             Result.failure(e)
         }
     }
+
+    /*
+     * Return the latest message snapshot already received by this process.
+     * Null means this chat has not been loaded yet; an empty list is a
+     * valid cached result for a conversation with no messages.
+     */
+    fun getCachedMessages(chatId: String): List<Message>? =
+        messageCache[chatId]
 
     /*
      * =========================================================
