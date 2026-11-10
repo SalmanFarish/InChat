@@ -65,7 +65,7 @@ fun ChatThemeScreen(
 
     val selectedTheme = ChatTheme.fromId(
         id = selectedThemeId,
-        defaultTheme = ChatTheme.CYBERPUNK_NEON
+        defaultTheme = ChatTheme.BITCHAT_GREEN
     )
     val coroutineScope = rememberCoroutineScope()
 
