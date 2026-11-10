@@ -1,6 +1,7 @@
 package com.example.inchat.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -842,7 +843,13 @@ fun SettingsScreen(
                 Surface(
 
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 0.7.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)
+                            ),
 
                     shape =
                         androidx.compose
@@ -1083,7 +1090,13 @@ private fun SettingsSectionCard(
         Surface(
 
             modifier =
-                Modifier.fillMaxWidth(),
+                Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 0.7.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                    ),
 
             shape =
                 androidx.compose
