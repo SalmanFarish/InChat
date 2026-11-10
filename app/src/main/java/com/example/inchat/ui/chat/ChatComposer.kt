@@ -695,9 +695,11 @@ fun ChatComposer(
                     Icon(
 
                         imageVector =
-                            Icons.AutoMirrored
-                                .Filled
-                                .Send,
+                            if (editingMessage != null) {
+                                Icons.Default.Check
+                            } else {
+                                Icons.AutoMirrored.Filled.Send
+                            },
 
                         contentDescription =
                             if (
