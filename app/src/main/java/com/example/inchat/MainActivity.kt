@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.repository.PresenceRepository
 import com.example.inchat.notification.InChatFirebaseMessagingService
@@ -38,11 +37,7 @@ import com.example.inchat.ui.home.HomeViewModel
 import com.example.inchat.ui.navigation.InChatApp
 import com.example.inchat.ui.navigation.NotificationChatTarget
 import com.example.inchat.ui.theme.InChatTheme
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 class MainActivity :
     ComponentActivity() {
@@ -71,8 +66,6 @@ class MainActivity :
         handleNotificationIntent(
             intent
         )
-
-        preloadNotificationChat()
 
         setContent {
 
@@ -105,7 +98,6 @@ class MainActivity :
             intent
         )
 
-        preloadNotificationChat()
     }
 
     private fun handleNotificationIntent(
@@ -200,50 +192,7 @@ class MainActivity :
             )
     }
 
-    private fun preloadNotificationChat() {
-
-        val target =
-            notificationTarget.value
-                ?: return
-
-        lifecycleScope.launch(
-            Dispatchers.IO
-        ) {
-
-            try {
-
-                FirebaseDatabase
-                    .getInstance()
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        target.chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .orderByChild(
-                        "timestamp"
-                    )
-                    .limitToLast(
-                        200
-                    )
-                    .get()
-                    .await()
-
-            } catch (
-                _: Exception
-            ) {
-
-                /*
-                 * ChatScreen handles realtime loading itself.
-                 */
-            }
-        }
-    }
-
-    @Composable
+@Composable
     private fun InChatRoot() {
 
         val uiState by
