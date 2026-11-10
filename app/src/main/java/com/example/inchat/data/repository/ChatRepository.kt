@@ -279,10 +279,12 @@ class ChatRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            TAG,
+                            "Realtime Database list listener cancelled for $chatId: ${error.message}"
                         )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
@@ -406,10 +408,12 @@ class ChatRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            TAG,
+                            "Realtime Database list listener cancelled for $chatId: ${error.message}"
                         )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
@@ -469,7 +473,9 @@ class ChatRepository {
                 trySend(snapshot.getValue(Long::class.java) ?: 0L)
             }
             override fun onCancelled(error: DatabaseError) {
-                close(error.toException())
+                Log.e(TAG, "Delivery listener cancelled for $chatId: ${error.message}")
+                trySend(0L)
+                close()
             }
         }
         deliveredRef.addValueEventListener(listener)
@@ -545,10 +551,12 @@ class ChatRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            TAG,
+                            "Read receipt listener cancelled for $chatId: ${error.message}"
                         )
+                        trySend(0L)
+                        close()
                     }
                 }
 
