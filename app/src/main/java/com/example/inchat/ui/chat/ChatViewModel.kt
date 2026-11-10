@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 enum class BlockState {
@@ -58,6 +60,17 @@ class ChatViewModel : ViewModel() {
     val messagesLoaded:
             StateFlow<Boolean> =
         _messagesLoaded.asStateFlow()
+
+    private val _hasOlderMessages = MutableStateFlow(false)
+    val hasOlderMessages: StateFlow<Boolean> = _hasOlderMessages.asStateFlow()
+
+    private val _isLoadingOlderMessages = MutableStateFlow(false)
+    val isLoadingOlderMessages: StateFlow<Boolean> =
+        _isLoadingOlderMessages.asStateFlow()
+
+    private var hasRequestedOlderMessages = false
+    private var isChatVisible = false
+    private var activeTypingUserId = ""
 
     private val _chatReady =
         MutableStateFlow(false)
@@ -337,6 +350,14 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        if (currentChatId.isNotBlank() && activeTypingUserId.isNotBlank()) {
+            clearTypingState(activeTypingUserId, currentChatId)
+        }
+        isChatVisible = false
+        hasRequestedOlderMessages = false
+        _hasOlderMessages.value = false
+        _isLoadingOlderMessages.value = false
+
         // Stop any previous conversation listeners before switching chats.
         initializationJob?.cancel()
         listenerJob?.cancel()
@@ -363,6 +384,7 @@ class ChatViewModel : ViewModel() {
         val cachedMessages = chatRepository.getCachedMessages(chatId)
         _messages.value = cachedMessages ?: emptyList()
         _messagesLoaded.value = cachedMessages != null
+        _hasOlderMessages.value = (cachedMessages?.size ?: 0) >= 200
 
         _otherUserDeliveredTimestamp.value = 0L
         _otherUserReadTimestamp.value = 0L
@@ -519,8 +541,11 @@ class ChatViewModel : ViewModel() {
                             _messages.value =
                                 messageList
 
-                            _messagesLoaded.value =
-                                true
+                            _messagesLoaded.value = true
+
+                            if (!hasRequestedOlderMessages) {
+                                _hasOlderMessages.value = messageList.size >= 200
+                            }
 
                             val newestOtherMessage =
                                 messageList
@@ -549,9 +574,9 @@ class ChatViewModel : ViewModel() {
                                     ?: 0L
 
                             if (
+                                isChatVisible &&
                                 newestOtherMessageForRead > 0L &&
-                                newestOtherMessageForRead >
-                                lastMarkedReadTimestamp
+                                newestOtherMessageForRead > lastMarkedReadTimestamp
                             ) {
 
                                 lastMarkedReadTimestamp =
@@ -652,45 +677,30 @@ class ChatViewModel : ViewModel() {
         chatId: String,
         otherUserId: String
     ) {
-
         readListenerJob?.cancel()
-
-        readListenerJob =
-            viewModelScope.launch {
-
-                try {
-
-                    chatRepository
-                        .getOtherUserReadTimestampFlow(
-                            chatId =
-                                chatId,
-
-                            otherUserId =
-                                otherUserId
-                        )
-                        .collect { timestamp ->
-
-                            _otherUserReadTimestamp
-                                .value =
-                                timestamp
+        readListenerJob = viewModelScope.launch {
+            try {
+                combine(
+                    userRepository.observeReadReceiptsVisible(otherUserId),
+                    blockState
+                ) { visible, block -> visible && block == BlockState.NONE }
+                    .collectLatest { canObserve ->
+                        if (!canObserve) {
+                            _otherUserReadTimestamp.value = 0L
+                        } else {
+                            chatRepository
+                                .getOtherUserReadTimestampFlow(chatId, otherUserId)
+                                .collect { timestamp ->
+                                    _otherUserReadTimestamp.value = timestamp
+                                }
                         }
-
-                } catch (
-                    e:
-                    kotlinx.coroutines.CancellationException
-                ) {
-
-                    throw e
-
-                } catch (e: Exception) {
-
-                    Log.e(
-                        "ChatViewModel",
-                        "Read listener failed",
-                        e
-                    )
-                }
+                    }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Read listener failed", e)
             }
+        }
     }
 
     /*
@@ -719,10 +729,12 @@ class ChatViewModel : ViewModel() {
                                 enabled
 
                             if (!enabled) {
-
-                                markConversationRead(
-                                    currentUserId
-                                )
+                                viewModelScope.launch {
+                                    chatRepository.clearReadReceipt(
+                                        currentUserId,
+                                        currentChatId
+                                    )
+                                }
                             }
                         }
 
@@ -1541,6 +1553,8 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        activeTypingUserId = currentUserId
+
         val typingRef =
             database
                 .getReference(
@@ -2123,16 +2137,71 @@ class ChatViewModel : ViewModel() {
      * CLEAR CHAT STATE
      * =========================================================
      */
+    fun setChatVisible(
+        currentUserId: String,
+        visible: Boolean
+    ) {
+        if (currentChatId.isBlank()) return
+        isChatVisible = visible
+        if (visible) {
+            markConversationRead(currentUserId)
+        } else {
+            clearTypingState(currentUserId, currentChatId)
+            _otherUserTyping.value = false
+        }
+    }
+
+    private fun clearTypingState(currentUserId: String, chatId: String) {
+        typingResetJob?.cancel()
+        typingResetJob = null
+        if (currentUserId.isNotBlank() && chatId.isNotBlank()) {
+            database.getReference("typing")
+                .child(chatId).child(currentUserId).setValue(false)
+        }
+        if (activeTypingUserId == currentUserId) activeTypingUserId = ""
+    }
+
     fun clearChatState() {
+        if (activeTypingUserId.isNotBlank() && currentChatId.isNotBlank()) {
+            clearTypingState(activeTypingUserId, currentChatId)
+        }
+        _replyingTo.value = null
+        _editingMessage.value = null
+        _otherUserTyping.value = false
+    }
 
-        _replyingTo.value =
-            null
+    fun loadOlderMessages() {
+        val chatId = currentChatId
+        if (chatId.isBlank() || !_hasOlderMessages.value ||
+            _isLoadingOlderMessages.value
+        ) return
 
-        _editingMessage.value =
-            null
+        val oldestTimestamp = _messages.value
+            .firstOrNull { it.timestamp > 0L }?.timestamp ?: return
 
-        _otherUserTyping.value =
-            false
+        hasRequestedOlderMessages = true
+        _isLoadingOlderMessages.value = true
+        viewModelScope.launch {
+            try {
+                chatRepository.getOlderMessages(
+                    chatId = chatId,
+                    beforeTimestamp = oldestTimestamp
+                ).onSuccess { olderMessages ->
+                    if (currentChatId == chatId) {
+                        _messages.value =
+                            (olderMessages + _messages.value)
+                                .distinctBy { it.id }
+                                .sortedBy { it.timestamp }
+                        _hasOlderMessages.value =
+                            olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
+                    }
+                }.onFailure { error ->
+                    Log.e("ChatViewModel", "Could not load earlier messages", error)
+                }
+            } finally {
+                _isLoadingOlderMessages.value = false
+            }
+        }
     }
 
     /*
@@ -2141,6 +2210,9 @@ class ChatViewModel : ViewModel() {
      * =========================================================
      */
     override fun onCleared() {
+        if (activeTypingUserId.isNotBlank() && currentChatId.isNotBlank()) {
+            clearTypingState(activeTypingUserId, currentChatId)
+        }
 
         connectionListenerJob?.cancel()
         initializationJob?.cancel()
