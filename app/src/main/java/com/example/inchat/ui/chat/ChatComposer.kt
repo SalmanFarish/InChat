@@ -351,7 +351,7 @@ fun ChatComposer(
                             onMessageTextChange,
 
                         enabled =
-                            !messagingBlocked,
+                            !messagingBlocked && !sendingMessage,
 
                         modifier =
                             Modifier
