@@ -151,57 +151,48 @@ class AuthViewModel(
      * =========================================================
      */
     private fun bootstrap() {
+        /*
+         * Firebase can restore a cached FirebaseUser whose emailVerified
+         * flag predates the user clicking the verification link.
+         * Refresh the account before deciding which screen to show.
+         */
+        viewModelScope.launch {
+            try {
+                var restoredUser = auth.currentUser
 
-        val firebaseUser =
-            auth.currentUser
+                if (restoredUser == null) {
+                    kotlinx.coroutines.yield()
+                    restoredUser = auth.currentUser
+                }
 
-        if (
-            firebaseUser == null
-        ) {
-
-            viewModelScope.launch {
+                if (restoredUser == null) {
+                    _uiState.value = AuthUiState.LoggedOut
+                    return@launch
+                }
 
                 try {
-
-                    kotlinx.coroutines
-                        .yield()
-
-                    val restoredUser =
-                        auth.currentUser
-
-                    if (
-                        restoredUser == null
-                    ) {
-
-                        _uiState.value =
-                            AuthUiState.LoggedOut
-
-                        return@launch
-                    }
-
-                    initializeAuthenticatedSession(
-                        restoredUser
-                    )
-
-                } catch (e: Exception) {
-
-                    Log.e(
+                    restoredUser.reload().await()
+                } catch (refreshError: Exception) {
+                    // Keep the cached session on transient network errors.
+                    Log.w(
                         "AuthViewModel",
-                        "Authentication bootstrap failed",
-                        e
+                        "Could not refresh the restored Firebase user",
+                        refreshError
                     )
-
-                    _uiState.value =
-                        AuthUiState.LoggedOut
                 }
+
+                initializeAuthenticatedSession(
+                    auth.currentUser ?: restoredUser
+                )
+            } catch (e: Exception) {
+                Log.e(
+                    "AuthViewModel",
+                    "Authentication bootstrap failed",
+                    e
+                )
+                _uiState.value = AuthUiState.LoggedOut
             }
-
-            return
         }
-
-        initializeAuthenticatedSession(
-            firebaseUser
-        )
     }
 
     private fun initializeAuthenticatedSession(
@@ -1548,12 +1539,29 @@ class AuthViewModel(
                         password
                     ).await()
 
-                val firebaseUser =
+                val signedInUser =
                     result.user
                         ?: auth.currentUser
                         ?: throw IllegalStateException(
                             "Firebase did not return a signed-in user."
                         )
+
+                /*
+                 * Sign-in can return a FirebaseUser with stale profile
+                 * metadata. Reload it before enforcing email verification.
+                 */
+                try {
+                    signedInUser.reload().await()
+                } catch (refreshError: Exception) {
+                    Log.w(
+                        "AuthViewModel",
+                        "Could not refresh Firebase user after sign-in",
+                        refreshError
+                    )
+                }
+
+                val firebaseUser =
+                    auth.currentUser ?: signedInUser
 
                 if (
                     !isGoogleUser(firebaseUser) &&
