@@ -2148,7 +2148,9 @@ class ChatViewModel : ViewModel() {
         if (currentChatId.isBlank()) return
 
         if (visible) {
-            markConversationRead(currentUserId)
+            if (_chatReady.value && _readyChatId.value == currentChatId) {
+                markConversationRead(currentUserId)
+            }
         } else {
             clearChatState()
         }
