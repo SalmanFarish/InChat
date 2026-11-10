@@ -1376,17 +1376,6 @@ private fun MainTabPager(
                     authViewModel =
                         authViewModel,
 
-                    onBackClick = {
-
-                        pagerScope.launch {
-
-                            pagerState
-                                .animateScrollToPage(
-                                    0
-                                )
-                        }
-                    },
-
                     onSettingsClick = {
 
                         navController.navigate(
