@@ -85,6 +85,10 @@ fun ChatMessageList(
         mutableStateOf<String?>(null)
     }
 
+    var timestampsVisible by remember {
+        mutableStateOf(false)
+    }
+
     /*
      * Reading this value makes the composable recompose
      * when "Seen just now" changes into "Seen".
@@ -622,6 +626,13 @@ fun ChatMessageList(
 
                                 isLastInGroup =
                                     isLastInGroup,
+
+                                showTimestamp =
+                                    timestampsVisible,
+
+                                onTimestampToggle = {
+                                    timestampsVisible = !timestampsVisible
+                                },
 
                                 onReply = {
                                     if (
