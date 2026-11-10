@@ -482,8 +482,6 @@ class ChatViewModel : ViewModel() {
                         "ChatViewModel",
                         "Direct chat is ready: $chatId"
                     )
-
-                    markConversationRead(currentUserId)
                 } catch (
                     e: kotlinx.coroutines.CancellationException
                 ) {
