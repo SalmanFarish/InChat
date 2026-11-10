@@ -252,7 +252,7 @@ fun ChatThemeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val palette = theme.palette(darkTheme = false)
+    val palette = theme.palette()
 
     Card(
         onClick = onClick,
@@ -319,7 +319,7 @@ fun ChatThemeRow(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val palette = theme.palette(darkTheme = false)
+    val palette = theme.palette()
 
     Row(
         modifier = Modifier
