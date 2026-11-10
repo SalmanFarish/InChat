@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -84,10 +83,6 @@ fun ChatMessageList(
     var previousLastMessageId by
     remember {
         mutableStateOf<String?>(null)
-    }
-
-    var timestampsVisible by remember {
-        mutableStateOf(false)
     }
 
     /*
@@ -324,31 +319,6 @@ fun ChatMessageList(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        /*
-                         * Reveal timestamps on the DOWN event itself.
-                         * Observe at the Initial pass and do not consume
-                         * the event, so scrolling, reply swipes and child
-                         * click/long-press gestures continue to work.
-                         */
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event =
-                                    awaitPointerEvent(
-                                        PointerEventPass.Initial
-                                    )
-
-                                /*
-                                 * Keep timestamps visible for the full time
-                                 * at least one pointer is down. This also
-                                 * hides them on UP or CANCEL, and supports
-                                 * multi-touch without hiding too early.
-                                 */
-                                timestampsVisible =
-                                    event.changes.any { it.pressed }
-                            }
-                        }
-                    }
         ) {
 
             if (
@@ -654,12 +624,6 @@ fun ChatMessageList(
                                 isLastInGroup =
                                     isLastInGroup,
 
-                                showTimestamp =
-                                    timestampsVisible,
-
-                                // Visibility is controlled by the screen-level
-                                // pointer listener for the entire touch duration.
-                                onTimestampToggle = {},
 
                                 onReply = {
                                     if (
