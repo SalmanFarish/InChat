@@ -46,7 +46,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -56,6 +55,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.zIndex
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -349,7 +349,7 @@ fun SwipeableMessageBubble(
 
                     val metadataStyle =
                         MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = JetBrainsMono,
                             fontSize = 9.sp,
                             lineHeight = 12.sp,
                             letterSpacing = 0.35.sp
@@ -489,7 +489,7 @@ fun SwipeableMessageBubble(
                         ),
                     style =
                         MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = JetBrainsMono,
                             fontSize = 9.sp,
                             lineHeight = 12.sp,
                             letterSpacing = 0.35.sp

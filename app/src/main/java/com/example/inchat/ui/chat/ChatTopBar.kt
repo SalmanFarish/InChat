@@ -17,12 +17,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -102,7 +102,7 @@ fun ChatTopBar(
                             otherUserNickname,
 
                         fontFamily =
-                            FontFamily.Monospace,
+                            JetBrainsMono,
 
                         fontSize =
                             16.sp,

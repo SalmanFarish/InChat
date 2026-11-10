@@ -34,13 +34,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -256,7 +256,7 @@ fun GroupChatScreen(
                         Column {
                             Text(
                                 text = group?.name?.ifBlank { "Group" } ?: "Group",
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = JetBrainsMono,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.primary

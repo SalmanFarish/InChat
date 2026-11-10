@@ -1,7 +1,9 @@
 package com.example.inchat.ui.theme
 
 import androidx.compose.material3.Typography
+import com.example.inchat.R
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -17,6 +19,13 @@ import androidx.compose.ui.unit.sp
  * - Small, restrained metadata
  * - Controlled letter spacing
  */
+val JetBrainsMono = FontFamily(
+    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
+    Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
+    Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
+    Font(R.font.jetbrains_mono_bold, FontWeight.Bold)
+)
+
 val Typography =
     Typography(
 
@@ -28,7 +37,7 @@ val Typography =
         displayLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
