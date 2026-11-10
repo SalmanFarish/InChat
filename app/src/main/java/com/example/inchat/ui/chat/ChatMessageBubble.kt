@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -112,6 +113,23 @@ fun SwipeableMessageBubble(
     val replyHaptics = LocalHapticFeedback.current
     val replyResetScope = rememberCoroutineScope()
 
+    fun settleReplySwipe() {
+        val releaseOffset = replySwipeOffsetPx
+        replyResetJob?.cancel()
+        replyResetJob = replyResetScope.launch {
+            animate(
+                initialValue = releaseOffset,
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) { value, _ ->
+                replySwipeOffsetPx = value
+            }
+        }
+    }
+
     BoxWithConstraints(
         modifier =
             Modifier
@@ -175,31 +193,11 @@ fun SwipeableMessageBubble(
                                 onReply()
                             }
 
-                            val releaseOffset = replySwipeOffsetPx
-                            replyResetJob = replyResetScope.launch {
-                                animate(
-                                    initialValue = releaseOffset,
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                ) { value, _ ->
-                                    replySwipeOffsetPx = value
-                                }
-                            }
+                            settleReplySwipe()
                         },
                         onDragCancel = {
                             replyArmed = false
-                            replyResetScope.launch {
-                                replySwipeOffset.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                )
-                            }
+                            settleReplySwipe()
                         }
                     )
                 }
