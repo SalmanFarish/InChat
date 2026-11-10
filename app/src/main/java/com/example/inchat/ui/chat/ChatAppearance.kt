@@ -43,7 +43,7 @@ data class ChatThemePalette(
     val secondaryText: Color,
     val incomingBorder: Color = Color.Transparent,
     val outgoingBorder: Color = Color.Transparent,
-    val statusAccent: Color = Color(0xFF00E5FF)
+    val statusAccent: Color = Color(0xFF49FF66)
 )
 
 enum class ChatTheme(
@@ -53,11 +53,12 @@ enum class ChatTheme(
     val legacyIds: List<String>,
     private val colors: ChatThemePalette
 ) {
-    CYBERPUNK_NEON(
-        id = "cyberpunk_neon",
-        title = "Cyberpunk Neon",
-        description = "Pure AMOLED black with restrained cyan and magenta terminal accents",
+    BITCHAT_GREEN(
+        id = "bitchat_green",
+        title = "Terminal Green",
+        description = "AMOLED black with minimal terminal-green text and accents",
         legacyIds = listOf(
+            "cyberpunk_neon",
             "amoled_black",
             "pure_white",
             "pure_black",
@@ -81,14 +82,14 @@ enum class ChatTheme(
         ),
         colors = ChatThemePalette(
             background = Color(0xFF000000),
-            incomingBubble = Color(0xFF050A10),
-            outgoingBubble = Color(0xFF0A0610),
-            incomingText = Color(0xFFF1F3FA),
-            outgoingText = Color(0xFFF1F3FA),
-            secondaryText = Color(0xFFADB7C9),
-            incomingBorder = Color(0xFF00E5FF).copy(alpha = 0.24f),
-            outgoingBorder = Color(0xFFFF00D4).copy(alpha = 0.22f),
-            statusAccent = Color(0xFF00E5FF)
+            incomingBubble = Color(0xFF030A04),
+            outgoingBubble = Color(0xFF041108),
+            incomingText = Color(0xFFA5ECAF),
+            outgoingText = Color(0xFFC9FFD0),
+            secondaryText = Color(0xFF79A982),
+            incomingBorder = Color.Transparent,
+            outgoingBorder = Color.Transparent,
+            statusAccent = Color(0xFF49FF66)
         )
     );
 
@@ -125,7 +126,7 @@ enum class ChatTheme(
     companion object {
         fun fromId(
             id: String?,
-            defaultTheme: ChatTheme = CYBERPUNK_NEON
+            defaultTheme: ChatTheme = BITCHAT_GREEN
         ): ChatTheme =
             entries.firstOrNull {
                 it.id == id || it.legacyIds.contains(id)
