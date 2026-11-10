@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import com.example.inchat.data.model.User
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -408,10 +409,12 @@ class UserRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            "UserRepository",
+                            "Users listener cancelled: ${error.message}"
                         )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
