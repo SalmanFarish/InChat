@@ -60,6 +60,12 @@ class ChatRepository {
         private val messageCache =
             ConcurrentHashMap<String, List<Message>>()
 
+        private val olderMessageCache =
+            ConcurrentHashMap<String, List<Message>>()
+
+        const val MESSAGE_EDIT_WINDOW_MS = 15L * 60L * 1000L
+        const val OLDER_MESSAGE_PAGE_SIZE = 50
+
         // Chat IDs verified during this process do not need another
         // network existence check every time the user reopens them.
         private val knownChatIds =
@@ -201,6 +207,71 @@ class ChatRepository {
     fun getCachedMessages(chatId: String): List<Message>? =
         messageCache[chatId]
 
+    private fun updateCachedMessage(
+        chatId: String,
+        transform: (Message) -> Message?
+    ) {
+        messageCache.computeIfPresent(chatId) { _, messages ->
+            messages.mapNotNull(transform).sortedBy { it.timestamp }
+        }
+        olderMessageCache.computeIfPresent(chatId) { _, messages ->
+            messages.mapNotNull(transform).sortedBy { it.timestamp }
+        }
+    }
+
+    private suspend fun refreshDirectConversationPreview(chatId: String) {
+        val chatSnapshot = database.getReference("chats").child(chatId).get().await()
+        if (!chatSnapshot.exists() ||
+            chatSnapshot.child("type").getValue(String::class.java) == "group"
+        ) return
+
+        val participantA = chatSnapshot.child("participantA")
+            .getValue(String::class.java).orEmpty()
+        val participantB = chatSnapshot.child("participantB")
+            .getValue(String::class.java).orEmpty()
+        if (participantA.isBlank() || participantB.isBlank()) return
+
+        val latestSnapshot = database.getReference("chats")
+            .child(chatId).child("messages")
+            .orderByChild("timestamp").limitToLast(1).get().await()
+        val latest = latestSnapshot.children
+            .mapNotNull { it.getValue(Message::class.java) }
+            .maxByOrNull { it.timestamp }
+
+        val previewText = latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
+        val previewTimestamp = latest?.timestamp ?: 0L
+        // Existing userChats validation requires lastSenderId to be a participant.
+        val previewSenderId = latest?.senderId ?: participantA
+        val previewUpdates = mapOf<String, Any>(
+            "lastMessage" to previewText,
+            "lastTimestamp" to previewTimestamp,
+            "lastSenderId" to previewSenderId
+        )
+
+        for (uid in listOf(participantA, participantB)) {
+            try {
+                // Partial updates preserve each participant's own unread count
+                // and do not recreate an inbox entry they removed.
+                database.getReference("userChats").child(uid).child(chatId)
+                    .updateChildren(previewUpdates).await()
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not refresh inbox preview for $uid/$chatId", error)
+            }
+
+            conversationCache.computeIfPresent(uid) { _, conversations ->
+                conversations.map { conversation ->
+                    if (conversation.chatId == chatId) {
+                        conversation.copy(
+                            lastMessage = previewText,
+                            lastTimestamp = previewTimestamp,
+                            lastSenderId = previewSenderId
+                        )
+                    } else conversation
+                }
+            }
+        }
+    }
+
     /*
      * =========================================================
      * MESSAGE LISTENER
@@ -284,15 +355,24 @@ class ChatRepository {
                             it.timestamp
                         }
 
-                        val immutableMessages =
-                            messageList.toList()
+                        val immutableLatestMessages = messageList.toList()
+                        val firstLatestTimestamp =
+                            immutableLatestMessages.firstOrNull()?.timestamp ?: Long.MAX_VALUE
 
-                        messageCache[chatId] =
-                            immutableMessages
+                        val cachedOlderMessages = olderMessageCache[chatId].orEmpty()
+                            .filter { it.timestamp < firstLatestTimestamp }
 
-                        trySend(
-                            immutableMessages
-                        )
+                        if (immutableLatestMessages.isEmpty()) {
+                            olderMessageCache.remove(chatId)
+                        }
+
+                        val combinedMessages =
+                            (cachedOlderMessages + immutableLatestMessages)
+                                .distinctBy { it.id }
+                                .sortedBy { it.timestamp }
+
+                        messageCache[chatId] = combinedMessages
+                        trySend(combinedMessages)
                     }
 
                     override fun onCancelled(
@@ -321,6 +401,42 @@ class ChatRepository {
                     )
             }
         }
+
+    suspend fun getOlderMessages(
+        chatId: String,
+        beforeTimestamp: Long,
+        pageSize: Int = OLDER_MESSAGE_PAGE_SIZE
+    ): Result<List<Message>> {
+        if (chatId.isBlank() || beforeTimestamp <= 0L || pageSize !in 1..100) {
+            return Result.failure(IllegalArgumentException("Invalid message history request."))
+        }
+
+        return try {
+            val snapshot = database.getReference("chats").child(chatId)
+                .child("messages").orderByChild("timestamp")
+                .endAt((beforeTimestamp - 1L).toDouble())
+                .limitToLast(pageSize).get().await()
+
+            val page = snapshot.children
+                .mapNotNull { it.getValue(Message::class.java) }
+                .filter { it.id.isNotBlank() }
+                .sortedBy { it.timestamp }
+
+            if (page.isNotEmpty()) {
+                olderMessageCache.compute(chatId) { _, cached ->
+                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                }
+                messageCache.compute(chatId) { _, cached ->
+                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                }
+            }
+
+            Result.success(page)
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not load older messages for $chatId", error)
+            Result.failure(error)
+        }
+    }
 
     /*
      * =========================================================
@@ -593,6 +709,24 @@ class ChatRepository {
                     )
             }
         }
+
+    suspend fun clearReadReceipt(
+        currentUserId: String,
+        chatId: String
+    ): Result<Unit> {
+        return try {
+            if (auth.currentUser?.uid != currentUserId ||
+                currentUserId.isBlank() || chatId.isBlank()
+            ) {
+                return Result.failure(IllegalStateException("Invalid read-receipt owner or chat."))
+            }
+            database.getReference("chats").child(chatId)
+                .child("readBy").child(currentUserId).removeValue().await()
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
 
     /*
      * =========================================================
@@ -992,14 +1126,20 @@ class ChatRepository {
                         String::class.java
                     )
 
-            if (
-                senderId != userId
-            ) {
-
+            if (senderId != userId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "You can only edit your own messages."
-                    )
+                    IllegalStateException("You can only edit your own messages.")
+                )
+            }
+
+            val originalTimestamp =
+                snapshot.child("timestamp").getValue(Long::class.java) ?: 0L
+            val editAge = FirebaseServerClock.now() - originalTimestamp
+            if (originalTimestamp <= 0L || editAge < 0L ||
+                editAge > MESSAGE_EDIT_WINDOW_MS
+            ) {
+                return Result.failure(
+                    IllegalStateException("Messages can only be edited within 15 minutes of sending.")
                 )
             }
 
@@ -1011,6 +1151,12 @@ class ChatRepository {
                     )
                 )
                 .await()
+
+            updateCachedMessage(chatId) { cached ->
+                if (cached.id == messageId) cached.copy(text = cleanText, edited = true)
+                else cached
+            }
+            refreshDirectConversationPreview(chatId)
 
             Result.success(
                 Unit
@@ -1429,13 +1575,14 @@ class ChatRepository {
                 )
             }
 
-            messageRef
-                .removeValue()
-                .await()
+            messageRef.removeValue().await()
 
-            Result.success(
-                Unit
-            )
+            updateCachedMessage(chatId) { cached ->
+                if (cached.id == messageId) null else cached
+            }
+            refreshDirectConversationPreview(chatId)
+
+            Result.success(Unit)
 
         } catch (e: Exception) {
 
