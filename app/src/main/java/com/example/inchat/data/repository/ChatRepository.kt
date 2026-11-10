@@ -94,90 +94,63 @@ class ChatRepository {
     ): Result<String> {
 
         return try {
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            val firebaseUser = auth.currentUser
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match chat owner."
-                    )
+                    IllegalStateException("Authenticated user does not match chat owner.")
                 )
             }
 
             if (
                 currentUserId.isBlank() ||
                 otherUserId.isBlank() ||
-                currentUserId ==
-                otherUserId
+                currentUserId == otherUserId
             ) {
-
                 return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid chat participants"
-                    )
+                    IllegalArgumentException("Invalid chat participants")
                 )
             }
 
-            val chatId =
-                getChatRoomId(
-                    currentUserId,
-                    otherUserId
-                )
-
+            val chatId = getChatRoomId(currentUserId, otherUserId)
             val participantA =
-                if (
-                    currentUserId < otherUserId
-                ) {
-
-                    currentUserId
-
-                } else {
-
-                    otherUserId
-                }
-
+                if (currentUserId < otherUserId) currentUserId else otherUserId
             val participantB =
-                if (
-                    currentUserId < otherUserId
-                ) {
+                if (currentUserId < otherUserId) otherUserId else currentUserId
 
-                    otherUserId
+            val chatRef = database.getReference("chats").child(chatId)
 
-                } else {
+            /*
+             * Create a brand-new direct chat at the chat node itself.
+             * The RTDB rules grant creation at chats/$chatId, while
+             * participant child rules only allow no-op writes after the
+             * chat already exists. Updating the two child paths directly
+             * can therefore fail for a first-time conversation.
+             */
+            try {
+                chatRef.setValue(
+                    mapOf(
+                        "participantA" to participantA,
+                        "participantB" to participantB
+                    )
+                ).await()
+            } catch (createError: Exception) {
+                // Existing conversations cannot be replaced. Verify that
+                // this user is already a participant before proceeding.
+                val existing = chatRef.get().await()
+                val existingA = existing.child("participantA")
+                    .getValue(String::class.java)
+                val existingB = existing.child("participantB")
+                    .getValue(String::class.java)
 
-                    currentUserId
+                if (existingA != participantA || existingB != participantB) {
+                    throw createError
                 }
+            }
 
-            val updates =
-                mapOf(
-
-                    "chats/$chatId/participantA" to
-                            participantA,
-
-                    "chats/$chatId/participantB" to
-                            participantB
-                )
-
-            database.reference
-                .updateChildren(
-                    updates
-                )
-                .await()
-
-            Result.success(
-                chatId
-            )
-
+            Result.success(chatId)
         } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
+            Log.e(TAG, "Could not create or verify direct chat", e)
+            Result.failure(e)
         }
     }
 
@@ -739,76 +712,43 @@ class ChatRepository {
     ): Result<String> {
 
         return try {
-
             if (
                 chatId.isBlank() ||
                 messageId.isBlank() ||
                 text.isBlank() ||
                 senderId.isBlank() ||
                 receiverId.isBlank() ||
-                senderId ==
-                receiverId
+                senderId == receiverId
             ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid message data"
-                    )
-                )
+                return Result.failure(IllegalArgumentException("Invalid message data"))
             }
 
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != senderId
-            ) {
+            val firebaseUser = auth.currentUser
+            if (firebaseUser == null || firebaseUser.uid != senderId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match message sender."
-                    )
+                    IllegalStateException("Authenticated user does not match message sender.")
                 )
             }
 
             if (
                 replyTo != null &&
                 (
-                        replyTo.messageId.isBlank() ||
-                                replyTo.senderId.isBlank() ||
-                                replyTo.senderNickname.isBlank() ||
-                                replyTo.text.isBlank()
-                        )
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid reply data"
-                    )
+                    replyTo.messageId.isBlank() ||
+                    replyTo.senderId.isBlank() ||
+                    replyTo.senderNickname.isBlank() ||
+                    replyTo.text.isBlank()
                 )
+            ) {
+                return Result.failure(IllegalArgumentException("Invalid reply data"))
             }
 
-            val timestamp =
-                ServerValue.TIMESTAMP
-
-            val messageData =
-                mutableMapOf<String, Any>(
-
-                    "id" to
-                            messageId,
-
-                    "senderId" to
-                            senderId,
-
-                    "senderNickname" to
-                            senderNickname,
-
-                    "text" to
-                            text,
-
-                    "timestamp" to
-                            timestamp
-                )
+            val messageData = mutableMapOf<String, Any>(
+                "id" to messageId,
+                "senderId" to senderId,
+                "senderNickname" to senderNickname,
+                "text" to text,
+                "timestamp" to ServerValue.TIMESTAMP
+            )
 
             if (attachment != null) {
                 messageData["attachment"] = mapOf(
@@ -820,110 +760,72 @@ class ChatRepository {
                 )
             }
 
-            if (
-                replyTo != null
-            ) {
-
-                messageData[
-                    "replyTo"
-                ] =
-                    mapOf(
-
-                        "messageId" to
-                                replyTo.messageId,
-
-                        "senderId" to
-                                replyTo.senderId,
-
-                        "senderNickname" to
-                                replyTo.senderNickname,
-
-                        "text" to
-                                replyTo.text
-                    )
+            if (replyTo != null) {
+                messageData["replyTo"] = mapOf(
+                    "messageId" to replyTo.messageId,
+                    "senderId" to replyTo.senderId,
+                    "senderNickname" to replyTo.senderNickname,
+                    "text" to replyTo.text
+                )
             }
 
-            val senderConversation =
-                mapOf(
-
-                    "chatId" to
-                            chatId,
-
-                    "otherUserId" to
-                            receiverId,
-
-                    "otherUsername" to
-                            receiverNickname,
-
-                    "lastMessage" to
-                            text,
-
-                    "lastTimestamp" to
-                            timestamp,
-
-                    "lastSenderId" to
-                            senderId,
-
-                    "unreadCount" to
-                            0L
-                )
-
-            val receiverConversation =
-                mapOf(
-
-                    "chatId" to
-                            chatId,
-
-                    "otherUserId" to
-                            senderId,
-
-                    "otherUsername" to
-                            senderNickname,
-
-                    "lastMessage" to
-                            text,
-
-                    "lastTimestamp" to
-                            timestamp,
-
-                    "lastSenderId" to
-                            senderId,
-
-                    "unreadCount" to
-                            ServerValue.increment(
-                                1
-                            )
-                )
-
-            val updates =
-                mapOf(
-
-                    "chats/$chatId/messages/$messageId" to
-                            messageData,
-
-                    "userChats/$senderId/$chatId" to
-                            senderConversation,
-
-                    "userChats/$receiverId/$chatId" to
-                            receiverConversation
-                )
-
-            database.reference
-                .updateChildren(
-                    updates
-                )
+            /*
+             * Persist the message first. Conversation previews are secondary
+             * metadata; they must not be part of the same atomic update because
+             * a denial on either user's userChats node would reject the actual
+             * message as well.
+             */
+            database.getReference("chats")
+                .child(chatId)
+                .child("messages")
+                .child(messageId)
+                .setValue(messageData)
                 .await()
 
-
-            Result.success(
-                messageId
+            val senderConversation = mapOf(
+                "chatId" to chatId,
+                "otherUserId" to receiverId,
+                "otherUsername" to receiverNickname,
+                "lastMessage" to text,
+                "lastTimestamp" to ServerValue.TIMESTAMP,
+                "lastSenderId" to senderId,
+                "unreadCount" to 0L
             )
 
+            val receiverConversation = mapOf(
+                "chatId" to chatId,
+                "otherUserId" to senderId,
+                "otherUsername" to senderNickname,
+                "lastMessage" to text,
+                "lastTimestamp" to ServerValue.TIMESTAMP,
+                "lastSenderId" to senderId,
+                "unreadCount" to ServerValue.increment(1)
+            )
+
+            try {
+                database.getReference("userChats")
+                    .child(senderId)
+                    .child(chatId)
+                    .setValue(senderConversation)
+                    .await()
+            } catch (metadataError: Exception) {
+                Log.w(TAG, "Message sent, but sender conversation preview was not updated", metadataError)
+            }
+
+            try {
+                database.getReference("userChats")
+                    .child(receiverId)
+                    .child(chatId)
+                    .setValue(receiverConversation)
+                    .await()
+            } catch (metadataError: Exception) {
+                Log.w(TAG, "Message sent, but receiver conversation preview was not updated", metadataError)
+            }
+
+            Result.success(messageId)
         } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
+            Log.e(TAG, "Message write failed for chat $chatId", e)
+            Result.failure(e)
         }
     }
 
