@@ -3,75 +3,31 @@ package com.example.inchat.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /*
- * ============================================================
- * INCHAT COLOR TOKENS
- * ============================================================
+ * InChat Cyberpunk Neon palette.
  *
- * Keeps the clean monochrome light palette while defining
- * the deep navy and neon accents used by the dark interface.
+ * The canvas is true AMOLED black. Near-black surfaces, thin cyan
+ * outlines and restrained magenta accents create separation without
+ * turning the whole interface blue or purple.
  */
 
-/*
- * ============================================================
- * CORE COLORS
- * ============================================================
- */
+val Black = Color(0xFF000000)
+val White = Color(0xFFFFFFFF)
 
-val Black =
-    Color(0xFF000000)
-
-val White =
-    Color(0xFFFFFFFF)
-
-/*
- * ============================================================
- * CYBERPUNK NEON PALETTE
- * ============================================================
- */
-val AppBackground = Color(0xFF080B19)
-val AppSurface = Color(0xFF0E1224)
-val AppSurfaceVariant = Color(0xFF151A30)
-val AppOutline = Color(0xFF18506A)
-val AppOutlineVariant = Color(0xFF1A2B46)
+val AppBackground = Black
+val AppSurface = Color(0xFF050505)
+val AppSurfaceVariant = Color(0xFF090B12)
+val AppOutline = Color(0xFF16404E)
+val AppOutlineVariant = Color(0xFF2B1734)
 
 val NeonCyan = Color(0xFF00E5FF)
-val ElectricBlue = Color(0xFF2196F3)
 val NeonMagenta = Color(0xFFFF00D4)
-val NeonError = Color(0xFFFF5C8A)
-val SoftLavender = Color(0xFFB8BED3)
+val NeonError = Color(0xFFFF5C83)
+val SoftLavender = Color(0xFFADB7C9)
 
-/*
- * Primary text / icons.
- */
-val TextPrimary =
-    Color(0xFFFFFFFF)
+val TextPrimary = Color(0xFFF1F3FA)
+val TextSecondary = Color(0xFFB7C0D0)
+val TextMuted = Color(0xFF727B8D)
 
-/*
- * Secondary text.
- */
-val TextSecondary =
-    Color(0xFFE7E7E7)
-
-/*
- * Muted metadata / timestamps.
- */
-val TextMuted =
-    Color(0xFF71767B)
-
-/*
- * Subtle surface.
- */
-val SurfaceSubtle =
-    Color(0xFF16181C)
-
-/*
- * Dividers / outlines.
- */
-val Divider =
-    Color(0xFF2F3336)
-
-/*
- * Slightly stronger surface.
- */
-val SurfaceElevated =
-    Color(0xFF202327)
+val SurfaceSubtle = AppSurfaceVariant
+val Divider = Color(0xFF17232F)
+val SurfaceElevated = AppSurface
