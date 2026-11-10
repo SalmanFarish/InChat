@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -237,6 +238,14 @@ fun SwipeableMessageBubble(
                         )
                         .animateContentSize()
             ) {
+                val bubbleShape =
+                    RoundedCornerShape(
+                        topStart = 18.dp,
+                        topEnd = 18.dp,
+                        bottomStart = if (isMe) 18.dp else 5.dp,
+                        bottomEnd = if (isMe) 5.dp else 18.dp
+                    )
+
                 Column(
                     modifier =
                         Modifier
@@ -254,32 +263,22 @@ fun SwipeableMessageBubble(
                                 onLongClick =
                                     onLongClick
                             )
-                            .clip(
-                                RoundedCornerShape(
-                                    topStart =
-                                        18.dp,
-                                    topEnd =
-                                        18.dp,
-                                    bottomStart =
-                                        if (isMe) {
-                                            18.dp
-                                        } else {
-                                            5.dp
-                                        },
-                                    bottomEnd =
-                                        if (isMe) {
-                                            5.dp
-                                        } else {
-                                            18.dp
-                                        }
-                                )
-                            )
+                            .clip(bubbleShape)
                             .background(
                                 if (isMe) {
                                     chatTheme.outgoingBubbleColor
                                 } else {
                                     chatTheme.incomingBubbleColor
                                 }
+                            )
+                            .border(
+                                width = 0.7.dp,
+                                color = if (isMe) {
+                                    chatTheme.outgoingBorderColor
+                                } else {
+                                    chatTheme.incomingBorderColor
+                                },
+                                shape = bubbleShape
                             )
                             .padding(
                                 horizontal =
