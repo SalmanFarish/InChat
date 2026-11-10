@@ -1,5 +1,7 @@
 package com.example.inchat.data.repository
 
+import android.util.Log
+
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
@@ -174,7 +176,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: com.google.firebase.database.DatabaseError
                     ) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Group membership listener cancelled for $currentUserId: ${error.message}"
+                        )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
@@ -350,7 +357,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: DatabaseError
                     ) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Group read timestamp listener cancelled for $groupId: ${error.message}"
+                        )
+                        trySend(0L)
+                        close()
                     }
                 }
 
@@ -387,7 +399,12 @@ class GroupChatRepository {
                     }
 
                     override fun onCancelled(error: DatabaseError) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Member read timestamp listener cancelled for $groupId: ${error.message}"
+                        )
+                        trySend(0L)
+                        close()
                     }
                 }
 
@@ -432,7 +449,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: DatabaseError
                     ) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Group messages listener cancelled for $groupId: ${error.message}"
+                        )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
@@ -519,7 +541,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: com.google.firebase.database.DatabaseError
                     ) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Latest group message listener cancelled for $groupId: ${error.message}"
+                        )
+                        trySend(null)
+                        close()
                     }
                 }
 
@@ -548,7 +575,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: com.google.firebase.database.DatabaseError
                     ) {
-                        close(error.toException())
+                        Log.e(
+                            "GroupChatRepository",
+                            "Group listener cancelled for $groupId: ${error.message}"
+                        )
+                        trySend(null)
+                        close()
                     }
                 }
 
