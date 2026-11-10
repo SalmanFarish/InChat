@@ -12,13 +12,8 @@ import androidx.compose.runtime.Composable
  * INCHAT DARK THEME
  * ============================================================
  *
- * Strict monochrome palette.
- *
- * No dynamic colors.
- * No purple.
- * No pink.
- * No blue.
- * No cyan.
+ * Cyberpunk Neon palette for the dark interface.
+ * No dynamic system colors are used, so the palette stays consistent.
  */
 private val DarkColorScheme =
     darkColorScheme(
