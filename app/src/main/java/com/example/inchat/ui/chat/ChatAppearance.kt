@@ -98,8 +98,8 @@ enum class ChatTheme(
         )
     );
 
-    // Chat appearance is an explicit user choice and does not follow the
-    // device's system dark/light setting.
+    // This palette is used as a per-device fallback only until a shared
+    // theme is explicitly chosen and stored for the conversation.
     fun palette(darkTheme: Boolean): ChatThemePalette = colors
 
     val backgroundColor: Color
@@ -121,10 +121,16 @@ enum class ChatTheme(
         @Composable get() = colors.secondaryText
 
     companion object {
-        fun fromId(id: String?): ChatTheme =
+        fun defaultForSystemTheme(darkTheme: Boolean): ChatTheme =
+            if (darkTheme) AMOLED_BLACK else PURE_WHITE
+
+        fun fromId(
+            id: String?,
+            defaultTheme: ChatTheme = AMOLED_BLACK
+        ): ChatTheme =
             entries.firstOrNull {
                 it.id == id || it.legacyIds.contains(id)
-            } ?: AMOLED_BLACK
+            } ?: defaultTheme
 
         fun isValidId(id: String): Boolean =
             entries.any { it.id == id }
