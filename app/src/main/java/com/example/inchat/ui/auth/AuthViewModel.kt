@@ -151,11 +151,6 @@ class AuthViewModel(
      * =========================================================
      */
     private fun bootstrap() {
-        /*
-         * Firebase can restore a cached FirebaseUser whose emailVerified
-         * flag predates the user clicking the verification link.
-         * Refresh the account before deciding which screen to show.
-         */
         viewModelScope.launch {
             try {
                 var restoredUser = auth.currentUser
@@ -170,26 +165,12 @@ class AuthViewModel(
                     return@launch
                 }
 
-                var verificationRefreshSucceeded = false
-                try {
-                    restoredUser.reload().await()
-                    verificationRefreshSucceeded = true
-                } catch (refreshError: Exception) {
-                    Log.w(
-                        "AuthViewModel",
-                        "Could not refresh the restored Firebase user",
-                        refreshError
-                    )
-                }
+                val googleUser = isGoogleUser(restoredUser)
+                val email = restoredUser.email.orEmpty()
 
-                val refreshedUser = auth.currentUser ?: restoredUser
-
-                // Never mistake an unrefreshed cached false value for proof
-                // that a user must verify again. Require a fresh online login.
                 if (
-                    !verificationRefreshSucceeded &&
-                    !isGoogleUser(refreshedUser) &&
-                    !refreshedUser.isEmailVerified
+                    !googleUser &&
+                    email.endsWith("@inchat.app", ignoreCase = true)
                 ) {
                     auth.signOut()
                     clearLocalAuthState()
@@ -197,7 +178,51 @@ class AuthViewModel(
                     return@launch
                 }
 
-                initializeAuthenticatedSession(refreshedUser)
+                /*
+                 * A restored Google session, or an email account that was
+                 * already verified on the last successful session, can enter
+                 * the app immediately. Do not hold the startup UI for a
+                 * network-only reload in these common cases.
+                 */
+                if (googleUser || restoredUser.isEmailVerified) {
+                    initializeAuthenticatedSession(restoredUser)
+                    return@launch
+                }
+
+                /*
+                 * A cached false verification flag may be stale if the user
+                 * clicked the verification link outside the app. Show the
+                 * verification screen immediately, then refresh in the
+                 * background and advance into the app if verification changed.
+                 */
+                _currentUserId.value = restoredUser.uid
+                _uiState.value = AuthUiState.NeedsEmailVerification(
+                    uid = restoredUser.uid,
+                    email = email
+                )
+
+                try {
+                    restoredUser.reload().await()
+                    val refreshedUser = auth.currentUser ?: restoredUser
+
+                    if (refreshedUser.isEmailVerified) {
+                        initializeAuthenticatedSession(refreshedUser)
+                    } else {
+                        _currentUserId.value = refreshedUser.uid
+                        _uiState.value = AuthUiState.NeedsEmailVerification(
+                            uid = refreshedUser.uid,
+                            email = refreshedUser.email.orEmpty()
+                        )
+                    }
+                } catch (refreshError: Exception) {
+                    Log.w(
+                        "AuthViewModel",
+                        "Could not refresh email verification during startup",
+                        refreshError
+                    )
+                    // Stay on the verification screen; never grant an
+                    // unverified email account access after a failed refresh.
+                }
             } catch (e: Exception) {
                 Log.e(
                     "AuthViewModel",
