@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
@@ -32,10 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.snapshotFlow
 import com.example.inchat.data.model.Message
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
@@ -281,39 +277,27 @@ fun ChatMessageList(
     }
 
     /*
-     * Keep the latest values available to the IME observer without
-     * restarting that observer for every message-list update.
+     * Read the IME inset during composition. Compose updates this value
+     * as the keyboard animates, so the effect is restarted when visibility
+     * changes. The scroll itself runs after the resized list has a frame
+     * to lay out, keeping the newest message above the keyboard.
      */
-    val latestMessages by rememberUpdatedState(messages)
-    val latestMessagesLoaded by rememberUpdatedState(messagesLoaded)
+    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
 
-    /*
-     * When the keyboard appears, the composer moves above it and the
-     * LazyColumn loses vertical space. Move the last message into the
-     * resized viewport so the keyboard never covers the conversation tail.
-     *
-     * Observe the IME visibility as a Boolean rather than every inset pixel:
-     * keyboard animations update the inset on many frames, and each frame
-     * should not restart a scroll animation.
-     */
-    LaunchedEffect(listState, density) {
-        snapshotFlow {
-            WindowInsets.ime.getBottom(density) > 0 &&
-                latestMessagesLoaded &&
-                latestMessages.isNotEmpty()
-        }
-            .distinctUntilChanged()
-            .collectLatest { shouldKeepLatestMessageVisible ->
-                if (shouldKeepLatestMessageVisible) {
-                    withFrameNanos { }
-                    val lastItemIndex =
-                        listState.layoutInfo.totalItemsCount - 1
+    LaunchedEffect(
+        listState,
+        isImeVisible,
+        messagesLoaded,
+        messages.size
+    ) {
+        if (isImeVisible && messagesLoaded && messages.isNotEmpty()) {
+            withFrameNanos { }
+            val lastItemIndex = listState.layoutInfo.totalItemsCount - 1
 
-                    if (lastItemIndex >= 0) {
-                        listState.animateScrollToItem(lastItemIndex)
-                    }
-                }
+            if (lastItemIndex >= 0) {
+                listState.animateScrollToItem(lastItemIndex)
             }
+        }
     }
 
     ChatWallpaper(
