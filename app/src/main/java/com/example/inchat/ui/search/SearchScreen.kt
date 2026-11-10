@@ -2,6 +2,7 @@ package com.example.inchat.ui.search
 
 import android.content.Context
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -211,7 +212,13 @@ fun SearchScreen(
             ) {
 
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 0.7.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.58f),
+                            shape = RoundedCornerShape(14.dp)
+                        ),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
