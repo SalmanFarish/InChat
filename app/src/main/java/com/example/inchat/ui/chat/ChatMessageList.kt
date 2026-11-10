@@ -461,7 +461,7 @@ fun ChatMessageList(
 
                     verticalArrangement =
                         Arrangement.spacedBy(
-                            5.dp
+                            4.dp
                         ),
 
                     contentPadding =
@@ -504,11 +504,28 @@ fun ChatMessageList(
                                 )
 
                         val showDaySeparator =
-                            previousMessage ==
-                                    null ||
+                            previousMessage == null ||
                                     !isSameCalendarDay(
                                         previousMessage.timestamp,
                                         message.timestamp
+                                    )
+
+                        val isFirstInGroup =
+                            previousMessage == null ||
+                                    previousMessage.senderId != message.senderId ||
+                                    !isSameCalendarDay(
+                                        previousMessage.timestamp,
+                                        message.timestamp
+                                    )
+
+                        val nextMessage = messages.getOrNull(index + 1)
+
+                        val isLastInGroup =
+                            nextMessage == null ||
+                                    nextMessage.senderId != message.senderId ||
+                                    !isSameCalendarDay(
+                                        message.timestamp,
+                                        nextMessage.timestamp
                                     )
 
                         if (
@@ -599,6 +616,12 @@ fun ChatMessageList(
 
                                 chatSwipeOffsetPx =
                                     chatSwipeOffsetPx,
+
+                                isFirstInGroup =
+                                    isFirstInGroup,
+
+                                isLastInGroup =
+                                    isLastInGroup,
 
                                 onReply = {
                                     if (
