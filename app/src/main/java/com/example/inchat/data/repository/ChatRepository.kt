@@ -119,12 +119,44 @@ class ChatRepository {
 
             val chatRef = database.getReference("chats").child(chatId)
 
+            fun matchesExistingParticipants(
+                snapshot: DataSnapshot
+            ): Boolean {
+                val existingA = snapshot.child("participantA")
+                    .getValue(String::class.java)
+                val existingB = snapshot.child("participantB")
+                    .getValue(String::class.java)
+                return snapshot.exists() &&
+                    existingA == participantA &&
+                    existingB == participantB
+            }
+
             /*
-             * Create a brand-new direct chat at the chat node itself.
-             * The RTDB rules grant creation at chats/$chatId, while
-             * participant child rules only allow no-op writes after the
-             * chat already exists. Updating the two child paths directly
-             * can therefore fail for a first-time conversation.
+             * Read first so an existing chat (including its messages,
+             * appearance and receipt data) is never overwritten.
+             * A brand-new chat may deny this read because its participants
+             * are not yet recorded; in that case we proceed to creation.
+             */
+            val existingSnapshot = try {
+                chatRef.get().await()
+            } catch (_: Exception) {
+                null
+            }
+
+            if (existingSnapshot != null && existingSnapshot.exists()) {
+                if (!matchesExistingParticipants(existingSnapshot)) {
+                    throw IllegalStateException(
+                        "The existing chat record has different participants."
+                    )
+                }
+                return Result.success(chatId)
+            }
+
+            /*
+             * Create the entire participant record at chats/$chatId.
+             * This matches the parent-level .write rule for creating a
+             * direct chat; child participant rules are intentionally
+             * restricted to unchanged values on existing chats.
              */
             try {
                 chatRef.setValue(
@@ -134,15 +166,10 @@ class ChatRepository {
                     )
                 ).await()
             } catch (createError: Exception) {
-                // Existing conversations cannot be replaced. Verify that
-                // this user is already a participant before proceeding.
-                val existing = chatRef.get().await()
-                val existingA = existing.child("participantA")
-                    .getValue(String::class.java)
-                val existingB = existing.child("participantB")
-                    .getValue(String::class.java)
-
-                if (existingA != participantA || existingB != participantB) {
+                // Two clients can open the same chat at the same time.
+                // If the other client created it first, verify the winner.
+                val racedSnapshot = chatRef.get().await()
+                if (!matchesExistingParticipants(racedSnapshot)) {
                     throw createError
                 }
             }
