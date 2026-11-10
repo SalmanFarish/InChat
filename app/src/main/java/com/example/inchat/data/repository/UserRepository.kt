@@ -387,9 +387,6 @@ class UserRepository {
                         "readReceiptsVisible"
                     )
 
-            readReceiptRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
@@ -565,9 +562,6 @@ class UserRepository {
                         "typingIndicatorVisible"
                     )
 
-            typingVisibilityRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
@@ -741,9 +735,6 @@ class UserRepository {
                         "discoverableByUsername"
                     )
 
-            discoverableRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
@@ -1964,9 +1955,6 @@ class UserRepository {
                     uid
                 )
 
-        userRef.keepSynced(
-            true
-        )
 
         val snapshot =
             userRef
@@ -2157,9 +2145,6 @@ class UserRepository {
                     key
                 )
 
-        usernameRef.keepSynced(
-            true
-        )
 
         val uidSnapshot =
             usernameRef
@@ -2370,9 +2355,6 @@ class UserRepository {
                         "users"
                     )
 
-            usersRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
