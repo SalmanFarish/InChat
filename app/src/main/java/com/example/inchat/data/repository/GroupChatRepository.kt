@@ -176,9 +176,12 @@ class GroupChatRepository {
                     override fun onCancelled(
                         error: com.google.firebase.database.DatabaseError
                     ) {
+                        // A rules denial must never escape a Firebase callback
+                        // as an uncaught exception on the main thread.
                         Log.e(
                             "GroupChatRepository",
-                            "Group membership listener cancelled for $currentUserId: ${error.message}"
+                            "Group membership listener cancelled for $currentUserId",
+                            error.toException()
                         )
                         trySend(emptyList())
                         close()
