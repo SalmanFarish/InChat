@@ -42,8 +42,8 @@ fun ChatThemeScreen(
     otherUserId: String,
     onBackClick: () -> Unit,
     chatIdOverride: String? = null,
-    screenTitle: String = "Chat appearance",
-    sectionTitle: String = "Choose a chat background",
+    screenTitle: String = "Chat style",
+    sectionTitle: String = "Choose a chat style",
     sharedDescription: String = "shared with everyone in this conversation"
 ) {
     val appearanceRepository = remember {
@@ -76,7 +76,7 @@ fun ChatThemeScreen(
     errorMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { errorMessage = null },
-            title = { Text("Chat appearance") },
+            title = { Text("Chat style") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { errorMessage = null }) {
