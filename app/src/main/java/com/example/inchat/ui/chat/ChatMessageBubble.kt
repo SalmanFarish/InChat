@@ -258,10 +258,10 @@ fun SwipeableMessageBubble(
             ) {
                 val bubbleShape =
                     RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (isMe) 18.dp else 5.dp,
-                        bottomEnd = if (isMe) 5.dp else 18.dp
+                        topStart = 7.dp,
+                        topEnd = 7.dp,
+                        bottomStart = if (isMe) 7.dp else 3.dp,
+                        bottomEnd = if (isMe) 3.dp else 7.dp
                     )
 
                 Column(
