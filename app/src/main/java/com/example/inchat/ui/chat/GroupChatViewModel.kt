@@ -474,6 +474,7 @@ class GroupChatViewModel : ViewModel() {
     override fun onCleared() {
         groupJob?.cancel()
         messagesJob?.cancel()
+        chatRepository.clearOlderMessagePages(listeningGroupId)
         super.onCleared()
     }
 }
