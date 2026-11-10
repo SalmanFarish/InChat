@@ -43,7 +43,7 @@ data class ChatThemePalette(
     val secondaryText: Color,
     val incomingBorder: Color = Color.Transparent,
     val outgoingBorder: Color = Color.Transparent,
-    val statusAccent: Color = Color(0xFF39FF14)
+    val statusAccent: Color = Color(0xFF00E5FF)
 )
 
 enum class ChatTheme(
@@ -92,9 +92,8 @@ enum class ChatTheme(
         )
     );
 
-    // This palette is used as a per-device fallback only until a shared
-    // theme is explicitly chosen and stored for the conversation.
-    fun palette(darkTheme: Boolean): ChatThemePalette = colors
+    // Old saved theme IDs resolve to this single current appearance.
+    fun palette(): ChatThemePalette = colors
 
     val backgroundColor: Color
         @Composable get() = colors.background
@@ -163,7 +162,7 @@ fun ChatThemePreview(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val palette = theme.palette(darkTheme = false)
+    val palette = theme.palette()
 
     Surface(
         modifier = modifier.then(
