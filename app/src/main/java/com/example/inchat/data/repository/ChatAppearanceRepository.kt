@@ -39,9 +39,6 @@ class ChatAppearanceRepository {
                         "themeId"
                     )
 
-            themeRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
