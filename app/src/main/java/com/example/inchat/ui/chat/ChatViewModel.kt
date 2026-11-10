@@ -1930,7 +1930,7 @@ class ChatViewModel : ViewModel() {
                     .sendMessage(
 
                         chatId =
-                            currentChatId,
+                            chatId,
 
                         messageId =
                             messageId,
