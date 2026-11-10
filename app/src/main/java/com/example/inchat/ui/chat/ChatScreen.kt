@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -161,6 +162,19 @@ fun ChatScreen(
     chatViewModel
         .messagesLoaded
         .collectAsState()
+
+    val hasOlderMessages by
+        chatViewModel.hasOlderMessages.collectAsState()
+
+    val isLoadingOlderMessages by
+        chatViewModel.isLoadingOlderMessages.collectAsState()
+
+    DisposableEffect(chatViewModel, currentUserId, chatId) {
+        chatViewModel.setChatVisible(currentUserId, true)
+        onDispose {
+            chatViewModel.setChatVisible(currentUserId, false)
+        }
+    }
 
     val otherUserDeliveredTimestamp by chatViewModel.otherUserDeliveredTimestamp.collectAsState()
 
@@ -639,6 +653,10 @@ fun ChatScreen(
 
                 messagesLoaded =
                     messagesLoaded,
+
+                hasOlderMessages = hasOlderMessages,
+                isLoadingOlderMessages = isLoadingOlderMessages,
+                onLoadOlderMessages = chatViewModel::loadOlderMessages,
 
                 currentUserId =
                     currentUserId,
