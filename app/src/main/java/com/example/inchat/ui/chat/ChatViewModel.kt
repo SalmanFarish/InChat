@@ -883,13 +883,7 @@ class ChatViewModel : ViewModel() {
                             currentUserId
                         )
 
-                myBlockRef.keepSynced(
-                    true
-                )
 
-                theirBlockRef.keepSynced(
-                    true
-                )
 
                 var iBlockedThem =
                     false
@@ -1056,9 +1050,6 @@ class ChatViewModel : ViewModel() {
                             otherUserId
                         )
 
-                typingRef.keepSynced(
-                    true
-                )
 
                 val listener =
                     object :
