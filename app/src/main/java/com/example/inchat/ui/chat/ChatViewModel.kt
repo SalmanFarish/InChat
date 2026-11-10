@@ -313,6 +313,7 @@ class ChatViewModel : ViewModel() {
                 "Invalid participants"
             )
             _chatReady.value = false
+            _readyChatId.value = ""
             return
         }
 
@@ -2148,6 +2149,7 @@ class ChatViewModel : ViewModel() {
 
         listenerJob?.cancel()
         readListenerJob?.cancel()
+        readReceiptPreferenceJob?.cancel()
         presenceJob?.cancel()
         typingListenerJob?.cancel()
         typingPreferenceJob?.cancel()
