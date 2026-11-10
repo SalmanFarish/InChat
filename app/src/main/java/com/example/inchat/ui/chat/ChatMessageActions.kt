@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.FirebaseServerClock
 
 @Composable
 fun ChatMessageActionsDialog(
@@ -56,6 +57,11 @@ fun ChatMessageActionsDialog(
     onCopied: () -> Unit
 ) {
     val context = LocalContext.current
+    val editAgeMillis = FirebaseServerClock.now() - message.timestamp
+    val editAllowed =
+        isOwnMessage &&
+            message.timestamp > 0L &&
+            editAgeMillis in 0L..ChatRepository.MESSAGE_EDIT_WINDOW_MS
 
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss
@@ -175,10 +181,25 @@ fun ChatMessageActionsDialog(
                         icon = {
                             Icon(
                                 imageVector = Icons.Default.Edit,
-                                contentDescription = null
+                                contentDescription = null,
+                                tint = if (editAllowed) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
                         },
-                        title = "Edit",
+                        title = if (editAllowed) {
+                            "Edit"
+                        } else {
+                            "Edit unavailable · 15 min limit"
+                        },
+                        titleColor = if (editAllowed) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        enabled = editAllowed,
                         onClick = onEdit
                     )
 
@@ -220,13 +241,14 @@ private fun MessageActionRow(
     title: String,
     titleColor: androidx.compose.ui.graphics.Color =
         MaterialTheme.colorScheme.onSurface,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(
                 horizontal = 12.dp,
                 vertical = 12.dp
