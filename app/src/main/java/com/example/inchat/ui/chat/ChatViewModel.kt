@@ -65,6 +65,12 @@ class ChatViewModel : ViewModel() {
     val chatReady: StateFlow<Boolean> =
         _chatReady.asStateFlow()
 
+    private val _chatInitializationError =
+        MutableStateFlow<String?>(null)
+
+    val chatInitializationError: StateFlow<String?> =
+        _chatInitializationError.asStateFlow()
+
     // A ready flag must be tied to the conversation that was initialized.
     private val _readyChatId = MutableStateFlow("")
 
@@ -314,6 +320,7 @@ class ChatViewModel : ViewModel() {
             )
             _chatReady.value = false
             _readyChatId.value = ""
+            _chatInitializationError.value = "Invalid chat participants."
             return
         }
 
@@ -347,6 +354,7 @@ class ChatViewModel : ViewModel() {
         initializingChatId = chatId
         _chatReady.value = false
         _readyChatId.value = ""
+        _chatInitializationError.value = null
 
         lastMarkedReadTimestamp = 0L
         _messages.value = emptyList()
@@ -476,6 +484,8 @@ class ChatViewModel : ViewModel() {
                         _readyChatId.value = ""
                     }
                     _chatReady.value = false
+                    _chatInitializationError.value =
+                        e.localizedMessage ?: "Could not initialize this conversation."
                     _messagesLoaded.value = true
                 } finally {
                     if (initializingChatId == chatId) {
