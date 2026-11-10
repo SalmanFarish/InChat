@@ -4,17 +4,11 @@ import androidx.compose.ui.graphics.Color
 
 /*
  * ============================================================
- * INCHAT MONOCHROME PALETTE
+ * INCHAT COLOR TOKENS
  * ============================================================
  *
- * Strict black / white / gray only.
- *
- * Designed for:
- * - AMOLED screens
- * - X-inspired visual language
- * - Minimal UI
- * - Strong text hierarchy
- * - Subtle surfaces and dividers
+ * Keeps the clean monochrome light palette while defining
+ * the deep navy and neon accents used by the dark interface.
  */
 
 /*
