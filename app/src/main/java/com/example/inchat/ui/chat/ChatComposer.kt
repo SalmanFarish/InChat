@@ -88,6 +88,9 @@ fun ChatComposer(
     var sendingMessage by remember {
         mutableStateOf(false)
     }
+    var savingEdit by remember {
+        mutableStateOf(false)
+    }
 
     var sendAttemptSequence by remember {
         mutableIntStateOf(0)
@@ -370,7 +373,7 @@ fun ChatComposer(
                             onMessageTextChange,
 
                         enabled =
-                            !messagingBlocked && !sendingMessage,
+                            !messagingBlocked && !sendingMessage && !savingEdit,
 
                         modifier =
                             Modifier
@@ -482,6 +485,7 @@ fun ChatComposer(
                 val sendEnabled =
                     chatReady &&
                             !sendingMessage &&
+                            !savingEdit &&
                             !messagingBlocked &&
                             messageText
                                 .isNotBlank()
@@ -541,7 +545,11 @@ fun ChatComposer(
                         if (
                             editing != null
                         ) {
+                            if (savingEdit) {
+                                return@IconButton
+                            }
 
+                            savingEdit = true
                             chatViewModel
                                 .editMessage(
 
@@ -555,6 +563,7 @@ fun ChatComposer(
                                         currentUserId
 
                                 ) { success, error ->
+                                    savingEdit = false
 
                                     if (
                                         success
