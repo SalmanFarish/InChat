@@ -170,10 +170,11 @@ class AuthViewModel(
                     return@launch
                 }
 
+                var verificationRefreshSucceeded = false
                 try {
                     restoredUser.reload().await()
+                    verificationRefreshSucceeded = true
                 } catch (refreshError: Exception) {
-                    // Keep the cached session on transient network errors.
                     Log.w(
                         "AuthViewModel",
                         "Could not refresh the restored Firebase user",
@@ -181,9 +182,22 @@ class AuthViewModel(
                     )
                 }
 
-                initializeAuthenticatedSession(
-                    auth.currentUser ?: restoredUser
-                )
+                val refreshedUser = auth.currentUser ?: restoredUser
+
+                // Never mistake an unrefreshed cached false value for proof
+                // that a user must verify again. Require a fresh online login.
+                if (
+                    !verificationRefreshSucceeded &&
+                    !isGoogleUser(refreshedUser) &&
+                    !refreshedUser.isEmailVerified
+                ) {
+                    auth.signOut()
+                    clearLocalAuthState()
+                    _uiState.value = AuthUiState.LoggedOut
+                    return@launch
+                }
+
+                initializeAuthenticatedSession(refreshedUser)
             } catch (e: Exception) {
                 Log.e(
                     "AuthViewModel",
@@ -1550,8 +1564,10 @@ class AuthViewModel(
                  * Sign-in can return a FirebaseUser with stale profile
                  * metadata. Reload it before enforcing email verification.
                  */
+                var verificationRefreshSucceeded = false
                 try {
                     signedInUser.reload().await()
+                    verificationRefreshSucceeded = true
                 } catch (refreshError: Exception) {
                     Log.w(
                         "AuthViewModel",
@@ -1562,6 +1578,19 @@ class AuthViewModel(
 
                 val firebaseUser =
                     auth.currentUser ?: signedInUser
+
+                if (
+                    !verificationRefreshSucceeded &&
+                    !isGoogleUser(firebaseUser) &&
+                    !firebaseUser.isEmailVerified
+                ) {
+                    auth.signOut()
+                    clearLocalAuthState()
+                    onResult(
+                        "Couldn't confirm your email verification. Check your internet connection and try signing in again."
+                    )
+                    return@launch
+                }
 
                 if (
                     !isGoogleUser(firebaseUser) &&
