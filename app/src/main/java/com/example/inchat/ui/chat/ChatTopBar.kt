@@ -17,6 +17,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,14 +101,20 @@ fun ChatTopBar(
                         text =
                             otherUserNickname,
 
+                        fontFamily =
+                            FontFamily.Monospace,
+
                         fontSize =
-                            18.sp,
+                            16.sp,
 
                         fontWeight =
                             FontWeight.SemiBold,
 
                         letterSpacing =
-                            (-0.2).sp
+                            0.1.sp,
+
+                        color =
+                            MaterialTheme.colorScheme.primary
                     )
 
                     if (
