@@ -55,7 +55,7 @@ val Typography =
         displayMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -73,7 +73,7 @@ val Typography =
         displaySmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -96,7 +96,7 @@ val Typography =
         headlineLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -114,7 +114,7 @@ val Typography =
         headlineMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -132,7 +132,7 @@ val Typography =
         headlineSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -155,7 +155,7 @@ val Typography =
         titleLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -173,7 +173,7 @@ val Typography =
         titleMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -191,7 +191,7 @@ val Typography =
         titleSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -214,7 +214,7 @@ val Typography =
         bodyLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -232,7 +232,7 @@ val Typography =
         bodyMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -250,7 +250,7 @@ val Typography =
         bodySmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -273,7 +273,7 @@ val Typography =
         labelLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -291,7 +291,7 @@ val Typography =
         labelMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Medium,
@@ -309,7 +309,7 @@ val Typography =
         labelSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.Monospace,
+                    JetBrainsMono,
 
                 fontWeight =
                     FontWeight.Medium,
