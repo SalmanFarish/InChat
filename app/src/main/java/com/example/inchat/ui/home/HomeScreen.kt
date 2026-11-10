@@ -1066,144 +1066,82 @@ private fun HomeConversationLoadingState() {
 private fun EmptyConversationState(
     onCreateGroupClick: () -> Unit
 ) {
-
     Column(
-
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    start =
-                        28.dp,
-
-                    top =
-                        70.dp,
-
-                    end =
-                        28.dp,
-
-                    bottom =
-                        40.dp
-                ),
-
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = 30.dp,
+                top = 48.dp,
+                end = 30.dp,
+                bottom = 40.dp
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-
         Surface(
-
-            modifier =
-                Modifier.size(
-                    58.dp
-                ),
-
-            shape =
-                CircleShape,
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .surfaceVariant
+            modifier = Modifier.size(76.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)
+            )
         ) {
-
-            Box(
-
-                contentAlignment =
-                    Alignment.Center
-            ) {
-
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
-
-                    imageVector =
-                        Icons.Default.Person,
-
-                    contentDescription =
-                        null,
-
-                    modifier =
-                        Modifier.size(
-                            27.dp
-                        ),
-
-                    tint =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(31.dp),
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }
 
-        Spacer(
-            modifier =
-                Modifier.height(
-                    16.dp
-                )
-        )
+        Spacer(Modifier.height(20.dp))
 
         Text(
-
-            text =
-                "No conversations yet",
-
-            fontSize =
-                19.sp,
-
-            fontWeight =
-                FontWeight.Bold,
-
-            letterSpacing =
-                (-0.2).sp
+            text = "No conversations yet",
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontSize = 19.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground
         )
 
-        Spacer(
-            modifier =
-                Modifier.height(
-                    6.dp
-                )
-        )
+        Spacer(Modifier.height(8.dp))
 
         Text(
-
-            text =
-                "Find someone in Search to start a private chat, or create a group.",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .bodyMedium,
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
+            text = "Your chats will appear here. Search for someone to start a private conversation, or create a group.",
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontSize = 12.sp,
+                lineHeight = 19.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(
-            modifier =
-                Modifier.height(
-                    18.dp
-                )
-        )
+        Spacer(Modifier.height(20.dp))
 
         OutlinedButton(
-            onClick =
-                onCreateGroupClick
+            onClick = onCreateGroupClick,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline
+            ),
+            contentPadding = PaddingValues(
+                horizontal = 18.dp,
+                vertical = 11.dp
+            )
         ) {
             Icon(
-                imageVector =
-                    Icons.Default.GroupAdd,
-                contentDescription = null
+                imageVector = Icons.Default.GroupAdd,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(
-                modifier =
-                    Modifier.width(
-                        8.dp
-                    )
-            )
+            Spacer(Modifier.width(8.dp))
 
             Text(
-                text = "Create a group"
+                text = "Create a group",
+                color = MaterialTheme.colorScheme.primary
             )
         }
     }
