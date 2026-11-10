@@ -35,7 +35,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -62,6 +64,7 @@ fun ChatComposer(
     replyingTo: Message?,
     editingMessage: Message?,
     messagingBlocked: Boolean,
+    chatReady: Boolean,
     onClearReply: () -> Unit,
     onClearEdit: () -> Unit,
     onActionMessage: (String) -> Unit,
@@ -78,6 +81,10 @@ fun ChatComposer(
 
     val textScrollState =
         rememberScrollState()
+
+    var sendingMessage by remember {
+        mutableStateOf(false)
+    }
 
     /*
      * =========================================================
@@ -454,7 +461,9 @@ fun ChatComposer(
                 )
 
                 val sendEnabled =
-                    !messagingBlocked &&
+                    chatReady &&
+                            !sendingMessage &&
+                            !messagingBlocked &&
                             messageText
                                 .isNotBlank()
 
@@ -554,6 +563,8 @@ fun ChatComposer(
                          * SEND MESSAGE
                          * =================================================
                          */
+                        sendingMessage = true
+
                         chatViewModel
                             .sendMessage(
 
@@ -570,13 +581,21 @@ fun ChatComposer(
                                     otherUserId,
 
                                 otherUserNickname =
-                                    otherUserNickname
+                                    otherUserNickname,
+
+                                onResult = { success, error ->
+                                    sendingMessage = false
+
+                                    if (success) {
+                                        onMessageSent()
+                                        keyboardController?.hide()
+                                    } else {
+                                        onActionMessage(
+                                            error ?: "Message could not be sent. Your text has been kept."
+                                        )
+                                    }
+                                }
                             )
-
-                        onMessageSent()
-
-                        keyboardController
-                            ?.hide()
                     },
 
                     enabled =
