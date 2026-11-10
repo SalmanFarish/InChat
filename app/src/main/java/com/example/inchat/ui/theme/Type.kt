@@ -9,13 +9,13 @@ import androidx.compose.ui.unit.sp
 /*
  * InChat Typography
  *
- * Designed for a clean, compact, X-inspired interface:
+ * Designed for a compact, terminal-inspired messaging interface:
  *
- * - Strong, bold headings
+ * - Monospaced headings and message text
  * - Compact titles
- * - Comfortable body text
+ * - Readable body text
  * - Small, restrained metadata
- * - Tight letter spacing
+ * - Controlled letter spacing
  */
 val Typography =
     Typography(
@@ -28,7 +28,7 @@ val Typography =
         displayLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
