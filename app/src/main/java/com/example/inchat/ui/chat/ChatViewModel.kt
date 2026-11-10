@@ -1297,7 +1297,7 @@ class ChatViewModel : ViewModel() {
                 chatRepository
                     .editMessage(
                         chatId =
-                            chatId,
+                            currentChatId,
 
                         messageId =
                             messageId,
