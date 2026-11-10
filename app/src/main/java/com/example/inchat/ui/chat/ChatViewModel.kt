@@ -59,6 +59,12 @@ class ChatViewModel : ViewModel() {
             StateFlow<Boolean> =
         _messagesLoaded.asStateFlow()
 
+    private val _chatReady =
+        MutableStateFlow(false)
+
+    val chatReady: StateFlow<Boolean> =
+        _chatReady.asStateFlow()
+
     private val _otherUserDeliveredTimestamp =
         MutableStateFlow(0L)
 
@@ -168,6 +174,12 @@ class ChatViewModel : ViewModel() {
             StateFlow<Message?> =
         _editingMessage.asStateFlow()
 
+    private var initializationJob:
+            Job? = null
+
+    private var deliveryListenerJob:
+            Job? = null
+
     private var listenerJob:
             Job? = null
 
@@ -196,6 +208,9 @@ class ChatViewModel : ViewModel() {
         private set
 
     private var initializedChatId =
+        ""
+
+    private var initializingChatId =
         ""
 
     private var lastMarkedReadTimestamp =
@@ -282,19 +297,16 @@ class ChatViewModel : ViewModel() {
         currentUserId: String,
         otherUserId: String
     ) {
-
         if (
             currentUserId.isBlank() ||
             otherUserId.isBlank() ||
-            currentUserId ==
-            otherUserId
+            currentUserId == otherUserId
         ) {
-
             Log.e(
                 "ChatViewModel",
                 "Invalid participants"
             )
-
+            _chatReady.value = false
             return
         }
 
@@ -304,176 +316,161 @@ class ChatViewModel : ViewModel() {
                 otherUserId
             )
 
-        currentChatId =
-            chatId
-
         if (
-            initializedChatId ==
-            chatId
+            initializedChatId == chatId ||
+            initializingChatId == chatId
         ) {
-
             return
         }
 
-        initializedChatId =
-            chatId
+        // Stop any previous conversation listeners before switching chats.
+        initializationJob?.cancel()
+        listenerJob?.cancel()
+        deliveryListenerJob?.cancel()
+        readListenerJob?.cancel()
+        readReceiptPreferenceJob?.cancel()
+        presenceJob?.cancel()
+        typingListenerJob?.cancel()
+        typingPreferenceJob?.cancel()
+        typingResetJob?.cancel()
+        blockListenerJob?.cancel()
+
+        currentChatId = chatId
+        initializedChatId = ""
+        initializingChatId = chatId
+        _chatReady.value = false
+
+        lastMarkedReadTimestamp = 0L
+        _messages.value = emptyList()
+        _messagesLoaded.value = false
+        _otherUserDeliveredTimestamp.value = 0L
+        _otherUserReadTimestamp.value = 0L
+        _readReceiptsEnabled.value = true
+        _otherUserTyping.value = false
+        _typingIndicatorEnabled.value = true
+        _otherUserPresence.value = Presence()
+        _blockState.value = BlockState.NONE
+        _replyingTo.value = null
+        _editingMessage.value = null
 
         /*
-         * Reset chat-local state.
-         *
-         * Pending message IDs are intentionally NOT cleared.
-         * Firebase may still be synchronizing a message while
-         * the user navigates between conversations.
+         * Create/confirm the direct-chat record BEFORE starting
+         * listeners that are protected by participant-based RTDB rules.
+         * Otherwise the first theme/message reads can be denied while
+         * the chat node does not exist yet.
          */
-        lastMarkedReadTimestamp =
-            0L
-
-        _messages.value =
-            emptyList()
-
-        _messagesLoaded.value =
-            false
-
-        _otherUserDeliveredTimestamp.value = 0L
-
-        _otherUserReadTimestamp.value =
-            0L
-
-        _readReceiptsEnabled.value =
-            true
-
-        _otherUserTyping.value =
-            false
-
-        _typingIndicatorEnabled.value =
-            true
-
-        _blockState.value =
-            BlockState.NONE
-
-        _replyingTo.value =
-            null
-
-        _editingMessage.value =
-            null
-
-        startMessageListener(
-            chatId =
-                chatId,
-
-            currentUserId =
-                currentUserId
-        )
-
-        startDeliveryListener(chatId, otherUserId)
-
-        startReadListener(
-            chatId =
-                chatId,
-
-            otherUserId =
-                otherUserId
-        )
-
-        startReadReceiptPreferenceListener(
-            currentUserId =
-                currentUserId
-        )
-
-        startPresenceListener(
-            otherUserId =
-                otherUserId
-        )
-
-        startTypingListener(
-            chatId =
-                chatId,
-
-            otherUserId =
-                otherUserId
-        )
-
-        startTypingPreferenceListener(
-            currentUserId =
-                currentUserId
-        )
-
-        startBlockListener(
-            currentUserId =
-                currentUserId,
-
-            otherUserId =
-                otherUserId
-        )
-
-        viewModelScope.launch {
-
-            try {
-
-                Log.d(
-                    "ChatViewModel",
-                    "Initializing chat: $chatId"
-                )
-
-                _readReceiptsEnabled.value =
-                    userRepository
-                        .getReadReceiptsVisible(
-                            currentUserId
-                        )
-
-                _typingIndicatorEnabled.value =
-                    userRepository
-                        .getTypingIndicatorVisible(
-                            currentUserId
-                        )
-
-                val result =
-                    chatRepository.ensureChat(
-                        currentUserId =
-                            currentUserId,
-
-                        otherUserId =
-                            otherUserId
+        initializationJob =
+            viewModelScope.launch {
+                try {
+                    Log.d(
+                        "ChatViewModel",
+                        "Ensuring direct chat exists: $chatId"
                     )
 
-                if (
-                    result.isFailure
-                ) {
+                    val result =
+                        chatRepository.ensureChat(
+                            currentUserId = currentUserId,
+                            otherUserId = otherUserId
+                        )
 
+                    if (result.isFailure) {
+                        throw result.exceptionOrNull()
+                            ?: IllegalStateException(
+                                "Could not initialize this conversation."
+                            )
+                    }
+
+                    if (initializingChatId != chatId) {
+                        return@launch
+                    }
+
+                    // The Firebase chat node now exists, so participant-only
+                    // message, receipt, typing and theme reads are authorized.
+                    initializedChatId = chatId
+                    initializingChatId = ""
+
+                    _readReceiptsEnabled.value =
+                        userRepository.getReadReceiptsVisible(
+                            currentUserId
+                        )
+
+                    _typingIndicatorEnabled.value =
+                        userRepository.getTypingIndicatorVisible(
+                            currentUserId
+                        )
+
+                    startMessageListener(
+                        chatId = chatId,
+                        currentUserId = currentUserId
+                    )
+
+                    startDeliveryListener(
+                        chatId = chatId,
+                        otherUserId = otherUserId
+                    )
+
+                    startReadListener(
+                        chatId = chatId,
+                        otherUserId = otherUserId
+                    )
+
+                    startReadReceiptPreferenceListener(
+                        currentUserId = currentUserId
+                    )
+
+                    startPresenceListener(
+                        otherUserId = otherUserId
+                    )
+
+                    startTypingListener(
+                        chatId = chatId,
+                        otherUserId = otherUserId
+                    )
+
+                    startTypingPreferenceListener(
+                        currentUserId = currentUserId
+                    )
+
+                    startBlockListener(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUserId
+                    )
+
+                    _chatReady.value = true
+
+                    Log.d(
+                        "ChatViewModel",
+                        "Direct chat is ready: $chatId"
+                    )
+
+                    markConversationRead(currentUserId)
+                } catch (
+                    e: kotlinx.coroutines.CancellationException
+                ) {
+                    throw e
+                } catch (e: Exception) {
                     Log.e(
                         "ChatViewModel",
-                        "ensureChat failed",
-                        result.exceptionOrNull()
+                        "Direct chat initialization failed: $chatId",
+                        e
                     )
 
-                    return@launch
+                    if (initializingChatId == chatId) {
+                        initializingChatId = ""
+                    }
+
+                    if (initializedChatId == chatId) {
+                        initializedChatId = ""
+                    }
+
+                    _chatReady.value = false
+                    _messagesLoaded.value = true
+                } finally {
+                    if (initializingChatId == chatId) {
+                        initializingChatId = ""
+                    }
                 }
-
-                Log.d(
-                    "ChatViewModel",
-                    "Chat initialized successfully: $chatId"
-                )
-
-                markConversationRead(
-                    currentUserId
-                )
-
-            } catch (
-                e:
-                kotlinx.coroutines.CancellationException
-            ) {
-
-                throw e
-
-            } catch (e: Exception) {
-
-                Log.e(
-                    "ChatViewModel",
-                    "Unexpected chat initialization error",
-                    e
-                )
             }
-        }
     }
 
     /*
@@ -594,19 +591,22 @@ class ChatViewModel : ViewModel() {
         chatId: String,
         otherUserId: String
     ) {
-        viewModelScope.launch {
-            try {
-                chatRepository
-                    .getOtherUserDeliveredTimestampFlow(chatId, otherUserId)
-                    .collect { timestamp ->
-                        _otherUserDeliveredTimestamp.value = timestamp
-                    }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("ChatViewModel", "Delivery listener failed", e)
+        deliveryListenerJob?.cancel()
+
+        deliveryListenerJob =
+            viewModelScope.launch {
+                try {
+                    chatRepository
+                        .getOtherUserDeliveredTimestampFlow(chatId, otherUserId)
+                        .collect { timestamp ->
+                            _otherUserDeliveredTimestamp.value = timestamp
+                        }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("ChatViewModel", "Delivery listener failed", e)
+                }
             }
-        }
     }
 
     private fun markDelivered(
@@ -1492,6 +1492,7 @@ class ChatViewModel : ViewModel() {
     ) {
 
         if (
+            !_chatReady.value ||
             currentChatId.isBlank() ||
             currentUserId.isBlank() ||
             _blockState.value !=
@@ -1842,6 +1843,7 @@ class ChatViewModel : ViewModel() {
         }
 
         if (
+            !_chatReady.value ||
             currentChatId.isEmpty() ||
             currentUserId.isBlank() ||
             otherUserId.isBlank()
@@ -2130,6 +2132,8 @@ class ChatViewModel : ViewModel() {
     override fun onCleared() {
 
         connectionListenerJob?.cancel()
+        initializationJob?.cancel()
+        deliveryListenerJob?.cancel()
 
         listenerJob?.cancel()
         readListenerJob?.cancel()

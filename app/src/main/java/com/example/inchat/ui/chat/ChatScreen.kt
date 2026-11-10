@@ -25,6 +25,7 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.ChatRepository
+import kotlinx.coroutines.flow.flowOf
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -77,15 +78,28 @@ fun ChatScreen(
                 )
         }
 
+    val chatReady by
+    chatViewModel
+        .chatReady
+        .collectAsState()
+
+    /*
+     * The first-time chat record must exist before subscribing to
+     * themeId. Theme reads are protected by the chat participant rules.
+     */
+    val chatThemeFlow =
+        remember(chatId, chatReady) {
+            if (chatReady) {
+                appearanceRepository.observeTheme(chatId)
+            } else {
+                flowOf(null)
+            }
+        }
+
     val chatThemeId by
-    appearanceRepository
-        .observeTheme(
-            chatId
-        )
-        .collectAsState(
-            initial =
-                null
-        )
+    chatThemeFlow.collectAsState(
+        initial = null
+    )
 
     val chatTheme =
         ChatTheme.fromId(chatThemeId)

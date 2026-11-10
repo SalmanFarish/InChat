@@ -66,10 +66,13 @@ class ChatAppearanceRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
-                        )
+                        /*
+                         * Permission/read failures should not escape into
+                         * collectAsState and crash the Compose destination.
+                         * The caller can keep the default theme.
+                         */
+                        trySend(null)
+                        close()
                     }
                 }
 
