@@ -150,6 +150,9 @@ fun ChatMessageList(
             previousLastMessageId =
                 null
 
+            keepBottomDuringIme =
+                false
+
             return@LaunchedEffect
         }
 
@@ -181,6 +184,8 @@ fun ChatMessageList(
             listState.scrollToItem(
                 targetIndex
             )
+
+            keepBottomDuringIme = true
 
             initialMessagesPositioned =
                 true
@@ -325,15 +330,18 @@ fun ChatMessageList(
      */
     LaunchedEffect(listState, messagesLoaded) {
         snapshotFlow {
-            WindowInsets.ime.getBottom(density)
+            WindowInsets.ime.getBottom(density) to
+                    listState.layoutInfo.viewportSize.height
         }
             .distinctUntilChanged()
-            .collect { imeBottom ->
+            .collect { (imeBottom, viewportHeight) ->
                 if (
                     imeBottom > 0 &&
                     keepBottomDuringIme &&
                     messagesLoaded
                 ) {
+                    // Wait for the resized viewport to be measured, then
+                    // restore the bottom anchor without an animated scroll.
                     withFrameNanos { }
                     val lastItemIndex =
                         listState.layoutInfo.totalItemsCount - 1
