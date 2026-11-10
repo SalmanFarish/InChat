@@ -405,15 +405,8 @@ class ChatViewModel : ViewModel() {
                     initializedChatId = chatId
                     initializingChatId = ""
 
-                    _readReceiptsEnabled.value =
-                        userRepository.getReadReceiptsVisible(
-                            currentUserId
-                        )
-
-                    _typingIndicatorEnabled.value =
-                        userRepository.getTypingIndicatorVisible(
-                            currentUserId
-                        )
+                    // Preference listeners below deliver these settings asynchronously.
+                    // They must not delay the chat becoming send-ready.
 
                     startMessageListener(
                         chatId = chatId,
