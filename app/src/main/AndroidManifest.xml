@@ -26,6 +26,12 @@
             android:theme="@style/Theme.InChat"
             android:windowSoftInputMode="adjustResize">
 
+            <!-- Keep the system IME and app layout insets animation frame-synchronized
+                 on Android versions that support this compatibility property. -->
+            <property
+                android:name="android.window.PROPERTY_COMPAT_ALLOW_SYNCHRONIZED_INSETS_ANIMATION"
+                android:value="true" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
