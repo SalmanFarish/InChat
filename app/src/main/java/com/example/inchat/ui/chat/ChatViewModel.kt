@@ -1836,6 +1836,7 @@ class ChatViewModel : ViewModel() {
         senderNickname: String,
         otherUserId: String,
         otherUserNickname: String,
+        onQueued: () -> Unit,
         onResult: (success: Boolean, error: String?) -> Unit
     ) {
 
@@ -1954,7 +1955,10 @@ class ChatViewModel : ViewModel() {
                             otherUserNickname,
 
                         replyTo =
-                            replyTo
+                            replyTo,
+
+                        onQueued =
+                            onQueued
                     )
                     .onSuccess {
 
