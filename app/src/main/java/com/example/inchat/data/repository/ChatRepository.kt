@@ -410,7 +410,7 @@ class ChatRepository {
                     ) {
                         Log.e(
                             TAG,
-                            "Realtime Database list listener cancelled for $chatId: ${error.message}"
+                            "Conversations listener cancelled for $currentUserId: ${error.message}"
                         )
                         trySend(emptyList())
                         close()
