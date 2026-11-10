@@ -113,7 +113,7 @@ fun ChatScreen(
     val chatTheme =
         ChatTheme.fromId(
             id = chatThemeId,
-            defaultTheme = ChatTheme.CYBERPUNK_NEON
+            defaultTheme = ChatTheme.BITCHAT_GREEN
         )
 
     LaunchedEffect(
