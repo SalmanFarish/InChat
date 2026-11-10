@@ -358,7 +358,9 @@ fun ChatScreen(
             onEdit = {
                 messageForActions = null
 
-                draftBeforeEdit = messageText
+                if (draftBeforeEdit == null) {
+                    draftBeforeEdit = messageText
+                }
                 messageText = message.text
 
                 chatViewModel.setEditingMessage(
