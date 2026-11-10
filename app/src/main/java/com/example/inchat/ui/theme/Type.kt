@@ -282,7 +282,7 @@ val Typography =
         labelMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Medium,
@@ -300,7 +300,7 @@ val Typography =
         labelSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Medium,
@@ -312,6 +312,6 @@ val Typography =
                     14.sp,
 
                 letterSpacing =
-                    0.05.sp
+                    0.25.sp
             )
     )
