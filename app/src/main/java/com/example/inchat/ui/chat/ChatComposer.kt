@@ -99,6 +99,12 @@ fun ChatComposer(
     val latestSendAttemptSequence by rememberUpdatedState(sendAttemptSequence)
     val latestComposerText by rememberUpdatedState(messageText)
 
+    LaunchedEffect(editingMessage?.id) {
+        if (editingMessage == null) {
+            savingEdit = false
+        }
+    }
+
     /*
      * =========================================================
      * FOCUS REPLY / EDIT
@@ -144,9 +150,10 @@ fun ChatComposer(
             onClearEdit()
 
         } else {
-
             onClearReply()
         }
+
+        keyboardController?.hide()
     }
 
     Surface(
