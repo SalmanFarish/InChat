@@ -2,7 +2,6 @@ package com.example.inchat.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -21,8 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -81,9 +78,6 @@ fun ChatComposer(
         remember {
             FocusRequester()
         }
-
-    val textScrollState =
-        rememberScrollState()
 
     var sendingMessage by remember {
         mutableStateOf(false)
@@ -182,9 +176,8 @@ fun ChatComposer(
                     )
                 )
                 /*
-                 * The composer is a custom Scaffold bottomBar,
-                 * so protect it from both navigation UI and the
-                 * on-screen keyboard on every device configuration.
+                 * The screen Scaffold owns IME insets. The composer
+                 * only applies navigation-bar spacing here.
                  */
                 .navigationBarsPadding()
     ) {
@@ -353,8 +346,7 @@ fun ChatComposer(
 
                     modifier =
                         Modifier
-                            .weight(1f)
-                            .animateContentSize(),
+                            .weight(1f),
 
                     shape =
                         RoundedCornerShape(
@@ -386,9 +378,6 @@ fun ChatComposer(
                                 .fillMaxWidth()
                                 .focusRequester(
                                     focusRequester
-                                )
-                                .verticalScroll(
-                                    textScrollState
                                 )
                                 .padding(
                                     horizontal =
