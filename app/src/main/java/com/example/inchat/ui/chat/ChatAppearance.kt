@@ -120,6 +120,14 @@ enum class ChatTheme(
     val secondaryTextColor: Color
         @Composable get() = colors.secondaryText
 
+    // Terminal-inspired status green, tuned for readable contrast on
+    // both the dark and light solid chat backgrounds.
+    val statusAccentColor: Color
+        get() = when (this) {
+            AMOLED_BLACK -> Color(0xFF39FF14)
+            PURE_WHITE -> Color(0xFF007A2F)
+        }
+
     companion object {
         fun defaultForSystemTheme(darkTheme: Boolean): ChatTheme =
             if (darkTheme) AMOLED_BLACK else PURE_WHITE
