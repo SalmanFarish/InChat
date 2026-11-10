@@ -1,6 +1,5 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -66,9 +65,7 @@ fun ChatThemeScreen(
 
     val selectedTheme = ChatTheme.fromId(
         id = selectedThemeId,
-        defaultTheme = ChatTheme.defaultForSystemTheme(
-            darkTheme = isSystemInDarkTheme()
-        )
+        defaultTheme = ChatTheme.CYBERPUNK_NEON
     )
     val coroutineScope = rememberCoroutineScope()
 
