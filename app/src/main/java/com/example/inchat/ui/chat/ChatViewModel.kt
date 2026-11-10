@@ -353,7 +353,6 @@ class ChatViewModel : ViewModel() {
         if (currentChatId.isNotBlank() && activeTypingUserId.isNotBlank()) {
             clearTypingState(activeTypingUserId, currentChatId)
         }
-        isChatVisible = false
         hasRequestedOlderMessages = false
         _hasOlderMessages.value = false
         _isLoadingOlderMessages.value = false
@@ -474,6 +473,10 @@ class ChatViewModel : ViewModel() {
 
                     _readyChatId.value = chatId
                     _chatReady.value = true
+
+                    if (isChatVisible) {
+                        markConversationRead(currentUserId)
+                    }
 
                     Log.d(
                         "ChatViewModel",
@@ -2141,13 +2144,13 @@ class ChatViewModel : ViewModel() {
         currentUserId: String,
         visible: Boolean
     ) {
-        if (currentChatId.isBlank()) return
         isChatVisible = visible
+        if (currentChatId.isBlank()) return
+
         if (visible) {
             markConversationRead(currentUserId)
         } else {
-            clearTypingState(currentUserId, currentChatId)
-            _otherUserTyping.value = false
+            clearChatState()
         }
     }
 
