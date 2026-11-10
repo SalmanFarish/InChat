@@ -20,7 +20,7 @@ The app currently rejects addresses ending in `@inchat.app` during sign-up and l
 
 1. Close InChat on all test devices and stop any test clients. This prevents them from writing new data during the reset.
 2. Confirm that the project in the repository's `.firebaserc` is the test project you intend to erase. It is currently `inchat-24b8b`. The script checks the project IDs in the service-account file and, when present, `app/google-services.json`; it also checks the Realtime Database URL.
-3. In Firebase Console, open **Project settings → Service accounts** and generate a private key for the same project. Save the downloaded JSON outside this repository, for example `C:\\InChat-secrets\\inchat-admin-key.json`. Do not commit or share this file.
+3. In Firebase Console, open **Project settings → Service accounts** and generate a private key for the same project. Save the downloaded JSON outside this repository, for example `C:\InChat-secrets\inchat-admin-key.json`. Do not commit or share this file.
 4. Copy the exact Realtime Database URL from Firebase Console. The script can read it from your local `app/google-services.json` when that file contains `firebase_url`; otherwise, set `FIREBASE_DATABASE_URL` as shown below.
 5. Decide whether to remove legacy Firebase Storage profile photos too. When a bucket is present in the local Google services file or `FIREBASE_STORAGE_BUCKET`, the script will delete the `profilePhotos/` prefix in that bucket. Cloudflare R2 is not touched.
 
@@ -29,10 +29,10 @@ The app currently rejects addresses ending in `@inchat.app` during sign-up and l
 Open PowerShell in your repository root and run:
 
 ```powershell
-cd tools\\firebase-reset
+cd tools\firebase-reset
 npm install
 
-$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\\InChat-secrets\\inchat-admin-key.json"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\InChat-secrets\inchat-admin-key.json"
 
 # Set this to the exact URL shown in Firebase Console.
 # You can omit it only when app/google-services.json has firebase_url.
@@ -49,7 +49,7 @@ Review the output carefully. It prints the Firebase project ID, Realtime Databas
 Only after confirming that the project and counts are exactly what you intend to erase, run:
 
 ```powershell
-node .\\reset-test-data.mjs --execute --confirm-project=inchat-24b8b
+node .\reset-test-data.mjs --execute --confirm-project=inchat-24b8b
 ```
 
 The script deletes Auth accounts first and verifies none remain before clearing the database. If Auth deletion fails, it stops before touching Realtime Database data. If a database cleanup is interrupted after Auth deletion, you can run the same command again; it will see zero Auth users and continue with the database cleanup.
