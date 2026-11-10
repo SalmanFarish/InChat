@@ -1311,6 +1311,9 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        val editChatId = currentChatId
+        val editingMessageId = messageId
+
         viewModelScope.launch {
 
             try {
@@ -1318,7 +1321,7 @@ class ChatViewModel : ViewModel() {
                 chatRepository
                     .editMessage(
                         chatId =
-                            currentChatId,
+                            editChatId,
 
                         messageId =
                             messageId,
@@ -1331,13 +1334,13 @@ class ChatViewModel : ViewModel() {
                     )
                     .onSuccess {
 
-                        _editingMessage.value =
-                            null
-
-                        onResult(
-                            true,
-                            null
-                        )
+                        if (
+                            currentChatId == editChatId &&
+                            _editingMessage.value?.id == editingMessageId
+                        ) {
+                            _editingMessage.value = null
+                            onResult(true, null)
+                        }
 
                         Log.d(
                             "ChatViewModel",
@@ -1352,11 +1355,13 @@ class ChatViewModel : ViewModel() {
                             error
                         )
 
-                        onResult(
+                        if (currentChatId == editChatId) {
+                            onResult(
                             false,
                             error.message
                                 ?: "Could not edit message"
-                        )
+                            )
+                        }
                     }
 
             } catch (
