@@ -1,7 +1,6 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -324,11 +324,30 @@ fun ChatMessageList(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .clickable(
-                        interactionSource = null,
-                        indication = null
-                    ) {
-                        timestampsVisible = !timestampsVisible
+                    .pointerInput(Unit) {
+                        /*
+                         * Reveal timestamps on the DOWN event itself.
+                         * Observe at the Initial pass and do not consume
+                         * the event, so scrolling, reply swipes and child
+                         * click/long-press gestures continue to work.
+                         */
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event =
+                                    awaitPointerEvent(
+                                        PointerEventPass.Initial
+                                    )
+
+                                if (
+                                    event.changes.any {
+                                        it.pressed &&
+                                                !it.previousPressed
+                                    }
+                                ) {
+                                    timestampsVisible = true
+                                }
+                            }
+                        }
                     }
         ) {
 
@@ -639,7 +658,7 @@ fun ChatMessageList(
                                     timestampsVisible,
 
                                 onTimestampToggle = {
-                                    timestampsVisible = !timestampsVisible
+                                    timestampsVisible = true
                                 },
 
                                 onReply = {
