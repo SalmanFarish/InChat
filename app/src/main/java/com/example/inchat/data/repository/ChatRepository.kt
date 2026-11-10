@@ -234,42 +234,42 @@ class ChatRepository {
     }
 
     private suspend fun refreshDirectConversationPreview(chatId: String) {
-        try {
-        val chatSnapshot = database.getReference("chats").child(chatId).get().await()
-        if (!chatSnapshot.exists() ||
-            chatSnapshot.child("type").getValue(String::class.java) == "group"
-        ) return
+        try     {
+            val chatSnapshot = database.getReference("chats").child(chatId).get().await()
+            if (!chatSnapshot.exists() ||
+                chatSnapshot.child("type").getValue(String::class.java) == "group"
+            ) return
 
-        val participantA = chatSnapshot.child("participantA")
-            .getValue(String::class.java).orEmpty()
-        val participantB = chatSnapshot.child("participantB")
-            .getValue(String::class.java).orEmpty()
-        if (participantA.isBlank() || participantB.isBlank()) return
+            val participantA = chatSnapshot.child("participantA")
+                .getValue(String::class.java).orEmpty()
+            val participantB = chatSnapshot.child("participantB")
+                .getValue(String::class.java).orEmpty()
+            if (participantA.isBlank() || participantB.isBlank()) return
 
-        val latestSnapshot = database.getReference("chats")
-            .child(chatId).child("messages")
-            .orderByChild("timestamp").limitToLast(1).get().await()
-        val latest = latestSnapshot.children
-            .mapNotNull { it.getValue(Message::class.java) }
-            .maxByOrNull { it.timestamp }
+            val latestSnapshot = database.getReference("chats")
+                .child(chatId).child("messages")
+                .orderByChild("timestamp").limitToLast(1).get().await()
+            val latest = latestSnapshot.children
+                .mapNotNull { it.getValue(Message::class.java) }
+                .maxByOrNull { it.timestamp }
 
-        val previewText = latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
-        val previewTimestamp = latest?.timestamp ?: 0L
-        // Existing userChats validation requires lastSenderId to be a participant.
-        val previewSenderId = latest?.senderId ?: participantA
-        val previewUpdates = mapOf<String, Any>(
-            "lastMessage" to previewText,
-            "lastTimestamp" to previewTimestamp,
-            "lastSenderId" to previewSenderId
-        )
+            val previewText = latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
+            val previewTimestamp = latest?.timestamp ?: 0L
+            // Existing userChats validation requires lastSenderId to be a participant.
+            val previewSenderId = latest?.senderId ?: participantA
+            val previewUpdates = mapOf<String, Any>(
+                "lastMessage" to previewText,
+                "lastTimestamp" to previewTimestamp,
+                "lastSenderId" to previewSenderId
+            )
 
-        for (uid in listOf(participantA, participantB)) {
-            try {
-                // Partial updates preserve each participant's own unread count
-                // and do not recreate an inbox entry they removed.
-                database.getReference("userChats").child(uid).child(chatId)
-                    .updateChildren(previewUpdates).await()
-            } catch (error: Exception) {
+            for (uid in listOf(participantA, participantB)) {
+                try {
+                    // Partial updates preserve each participant's own unread count
+                    // and do not recreate an inbox entry they removed.
+                    database.getReference("userChats").child(uid).child(chatId)
+                        .updateChildren(previewUpdates).await()
+                } catch (error: Exception) {
                 Log.w(TAG, "Could not refresh inbox preview for $uid/$chatId", error)
             }
 
