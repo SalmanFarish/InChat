@@ -31,6 +31,15 @@ class GroupChatViewModel : ViewModel() {
     val messagesLoaded: StateFlow<Boolean> =
         _messagesLoaded.asStateFlow()
 
+    private val _hasOlderMessages = MutableStateFlow(false)
+    val hasOlderMessages: StateFlow<Boolean> = _hasOlderMessages.asStateFlow()
+
+    private val _isLoadingOlderMessages = MutableStateFlow(false)
+    val isLoadingOlderMessages: StateFlow<Boolean> =
+        _isLoadingOlderMessages.asStateFlow()
+
+    private var hasRequestedOlderMessages = false
+
     private val _replyingTo = MutableStateFlow<Message?>(null)
     val replyingTo: StateFlow<Message?> =
         _replyingTo.asStateFlow()
@@ -67,6 +76,9 @@ class GroupChatViewModel : ViewModel() {
         }
 
         listeningGroupId = groupId
+        hasRequestedOlderMessages = false
+        _hasOlderMessages.value = false
+        _isLoadingOlderMessages.value = false
         groupJob?.cancel()
         messagesJob?.cancel()
         groupReadJobs.values.forEach { it.cancel() }
@@ -80,6 +92,7 @@ class GroupChatViewModel : ViewModel() {
         val cachedMessages = chatRepository.getCachedMessages(groupId)
         _messages.value = cachedMessages ?: emptyList()
         _messagesLoaded.value = cachedMessages != null
+        _hasOlderMessages.value = (cachedMessages?.size ?: 0) >= 200
 
         groupJob = viewModelScope.launch {
             try {
@@ -163,6 +176,9 @@ class GroupChatViewModel : ViewModel() {
                     .collect { messageList ->
                         _messages.value = messageList
                         _messagesLoaded.value = true
+                        if (!hasRequestedOlderMessages) {
+                            _hasOlderMessages.value = messageList.size >= 200
+                        }
 
                         val editingId =
                             _editingMessage.value?.id
@@ -397,6 +413,40 @@ class GroupChatViewModel : ViewModel() {
                 groupId = listeningGroupId,
                 timestamp = timestamp
             )
+        }
+    }
+
+    fun loadOlderMessages() {
+        val groupId = listeningGroupId
+        if (groupId.isBlank() || !_hasOlderMessages.value ||
+            _isLoadingOlderMessages.value
+        ) return
+
+        val oldestTimestamp = _messages.value
+            .firstOrNull { it.timestamp > 0L }?.timestamp ?: return
+
+        hasRequestedOlderMessages = true
+        _isLoadingOlderMessages.value = true
+        viewModelScope.launch {
+            try {
+                chatRepository.getOlderMessages(
+                    chatId = groupId,
+                    beforeTimestamp = oldestTimestamp
+                ).onSuccess { olderMessages ->
+                    if (listeningGroupId == groupId) {
+                        _messages.value =
+                            (olderMessages + _messages.value)
+                                .distinctBy { it.id }
+                                .sortedBy { it.timestamp }
+                        _hasOlderMessages.value =
+                            olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
+                    }
+                }.onFailure { error ->
+                    Log.e("GroupChatViewModel", "Could not load earlier group messages", error)
+                }
+            } finally {
+                _isLoadingOlderMessages.value = false
+            }
         }
     }
 
