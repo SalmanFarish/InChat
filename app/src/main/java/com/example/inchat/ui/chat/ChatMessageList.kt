@@ -338,14 +338,14 @@ fun ChatMessageList(
                                         PointerEventPass.Initial
                                     )
 
-                                if (
-                                    event.changes.any {
-                                        it.pressed &&
-                                                !it.previousPressed
-                                    }
-                                ) {
-                                    timestampsVisible = true
-                                }
+                                /*
+                                 * Keep timestamps visible for the full time
+                                 * at least one pointer is down. This also
+                                 * hides them on UP or CANCEL, and supports
+                                 * multi-touch without hiding too early.
+                                 */
+                                timestampsVisible =
+                                    event.changes.any { it.pressed }
                             }
                         }
                     }
@@ -657,9 +657,9 @@ fun ChatMessageList(
                                 showTimestamp =
                                     timestampsVisible,
 
-                                onTimestampToggle = {
-                                    timestampsVisible = true
-                                },
+                                // Visibility is controlled by the screen-level
+                                // pointer listener for the entire touch duration.
+                                onTimestampToggle = {},
 
                                 onReply = {
                                     if (
