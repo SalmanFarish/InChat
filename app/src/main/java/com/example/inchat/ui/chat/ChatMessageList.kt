@@ -1,6 +1,7 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -321,7 +322,14 @@ fun ChatMessageList(
         Box(
 
             modifier =
-                Modifier.fillMaxSize()
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = null,
+                        indication = null
+                    ) {
+                        timestampsVisible = !timestampsVisible
+                    }
         ) {
 
             if (
