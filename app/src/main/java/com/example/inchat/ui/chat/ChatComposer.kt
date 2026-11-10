@@ -583,15 +583,22 @@ fun ChatComposer(
                                 otherUserNickname =
                                     otherUserNickname,
 
+                                onQueued = {
+                                    // The message is now in Firebase's local
+                                    // realtime queue and appears immediately.
+                                    sendingMessage = false
+                                    onMessageSent()
+                                    keyboardController?.hide()
+                                },
+
                                 onResult = { success, error ->
                                     sendingMessage = false
 
-                                    if (success) {
-                                        onMessageSent()
-                                        keyboardController?.hide()
-                                    } else {
+                                    if (!success) {
+                                        // Restore the draft if Firebase rejects it.
+                                        onMessageTextChange(text)
                                         onActionMessage(
-                                            error ?: "Message could not be sent. Your text has been kept."
+                                            error ?: "Message could not be sent. Your text has been restored."
                                         )
                                     }
                                 }
