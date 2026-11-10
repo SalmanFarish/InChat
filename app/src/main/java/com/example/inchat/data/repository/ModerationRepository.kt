@@ -48,7 +48,6 @@ class ModerationRepository {
                 .getReference("blockedUsers")
                 .child(currentUserId)
 
-        blockedRef.keepSynced(true)
 
         val listener =
             object : ValueEventListener {
