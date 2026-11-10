@@ -60,6 +60,9 @@ class ChatRepository {
         private val messageCache =
             ConcurrentHashMap<String, List<Message>>()
 
+        private val latestMessageCache =
+            ConcurrentHashMap<String, List<Message>>()
+
         private val olderMessageCache =
             ConcurrentHashMap<String, List<Message>>()
 
@@ -207,6 +210,14 @@ class ChatRepository {
     fun getCachedMessages(chatId: String): List<Message>? =
         messageCache[chatId]
 
+    fun clearOlderMessagePages(chatId: String) {
+        if (chatId.isBlank()) return
+        olderMessageCache.remove(chatId)
+        latestMessageCache[chatId]?.let { latest ->
+            messageCache[chatId] = latest
+        }
+    }
+
     private fun updateCachedMessage(
         chatId: String,
         transform: (Message) -> Message?
@@ -217,9 +228,13 @@ class ChatRepository {
         olderMessageCache.computeIfPresent(chatId) { _, messages ->
             messages.mapNotNull(transform).sortedBy { it.timestamp }
         }
+        latestMessageCache.computeIfPresent(chatId) { _, messages ->
+            messages.mapNotNull(transform).sortedBy { it.timestamp }
+        }
     }
 
     private suspend fun refreshDirectConversationPreview(chatId: String) {
+        try {
         val chatSnapshot = database.getReference("chats").child(chatId).get().await()
         if (!chatSnapshot.exists() ||
             chatSnapshot.child("type").getValue(String::class.java) == "group"
@@ -269,6 +284,11 @@ class ChatRepository {
                     } else conversation
                 }
             }
+        }
+        } catch (error: Exception) {
+            // The message edit/delete already succeeded. A preview refresh
+            // failure must not make the UI report the message operation failed.
+            Log.w(TAG, "Could not refresh direct conversation preview for $chatId", error)
         }
     }
 
@@ -356,15 +376,18 @@ class ChatRepository {
                         }
 
                         val immutableLatestMessages = messageList.toList()
-                        val firstLatestTimestamp =
-                            immutableLatestMessages.firstOrNull()?.timestamp ?: Long.MAX_VALUE
+                        latestMessageCache[chatId] = immutableLatestMessages
 
-                        val cachedOlderMessages = olderMessageCache[chatId].orEmpty()
-                            .filter { it.timestamp < firstLatestTimestamp }
-
-                        if (immutableLatestMessages.isEmpty()) {
-                            olderMessageCache.remove(chatId)
-                        }
+                        val cachedOlderMessages =
+                            if (immutableLatestMessages.isEmpty()) {
+                                olderMessageCache.remove(chatId)
+                                emptyList()
+                            } else {
+                                val firstLatestTimestamp =
+                                    immutableLatestMessages.first().timestamp
+                                olderMessageCache[chatId].orEmpty()
+                                    .filter { it.timestamp < firstLatestTimestamp }
+                            }
 
                         val combinedMessages =
                             (cachedOlderMessages + immutableLatestMessages)
