@@ -1297,7 +1297,7 @@ class ChatViewModel : ViewModel() {
                 chatRepository
                     .editMessage(
                         chatId =
-                            currentChatId,
+                            chatId,
 
                         messageId =
                             messageId,
@@ -1832,51 +1832,38 @@ class ChatViewModel : ViewModel() {
         currentUserId: String,
         senderNickname: String,
         otherUserId: String,
-        otherUserNickname: String
+        otherUserNickname: String,
+        onResult: (success: Boolean, error: String?) -> Unit
     ) {
 
-        val cleanText =
-            text.trim()
+        val cleanText = text.trim()
+        val chatId = currentChatId
 
-        if (
-            cleanText.isEmpty()
-        ) {
-
+        if (cleanText.isEmpty()) {
+            onResult(false, "Message cannot be empty.")
             return
         }
 
         if (
             !_chatReady.value ||
-            currentChatId.isEmpty() ||
+            _readyChatId.value != chatId ||
+            chatId.isBlank() ||
             currentUserId.isBlank() ||
             otherUserId.isBlank()
         ) {
-
+            onResult(false, "This chat is still connecting. Please wait and try again.")
             return
         }
 
-        if (
-            _blockState.value !=
-            BlockState.NONE
-        ) {
-
-            Log.d(
-                "ChatViewModel",
-                "Message prevented: blocked relationship"
-            )
-
+        if (_blockState.value != BlockState.NONE) {
+            Log.d("ChatViewModel", "Message prevented: blocked relationship")
+            onResult(false, "Messages cannot be sent because this conversation is blocked.")
             return
         }
 
-        if (
-            _editingMessage.value != null
-        ) {
-
-            Log.d(
-                "ChatViewModel",
-                "Normal send ignored while editing a message"
-            )
-
+        if (_editingMessage.value != null) {
+            Log.d("ChatViewModel", "Normal send ignored while editing a message")
+            onResult(false, "Finish editing the current message first.")
             return
         }
 
@@ -1913,7 +1900,7 @@ class ChatViewModel : ViewModel() {
         val messageId =
             chatRepository
                 .generateMessageId(
-                    currentChatId
+                    chatId
                 )
 
         if (
@@ -1924,7 +1911,7 @@ class ChatViewModel : ViewModel() {
                 "ChatViewModel",
                 "Could not generate message ID"
             )
-
+            onResult(false, "Could not prepare this message. Please try again.")
             return
         }
 
@@ -1988,6 +1975,7 @@ class ChatViewModel : ViewModel() {
                             "ChatViewModel",
                             "Message sent successfully: $messageId"
                         )
+                        onResult(true, null)
                     }
                     .onFailure { error ->
 
@@ -2006,6 +1994,10 @@ class ChatViewModel : ViewModel() {
                             "ChatViewModel",
                             "Message write failed",
                             error
+                        )
+                        onResult(
+                            false,
+                            error.localizedMessage ?: "Firebase rejected the message. Your text has been kept."
                         )
                     }
 
@@ -2030,6 +2022,10 @@ class ChatViewModel : ViewModel() {
                     "ChatViewModel",
                     "Unexpected send error",
                     e
+                )
+                onResult(
+                    false,
+                    e.localizedMessage ?: "Message could not be sent. Your text has been kept."
                 )
             }
         }
