@@ -102,6 +102,7 @@ fun GroupChatScreen(
     }
 
     var messageText by rememberSaveable { mutableStateOf("") }
+    var draftBeforeEdit by rememberSaveable { mutableStateOf<String?>(null) }
     var messageForActions by rememberSaveable { mutableStateOf<String?>(null) }
     var messageForInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -126,6 +127,8 @@ fun GroupChatScreen(
             },
             onReply = {
                 messageForActions = null
+                draftBeforeEdit = null
+                messageText = ""
                 groupViewModel.setReplyingTo(message)
             },
             onInfo = {
@@ -134,6 +137,8 @@ fun GroupChatScreen(
             },
             onEdit = {
                 messageForActions = null
+                draftBeforeEdit = messageText
+                messageText = message.text
                 groupViewModel.setEditingMessage(
                     message = message,
                     currentUserId = currentUserId
@@ -283,7 +288,8 @@ fun GroupChatScreen(
                     },
                     onClearEdit = {
                         groupViewModel.clearEditingMessage()
-                        messageText = ""
+                        messageText = draftBeforeEdit.orEmpty()
+                        draftBeforeEdit = null
                     },
                     onActionMessage = { actionMessage = it },
                     onMessageSent = { messageText = "" }
