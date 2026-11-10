@@ -1,6 +1,7 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
@@ -46,24 +48,19 @@ fun DaySeparator(
     ) {
 
         Surface(
-
-            shape =
-                RoundedCornerShape(
-                    14.dp
-                ),
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .surfaceVariant
+            modifier = Modifier.border(
+                width = 0.7.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(14.dp)
+            ),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
 
             Text(
 
                 text =
-                    formatDaySeparator(
-                        timestamp
-                    ),
+                    formatDaySeparator(timestamp).uppercase(Locale.getDefault()),
 
                 modifier =
                     Modifier.padding(
@@ -81,17 +78,17 @@ fun DaySeparator(
                     ),
 
                 style =
-                    MaterialTheme
-                        .typography
-                        .labelSmall,
+                    MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        letterSpacing = 0.55.sp
+                    ),
 
                 fontWeight =
-                    FontWeight.Medium,
+                    FontWeight.SemiBold,
 
                 color =
-                    MaterialTheme
-                        .colorScheme
-                        .onSurfaceVariant
+                    MaterialTheme.colorScheme.primary
             )
         }
     }
@@ -224,7 +221,7 @@ fun formatMessageTime(
     }
 
     return SimpleDateFormat(
-        "h:mm a",
+        "HH:mm",
         Locale.getDefault()
     ).format(
         Date(
