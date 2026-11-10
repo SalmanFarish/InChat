@@ -234,29 +234,48 @@ class ChatRepository {
     }
 
     private suspend fun refreshDirectConversationPreview(chatId: String) {
-        try     {
-            val chatSnapshot = database.getReference("chats").child(chatId).get().await()
-            if (!chatSnapshot.exists() ||
+        try {
+            val chatSnapshot = database.getReference("chats")
+                .child(chatId)
+                .get()
+                .await()
+
+            if (
+                !chatSnapshot.exists() ||
                 chatSnapshot.child("type").getValue(String::class.java) == "group"
-            ) return
+            ) {
+                return
+            }
 
             val participantA = chatSnapshot.child("participantA")
-                .getValue(String::class.java).orEmpty()
+                .getValue(String::class.java)
+                .orEmpty()
             val participantB = chatSnapshot.child("participantB")
-                .getValue(String::class.java).orEmpty()
-            if (participantA.isBlank() || participantB.isBlank()) return
+                .getValue(String::class.java)
+                .orEmpty()
+
+            if (participantA.isBlank() || participantB.isBlank()) {
+                return
+            }
 
             val latestSnapshot = database.getReference("chats")
-                .child(chatId).child("messages")
-                .orderByChild("timestamp").limitToLast(1).get().await()
+                .child(chatId)
+                .child("messages")
+                .orderByChild("timestamp")
+                .limitToLast(1)
+                .get()
+                .await()
+
             val latest = latestSnapshot.children
                 .mapNotNull { it.getValue(Message::class.java) }
                 .maxByOrNull { it.timestamp }
 
-            val previewText = latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
+            val previewText =
+                latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
             val previewTimestamp = latest?.timestamp ?: 0L
             // Existing userChats validation requires lastSenderId to be a participant.
             val previewSenderId = latest?.senderId ?: participantA
+
             val previewUpdates = mapOf<String, Any>(
                 "lastMessage" to previewText,
                 "lastTimestamp" to previewTimestamp,
@@ -267,30 +286,44 @@ class ChatRepository {
                 try {
                     // Partial updates preserve each participant's own unread count
                     // and do not recreate an inbox entry they removed.
-                    database.getReference("userChats").child(uid).child(chatId)
-                        .updateChildren(previewUpdates).await()
+                    database.getReference("userChats")
+                        .child(uid)
+                        .child(chatId)
+                        .updateChildren(previewUpdates)
+                        .await()
                 } catch (error: Exception) {
-                Log.w(TAG, "Could not refresh inbox preview for $uid/$chatId", error)
-            }
+                    Log.w(
+                        TAG,
+                        "Could not refresh inbox preview for $uid/$chatId",
+                        error
+                    )
+                }
 
-            conversationCache.computeIfPresent(uid) { _, conversations ->
-                conversations.map { conversation ->
-                    if (conversation.chatId == chatId) {
-                        conversation.copy(
-                            lastMessage = previewText,
-                            lastTimestamp = previewTimestamp,
-                            lastSenderId = previewSenderId
-                        )
-                    } else conversation
+                conversationCache.computeIfPresent(uid) { _, conversations ->
+                    conversations.map { conversation ->
+                        if (conversation.chatId == chatId) {
+                            conversation.copy(
+                                lastMessage = previewText,
+                                lastTimestamp = previewTimestamp,
+                                lastSenderId = previewSenderId
+                            )
+                        } else {
+                            conversation
+                        }
+                    }
                 }
             }
-        }
         } catch (error: Exception) {
             // The message edit/delete already succeeded. A preview refresh
             // failure must not make the UI report the message operation failed.
-            Log.w(TAG, "Could not refresh direct conversation preview for $chatId", error)
+            Log.w(
+                TAG,
+                "Could not refresh direct conversation preview for $chatId",
+                error
+            )
         }
     }
+
 
     /*
      * =========================================================
