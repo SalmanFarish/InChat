@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +41,10 @@ data class ChatThemePalette(
     val outgoingBubble: Color,
     val incomingText: Color,
     val outgoingText: Color,
-    val secondaryText: Color
+    val secondaryText: Color,
+    val incomingBorder: Color = Color.Transparent,
+    val outgoingBorder: Color = Color.Transparent,
+    val statusAccent: Color = Color(0xFF39FF14)
 )
 
 enum class ChatTheme(
@@ -50,6 +54,24 @@ enum class ChatTheme(
     val legacyIds: List<String>,
     private val colors: ChatThemePalette
 ) {
+    CYBERPUNK_NEON(
+        id = "cyberpunk_neon",
+        title = "Cyberpunk Neon",
+        description = "Deep navy panels with cyan and magenta terminal accents",
+        legacyIds = emptyList(),
+        colors = ChatThemePalette(
+            background = Color(0xFF080B19),
+            incomingBubble = Color(0xFF10182B),
+            outgoingBubble = Color(0xFF10263A),
+            incomingText = Color(0xFFF1F3FA),
+            outgoingText = Color(0xFFF4FAFF),
+            secondaryText = Color(0xFF9BA9C3),
+            incomingBorder = Color(0xFF00E5FF).copy(alpha = 0.28f),
+            outgoingBorder = Color(0xFFFF00D4).copy(alpha = 0.25f),
+            statusAccent = Color(0xFF00E5FF)
+        )
+    ),
+
     AMOLED_BLACK(
         id = "amoled_black",
         title = "AMOLED Black",
@@ -79,7 +101,8 @@ enum class ChatTheme(
             outgoingBubble = Color(0xFF292929),
             incomingText = Color(0xFFF5F5F5),
             outgoingText = Color(0xFFFFFFFF),
-            secondaryText = Color(0xFFBDBDBD)
+            secondaryText = Color(0xFFBDBDBD),
+            statusAccent = Color(0xFF39FF14)
         )
     ),
 
@@ -94,7 +117,8 @@ enum class ChatTheme(
             outgoingBubble = Color(0xFFE4E4E4),
             incomingText = Color(0xFF171717),
             outgoingText = Color(0xFF111111),
-            secondaryText = Color(0xFF666666)
+            secondaryText = Color(0xFF666666),
+            statusAccent = Color(0xFF007A2F)
         )
     );
 
@@ -120,21 +144,22 @@ enum class ChatTheme(
     val secondaryTextColor: Color
         @Composable get() = colors.secondaryText
 
-    // Terminal-inspired status green, tuned for readable contrast on
-    // both the dark and light solid chat backgrounds.
+    val incomingBorderColor: Color
+        get() = colors.incomingBorder
+
+    val outgoingBorderColor: Color
+        get() = colors.outgoingBorder
+
     val statusAccentColor: Color
-        get() = when (this) {
-            AMOLED_BLACK -> Color(0xFF39FF14)
-            PURE_WHITE -> Color(0xFF007A2F)
-        }
+        get() = colors.statusAccent
 
     companion object {
         fun defaultForSystemTheme(darkTheme: Boolean): ChatTheme =
-            if (darkTheme) AMOLED_BLACK else PURE_WHITE
+            if (darkTheme) CYBERPUNK_NEON else PURE_WHITE
 
         fun fromId(
             id: String?,
-            defaultTheme: ChatTheme = AMOLED_BLACK
+            defaultTheme: ChatTheme = CYBERPUNK_NEON
         ): ChatTheme =
             entries.firstOrNull {
                 it.id == id || it.legacyIds.contains(id)
@@ -159,8 +184,23 @@ fun ChatWallpaper(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val backgroundModifier =
+        if (theme == ChatTheme.CYBERPUNK_NEON) {
+            Modifier.background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF080B19),
+                        Color(0xFF0D0B22),
+                        Color(0xFF080B19)
+                    )
+                )
+            )
+        } else {
+            Modifier.background(theme.backgroundColor)
+        }
+
     Box(
-        modifier = modifier.background(theme.backgroundColor),
+        modifier = modifier.then(backgroundModifier),
         content = content
     )
 }
