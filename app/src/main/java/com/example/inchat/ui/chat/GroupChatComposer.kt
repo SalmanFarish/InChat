@@ -69,6 +69,7 @@ fun GroupChatComposer(
         LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val textScrollState = rememberScrollState()
+    var savingEdit by remember { mutableStateOf(false) }
 
     LaunchedEffect(replyingTo?.id, editingMessage?.id) {
         if (replyingTo != null || editingMessage != null) {
@@ -154,6 +155,7 @@ fun GroupChatComposer(
                     BasicTextField(
                         value = messageText,
                         onValueChange = onMessageTextChange,
+                        enabled = !savingEdit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -198,7 +200,7 @@ fun GroupChatComposer(
                     modifier = Modifier.width(8.dp)
                 )
 
-                val sendEnabled = messageText.isNotBlank()
+                val sendEnabled = messageText.isNotBlank() && !savingEdit
                 val sendScale by animateFloatAsState(
                     targetValue = if (sendEnabled) 1f else 0.88f,
                     animationSpec = spring(),
@@ -213,13 +215,16 @@ fun GroupChatComposer(
                         val editing = editingMessage
 
                         if (editing != null) {
+                            if (savingEdit) return@IconButton
+                            savingEdit = true
                             groupViewModel.editMessage(
                                 messageId = editing.id,
                                 newText = text,
                                 currentUserId = currentUserId
                             ) { success, error ->
+                                savingEdit = false
                                 if (success) {
-                                    onMessageSent()
+                                    onClearEdit()
                                     keyboardController?.hide()
                                 } else {
                                     onActionMessage(
