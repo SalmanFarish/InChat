@@ -47,6 +47,8 @@ async function listAllUsers(auth) {
   return users;
 }
 
+let firebaseApp;
+
 async function main() {
   const firebaserc = await readJson(resolve(repositoryRoot, ".firebaserc"), true);
   const projectId = firebaserc?.projects?.default;
@@ -122,7 +124,7 @@ async function main() {
     throw new Error("The project confirmation flag is only accepted together with --execute.");
   }
 
-  const app = initializeApp(
+  const app = firebaseApp = initializeApp(
     {
       credential: cert(serviceAccount),
       projectId,
