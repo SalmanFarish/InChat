@@ -2,7 +2,6 @@ package com.example.inchat.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -18,11 +17,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
@@ -70,7 +67,6 @@ fun GroupChatComposer(
     val keyboardController =
         LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
-    val textScrollState = rememberScrollState()
     var savingEdit by remember { mutableStateOf(false) }
 
     LaunchedEffect(editingMessage?.id) {
@@ -154,8 +150,7 @@ fun GroupChatComposer(
 
                 Surface(
                     modifier = Modifier
-                        .weight(1f)
-                        .animateContentSize(),
+                        .weight(1f),
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
@@ -167,7 +162,6 @@ fun GroupChatComposer(
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
-                            .verticalScroll(textScrollState)
                             .padding(
                                 horizontal = 17.dp,
                                 vertical = 13.dp
