@@ -2229,6 +2229,7 @@ class ChatViewModel : ViewModel() {
         typingPreferenceJob?.cancel()
         typingResetJob?.cancel()
         blockListenerJob?.cancel()
+        chatRepository.clearOlderMessagePages(currentChatId)
 
         super.onCleared()
     }
