@@ -331,8 +331,7 @@ fun ChatMessageList(
                 if (
                     imeBottom > 0 &&
                     keepBottomDuringIme &&
-                    messagesLoaded &&
-                    messages.isNotEmpty()
+                    messagesLoaded
                 ) {
                     withFrameNanos { }
                     val lastItemIndex =
