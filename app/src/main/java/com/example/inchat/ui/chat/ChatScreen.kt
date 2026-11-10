@@ -574,6 +574,9 @@ fun ChatScreen(
                 messagingBlocked =
                     messagingBlocked,
 
+                chatReady =
+                    chatReady,
+
                 onClearReply =
                     ::clearReplyMode,
 
