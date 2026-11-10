@@ -406,7 +406,8 @@ fun SwipeableMessageBubble(
                     }
                 }
 
-           message.reactions.isNotEmpty()
+                if (
+                    message.reactions.isNotEmpty()
                 ) {
                     ReactionSummary(
                         reactions =
@@ -469,9 +470,12 @@ fun SwipeableMessageBubble(
                             message.timestamp
                         ),
                     style =
-                        MaterialTheme
-                            .typography
-                            .labelMedium,
+                        MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            lineHeight = 12.sp,
+                            letterSpacing = 0.35.sp
+                        ),
                     fontWeight =
                         FontWeight.Medium,
                     textAlign =
@@ -479,9 +483,7 @@ fun SwipeableMessageBubble(
                     maxLines =
                         1,
                     color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurfaceVariant
+                        chatTheme.secondaryTextColor
                 )
             }
         }
