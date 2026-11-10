@@ -78,10 +78,13 @@ fun ChatScreen(
                 )
         }
 
-    val chatReady by
+    val readyChatId by
     chatViewModel
-        .chatReady
+        .readyChatId
         .collectAsState()
+
+    // Do not reuse the previous conversation's ready state during navigation.
+    val chatReady = readyChatId == chatId
 
     /*
      * The first-time chat record must exist before subscribing to
