@@ -411,9 +411,9 @@ class UserRepository {
                     ) {
                         Log.e(
                             "UserRepository",
-                            "Users listener cancelled: ${error.message}"
+                            "Preference listener cancelled for $uid: ${error.message}"
                         )
-                        trySend(emptyList())
+                        trySend(true)
                         close()
                     }
                 }
@@ -586,10 +586,12 @@ class UserRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            "UserRepository",
+                            "Preference listener cancelled for $uid: ${error.message}"
                         )
+                        trySend(true)
+                        close()
                     }
                 }
 
@@ -759,10 +761,12 @@ class UserRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            "UserRepository",
+                            "Preference listener cancelled for $uid: ${error.message}"
                         )
+                        trySend(true)
+                        close()
                     }
                 }
 
@@ -2402,10 +2406,12 @@ class UserRepository {
                         error:
                         DatabaseError
                     ) {
-
-                        close(
-                            error.toException()
+                        Log.e(
+                            "UserRepository",
+                            "Users listener cancelled: ${error.message}"
                         )
+                        trySend(emptyList())
+                        close()
                     }
                 }
 
