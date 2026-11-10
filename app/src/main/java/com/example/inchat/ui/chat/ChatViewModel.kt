@@ -1357,9 +1357,8 @@ class ChatViewModel : ViewModel() {
 
                         if (currentChatId == editChatId) {
                             onResult(
-                            false,
-                            error.message
-                                ?: "Could not edit message"
+                                false,
+                                error.message ?: "Could not edit message"
                             )
                         }
                     }
