@@ -84,7 +84,7 @@ fun ChatInfoScreen(
     val selectedTheme =
         ChatTheme.fromId(
             id = selectedThemeId,
-            defaultTheme = ChatTheme.CYBERPUNK_NEON
+            defaultTheme = ChatTheme.BITCHAT_GREEN
         )
 
     var otherUserProfilePhoto by
