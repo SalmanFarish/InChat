@@ -1,5 +1,7 @@
 package com.example.inchat.data.repository
 
+import android.util.Log
+
 import com.google.firebase.auth.FirebaseAuth
 import com.example.inchat.data.model.BlockedUser
 import com.google.firebase.database.DataSnapshot
@@ -87,9 +89,12 @@ class ModerationRepository {
                 override fun onCancelled(
                     error: DatabaseError
                 ) {
-                    close(
-                        error.toException()
+                    Log.e(
+                        "ModerationRepository",
+                        "Blocked users listener cancelled: ${error.message}"
                     )
+                    trySend(emptyList())
+                    close()
                 }
             }
 
