@@ -84,9 +84,9 @@ enum class ChatTheme(
             background = Color(0xFF000000),
             incomingBubble = Color(0xFF030A04),
             outgoingBubble = Color(0xFF041108),
-            incomingText = Color(0xFFA5ECAF),
-            outgoingText = Color(0xFFC9FFD0),
-            secondaryText = Color(0xFF79A982),
+            incomingText = Color(0xFF83F28F),
+            outgoingText = Color(0xFFA6FFB2),
+            secondaryText = Color(0xFF70A77B),
             incomingBorder = Color.Transparent,
             outgoingBorder = Color.Transparent,
             statusAccent = Color(0xFF49FF66)
