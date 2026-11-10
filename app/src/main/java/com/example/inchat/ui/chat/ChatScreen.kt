@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -110,7 +111,12 @@ fun ChatScreen(
     )
 
     val chatTheme =
-        ChatTheme.fromId(chatThemeId)
+        ChatTheme.fromId(
+            id = chatThemeId,
+            defaultTheme = ChatTheme.defaultForSystemTheme(
+                darkTheme = isSystemInDarkTheme()
+            )
+        )
 
     LaunchedEffect(
         otherUserId
