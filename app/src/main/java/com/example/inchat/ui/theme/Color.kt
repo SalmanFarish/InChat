@@ -30,6 +30,23 @@ val White =
     Color(0xFFFFFFFF)
 
 /*
+ * ============================================================
+ * CYBERPUNK NEON PALETTE
+ * ============================================================
+ */
+val AppBackground = Color(0xFF080B19)
+val AppSurface = Color(0xFF0E1224)
+val AppSurfaceVariant = Color(0xFF151A30)
+val AppOutline = Color(0xFF18506A)
+val AppOutlineVariant = Color(0xFF1A2B46)
+
+val NeonCyan = Color(0xFF00E5FF)
+val ElectricBlue = Color(0xFF2196F3)
+val NeonMagenta = Color(0xFFFF00D4)
+val NeonError = Color(0xFFFF5C8A)
+val SoftLavender = Color(0xFFB8BED3)
+
+/*
  * Primary text / icons.
  */
 val TextPrimary =
