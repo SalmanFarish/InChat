@@ -735,7 +735,8 @@ class ChatRepository {
         receiverId: String,
         receiverNickname: String,
         replyTo: ReplyTo? = null,
-        attachment: com.example.inchat.data.model.Attachment? = null
+        attachment: com.example.inchat.data.model.Attachment? = null,
+        onQueued: () -> Unit = {}
     ): Result<String> {
 
         return try {
@@ -802,12 +803,16 @@ class ChatRepository {
              * a denial on either user's userChats node would reject the actual
              * message as well.
              */
-            database.getReference("chats")
+            val messageWrite = database.getReference("chats")
                 .child(chatId)
                 .child("messages")
                 .child(messageId)
                 .setValue(messageData)
-                .await()
+
+            // Realtime Database publishes the write to local listeners
+            // immediately. The composer can clear before server acknowledgement.
+            onQueued()
+            messageWrite.await()
 
             val senderConversation = mapOf(
                 "chatId" to chatId,
@@ -829,25 +834,23 @@ class ChatRepository {
                 "unreadCount" to ServerValue.increment(1)
             )
 
-            try {
-                database.getReference("userChats")
-                    .child(senderId)
-                    .child(chatId)
-                    .setValue(senderConversation)
-                    .await()
-            } catch (metadataError: Exception) {
-                Log.w(TAG, "Message sent, but sender conversation preview was not updated", metadataError)
-            }
+            // Conversation previews are secondary metadata. Queue them
+            // without making the composer wait for two more server round trips.
+            database.getReference("userChats")
+                .child(senderId)
+                .child(chatId)
+                .setValue(senderConversation)
+                .addOnFailureListener { metadataError ->
+                    Log.w(TAG, "Message sent, but sender conversation preview was not updated", metadataError)
+                }
 
-            try {
-                database.getReference("userChats")
-                    .child(receiverId)
-                    .child(chatId)
-                    .setValue(receiverConversation)
-                    .await()
-            } catch (metadataError: Exception) {
-                Log.w(TAG, "Message sent, but receiver conversation preview was not updated", metadataError)
-            }
+            database.getReference("userChats")
+                .child(receiverId)
+                .child(chatId)
+                .setValue(receiverConversation)
+                .addOnFailureListener { metadataError ->
+                    Log.w(TAG, "Message sent, but receiver conversation preview was not updated", metadataError)
+                }
 
             Result.success(messageId)
         } catch (e: Exception) {
