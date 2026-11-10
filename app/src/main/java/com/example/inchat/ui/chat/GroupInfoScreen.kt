@@ -464,7 +464,7 @@ fun GroupInfoScreen(
             selectedTheme =
                 ChatTheme.fromId(
                     id = selectedThemeId,
-                    defaultTheme = ChatTheme.CYBERPUNK_NEON
+                    defaultTheme = ChatTheme.BITCHAT_GREEN
                 ),
             onGroupThemeClick = onGroupThemeClick,
             onGroupPhotoClick = onGroupPhotoClick,
