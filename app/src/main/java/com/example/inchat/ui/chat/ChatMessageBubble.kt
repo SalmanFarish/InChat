@@ -1,7 +1,7 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.zIndex
 import com.example.inchat.data.model.Message
@@ -99,11 +100,14 @@ fun SwipeableMessageBubble(
             76.dp.toPx()
         }
 
-    val replySwipeOffset = remember(message.id) {
-        Animatable(0f)
+    var replySwipeOffsetPx by remember(message.id) {
+        mutableFloatStateOf(0f)
     }
     var replyArmed by remember(message.id) {
         mutableStateOf(false)
+    }
+    var replyResetJob by remember(message.id) {
+        mutableStateOf<Job?>(null)
     }
     val replyHaptics = LocalHapticFeedback.current
     val replyResetScope = rememberCoroutineScope()
@@ -130,9 +134,8 @@ fun SwipeableMessageBubble(
                         onDragStart = {
                             replyTriggered = false
                             replyArmed = false
-                            replyResetScope.launch {
-                                replySwipeOffset.snapTo(0f)
-                            }
+                            replyResetJob?.cancel()
+                            replySwipeOffsetPx = 0f
                         },
                         onHorizontalDrag = { change, dragAmount ->
                             val movingTowardCenter =
@@ -144,11 +147,11 @@ fun SwipeableMessageBubble(
                                 // Slight resistance makes the gesture deliberate
                                 // and keeps the icon reveal smooth on fast swipes.
                                 val nextOffset = (
-                                    replySwipeOffset.value +
+                                    replySwipeOffsetPx +
                                         kotlin.math.abs(dragAmount) * 0.92f
                                     ).coerceIn(0f, replyTravelDistancePx)
 
-                                replySwipeOffset.snapTo(nextOffset)
+                                replySwipeOffsetPx = nextOffset
 
                                 val reachedReplyThreshold =
                                     nextOffset >= replyTriggerDistancePx
@@ -172,14 +175,18 @@ fun SwipeableMessageBubble(
                                 onReply()
                             }
 
-                            replyResetScope.launch {
-                                replySwipeOffset.animateTo(
+                            val releaseOffset = replySwipeOffsetPx
+                            replyResetJob = replyResetScope.launch {
+                                animate(
+                                    initialValue = releaseOffset,
                                     targetValue = 0f,
                                     animationSpec = spring(
                                         dampingRatio = Spring.DampingRatioNoBouncy,
                                         stiffness = Spring.StiffnessMediumLow
                                     )
-                                )
+                                ) { value, _ ->
+                                    replySwipeOffsetPx = value
+                                }
                             }
                         },
                         onDragCancel = {
@@ -225,9 +232,9 @@ fun SwipeableMessageBubble(
                     .graphicsLayer {
                         translationX =
                             if (isMe) {
-                                -replySwipeOffset.value
+                                -replySwipeOffsetPx
                             } else {
-                                replySwipeOffset.value
+                                replySwipeOffsetPx
                             }
                     }
                     .zIndex(
@@ -525,7 +532,7 @@ fun SwipeableMessageBubble(
                     .graphicsLayer {
                         val progress =
                             (
-                                replySwipeOffset.value /
+                                replySwipeOffsetPx /
                                         replyTravelDistancePx
                                 )
                                 .coerceIn(
