@@ -209,9 +209,6 @@ class ChatRepository {
                         200
                     )
 
-            messagesRef.keepSynced(
-                true
-            )
 
             /*
              * Reuse the last known in-memory snapshot immediately.
@@ -329,9 +326,6 @@ class ChatRepository {
                         50
                     )
 
-            conversationsRef.keepSynced(
-                true
-            )
 
             /*
              * Reuse the last known in-memory snapshot immediately.
@@ -470,7 +464,6 @@ class ChatRepository {
             .child(chatId)
             .child("deliveredBy")
             .child(otherUserId)
-        deliveredRef.keepSynced(true)
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 trySend(snapshot.getValue(Long::class.java) ?: 0L)
@@ -528,9 +521,6 @@ class ChatRepository {
                         otherUserId
                     )
 
-            readRef.keepSynced(
-                true
-            )
 
             val listener =
                 object :
