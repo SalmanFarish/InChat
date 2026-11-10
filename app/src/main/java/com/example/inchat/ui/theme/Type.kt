@@ -46,7 +46,7 @@ val Typography =
         displayMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -64,7 +64,7 @@ val Typography =
         displaySmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -87,7 +87,7 @@ val Typography =
         headlineLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -105,7 +105,7 @@ val Typography =
         headlineMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -123,7 +123,7 @@ val Typography =
         headlineSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -146,7 +146,7 @@ val Typography =
         titleLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -164,7 +164,7 @@ val Typography =
         titleMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -182,7 +182,7 @@ val Typography =
         titleSmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -205,7 +205,7 @@ val Typography =
         bodyLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -223,7 +223,7 @@ val Typography =
         bodyMedium =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -241,7 +241,7 @@ val Typography =
         bodySmall =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -264,7 +264,7 @@ val Typography =
         labelLarge =
             TextStyle(
                 fontFamily =
-                    FontFamily.SansSerif,
+                    FontFamily.Monospace,
 
                 fontWeight =
                     FontWeight.SemiBold,
