@@ -65,6 +65,12 @@ class ChatViewModel : ViewModel() {
     val chatReady: StateFlow<Boolean> =
         _chatReady.asStateFlow()
 
+    // A ready flag must be tied to the conversation that was initialized.
+    private val _readyChatId = MutableStateFlow("")
+
+    val readyChatId: StateFlow<String> =
+        _readyChatId.asStateFlow()
+
     private val _otherUserDeliveredTimestamp =
         MutableStateFlow(0L)
 
@@ -339,6 +345,7 @@ class ChatViewModel : ViewModel() {
         initializedChatId = ""
         initializingChatId = chatId
         _chatReady.value = false
+        _readyChatId.value = ""
 
         lastMarkedReadTimestamp = 0L
         _messages.value = emptyList()
@@ -436,6 +443,7 @@ class ChatViewModel : ViewModel() {
                         otherUserId = otherUserId
                     )
 
+                    _readyChatId.value = chatId
                     _chatReady.value = true
 
                     Log.d(
@@ -463,6 +471,9 @@ class ChatViewModel : ViewModel() {
                         initializedChatId = ""
                     }
 
+                    if (_readyChatId.value == chatId) {
+                        _readyChatId.value = ""
+                    }
                     _chatReady.value = false
                     _messagesLoaded.value = true
                 } finally {
