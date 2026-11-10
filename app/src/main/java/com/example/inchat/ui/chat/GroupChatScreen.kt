@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,7 +71,12 @@ fun GroupChatScreen(
             .collectAsState(initial = null)
 
     val chatTheme =
-        ChatTheme.fromId(selectedThemeId)
+        ChatTheme.fromId(
+            id = selectedThemeId,
+            defaultTheme = ChatTheme.defaultForSystemTheme(
+                darkTheme = isSystemInDarkTheme()
+            )
+        )
 
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
