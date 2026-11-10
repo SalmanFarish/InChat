@@ -229,6 +229,10 @@ fun ChatScreen(
         mutableStateOf("")
     }
 
+    var draftBeforeEdit by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var messageToDelete by
     remember {
         mutableStateOf<Message?>(
@@ -277,15 +281,10 @@ fun ChatScreen(
     }
 
     fun clearEditMode() {
-
-        chatViewModel
-            .clearEditingMessage()
-
-        messageText =
-            ""
-
-        keyboardController
-            ?.hide()
+        chatViewModel.clearEditingMessage()
+        messageText = draftBeforeEdit.orEmpty()
+        draftBeforeEdit = null
+        keyboardController?.hide()
     }
 
     /*
@@ -337,11 +336,9 @@ fun ChatScreen(
                 messageForActions =
                     null
 
-                chatViewModel
-                    .clearEditingMessage()
-
-                messageText =
-                    ""
+                chatViewModel.clearEditingMessage()
+                draftBeforeEdit = null
+                messageText = ""
 
                 chatViewModel
                     .setReplyingTo(
@@ -359,19 +356,15 @@ fun ChatScreen(
             },
 
             onEdit = {
+                messageForActions = null
 
-                messageForActions =
-                    null
+                draftBeforeEdit = messageText
+                messageText = message.text
 
-                chatViewModel
-                    .setEditingMessage(
-
-                        message =
-                            message,
-
-                        currentUserId =
-                            currentUserId
-                    )
+                chatViewModel.setEditingMessage(
+                    message = message,
+                    currentUserId = currentUserId
+                )
             },
 
             onDelete = {
