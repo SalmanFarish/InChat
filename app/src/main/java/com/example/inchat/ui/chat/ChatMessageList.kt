@@ -69,6 +69,10 @@ fun ChatMessageList(
 
     val density = LocalDensity.current
 
+    // Read IME insets during composition; coroutine effects use this snapshot.
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val imeVisible = imeBottom > 0
+
     var chatSwipeOffsetPx by
     remember {
         mutableFloatStateOf(0f)
@@ -281,10 +285,7 @@ fun ChatMessageList(
             isNearBottom ||
             newOwnMessage
         ) {
-            val imeIsVisible =
-                WindowInsets.ime.getBottom(density) > 0
-
-            if (newOwnMessage || imeIsVisible) {
+            if (newOwnMessage || imeVisible) {
                 // Avoid competing animations while the keyboard is moving
                 // or when the user sends a message and the IME is dismissed.
                 listState.scrollToItem(targetIndex)
@@ -305,19 +306,16 @@ fun ChatMessageList(
      * keyboard is hidden. The viewport gets shorter as the IME rises;
      * keep the newest message anchored without animating the list itself.
      */
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            val imeBottom = WindowInsets.ime.getBottom(density)
-            val layoutInfo = listState.layoutInfo
-            val lastVisibleIndex =
-                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+    LaunchedEffect(listState, imeVisible) {
+        if (!imeVisible) {
+            snapshotFlow {
+                val layoutInfo = listState.layoutInfo
+                val lastVisibleIndex =
+                    layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
 
-            imeBottom to (
                 layoutInfo.totalItemsCount > 0 &&
                         lastVisibleIndex >= layoutInfo.totalItemsCount - 2
-                )
-        }.collect { (imeBottom, isNearBottom) ->
-            if (imeBottom == 0) {
+            }.collect { isNearBottom ->
                 keepBottomDuringIme = isNearBottom
             }
         }
@@ -328,18 +326,13 @@ fun ChatMessageList(
      * immediate bottom correction only when the chat was already at the
      * bottom. This avoids the old animateScrollToItem jump on keyboard open.
      */
-    LaunchedEffect(listState, messagesLoaded) {
-        snapshotFlow {
-            WindowInsets.ime.getBottom(density) to
-                    listState.layoutInfo.viewportSize.height
-        }
-            .distinctUntilChanged()
-            .collect { (imeBottom, _) ->
-                if (
-                    imeBottom > 0 &&
-                    keepBottomDuringIme &&
-                    messagesLoaded
-                ) {
+    LaunchedEffect(listState, messagesLoaded, imeVisible) {
+        if (imeVisible && keepBottomDuringIme && messagesLoaded) {
+            snapshotFlow {
+                listState.layoutInfo.viewportSize.height
+            }
+                .distinctUntilChanged()
+                .collect {
                     // Wait for the resized viewport to be measured, then
                     // restore the bottom anchor without an animated scroll.
                     withFrameNanos { }
@@ -350,7 +343,7 @@ fun ChatMessageList(
                         listState.scrollToItem(lastItemIndex)
                     }
                 }
-            }
+        }
     }
 
     /*
@@ -358,13 +351,12 @@ fun ChatMessageList(
      * stop forcing the list to the newest message during the remaining
      * keyboard animation or when it is dismissed.
      */
-    LaunchedEffect(listState) {
-        listState.interactionSource.interactions.collect { interaction ->
-            if (
-                interaction is DragInteraction.Start &&
-                WindowInsets.ime.getBottom(density) > 0
-            ) {
-                keepBottomDuringIme = false
+    LaunchedEffect(listState, imeVisible) {
+        if (imeVisible) {
+            listState.interactionSource.interactions.collect { interaction ->
+                if (interaction is DragInteraction.Start) {
+                    keepBottomDuringIme = false
+                }
             }
         }
     }
