@@ -73,7 +73,7 @@ fun GroupChatScreen(
     val chatTheme =
         ChatTheme.fromId(
             id = selectedThemeId,
-            defaultTheme = ChatTheme.CYBERPUNK_NEON
+            defaultTheme = ChatTheme.BITCHAT_GREEN
         )
 
     val group by groupViewModel.group.collectAsState()
