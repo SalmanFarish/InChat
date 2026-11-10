@@ -73,9 +73,7 @@ fun SwipeableMessageBubble(
     onReactionClick: (String) -> Unit,
     chatSwipeOffsetPx: Float = 0f,
     isFirstInGroup: Boolean = true,
-    isLastInGroup: Boolean = true,
-    showTimestamp: Boolean = false,
-    onTimestampToggle: () -> Unit = {}
+    isLastInGroup: Boolean = true
 ) {
     val density =
         LocalDensity.current
@@ -270,7 +268,7 @@ fun SwipeableMessageBubble(
                                     null,
                                 indication =
                                     null,
-                                onClick = onTimestampToggle,
+                                onClick = {},
                                 onDoubleClick = {
                                     onReactionClick(
                                         "❤️"
@@ -372,17 +370,15 @@ fun SwipeableMessageBubble(
                             Spacer(Modifier.width(6.dp))
                         }
 
-                        if (showTimestamp) {
-                            Text(
-                                text = formatMessageTime(message.timestamp),
-                                style = metadataStyle,
-                                fontWeight = FontWeight.Medium,
-                                color = chatTheme.secondaryTextColor.copy(
-                                    alpha = if (isMe) 0.92f else 0.78f
-                                ),
-                                maxLines = 1
-                            )
-                        }
+                        Text(
+                            text = formatMessageTime(message.timestamp),
+                            style = metadataStyle,
+                            fontWeight = FontWeight.Medium,
+                            color = chatTheme.secondaryTextColor.copy(
+                                alpha = if (isMe) 0.92f else 0.78f
+                            ),
+                            maxLines = 1
+                        )
 
                         if (
                             isMe &&
