@@ -71,7 +71,9 @@ fun SwipeableMessageBubble(
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
     onReactionClick: (String) -> Unit,
-    chatSwipeOffsetPx: Float = 0f
+    chatSwipeOffsetPx: Float = 0f,
+    isFirstInGroup: Boolean = true,
+    isLastInGroup: Boolean = true
 ) {
     val density =
         LocalDensity.current
@@ -134,6 +136,7 @@ fun SwipeableMessageBubble(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .padding(top = if (isFirstInGroup) 3.dp else 0.dp)
                 .animateContentSize()
                 /*
                  * This detector owns only the message's
@@ -207,16 +210,9 @@ fun SwipeableMessageBubble(
          * while still allowing large bubbles on normal screens.
          */
         val maxBubbleWidth =
-            (
-                maxWidth -
-                        76.dp
-                )
-                .coerceAtLeast(
-                    68.dp
-                )
-                .coerceAtMost(
-                    310.dp
-                )
+            (maxWidth * 0.84f)
+                .coerceAtLeast(68.dp)
+                .coerceAtMost(340.dp)
 
         /*
          * The timestamp is revealed immediately beside the
@@ -258,10 +254,10 @@ fun SwipeableMessageBubble(
             ) {
                 val bubbleShape =
                     RoundedCornerShape(
-                        topStart = 7.dp,
-                        topEnd = 7.dp,
-                        bottomStart = if (isMe) 7.dp else 3.dp,
-                        bottomEnd = if (isMe) 3.dp else 7.dp
+                        topStart = if (!isMe && !isFirstInGroup) 6.dp else 18.dp,
+                        topEnd = if (isMe && !isFirstInGroup) 6.dp else 18.dp,
+                        bottomStart = if (!isMe && isLastInGroup) 5.dp else 18.dp,
+                        bottomEnd = if (isMe && isLastInGroup) 5.dp else 18.dp
                     )
 
                 Column(
@@ -299,10 +295,8 @@ fun SwipeableMessageBubble(
                                 shape = bubbleShape
                             )
                             .padding(
-                                horizontal =
-                                    14.dp,
-                                vertical =
-                                    10.dp
+                                horizontal = 16.dp,
+                                vertical = 11.dp
                             )
                 ) {
                     message.replyTo?.let { reply ->
@@ -336,8 +330,10 @@ fun SwipeableMessageBubble(
                                 .typography
                                 .bodyLarge
                                 .copy(
-                                    lineHeight =
-                                        22.sp
+                                    fontFamily = JetBrainsMono,
+                                    fontSize = 14.sp,
+                                    lineHeight = 21.sp,
+                                    letterSpacing = (-0.2).sp
                                 ),
                         color =
                             if (isMe) {
