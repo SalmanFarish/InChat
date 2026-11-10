@@ -74,8 +74,12 @@ class GroupChatViewModel : ViewModel() {
         _groupReadTimestamps.value = emptyMap()
 
         _group.value = null
-        _messages.value = emptyList()
-        _messagesLoaded.value = false
+
+        // Reuse the last known message snapshot immediately while the
+        // realtime group/message listeners reconnect.
+        val cachedMessages = chatRepository.getCachedMessages(groupId)
+        _messages.value = cachedMessages ?: emptyList()
+        _messagesLoaded.value = cachedMessages != null
 
         groupJob = viewModelScope.launch {
             try {
