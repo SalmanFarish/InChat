@@ -35,8 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,6 +87,12 @@ fun ChatComposer(
     var sendingMessage by remember {
         mutableStateOf(false)
     }
+
+    var sendAttemptSequence by remember {
+        mutableIntStateOf(0)
+    }
+    val latestSendAttemptSequence by rememberUpdatedState(sendAttemptSequence)
+    val latestComposerText by rememberUpdatedState(messageText)
 
     /*
      * =========================================================
@@ -564,6 +572,8 @@ fun ChatComposer(
                          * =================================================
                          */
                         sendingMessage = true
+                        sendAttemptSequence += 1
+                        val thisSendAttempt = sendAttemptSequence
 
                         chatViewModel
                             .sendMessage(
@@ -595,8 +605,14 @@ fun ChatComposer(
                                     sendingMessage = false
 
                                     if (!success) {
-                                        // Restore the draft if Firebase rejects it.
-                                        onMessageTextChange(text)
+                                        // Restore only this latest draft, and never
+                                        // overwrite text typed or sent afterward.
+                                        if (
+                                            thisSendAttempt == latestSendAttemptSequence &&
+                                            latestComposerText.isBlank()
+                                        ) {
+                                            onMessageTextChange(text)
+                                        }
                                         onActionMessage(
                                             error ?: "Message could not be sent. Your text has been restored."
                                         )
