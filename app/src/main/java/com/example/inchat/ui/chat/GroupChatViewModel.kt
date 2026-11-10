@@ -344,24 +344,33 @@ class GroupChatViewModel : ViewModel() {
             return
         }
 
+        val editGroupId = listeningGroupId
+        val editingMessageId = messageId
+
         viewModelScope.launch {
             chatRepository
                 .editMessage(
-                    chatId = listeningGroupId,
+                    chatId = editGroupId,
                     messageId = messageId,
                     userId = currentUserId,
                     newText = cleanText
                 )
                 .onSuccess {
-                    _editingMessage.value = null
-                    onResult(true, null)
+                    if (
+                        listeningGroupId == editGroupId &&
+                        _editingMessage.value?.id == editingMessageId
+                    ) {
+                        _editingMessage.value = null
+                        onResult(true, null)
+                    }
                 }
                 .onFailure { error ->
-                    onResult(
-                        false,
-                        error.message
-                            ?: "Could not edit message."
-                    )
+                    if (listeningGroupId == editGroupId) {
+                        onResult(
+                            false,
+                            error.message ?: "Could not edit message."
+                        )
+                    }
                 }
         }
     }
