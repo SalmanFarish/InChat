@@ -1,6 +1,7 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +23,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun ChatMessageList(
@@ -83,6 +86,15 @@ fun ChatMessageList(
     var previousLastMessageId by
     remember {
         mutableStateOf<String?>(null)
+    }
+
+    /*
+     * Preserve the bottom anchor while the IME animates, but only if
+     * the user was already reading the latest messages. A manual drag
+     * while the keyboard is open releases this anchor.
+     */
+    var keepBottomDuringIme by remember {
+        mutableStateOf(false)
     }
 
     /*
@@ -263,10 +275,16 @@ fun ChatMessageList(
             isNearBottom ||
             newOwnMessage
         ) {
+            val imeIsVisible =
+                WindowInsets.ime.getBottom(density) > 0
 
-            listState.animateScrollToItem(
-                targetIndex
-            )
+            if (newOwnMessage || imeIsVisible) {
+                // Avoid competing animations while the keyboard is moving
+                // or when the user sends a message and the IME is dismissed.
+                listState.scrollToItem(targetIndex)
+            } else {
+                listState.animateScrollToItem(targetIndex)
+            }
         }
 
         previousMessageCount =
@@ -277,25 +295,68 @@ fun ChatMessageList(
     }
 
     /*
-     * Read the IME inset during composition. Compose updates this value
-     * as the keyboard animates, so the effect is restarted when visibility
-     * changes. The scroll itself runs after the resized list has a frame
-     * to lay out, keeping the newest message above the keyboard.
+     * Remember whether the user was already at the bottom while the
+     * keyboard is hidden. The viewport gets shorter as the IME rises;
+     * keep the newest message anchored without animating the list itself.
      */
-    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val imeBottom = WindowInsets.ime.getBottom(density)
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex =
+                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
 
-    LaunchedEffect(
-        listState,
-        isImeVisible,
-        messagesLoaded,
-        messages.size
-    ) {
-        if (isImeVisible && messagesLoaded && messages.isNotEmpty()) {
-            withFrameNanos { }
-            val lastItemIndex = listState.layoutInfo.totalItemsCount - 1
+            imeBottom to (
+                layoutInfo.totalItemsCount > 0 &&
+                        lastVisibleIndex >= layoutInfo.totalItemsCount - 2
+                )
+        }.collect { (imeBottom, isNearBottom) ->
+            if (imeBottom == 0) {
+                keepBottomDuringIme = isNearBottom
+            }
+        }
+    }
 
-            if (lastItemIndex >= 0) {
-                listState.animateScrollToItem(lastItemIndex)
+    /*
+     * IME insets animate frame by frame. Follow that resize with an
+     * immediate bottom correction only when the chat was already at the
+     * bottom. This avoids the old animateScrollToItem jump on keyboard open.
+     */
+    LaunchedEffect(listState, messagesLoaded) {
+        snapshotFlow {
+            WindowInsets.ime.getBottom(density)
+        }
+            .distinctUntilChanged()
+            .collect { imeBottom ->
+                if (
+                    imeBottom > 0 &&
+                    keepBottomDuringIme &&
+                    messagesLoaded &&
+                    messages.isNotEmpty()
+                ) {
+                    withFrameNanos { }
+                    val lastItemIndex =
+                        listState.layoutInfo.totalItemsCount - 1
+
+                    if (lastItemIndex >= 0) {
+                        listState.scrollToItem(lastItemIndex)
+                    }
+                }
+            }
+    }
+
+    /*
+     * If the user deliberately scrolls up while the keyboard is open,
+     * stop forcing the list to the newest message during the remaining
+     * keyboard animation or when it is dismissed.
+     */
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (
+                interaction is DragInteraction.Start &&
+                WindowInsets.ime.getBottom(density) > 0
+            ) {
+                keepBottomDuringIme = false
             }
         }
     }
