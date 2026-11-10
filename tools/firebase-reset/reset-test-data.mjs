@@ -165,6 +165,7 @@ async function main() {
     console.log(
       "To perform the reset, run again with --execute " + confirmationFlag,
     );
+    await app.delete();
     return;
   }
 
@@ -230,9 +231,17 @@ async function main() {
   console.log(
     "Note: deleteUsers() is a bulk Auth operation and does not fire individual Auth onDelete Cloud Function handlers.",
   );
+  await app.delete();
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("\nReset stopped: " + (error?.message ?? error));
+  if (firebaseApp) {
+    try {
+      await firebaseApp.delete();
+    } catch (cleanupError) {
+      console.error("Firebase cleanup warning: " + (cleanupError?.message ?? cleanupError));
+    }
+  }
   process.exitCode = 1;
 });
