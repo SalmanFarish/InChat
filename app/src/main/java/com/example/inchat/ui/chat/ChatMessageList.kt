@@ -334,7 +334,7 @@ fun ChatMessageList(
                     listState.layoutInfo.viewportSize.height
         }
             .distinctUntilChanged()
-            .collect { (imeBottom, viewportHeight) ->
+            .collect { (imeBottom, _) ->
                 if (
                     imeBottom > 0 &&
                     keepBottomDuringIme &&
