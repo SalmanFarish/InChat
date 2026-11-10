@@ -81,6 +81,8 @@ fun GroupChatScreen(
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
     val messagesLoaded by groupViewModel.messagesLoaded.collectAsState()
+    val hasOlderMessages by groupViewModel.hasOlderMessages.collectAsState()
+    val isLoadingOlderMessages by groupViewModel.isLoadingOlderMessages.collectAsState()
     val replyingTo by groupViewModel.replyingTo.collectAsState()
     val editingMessage by groupViewModel.editingMessage.collectAsState()
     val pendingMessageIds by groupViewModel.pendingMessageIds.collectAsState()
@@ -294,6 +296,9 @@ fun GroupChatScreen(
             ChatMessageList(
                 messages = messages,
                 messagesLoaded = messagesLoaded,
+                hasOlderMessages = hasOlderMessages,
+                isLoadingOlderMessages = isLoadingOlderMessages,
+                onLoadOlderMessages = groupViewModel::loadOlderMessages,
                 currentUserId = currentUserId,
                 otherUserNickname = group?.name ?: "group",
                 blockState = BlockState.NONE,
