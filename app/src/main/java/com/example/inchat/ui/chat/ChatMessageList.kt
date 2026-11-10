@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +35,9 @@ import kotlinx.coroutines.launch
 fun ChatMessageList(
     messages: List<Message>,
     messagesLoaded: Boolean,
+    hasOlderMessages: Boolean = false,
+    isLoadingOlderMessages: Boolean = false,
+    onLoadOlderMessages: () -> Unit = {},
     currentUserId: String,
     otherUserNickname: String,
     blockState: BlockState,
@@ -99,6 +104,7 @@ fun ChatMessageList(
      */
     LaunchedEffect(
         messagesLoaded,
+        hasOlderMessages,
         messages.size,
         messages.lastOrNull()?.id
     ) {
@@ -141,7 +147,8 @@ fun ChatMessageList(
 
         val targetIndex =
             newestIndex +
-                    separatorCount
+                    separatorCount +
+                    if (hasOlderMessages) 1 else 0
 
         /*
          * =====================================================
@@ -437,6 +444,28 @@ fun ChatMessageList(
                         )
                 ) {
 
+                    if (hasOlderMessages) {
+                        item(key = "load_earlier_messages") {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                TextButton(
+                                    onClick = onLoadOlderMessages,
+                                    enabled = !isLoadingOlderMessages
+                                ) {
+                                    Text(
+                                        if (isLoadingOlderMessages) {
+                                            "Loading earlier messages…"
+                                        } else {
+                                            "Load earlier messages"
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     messages.forEachIndexed {
                             index,
                             message ->
@@ -606,7 +635,8 @@ fun ChatMessageList(
                                                 listState
                                                     .animateScrollToItem(
                                                         targetIndex +
-                                                                separatorCount
+                                                                separatorCount +
+                                                                if (hasOlderMessages) 1 else 0
                                                     )
                                             }
                                     }
