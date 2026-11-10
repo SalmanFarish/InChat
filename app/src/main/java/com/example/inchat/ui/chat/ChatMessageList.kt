@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +21,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,6 +34,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.snapshotFlow
 
 @Composable
 fun ChatMessageList(
@@ -271,6 +279,42 @@ fun ChatMessageList(
 
         previousLastMessageId =
             currentLastMessageId
+    }
+
+    /*
+     * Keep the latest values available to the IME observer without
+     * restarting that observer for every message-list update.
+     */
+    val latestMessages by rememberUpdatedState(messages)
+    val latestMessagesLoaded by rememberUpdatedState(messagesLoaded)
+
+    /*
+     * When the keyboard appears, the composer moves above it and the
+     * LazyColumn loses vertical space. Move the last message into the
+     * resized viewport so the keyboard never covers the conversation tail.
+     *
+     * Observe the IME visibility as a Boolean rather than every inset pixel:
+     * keyboard animations update the inset on many frames, and each frame
+     * should not restart a scroll animation.
+     */
+    LaunchedEffect(listState, density) {
+        snapshotFlow {
+            WindowInsets.ime.getBottom(density) > 0 &&
+                latestMessagesLoaded &&
+                latestMessages.isNotEmpty()
+        }
+            .distinctUntilChanged()
+            .collectLatest { shouldKeepLatestMessageVisible ->
+                if (shouldKeepLatestMessageVisible) {
+                    withFrameNanos { }
+                    val lastItemIndex =
+                        listState.layoutInfo.totalItemsCount - 1
+
+                    if (lastItemIndex >= 0) {
+                        listState.animateScrollToItem(lastItemIndex)
+                    }
+                }
+            }
     }
 
     ChatWallpaper(
