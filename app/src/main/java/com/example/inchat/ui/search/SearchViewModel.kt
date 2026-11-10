@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.UserRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -113,6 +114,8 @@ class SearchViewModel : ViewModel() {
                             )
                     }
 
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (
                     _: Exception
                 ) {
@@ -190,6 +193,8 @@ class SearchViewModel : ViewModel() {
                         }
                     }
 
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (
                     _: Exception
                 ) {
