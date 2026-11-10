@@ -459,7 +459,7 @@ fun PrivacySettingsScreen(
                         presence.onlineVisible,
 
                     enabled =
-                        !savingReadReceipts,
+                        !savingVisibility,
 
                     onCheckedChange = { checked ->
 
