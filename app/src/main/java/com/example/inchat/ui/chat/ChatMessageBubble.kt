@@ -329,64 +329,40 @@ fun SwipeableMessageBubble(
                             }
                     )
 
+                    val metadataStyle =
+                        MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            lineHeight = 12.sp,
+                            letterSpacing = 0.35.sp
+                        )
+
                     Row(
-                        modifier =
-                            Modifier
-                                .align(
-                                    Alignment.End
-                                )
-                                .padding(
-                                    top = 2.dp
-                                ),
-                        horizontalArrangement =
-                            Arrangement.End,
-                        verticalAlignment =
-                            Alignment.CenterVertically
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(top = 4.dp, end = 1.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (message.edited) {
                             Text(
-                                text = "edited",
-                                style =
-                                    MaterialTheme
-                                        .typography
-                                        .labelSmall
-                                        .copy(fontSize = 9.sp),
-                                color =
-                                    if (isMe) {
-                                        chatTheme.outgoingTextColor
-                                            .copy(alpha = 0.58f)
-                                    } else {
-                                        chatTheme.incomingTextColor
-                                            .copy(alpha = 0.58f)
-                                    }
+                                text = "EDITED",
+                                style = metadataStyle.copy(letterSpacing = 0.5.sp),
+                                fontWeight = FontWeight.Medium,
+                                color = chatTheme.secondaryTextColor.copy(alpha = 0.78f),
+                                maxLines = 1
                             )
 
-                            Spacer(
-                                modifier =
-                                    Modifier.width(4.dp)
-                            )
+                            Spacer(Modifier.width(6.dp))
                         }
 
                         Text(
-                            text =
-                                formatMessageTime(
-                                    message.timestamp
-                                ),
-                            style =
-                                MaterialTheme
-                                    .typography
-                                    .labelSmall
-                                    .copy(fontSize = 10.sp),
-                            fontWeight =
-                                FontWeight.Medium,
-                            color =
-                                if (isMe) {
-                                    chatTheme.outgoingTextColor
-                                        .copy(alpha = 0.62f)
-                                } else {
-                                    chatTheme.incomingTextColor
-                                        .copy(alpha = 0.58f)
-                                },
+                            text = formatMessageTime(message.timestamp),
+                            style = metadataStyle,
+                            fontWeight = FontWeight.Medium,
+                            color = chatTheme.secondaryTextColor.copy(
+                                alpha = if (isMe) 0.92f else 0.78f
+                            ),
                             maxLines = 1
                         )
 
@@ -394,29 +370,33 @@ fun SwipeableMessageBubble(
                             isMe &&
                             deliveryStatus != MessageDeliveryStatus.NONE
                         ) {
-                            val receiptText =
-                                when (deliveryStatus) {
-                                    MessageDeliveryStatus.SEEN_JUST_NOW,
-                                    MessageDeliveryStatus.SEEN -> "READ"
-                                    MessageDeliveryStatus.SENT -> "SENT"
-                                    MessageDeliveryStatus.DELIVERED -> "DELIVERED"
-                                    MessageDeliveryStatus.SENDING -> "SENDING…"
-                                    MessageDeliveryStatus.WAITING_FOR_CONNECTION -> "SAVING…"
-                                    MessageDeliveryStatus.NONE -> ""
-                                }
+                            val receiptText = when (deliveryStatus) {
+                                MessageDeliveryStatus.SEEN_JUST_NOW,
+                                MessageDeliveryStatus.SEEN -> "READ"
+                                MessageDeliveryStatus.SENT -> "SENT"
+                                MessageDeliveryStatus.DELIVERED -> "DELIVERED"
+                                MessageDeliveryStatus.SENDING -> "SENDING…"
+                                MessageDeliveryStatus.WAITING_FOR_CONNECTION -> "SAVING…"
+                                MessageDeliveryStatus.NONE -> ""
+                            }
 
                             if (receiptText.isNotBlank()) {
-                                Spacer(
-                                    modifier = Modifier.width(5.dp)
+                                Spacer(Modifier.width(7.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(4.dp)
+                                        .background(
+                                            color = chatTheme.statusAccentColor,
+                                            shape = CircleShape
+                                        )
                                 )
+
+                                Spacer(Modifier.width(4.dp))
 
                                 Text(
                                     text = receiptText,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 9.sp,
-                                        letterSpacing = 0.45.sp
-                                    ),
+                                    style = metadataStyle.copy(letterSpacing = 0.45.sp),
                                     fontWeight = FontWeight.SemiBold,
                                     color = chatTheme.statusAccentColor,
                                     maxLines = 1
@@ -426,8 +406,7 @@ fun SwipeableMessageBubble(
                     }
                 }
 
-                if (
-                    message.reactions.isNotEmpty()
+           message.reactions.isNotEmpty()
                 ) {
                     ReactionSummary(
                         reactions =
