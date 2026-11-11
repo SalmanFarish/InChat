@@ -1371,7 +1371,25 @@ function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
 
-async function upload(request, env, uid, chatId, messageId, message) {
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function upload(request, env, uid, chatId, messageId, message, adminToken) {
   const contentLength = Number(request.headers.get("Content-Length") || "0");
   const contentType =
     request.headers.get("Content-Type") || "application/octet-stream";
@@ -1412,7 +1430,13 @@ async function upload(request, env, uid, chatId, messageId, message) {
     return json({ error: "View-once attachments must be images." }, 400);
   }
 
-  if (await env.ATTACHMENTS.head(key)) {
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const existing = await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+  );
+  if (existing !== null) {
     return json({ error: "Attachment already exists." }, 409);
   }
 
@@ -1420,86 +1444,130 @@ async function upload(request, env, uid, chatId, messageId, message) {
     return json({ error: "Empty upload." }, 400);
   }
 
-  const object = await env.ATTACHMENTS.put(key, request.body, {
-    httpMetadata: {
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength !== contentLength) {
+    return json({ error: "Upload size did not match Content-Length." }, 400);
+  }
+
+  await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+    "PUT",
+    {
+      data: bytesToBase64(bytes),
       contentType,
-      contentDisposition:
-        'attachment; filename="' + fileName.replace(/"/g, "_") + '"',
-      cacheControl: "private, no-store",
-    },
-    customMetadata: {
+      fileName,
+      attachmentType,
       senderId: uid,
       chatId,
       messageId,
-      attachmentType,
-      fileName,
+      createdAt: { ".sv": "timestamp" },
     },
-  });
+  );
 
   return json({
     success: true,
     key,
-    size: object?.size || contentLength,
+    size: bytes.byteLength,
     contentType,
     fileName,
     attachmentType,
   }, 201);
 }
 
-async function download(env, chatId, messageId, uid) {
-  const object = await env.ATTACHMENTS.get(
-    attachmentKey(chatId, messageId),
-  );
+async function download(env, chatId, messageId, uid, adminToken) {
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const url =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" + attachmentPath.split("/").map(encodeURIComponent).join("/") +
+    ".json";
+  const response = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
 
-  if (!object) {
+  if (response.status === 404) {
+    return new Response("Attachment not found", { status: 404 });
+  }
+  if (!response.ok) {
+    throw new Error("Could not read attachment from Realtime Database.");
+  }
+
+  const record = await response.json();
+  if (!record || typeof record.data !== "string") {
     return new Response("Attachment not found", { status: 404 });
   }
 
-  if (object.customMetadata?.attachmentType === "view_once_photo" &&
-      object.customMetadata?.senderId === uid) {
+  if (record.attachmentType === "view_once_photo" && record.senderId === uid) {
     return new Response("Sender cannot consume a view-once photo", { status: 403 });
   }
 
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("Cache-Control", "private, no-store");
-  headers.set(
-    "X-InChat-File-Name",
-    object.customMetadata?.fileName || "attachment",
-  );
-  const attachmentType = object.customMetadata?.attachmentType || "voice";
-  headers.set("X-InChat-Attachment-Type", attachmentType);
-
-  if (attachmentType === "view_once_photo") {
-    headers.set("X-InChat-View-Once", "true");
-    await env.ATTACHMENTS.delete(attachmentKey(chatId, messageId));
+  if (record.attachmentType === "view_once_photo") {
+    const etag = response.headers.get("ETag");
+    if (!etag) throw new Error("Firebase did not return an attachment ETag.");
+    const consumeResponse = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "If-Match": etag,
+      },
+    });
+    if (consumeResponse.status === 412) {
+      return new Response("This view-once photo has already been opened.", {
+        status: 410,
+      });
+    }
+    if (!consumeResponse.ok) {
+      throw new Error("Could not consume the view-once attachment.");
+    }
   }
 
-  return new Response(object.body, { status: 200, headers });
+  const headers = new Headers();
+  headers.set("Content-Type", record.contentType || "application/octet-stream");
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("Content-Disposition", 'attachment; filename="' +
+    cleanFileName(record.fileName) + '"');
+  headers.set("X-InChat-File-Name", record.fileName || "attachment");
+  headers.set("X-InChat-Attachment-Type", record.attachmentType || "voice");
+
+  if (record.attachmentType === "view_once_photo") {
+    headers.set("X-InChat-View-Once", "true");
+  }
+
+  return new Response(base64ToBytes(record.data), { status: 200, headers });
 }
 
-async function remove(env, chatId, messageId, uid) {
-  const key = attachmentKey(chatId, messageId);
-  const object = await env.ATTACHMENTS.head(key);
+async function remove(env, chatId, messageId, uid, adminToken) {
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const record = await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+  );
 
-  if (!object) {
+  if (!record) {
     return json({ success: true, deleted: false });
   }
 
-  // A chat member must not be able to delete another member's attachment.
-  // This check still works after the sender deletes the Firebase message.
-  const metadata = object.customMetadata || {};
   if (
-    metadata.senderId !== uid ||
-    metadata.chatId !== chatId ||
-    metadata.messageId !== messageId
+    record.senderId !== uid ||
+    record.chatId !== chatId ||
+    record.messageId !== messageId
   ) {
     return new Response("Only the attachment sender can delete this file.", {
       status: 403,
     });
   }
 
-  await env.ATTACHMENTS.delete(key);
+  await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+    "DELETE",
+  );
   return json({ success: true, deleted: true });
 }
 export default {
@@ -1606,7 +1674,16 @@ export default {
           user.token,
           env,
         );
-        return upload(request, env, user.uid, chatId, messageId, message);
+        const adminAuth = await getFirebaseAdminToken(env);
+        return upload(
+          request,
+          env,
+          user.uid,
+          chatId,
+          messageId,
+          message,
+          adminAuth.token,
+        );
       }
 
       if (request.method === "GET") {
@@ -1626,11 +1703,13 @@ export default {
           });
         }
 
-        return download(env, chatId, messageId, user.uid);
+        const adminAuth = await getFirebaseAdminToken(env);
+        return download(env, chatId, messageId, user.uid, adminAuth.token);
       }
 
       if (request.method === "DELETE") {
-        return remove(env, chatId, messageId, user.uid);
+        const adminAuth = await getFirebaseAdminToken(env);
+        return remove(env, chatId, messageId, user.uid, adminAuth.token);
       }
 
       return json({ error: "Method not allowed" }, 405);
