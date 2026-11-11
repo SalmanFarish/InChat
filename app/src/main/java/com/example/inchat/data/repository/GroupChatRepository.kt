@@ -123,12 +123,13 @@ class GroupChatRepository {
                 .await()
 
             try {
+                val creatorName = usernameFor(currentUserId)
                 database.reference.updateChildren(
                     systemEventUpdates(
                         groupId = groupId,
                         actorId = currentUserId,
                         eventType = "group_created",
-                        eventText = "@${usernameFor(currentUserId)} created the group"
+                        eventText = "@$creatorName created the group"
                     )
                 ).await()
             } catch (eventError: Exception) {
@@ -809,8 +810,8 @@ class GroupChatRepository {
      * ADD GROUP MEMBERS
      * =========================================================
      *
-     * Membership and the Spark-only Home discovery index are
-     * updated atomically.
+     * Membership and the Home index are updated in separate
+     * validated writes, with rollback if the index update fails.
      */
     suspend fun addMembers(
         currentUserId: String,
