@@ -609,20 +609,16 @@ private fun GroupInfoContent(
         }
 
         if (group.createdBy != currentUserId) {
-            GroupInfoActionRow(
-                title = "Leave group",
-                subtitle =
-                    if (group.createdBy == currentUserId) {
-                        "The creator cannot leave this group"
-                    } else {
-                        "Remove yourself from this group"
-                    },
-                icon = Icons.Default.ExitToApp,
-                onClick = onLeaveGroupClick
-            )
+            item {
+                GroupInfoActionRow(
+                    title = "Leave group",
+                    subtitle = "Remove yourself from this group",
+                    icon = Icons.Default.ExitToApp,
+                    onClick = onLeaveGroupClick
+                )
+            }
         }
 
-        }
         item {
             GroupInfoSectionLabel(
                 text =
