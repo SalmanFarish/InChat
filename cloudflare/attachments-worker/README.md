@@ -7,7 +7,7 @@ This Worker is the remote temporary attachment layer for InChat voice messages a
 - Firebase Realtime Database stores only attachment metadata.
 - Cloudflare R2 stores the binary object.
 - Android keeps the downloaded file in the app's local attachment directory.
-- After a successful recipient download, Android can request DELETE for the remote object.
+- Only the attachment sender can request DELETE for the remote object; view-once photos are deleted automatically after a recipient download.
 - No R2 access key is shipped inside the Android APK.
 
 ## Limits
