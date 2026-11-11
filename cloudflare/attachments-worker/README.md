@@ -53,6 +53,8 @@ credential.
    - Firebase Cloud Messaging API Admin
      (`roles/firebasecloudmessaging.admin`) for sending messages and managing
      topic subscriptions.
+   - Firebase Authentication Admin (`roles/firebaseauth.admin`) for the
+     optional recovery-code endpoint to update account passwords.
 
    Enable the **Firebase Cloud Messaging API** for the project. Do not enable
    Cloud Build or Artifact Registry for this Worker.
