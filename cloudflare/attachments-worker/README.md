@@ -66,15 +66,17 @@ credential.
    Paste the value at Wrangler's prompt. Keep this secret stable. It prevents
    a person who only knows a group ID from guessing the group's FCM topic.
 
-6. Create a JSON key for that service account. From this directory, run:
+6. Create a JSON key for that service account and save it outside the
+   InChat project (for example, in your Downloads folder). From PowerShell,
+   pipe the file directly to Wrangler:
 
-   ```sh
-   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+   ```powershell
+   Get-Content -Raw "$HOME\Downloads\inchat-service-account.json" |
+     npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
    ```
 
-   Paste the complete contents of the service-account JSON file when Wrangler
-   prompts for the value. Do not commit this JSON file, paste it into chat, or
-   put it in the Android project.
+   Change the example path to the file you saved. Do not commit this JSON
+   file, paste it into chat, or put it in the Android project.
 
 7. Deploy the Worker:
 
