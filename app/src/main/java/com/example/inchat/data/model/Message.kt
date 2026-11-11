@@ -10,7 +10,13 @@ data class Message(
     val reactions: Map<String, String> = emptyMap(),
     val edited: Boolean = false,
     val attachment: Attachment? = null,
-    val systemEvent: String = ""
+    val systemEvent: String = "",
+    val workerProcessed: WorkerProcessedReceipt? = null
+)
+
+data class WorkerProcessedReceipt(
+    val senderId: String = "",
+    val processedAt: Long = 0L
 )
 
 data class ReplyTo(
