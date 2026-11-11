@@ -14,7 +14,6 @@
       }
     },
     "usernames": {
-      ".read": "auth != null",
       "$username": {
         ".read": "auth != null",
         ".write": "auth != null &&                    (                      (                        !data.exists() &&                        newData.exists() &&                        newData.val() === auth.uid                      )                      ||                      (                        data.exists() &&                        data.val() === auth.uid &&                        newData.exists() &&                        newData.val() === auth.uid                      )                      ||                      (                        data.exists() &&                        data.val() === auth.uid &&                        !newData.exists()                      )                    )",
