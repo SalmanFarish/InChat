@@ -329,7 +329,8 @@ class ChatViewModel : ViewModel() {
      */
     fun startListening(
         currentUserId: String,
-        otherUserId: String
+        otherUserId: String,
+        otherUserNickname: String = "User"
     ) {
         if (
             currentUserId.isBlank() ||
@@ -500,7 +501,7 @@ class ChatViewModel : ViewModel() {
                                 chatRepository.reconcilePendingOutgoingMessages(
                                     chatId = chatId,
                                     receiverId = otherUserId,
-                                    receiverNickname = otherUserNickname
+                                    receiverNickname = otherUserNickname.ifBlank { "User" }
                                 )
                             }
                         }
