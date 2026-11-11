@@ -34,7 +34,18 @@ credential.
    npx wrangler secret put FIREBASE_WEB_API_KEY
    ```
 
-4. Create a Google Cloud service account in Firebase project
+4. Configure the service-account values as Worker variables/secrets. This
+   Worker accepts either a single `FIREBASE_SERVICE_ACCOUNT_JSON` secret or
+   the split variables used by the current deployment:
+
+   - Variable: `FIREBASE_CLIENT_EMAIL`
+   - Secret: `FIREBASE_PRIVATE_KEY` (the PKCS#8 PEM private key, with normal
+     PEM newlines or escaped `\\n` newlines)
+   - Variable: `FIREBASE_PROJECT_ID`
+
+   Keep the private key secret; never put it in Android or commit it.
+
+5. Create a Google Cloud service account in Firebase project
    `inchat-24b8b`. Grant it these roles:
 
    - Firebase Realtime Database Admin
@@ -46,7 +57,7 @@ credential.
    Enable the **Firebase Cloud Messaging API** for the project. Do not enable
    Cloud Build or Artifact Registry for this Worker.
 
-5. Create a private secret for the opaque FCM topic names. In PowerShell,
+6. Create a private secret for the opaque FCM topic names. In PowerShell,
    generate 32 random bytes:
 
    ```powershell
@@ -66,9 +77,10 @@ credential.
    Paste the value at Wrangler's prompt. Keep this secret stable. It prevents
    a person who only knows a group ID from guessing the group's FCM topic.
 
-6. Create a JSON key for that service account and save it outside the
-   InChat project (for example, in your Downloads folder). From PowerShell,
-   pipe the file directly to Wrangler:
+7. (Optional alternative to the split values in step 4.) Create a JSON key
+   for that service account and save it outside the InChat project (for
+   example, in your Downloads folder). From PowerShell, pipe the file directly
+   to Wrangler:
 
    ```powershell
    Get-Content -Raw "$HOME\Downloads\inchat-service-account.json" |
@@ -78,16 +90,20 @@ credential.
    Change the example path to the file you saved. Do not commit this JSON
    file, paste it into chat, or put it in the Android project.
 
-7. Deploy the Worker:
+8. Deploy the Worker:
 
    ```sh
    npm run deploy
    ```
 
-8. Copy the deployed `workers.dev` URL into
-   `CloudflareWorkerConfig.BASE_URL` in the Android project. Use the URL only,
-   with no `/v1` suffix. Both notifications and attachment requests use this
-   shared setting.
+9. The Android project already has the deployed Worker URL configured in
+   `CloudflareWorkerConfig.BASE_URL`. Keep the URL only, with no `/v1`
+   suffix. Both notifications and attachment requests use this shared setting.
+
+10. Password recovery is available at `POST /recover` (also
+    `POST /v1/recover`). It uses the same Firebase service-account secret.
+    The service account therefore also needs Firebase Authentication Admin
+    permission to update account passwords.
 
 ## Notification flow
 
