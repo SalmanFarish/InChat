@@ -143,6 +143,8 @@ class CloudflareNotificationRepository {
                 .get()
                 .await()
 
+            var firstFailure: Throwable? = null
+
             for (membership in snapshot.children) {
                 val groupId = membership.key.orEmpty()
                 val isMember = membership.getValue(Boolean::class.java) == true
@@ -154,15 +156,16 @@ class CloudflareNotificationRepository {
                     subscribe = subscribe
                 )
 
-                if (result.isFailure) {
-                    throw result.exceptionOrNull()
-                        ?: IllegalStateException(
-                            "Could not subscribe to group notifications."
-                        )
+                if (result.isFailure && firstFailure == null) {
+                    firstFailure = result.exceptionOrNull()
                 }
             }
 
-            Result.success(Unit)
+            if (firstFailure != null) {
+                Result.failure(firstFailure!!)
+            } else {
+                Result.success(Unit)
+            }
         } catch (error: Exception) {
             Log.w(TAG, "Could not synchronize group notification topics.", error)
             Result.failure(error)
