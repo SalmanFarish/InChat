@@ -66,6 +66,16 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     val isGoogleAccount = authViewModel.usesGoogleSignIn()
 
+    var hasPasswordSignIn by remember {
+        mutableStateOf(authViewModel.hasPasswordSignIn())
+    }
+    var showAddPasswordDialog by remember { mutableStateOf(false) }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmNewPassword by remember { mutableStateOf("") }
+    var addPasswordLoading by remember { mutableStateOf(false) }
+    var addPasswordError by remember { mutableStateOf<String?>(null) }
+    var passwordAddedMessage by remember { mutableStateOf<String?>(null) }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
     var deleteLoading by remember { mutableStateOf(false) }
@@ -184,6 +194,96 @@ fun SettingsScreen(
                                 )
                             }
                         )
+                    }
+                }
+            }
+
+            item {
+                SettingsSectionLabel("SECURITY & SIGN-IN")
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(
+                        0.8.dp,
+                        MaterialTheme.colorScheme.outlineVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            horizontal = 17.dp,
+                            vertical = 15.dp
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Password sign-in",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                Spacer(Modifier.height(4.dp))
+
+                                Text(
+                                    text = when {
+                                        hasPasswordSignIn ->
+                                            "Your account can sign in with email and password."
+                                        isGoogleAccount ->
+                                            "You currently use Google. Add a password as another way to sign in."
+                                        else ->
+                                            "Password sign-in is not linked to this account."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(Modifier.width(10.dp))
+
+                            Text(
+                                text = if (hasPasswordSignIn) {
+                                    "ENABLED"
+                                } else if (isGoogleAccount) {
+                                    "NOT SET"
+                                } else {
+                                    "—"
+                                },
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = JetBrainsMono,
+                                    fontSize = 9.sp,
+                                    letterSpacing = 0.45.sp
+                                ),
+                                color = if (hasPasswordSignIn) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+
+                        if (isGoogleAccount && !hasPasswordSignIn) {
+                            Spacer(Modifier.height(10.dp))
+
+                            TextButton(
+                                onClick = {
+                                    newPassword = ""
+                                    confirmNewPassword = ""
+                                    addPasswordError = null
+                                    showAddPasswordDialog = true
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text(
+                                    text = "Add password",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -315,6 +415,186 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showAddPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!addPasswordLoading) {
+                    showAddPasswordDialog = false
+                    newPassword = ""
+                    confirmNewPassword = ""
+                    addPasswordError = null
+                }
+            },
+            title = {
+                Text("Add a password")
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Add a password to your existing Google account. Your InChat username, chats, messages, and account ID will stay the same.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = {
+                            newPassword = it
+                            addPasswordError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !addPasswordLoading,
+                        singleLine = true,
+                        label = { Text("New password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                        )
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = confirmNewPassword,
+                        onValueChange = {
+                            confirmNewPassword = it
+                            addPasswordError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !addPasswordLoading,
+                        singleLine = true,
+                        label = { Text("Confirm password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                        )
+                    )
+
+                    Spacer(Modifier.height(9.dp))
+
+                    Text(
+                        text = "At least 6 characters. You will confirm ownership of your Google account before the password is linked.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    addPasswordError?.let { message ->
+                        Spacer(Modifier.height(9.dp))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !addPasswordLoading,
+                    onClick = {
+                        when {
+                            newPassword.length < 6 -> {
+                                addPasswordError = "Password must be at least 6 characters."
+                            }
+
+                            newPassword != confirmNewPassword -> {
+                                addPasswordError = "The passwords do not match."
+                            }
+
+                            else -> {
+                                addPasswordLoading = true
+                                addPasswordError = null
+
+                                coroutineScope.launch {
+                                    try {
+                                        val googleIdToken =
+                                            GoogleSignInHelper.getIdToken(context)
+
+                                        authViewModel.addPasswordToGoogleAccount(
+                                            googleIdToken = googleIdToken,
+                                            password = newPassword
+                                        ) { success, message ->
+                                            addPasswordLoading = false
+
+                                            if (success) {
+                                                hasPasswordSignIn = true
+                                                showAddPasswordDialog = false
+                                                newPassword = ""
+                                                confirmNewPassword = ""
+                                                passwordAddedMessage = message
+                                            } else {
+                                                addPasswordError = message
+                                                    ?: "Could not add your password. Please try again."
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        addPasswordLoading = false
+                                        addPasswordError = e.message
+                                            ?: "Google confirmation failed. Please try again."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    if (addPasswordLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+
+                    Text(
+                        if (addPasswordLoading) {
+                            "Please wait"
+                        } else {
+                            "Confirm & add"
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !addPasswordLoading,
+                    onClick = {
+                        showAddPasswordDialog = false
+                        newPassword = ""
+                        confirmNewPassword = ""
+                        addPasswordError = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (passwordAddedMessage != null) {
+        AlertDialog(
+            onDismissRequest = {
+                passwordAddedMessage = null
+            },
+            title = {
+                Text("Password added")
+            },
+            text = {
+                Text(passwordAddedMessage.orEmpty())
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        passwordAddedMessage = null
+                    }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     if (showDeleteDialog) {
