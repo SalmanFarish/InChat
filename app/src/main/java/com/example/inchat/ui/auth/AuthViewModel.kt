@@ -11,6 +11,12 @@ import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import java.net.URL
+import java.net.HttpURLConnection
+import org.json.JSONObject
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.messaging.FirebaseMessaging
@@ -668,6 +674,200 @@ class AuthViewModel(
                 it.providerId ==
                         GoogleAuthProvider.PROVIDER_ID
             } == true
+    }
+
+    fun hasPasswordSignIn(): Boolean {
+        return auth.currentUser
+            ?.providerData
+            ?.any {
+                it.providerId == EmailAuthProvider.PROVIDER_ID
+            } == true
+    }
+
+    /**
+     * Adds an email/password sign-in method to the currently authenticated
+     * Google account. The existing Firebase UID and InChat data are retained.
+     *
+     * Use accounts:signUp with the existing ID token because Firebase's
+     * email-enumeration protection disables linkWithCredential for
+     * EmailAuthCredential.
+     */
+    fun addPasswordToGoogleAccount(
+        googleIdToken: String,
+        password: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val firebaseUser = auth.currentUser
+
+        if (firebaseUser == null) {
+            onResult(false, "Your sign-in session has expired. Please log in again.")
+            return
+        }
+
+        if (!usesGoogleSignIn()) {
+            onResult(false, "Sign in with Google before adding a password.")
+            return
+        }
+
+        if (hasPasswordSignIn()) {
+            onResult(false, "A password is already linked to this account.")
+            return
+        }
+
+        val email = firebaseUser.email
+        if (email.isNullOrBlank()) {
+            onResult(false, "Your Google account does not have an email address.")
+            return
+        }
+
+        if (!firebaseUser.isEmailVerified) {
+            onResult(false, "Verify your Google email before adding a password.")
+            return
+        }
+
+        if (googleIdToken.isBlank()) {
+            onResult(false, "Google confirmation failed. Please try again.")
+            return
+        }
+
+        if (password.length < 6) {
+            onResult(false, "Password must be at least 6 characters.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val googleCredential = GoogleAuthProvider.getCredential(
+                    googleIdToken,
+                    null
+                )
+
+                // Confirm the account owner before adding another sign-in method.
+                firebaseUser.reauthenticate(googleCredential).await()
+
+                val freshIdToken = firebaseUser
+                    .getIdToken(true)
+                    .await()
+                    .token
+                    ?: throw IllegalStateException(
+                        "Could not refresh your InChat session. Please try again."
+                    )
+
+                val apiKey = FirebaseApp.getInstance().options.apiKey
+                if (apiKey.isBlank()) {
+                    throw IllegalStateException(
+                        "Firebase configuration is missing. Please try again."
+                    )
+                }
+
+                val requestBody = JSONObject().apply {
+                    put("idToken", freshIdToken)
+                    put("email", email)
+                    put("password", password)
+                    put("returnSecureToken", true)
+                }
+
+                val (statusCode, responseBody) = withContext(Dispatchers.IO) {
+                    val connection = (URL(
+                        "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey"
+                    ).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 15000
+                        readTimeout = 15000
+                        doOutput = true
+                        setRequestProperty(
+                            "Content-Type",
+                            "application/json; charset=UTF-8"
+                        )
+                    }
+
+                    try {
+                        connection.outputStream.use { output ->
+                            output.write(
+                                requestBody.toString().toByteArray(Charsets.UTF_8)
+                            )
+                        }
+
+                        val responseCode = connection.responseCode
+                        val responseStream = if (responseCode in 200..299) {
+                            connection.inputStream
+                        } else {
+                            connection.errorStream
+                        }
+
+                        val responseText = responseStream
+                            ?.bufferedReader(Charsets.UTF_8)
+                            ?.use { it.readText() }
+                            .orEmpty()
+
+                        responseCode to responseText
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
+
+                val responseJson = runCatching {
+                    JSONObject(responseBody)
+                }.getOrNull()
+
+                if (statusCode !in 200..299) {
+                    val errorCode = responseJson
+                        ?.optJSONObject("error")
+                        ?.optString("message")
+                        .orEmpty()
+
+                    val message = when {
+                        errorCode.startsWith("EMAIL_EXISTS") ->
+                            "This email is already linked to another account. Contact support before making account changes."
+
+                        errorCode.startsWith("OPERATION_NOT_ALLOWED") ->
+                            "Email and password sign-in is disabled in Firebase. Enable the Email/Password provider in Firebase Authentication."
+
+                        errorCode.startsWith("WEAK_PASSWORD") ->
+                            "That password is too weak. Choose a stronger password."
+
+                        errorCode.contains("CREDENTIAL_TOO_OLD_LOGIN_AGAIN") ||
+                            errorCode.contains("TOKEN_EXPIRED") ||
+                            errorCode.contains("INVALID_ID_TOKEN") ->
+                            "For security, sign in with Google again and retry adding your password."
+
+                        errorCode.contains("TOO_MANY_ATTEMPTS_TRY_LATER") ->
+                            "Too many attempts. Please wait and try again."
+
+                        else ->
+                            "Could not add your password. Please try again."
+                    }
+
+                    throw IllegalStateException(message)
+                }
+
+                val linkedUid = responseJson?.optString("localId").orEmpty()
+                if (linkedUid != firebaseUser.uid) {
+                    throw IllegalStateException(
+                        "Firebase returned an unexpected account. Your InChat data was not changed."
+                    )
+                }
+
+                // Refresh FirebaseUser provider data in the local SDK session.
+                firebaseUser.reload().await()
+                auth.currentUser?.getIdToken(true)?.await()
+
+                onResult(
+                    true,
+                    "Password added. You can now sign in with Google or your email and password."
+                )
+            } catch (e: Exception) {
+                Log.e(
+                    "AuthViewModel",
+                    "Could not add password to Google account",
+                    e
+                )
+                onResult(
+                    false,
+                    e.message ?: "Could not add your password. Please try again."
+                )
+            }
+        }
     }
 
     fun resendEmailVerification(
