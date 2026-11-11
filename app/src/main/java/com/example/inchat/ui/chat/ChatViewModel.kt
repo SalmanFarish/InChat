@@ -2073,7 +2073,11 @@ class ChatViewModel : ViewModel() {
 
                         // The Firebase task completed successfully; clear Room's
                         // persistent pending marker as well as the live indicator.
-                        chatRepository.markOutgoingMessageSent(chatId, messageId)
+                        runCatching {
+                            chatRepository.markOutgoingMessageSent(chatId, messageId)
+                        }.onFailure { cacheError ->
+                            Log.e("ChatViewModel", "Message sent but local pending flag could not be cleared", cacheError)
+                        }
                         _pendingMessageIds.value =
                             _pendingMessageIds.value -
                                     messageId
@@ -2099,7 +2103,11 @@ class ChatViewModel : ViewModel() {
                          * The write failed. Remove the local optimistic
                          * row; the composer restores the text for another try.
                          */
-                        chatRepository.removeFailedOutgoingMessage(chatId, messageId)
+                        runCatching {
+                            chatRepository.removeFailedOutgoingMessage(chatId, messageId)
+                        }.onFailure { cacheError ->
+                            Log.e("ChatViewModel", "Failed message could not be removed from Room", cacheError)
+                        }
                         _pendingMessageIds.value =
                             _pendingMessageIds.value -
                                     messageId
