@@ -10,8 +10,6 @@ data class Conversation(
     val unreadCount: Long = 0L,
     val chatType: String = "direct",
     val groupName: String = "",
-    val groupPhotoUrl: String = "",
-    val groupPhotoData: String = "",
     val memberCount: Long = 0L,
     val lastSenderNickname: String = ""
 )
