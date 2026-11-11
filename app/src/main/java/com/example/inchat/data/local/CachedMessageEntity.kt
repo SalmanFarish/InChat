@@ -34,7 +34,9 @@ data class CachedMessageEntity(
     val attachmentSizeBytes: Long,
     val attachmentViewedAt: Long,
     @ColumnInfo(defaultValue = "0")
-    val isPending: Boolean = false
+    val isPending: Boolean = false,
+    @ColumnInfo(defaultValue = "''")
+    val systemEvent: String = ""
 )
 
 fun Message.toCachedEntity(
@@ -66,7 +68,8 @@ fun Message.toCachedEntity(
         attachmentMimeType = attachment?.mimeType.orEmpty(),
         attachmentSizeBytes = attachment?.sizeBytes ?: 0L,
         attachmentViewedAt = attachment?.viewedAt ?: 0L,
-        isPending = isPending
+        isPending = isPending,
+        systemEvent = systemEvent
     )
 }
 
@@ -116,6 +119,7 @@ fun CachedMessageEntity.toMessage(): Message {
         replyTo = reply,
         reactions = parsedReactions,
         edited = edited,
-        attachment = cachedAttachment
+        attachment = cachedAttachment,
+        systemEvent = systemEvent
     )
 }
