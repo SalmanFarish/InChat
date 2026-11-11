@@ -71,6 +71,7 @@ fun ProfileScreen(
 
     val currentDisplayName by authViewModel.displayName.collectAsState()
     val currentBio by authViewModel.bio.collectAsState()
+    val currentEmail by authViewModel.email.collectAsState()
 
     val repository = remember { UserRepository() }
     var profilePhotoData by remember(uid) { mutableStateOf("") }
@@ -312,6 +313,21 @@ fun ProfileScreen(
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column {
+                    if (currentEmail.isNotBlank()) {
+                        CopyableProfileRow(
+                            title = "Email address",
+                            value = currentEmail,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(currentEmail))
+                            }
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+
                     CopyableProfileRow(
                         title = "Username",
                         value = "@$username",
