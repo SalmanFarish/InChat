@@ -1,8 +1,8 @@
 # InChat Cloudflare Worker
 
-This Worker is the free-plan server layer for InChat. It handles private R2
-attachments, direct and group push notifications, group inbox previews, and
-server-managed FCM topic membership.
+This Worker is the free-plan server layer for InChat. It handles private chat
+attachments in Firebase Realtime Database, direct and group push notifications,
+group inbox previews, and server-managed FCM topic membership.
 
 ## Services used
 
@@ -10,7 +10,7 @@ server-managed FCM topic membership.
 - Firebase Realtime Database remains the chat and user-data database.
 - Firebase Cloud Messaging delivers push notifications.
 - Cloudflare Workers runs the trusted API.
-- Cloudflare R2 stores attachment bytes.
+- Firebase Realtime Database stores chat data and attachment bytes.
 
 InChat does not deploy Firebase Cloud Functions or use Firebase Cloud Storage.
 The Android app never contains a Firebase service-account key or FCM server
@@ -133,20 +133,25 @@ topics. The Worker checks membership before changing topic subscriptions.
 
 ## Attachments
 
-- Firebase Realtime Database stores attachment metadata only.
-- Cloudflare R2 stores the binary object.
-- Voice attachments are limited to 1 MiB.
-- View-once photos are limited to 5 MiB and are deleted after a recipient
-  downloads them.
+- Attachment bytes are stored as Base64 under
+  `attachments/{chatId}/{messageId}` in Firebase Realtime Database.
+- Voice attachments are limited to 1 MiB; view-once photos are limited to 5 MiB.
+- View-once photos are consumed with a Firebase ETag-conditional delete so
+  concurrent downloads cannot both successfully consume the same record.
 - Only the message sender can upload or delete its remote attachment.
 - A Firebase ID token and group/chat membership are required for attachment
   access.
+- Base64 increases stored/downloaded size by roughly one third. The Spark
+  Realtime Database quota is shared with chat data: 1 GB stored and 10 GB of
+  downloads per month. Monitor usage and clean up old attachments.
 
 ## Free-plan notes
 
 The Firebase project can remain on Spark because this architecture does not
-deploy Firebase Cloud Functions or use Firebase Cloud Storage. Cloudflare
-Workers and R2 remain subject to their own free-plan quotas and limits.
+deploy Firebase Cloud Functions or use Firebase Cloud Storage. Attachments
+share the Spark Realtime Database allowance (1 GB stored and 10 GB downloaded
+per month). Cloudflare Workers and rate limits remain subject to their own
+free-plan quotas and limits. No R2 bucket or payment method is required.
 
 Do not run `firebase deploy --only functions`. Deploy Firebase Realtime
 Database rules separately when they change:
