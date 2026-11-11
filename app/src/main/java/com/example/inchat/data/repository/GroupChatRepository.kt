@@ -1213,11 +1213,6 @@ class GroupChatRepository {
                     .child("createdAt")
                     .getValue(Long::class.java)
                     ?: 0L,
-            groupPhotoData =
-                snapshot
-                    .child("groupPhotoData")
-                    .getValue(String::class.java)
-                    .orEmpty(),
             members = members
         )
     }
