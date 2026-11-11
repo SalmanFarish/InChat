@@ -306,7 +306,6 @@ class GroupChatRepository {
                     chatId = group.chatId,
                     chatType = "group",
                     groupName = group.name,
-                    groupPhotoUrl = "",
                     memberCount = group.members.size.toLong(),
                     lastMessage = latestMessage?.text.orEmpty(),
                     lastTimestamp =
