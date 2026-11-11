@@ -319,6 +319,7 @@ fun GroupChatScreen(
                     groupReadTimestamps.values.maxOrNull() ?: 0L,
                 pendingMessageIds = pendingMessageIds,
                 isConnected = isConnected,
+                showSenderNames = true,
                 chatTheme = chatTheme,
                 onReply = { message ->
                     groupViewModel.setReplyingTo(message)
