@@ -211,6 +211,12 @@ class ChatViewModel : ViewModel() {
     private var localMessagesJob:
             Job? = null
 
+    private var pendingMessagesJob:
+            Job? = null
+
+    private var pendingReconciliationJob:
+            Job? = null
+
     private var readListenerJob:
             Job? = null
 
@@ -364,6 +370,8 @@ class ChatViewModel : ViewModel() {
         initializationJob?.cancel()
         listenerJob?.cancel()
         localMessagesJob?.cancel()
+        pendingMessagesJob?.cancel()
+        pendingReconciliationJob?.cancel()
         deliveryListenerJob?.cancel()
         readListenerJob?.cancel()
         readReceiptPreferenceJob?.cancel()
@@ -374,6 +382,23 @@ class ChatViewModel : ViewModel() {
         blockListenerJob?.cancel()
 
         currentChatId = chatId
+        _pendingMessageIds.value = emptySet()
+
+        // Restore the per-chat pending indicators from Room immediately.
+        pendingMessagesJob = viewModelScope.launch {
+            try {
+                chatRepository.observePendingMessageIds(chatId).collect { pendingIds ->
+                    if (currentChatId == chatId) {
+                        _pendingMessageIds.value = pendingIds
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Pending message state could not be observed", e)
+            }
+        }
+
         initializedChatId = ""
         initializingChatId = chatId
         _chatReady.value = false
@@ -461,6 +486,21 @@ class ChatViewModel : ViewModel() {
                         chatId = chatId,
                         currentUserId = currentUserId
                     )
+
+                    // Firebase's persistent write queue resumes after reconnect.
+                    // Reconcile Room's pending indicators against confirmed remote
+                    // message records; do not send a second copy from a custom queue.
+                    pendingReconciliationJob = viewModelScope.launch {
+                        isConnected.collect { connected ->
+                            if (
+                                connected &&
+                                currentChatId == chatId &&
+                                initializedChatId == chatId
+                            ) {
+                                chatRepository.reconcilePendingOutgoingMessages(chatId)
+                            }
+                        }
+                    }
 
                     startDeliveryListener(
                         chatId = chatId,
@@ -1969,15 +2009,35 @@ class ChatViewModel : ViewModel() {
         }
 
         /*
-         * Mark as pending before Firebase receives the write.
+         * Save the outgoing message to Room before Firebase is called.
+         * This makes it visible immediately and preserves its sending
+         * indicator if Android recreates the process while Firebase's
+         * own persistent write queue is waiting for a connection.
          */
+        val outgoingMessage = Message(
+            id = messageId,
+            senderId = currentUserId,
+            senderNickname = senderNickname,
+            text = cleanText,
+            timestamp = System.currentTimeMillis(),
+            replyTo = replyTo
+        )
+
         _pendingMessageIds.value =
-            _pendingMessageIds.value +
-                    messageId
+            _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
 
             try {
+                try {
+                    chatRepository.cacheOutgoingMessage(
+                        chatId = chatId,
+                        message = outgoingMessage
+                    )
+                } catch (cacheError: Exception) {
+                    // A Room cache failure must not prevent Firebase delivery.
+                    Log.e("ChatViewModel", "Could not cache outgoing message locally", cacheError)
+                }
 
                 chatRepository
                     .sendMessage(
@@ -2011,9 +2071,9 @@ class ChatViewModel : ViewModel() {
                     )
                     .onSuccess {
 
-                        /*
-                         * Firebase has confirmed the write.
-                         */
+                        // The Firebase task completed successfully; clear Room's
+                        // persistent pending marker as well as the live indicator.
+                        chatRepository.markOutgoingMessageSent(chatId, messageId)
                         _pendingMessageIds.value =
                             _pendingMessageIds.value -
                                     messageId
@@ -2036,12 +2096,10 @@ class ChatViewModel : ViewModel() {
                     .onFailure { error ->
 
                         /*
-                         * The write failed.
-                         *
-                         * Firebase will roll back the local
-                         * optimistic event if the server rejected
-                         * the operation.
+                         * The write failed. Remove the local optimistic
+                         * row; the composer restores the text for another try.
                          */
+                        chatRepository.removeFailedOutgoingMessage(chatId, messageId)
                         _pendingMessageIds.value =
                             _pendingMessageIds.value -
                                     messageId
