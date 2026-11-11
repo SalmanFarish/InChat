@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,7 +25,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,8 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.FirebaseServerClock
-import com.example.inchat.data.repository.ChatAppearanceRepository
-import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(
@@ -63,19 +58,7 @@ fun GroupChatScreen(
         )
     }
 
-    val appearanceRepository =
-        remember { ChatAppearanceRepository() }
-
-    val selectedThemeId by
-        appearanceRepository
-            .observeTheme(groupId)
-            .collectAsState(initial = null)
-
-    val chatTheme =
-        ChatTheme.fromId(
-            id = selectedThemeId,
-            defaultTheme = ChatTheme.BITCHAT_GREEN
-        )
+    val chatTheme = ChatTheme.BITCHAT_GREEN
 
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
@@ -231,28 +214,11 @@ fun GroupChatScreen(
                             .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
+                        GroupAvatar(
+                            groupName = group?.name ?: "Group",
                             modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            if (group?.groupPhotoData?.isNotBlank() == true) {
-                                InChatProfileAvatar(
-                                    profilePhotoUrl = group?.groupPhotoData.orEmpty(),
-                                    modifier = Modifier.fillMaxSize(),
-                                    iconSize = 22.dp,
-                                    contentDescription = "Group photo"
-                                )
-                            } else {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Groups,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-                        }
+                            fontSize = 20.sp
+                        )
 
                         Spacer(Modifier.width(10.dp))
 
