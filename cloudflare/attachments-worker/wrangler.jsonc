@@ -3,13 +3,7 @@
   "name": "icy-base-2bc4",
   "main": "src/index.js",
   "compatibility_date": "2026-09-28",
-  "r2_buckets": [
-    {
-      "binding": "ATTACHMENTS",
-      "bucket_name": "inchat-attachments"
-    }
-  ],
-  "ratelimits": [
+"ratelimits": [
     {
       "name": "RECOVERY_IP_LIMITER",
       "namespace_id": "27112026",
