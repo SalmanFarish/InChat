@@ -309,7 +309,13 @@ async function adminDatabaseRequest(
   return responseText ? JSON.parse(responseText) : null;
 }
 
-async function fcmRequest(accessToken, url, method, body) {
+async function fcmRequest(
+  accessToken,
+  url,
+  method,
+  body,
+  toleratedStatuses = [],
+) {
   const response = await fetch(url, {
     method: method,
     headers: {
@@ -327,7 +333,7 @@ async function fcmRequest(accessToken, url, method, body) {
     responseBody = { message: responseText.slice(0, 300) };
   }
 
-  if (!response.ok && response.status !== 409 && response.status !== 404) {
+  if (!response.ok && !toleratedStatuses.includes(response.status)) {
     console.error("FCM request failed", {
       status: response.status,
       response: responseBody,
@@ -336,7 +342,7 @@ async function fcmRequest(accessToken, url, method, body) {
   }
 
   return {
-    ok: response.ok || response.status === 409 || response.status === 404,
+    ok: response.ok || toleratedStatuses.includes(response.status),
     status: response.status,
     body: responseBody,
   };
@@ -371,6 +377,7 @@ async function changeTopicSubscription(
       base + "?topicName=" + encodeURIComponent(topic),
       "POST",
       {},
+      [409],
     );
     return {
       subscribed: result.status !== 409,
@@ -383,6 +390,7 @@ async function changeTopicSubscription(
     base + "/" + encodeURIComponent(topic),
     "DELETE",
     undefined,
+    [404],
   );
   return { unsubscribed: true };
 }
@@ -811,10 +819,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     const notification = {
       message: {
         token: receiverToken,
-        notification: {
-          title: "@" + senderNickname,
-          body: messageText,
-        },
         data: {
           type: "chat_message",
           chatId: chatId,
@@ -878,10 +882,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         condition:
           "'" + groupTopicName(chatId) + "' in topics && !('" +
           userTopicName(uid) + "' in topics)",
-        notification: {
-          title: groupName + " • " + senderNickname,
-          body: messageText,
-        },
         data: {
           type: "group_message",
           chatId: chatId,
