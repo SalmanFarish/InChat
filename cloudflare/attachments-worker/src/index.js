@@ -99,14 +99,8 @@ async function authorizeChat(chatId, uid, token, env) {
   return chat;
 }
 
-async function authorizeMessageSender(
-  chatId,
-  messageId,
-  uid,
-  token,
-  env,
-) {
-  const base = env.FIREBASE_DATABASE_URL.replace(/\\/$/, "");
+async function loadMessage(chatId, messageId, token, env) {
+  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
   const url =
     base +
     "/chats/" +
@@ -125,6 +119,17 @@ async function authorizeMessageSender(
   }
 
   const message = await response.json();
+  return message && typeof message === "object" ? message : null;
+}
+
+async function authorizeMessageSender(
+  chatId,
+  messageId,
+  uid,
+  token,
+  env,
+) {
+  const message = await loadMessage(chatId, messageId, token, env);
 
   if (!message || message.senderId !== uid) {
     throw new Response("Only the message sender can upload this attachment.", {
@@ -132,14 +137,19 @@ async function authorizeMessageSender(
     });
   }
 
+  if (message.attachment?.storageKey !== attachmentKey(chatId, messageId)) {
+    throw new Response("Message does not reference this attachment.", {
+      status: 409,
+    });
+  }
+
   return message;
 }
-
 function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
 
-async function upload(request, env, uid, chatId, messageId) {
+async function upload(request, env, uid, chatId, messageId, message) {
   const contentLength = Number(request.headers.get("Content-Length") || "0");
   const contentType =
     request.headers.get("Content-Type") || "application/octet-stream";
@@ -151,6 +161,14 @@ async function upload(request, env, uid, chatId, messageId) {
 
   if (attachmentType !== "voice" && attachmentType !== "view_once_photo") {
     return json({ error: "Unsupported attachment type." }, 400);
+  }
+
+  const key = attachmentKey(chatId, messageId);
+  if (
+    message.attachment?.storageKey !== key ||
+    message.attachment?.type !== attachmentType
+  ) {
+    return json({ error: "Attachment metadata does not match this message." }, 409);
   }
 
   const maxBytes =
@@ -171,8 +189,6 @@ async function upload(request, env, uid, chatId, messageId) {
   if (attachmentType === "view_once_photo" && !contentType.startsWith("image/")) {
     return json({ error: "View-once attachments must be images." }, 400);
   }
-
-  const key = attachmentKey(chatId, messageId);
 
   if (await env.ATTACHMENTS.head(key)) {
     return json({ error: "Attachment already exists." }, 409);
@@ -240,7 +256,7 @@ async function download(env, chatId, messageId, uid) {
   return new Response(object.body, { status: 200, headers });
 }
 
-async function remove(env, chatId, messageId) {
+async function remove(env, chatId, messageId, uid) {
   const key = attachmentKey(chatId, messageId);
   const object = await env.ATTACHMENTS.head(key);
 
@@ -248,10 +264,22 @@ async function remove(env, chatId, messageId) {
     return json({ success: true, deleted: false });
   }
 
+  // A chat member must not be able to delete another member's attachment.
+  // This check still works after the sender deletes the Firebase message.
+  const metadata = object.customMetadata || {};
+  if (
+    metadata.senderId !== uid ||
+    metadata.chatId !== chatId ||
+    metadata.messageId !== messageId
+  ) {
+    return new Response("Only the attachment sender can delete this file.", {
+      status: 403,
+    });
+  }
+
   await env.ATTACHMENTS.delete(key);
   return json({ success: true, deleted: true });
 }
-
 export default {
   async fetch(request, env) {
     try {
@@ -281,22 +309,38 @@ export default {
       await authorizeChat(chatId, user.uid, user.token, env);
 
       if (request.method === "PUT") {
-        await authorizeMessageSender(
+        const message = await authorizeMessageSender(
           chatId,
           messageId,
           user.uid,
           user.token,
           env,
         );
-        return upload(request, env, user.uid, chatId, messageId);
+        return upload(request, env, user.uid, chatId, messageId, message);
       }
 
       if (request.method === "GET") {
+        const message = await loadMessage(
+          chatId,
+          messageId,
+          user.token,
+          env,
+        );
+
+        if (
+          !message ||
+          message.attachment?.storageKey !== attachmentKey(chatId, messageId)
+        ) {
+          return new Response("Attachment is not linked to an existing message.", {
+            status: 404,
+          });
+        }
+
         return download(env, chatId, messageId, user.uid);
       }
 
       if (request.method === "DELETE") {
-        return remove(env, chatId, messageId);
+        return remove(env, chatId, messageId, user.uid);
       }
 
       return json({ error: "Method not allowed" }, 405);
