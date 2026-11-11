@@ -101,7 +101,9 @@ exports.sendChatNotification = onValueCreated(
             typeof message.systemEvent === "string" &&
             message.systemEvent.trim() !== ""
           ) {
-            logger.info("Group activity entry saved; push notification skipped", {
+            logger.info(
+                "Group activity entry saved; push notification skipped",
+                {
               chatId: chatId,
               messageId: messageId,
               eventType: message.systemEvent,
