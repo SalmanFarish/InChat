@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [CachedMessageEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -25,6 +25,14 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE cached_messages ADD COLUMN systemEvent TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: LocalChatDatabase? = null
 
@@ -34,7 +42,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
                     context.applicationContext,
                     LocalChatDatabase::class.java,
                     "inchat-local.db"
-                ).addMigrations(MIGRATION_1_2).build().also { database ->
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { database ->
                     INSTANCE = database
                 }
             }
