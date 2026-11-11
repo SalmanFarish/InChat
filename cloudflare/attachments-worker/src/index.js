@@ -552,6 +552,140 @@ async function syncGroupConversationPreview(
   }
 }
 
+
+async function rebuildConversationPreview(
+  env,
+  adminToken,
+  chatId,
+  chat,
+) {
+  const messages = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages",
+  );
+
+  let latest = null;
+  for (const messageId of Object.keys(messages || {})) {
+    const message = messages[messageId];
+    if (
+      message &&
+      typeof message.timestamp === "number" &&
+      (!latest || message.timestamp > latest.timestamp)
+    ) {
+      latest = message;
+    }
+  }
+
+  const updates = {};
+  if (chat.type === "group") {
+    const members = Object.keys(chat.members || {});
+    const isSystemEvent = !!(
+      latest &&
+      typeof latest.systemEvent === "string" &&
+      latest.systemEvent.trim() !== ""
+    );
+
+    for (const memberId of members) {
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "chatId"] = chatId;
+      updates[base + "chatType"] = "group";
+      updates[base + "groupName"] =
+        typeof chat.name === "string" ? chat.name.trim() : "";
+      updates[base + "memberCount"] = members.length;
+      updates[base + "otherUserId"] = "";
+      updates[base + "otherUsername"] = "";
+      updates[base + "lastMessage"] =
+        typeof latest?.text === "string" ? latest.text : "";
+      updates[base + "lastTimestamp"] = latest?.timestamp || 0;
+      updates[base + "lastSenderId"] =
+        !isSystemEvent && latest?.senderId ? latest.senderId : "";
+      updates[base + "lastSenderNickname"] =
+        !isSystemEvent && latest?.senderNickname ?
+          latest.senderNickname :
+          "";
+    }
+  } else {
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (
+      typeof participantA !== "string" ||
+      typeof participantB !== "string" ||
+      participantA === "" ||
+      participantB === "" ||
+      participantA === participantB
+    ) {
+      throw new Error("Cannot rebuild preview for invalid direct chat.");
+    }
+
+    const lastMessage =
+      typeof latest?.text === "string" && latest.text.trim() !== "" ?
+        latest.text :
+        "No messages yet";
+    const lastTimestamp = latest?.timestamp || 0;
+    const lastSenderId = latest?.senderId || participantA;
+
+    for (const memberId of [participantA, participantB]) {
+      const existing = await adminDatabaseRequest(
+        env,
+        adminToken,
+        "userChats/" + memberId + "/" + chatId,
+      );
+      if (!existing) continue;
+
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "lastMessage"] = lastMessage;
+      updates[base + "lastTimestamp"] = lastTimestamp;
+      updates[base + "lastSenderId"] = lastSenderId;
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
+  }
+}
+
+async function processPreviewEvent(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+
+  if (!chat) return json({ error: "Chat not found." }, 404);
+
+  if (chat.type === "group") {
+    if (!chat.members || !chat.members[uid]) {
+      return json({ error: "You are not a group member." }, 403);
+    }
+  } else if (
+    chat.participantA !== uid &&
+    chat.participantB !== uid
+  ) {
+    return json({ error: "You are not a chat participant." }, 403);
+  }
+
+  await rebuildConversationPreview(
+    env,
+    adminAuth.token,
+    chatId,
+    chat,
+  );
+
+  return json({
+    success: true,
+    chatId: chatId,
+  });
+}
+
 async function processMessageEvent(request, env, uid, adminAuth) {
   let body;
   try {
@@ -944,6 +1078,14 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return updateGroupTopic(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/events/preview"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processPreviewEvent(request, env, user.uid, adminAuth);
       }
 
       const match = url.pathname.match(
