@@ -409,6 +409,41 @@ class ChatRepository {
     }
 
     /**
+     * Read locally queued messages for a conversation. Direct and group chats
+     * share the same Room table and pending-state mechanism.
+     */
+    suspend fun getPendingMessages(chatId: String): List<Message> {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) return emptyList()
+        return localMessageDao.getPendingMessages(ownerUserId, chatId)
+            .map { it.toMessage() }
+    }
+
+    /**
+     * Check whether a pending message reached Firebase. A malformed existing
+     * record throws instead of being treated as missing and overwritten.
+     */
+    suspend fun getRemoteMessage(chatId: String, messageId: String): Message? {
+        require(chatId.isNotBlank() && messageId.isNotBlank()) {
+            "Invalid message lookup."
+        }
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        require(ownerUserId.isNotBlank()) { "You are not authenticated." }
+
+        val snapshot = database.getReference("chats")
+            .child(chatId)
+            .child("messages")
+            .child(messageId)
+            .get()
+            .await()
+
+        if (!snapshot.exists()) return null
+
+        return snapshot.getValue(Message::class.java)
+            ?: throw IllegalStateException("Remote message record could not be read.")
+    }
+
+    /**
      * A Firebase write task does not survive ViewModel recreation, while
      * Realtime Database's disk-persisted write queue does. Once connected,
      * read each pending ID from Firebase and clear its local pending marker
