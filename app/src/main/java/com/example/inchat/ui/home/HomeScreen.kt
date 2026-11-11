@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.ui.chat.GroupAvatar
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.JetBrainsMono
 import com.example.inchat.ui.auth.AuthViewModel
@@ -1254,29 +1255,11 @@ private fun ConversationItem(
                     .padding(2.dp)
             ) {
                 if (conversation.chatType == "group") {
-                    if (conversation.groupPhotoData.isNotBlank()) {
-                        InChatProfileAvatar(
-                            profilePhotoUrl = conversation.groupPhotoData,
-                            modifier = Modifier.fillMaxSize(),
-                            iconSize = 25.dp,
-                            contentDescription = "Group photo"
-                        )
-                    } else {
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Groups,
-                                    contentDescription = "Group",
-                                    modifier = Modifier.size(24.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-                    }
+                    GroupAvatar(
+                        groupName = conversation.groupName,
+                        modifier = Modifier.fillMaxSize(),
+                        fontSize = 24.sp
+                    )
                 } else {
                     InChatProfileAvatar(
                         profilePhotoUrl = otherUserProfilePhoto,
