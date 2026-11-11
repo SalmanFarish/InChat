@@ -208,6 +208,9 @@ class ChatViewModel : ViewModel() {
     private var listenerJob:
             Job? = null
 
+    private var localMessagesJob:
+            Job? = null
+
     private var readListenerJob:
             Job? = null
 
@@ -360,6 +363,7 @@ class ChatViewModel : ViewModel() {
         // Stop any previous conversation listeners before switching chats.
         initializationJob?.cancel()
         listenerJob?.cancel()
+        localMessagesJob?.cancel()
         deliveryListenerJob?.cancel()
         readListenerJob?.cancel()
         readReceiptPreferenceJob?.cancel()
@@ -384,6 +388,25 @@ class ChatViewModel : ViewModel() {
         _messages.value = cachedMessages ?: emptyList()
         _messagesLoaded.value = cachedMessages != null
         _hasOlderMessages.value = (cachedMessages?.size ?: 0) >= 200
+
+        // Read Room immediately, independently of the Firebase chat verification.
+        localMessagesJob = viewModelScope.launch {
+            try {
+                chatRepository.getLocalMessagesFlow(chatId).collect { localMessages ->
+                    if (currentChatId == chatId) {
+                        _messages.value = localMessages
+                        _messagesLoaded.value = true
+                        if (!hasRequestedOlderMessages) {
+                            _hasOlderMessages.value = localMessages.size >= 200
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Local message cache could not be observed", e)
+            }
+        }
 
         _otherUserDeliveredTimestamp.value = 0L
         _otherUserReadTimestamp.value = 0L
@@ -526,6 +549,8 @@ class ChatViewModel : ViewModel() {
         currentUserId: String
     ) {
 
+        localMessagesJob?.cancel()
+        localMessagesJob = null
         listenerJob?.cancel()
 
         listenerJob =
@@ -2223,6 +2248,7 @@ class ChatViewModel : ViewModel() {
 
         connectionListenerJob?.cancel()
         initializationJob?.cancel()
+        localMessagesJob?.cancel()
         deliveryListenerJob?.cancel()
 
         listenerJob?.cancel()
