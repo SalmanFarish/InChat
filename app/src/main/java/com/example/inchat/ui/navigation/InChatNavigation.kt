@@ -1448,10 +1448,10 @@ private fun InChatBottomBar(
             bottomNavItems.forEachIndexed { index, item ->
                 val selected = pagerState.currentPage == index
                 val animatedWeight by animateFloatAsState(
-                    targetValue = if (selected) 1.7f else 1f,
+                    targetValue = if (selected) 1.75f else 1f,
                     animationSpec = spring(
-                        dampingRatio = 0.93f,
-                        stiffness = 420f
+                        dampingRatio = 0.88f,
+                        stiffness = 320f
                     ),
                     label = "bottomNavItemWeight"
                 )
@@ -1483,8 +1483,8 @@ private fun BottomNavigationItem(
             androidx.compose.ui.graphics.Color.Transparent
         },
         animationSpec = spring(
-            dampingRatio = 0.93f,
-            stiffness = 420f
+            dampingRatio = 0.9f,
+            stiffness = 360f
         ),
         label = "bottomNavBackground"
     )
@@ -1496,10 +1496,45 @@ private fun BottomNavigationItem(
             MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = spring(
-            dampingRatio = 0.93f,
-            stiffness = 420f
+            dampingRatio = 0.9f,
+            stiffness = 360f
         ),
         label = "bottomNavContent"
+    )
+
+    val circleBackground by animateColorAsState(
+        targetValue = if (selected) {
+            androidx.compose.ui.graphics.Color.Transparent
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        animationSpec = spring(
+            dampingRatio = 0.9f,
+            stiffness = 360f
+        ),
+        label = "bottomNavCircleBackground"
+    )
+
+    val circleBorder by animateColorAsState(
+        targetValue = if (selected) {
+            androidx.compose.ui.graphics.Color.Transparent
+        } else {
+            MaterialTheme.colorScheme.outlineVariant
+        },
+        animationSpec = spring(
+            dampingRatio = 0.9f,
+            stiffness = 360f
+        ),
+        label = "bottomNavCircleBorder"
+    )
+
+    val iconSize by animateFloatAsState(
+        targetValue = if (selected) 25f else 23f,
+        animationSpec = spring(
+            dampingRatio = 0.9f,
+            stiffness = 420f
+        ),
+        label = "bottomNavIconSize"
     )
 
     Row(
@@ -1511,60 +1546,51 @@ private fun BottomNavigationItem(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (selected) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(circleBackground)
+                .border(
+                    width = 0.8.dp,
+                    color = circleBorder,
+                    shape = androidx.compose.foundation.shape.CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
-                imageVector = item.selectedIcon,
+                imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
                 contentDescription = item.label,
                 tint = contentColor,
-                modifier = Modifier.size(25.dp)
+                modifier = Modifier.size(iconSize.dp)
             )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(
-                        width = 0.8.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = item.unselectedIcon,
-                    contentDescription = item.label,
-                    tint = contentColor,
-                    modifier = Modifier.size(23.dp)
-                )
-            }
         }
 
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
             enter = androidx.compose.animation.fadeIn(
                 animationSpec = spring(
-                    dampingRatio = 0.94f,
-                    stiffness = 440f
+                    dampingRatio = 0.92f,
+                    stiffness = 400f
                 )
-            ) + androidx.compose.animation.expandHorizontally(
+            ) + androidx.compose.animation.slideInHorizontally(
                 animationSpec = spring(
-                    dampingRatio = 0.93f,
-                    stiffness = 420f
+                    dampingRatio = 0.9f,
+                    stiffness = 360f
                 ),
-                expandFrom = Alignment.Start
+                initialOffsetX = { fullWidth -> fullWidth / 3 }
             ),
             exit = androidx.compose.animation.fadeOut(
                 animationSpec = spring(
-                    dampingRatio = 0.94f,
-                    stiffness = 440f
+                    dampingRatio = 0.92f,
+                    stiffness = 400f
                 )
-            ) + androidx.compose.animation.shrinkHorizontally(
+            ) + androidx.compose.animation.slideOutHorizontally(
                 animationSpec = spring(
-                    dampingRatio = 0.93f,
-                    stiffness = 420f
+                    dampingRatio = 0.9f,
+                    stiffness = 360f
                 ),
-                shrinkTowards = Alignment.Start
+                targetOffsetX = { fullWidth -> -fullWidth / 3 }
             )
         ) {
             Row(
