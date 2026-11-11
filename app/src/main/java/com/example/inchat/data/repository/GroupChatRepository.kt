@@ -122,6 +122,19 @@ class GroupChatRepository {
                 .updateChildren(membershipUpdates)
                 .await()
 
+            try {
+                database.reference.updateChildren(
+                    systemEventUpdates(
+                        groupId = groupId,
+                        actorId = currentUserId,
+                        eventType = "group_created",
+                        eventText = "@${usernameFor(currentUserId)} created the group"
+                    )
+                ).await()
+            } catch (eventError: Exception) {
+                Log.w("GroupChatRepository", "Group was created but its activity entry could not be saved.", eventError)
+            }
+
             Result.success(groupId)
 
         } catch (e: Exception) {
@@ -754,12 +767,24 @@ class GroupChatRepository {
                 )
             }
 
-            database
-                .getReference("chats")
-                .child(groupId)
-                .child("name")
-                .setValue(cleanName)
-                .await()
+            if (cleanName == group.name) {
+                return Result.success(Unit)
+            }
+
+            val actorName = usernameFor(currentUserId)
+            val updates = mutableMapOf<String, Any>(
+                "chats/$groupId/name" to cleanName
+            )
+            updates.putAll(
+                systemEventUpdates(
+                    groupId = groupId,
+                    actorId = currentUserId,
+                    eventType = "group_renamed",
+                    eventText = "@$actorName renamed the group to \"$cleanName\""
+                )
+            )
+
+            database.reference.updateChildren(updates).await()
 
             Result.success(Unit)
 
@@ -889,6 +914,25 @@ class GroupChatRepository {
                 throw indexError
             }
 
+            val actorName = usernameFor(currentUserId)
+            val activityUpdates = mutableMapOf<String, Any>()
+            for (memberId in newMemberIds) {
+                val memberName = usernameFor(memberId)
+                activityUpdates.putAll(
+                    systemEventUpdates(
+                        groupId = groupId,
+                        actorId = currentUserId,
+                        eventType = "member_added",
+                        eventText = "@$actorName added @$memberName to the group"
+                    )
+                )
+            }
+            try {
+                database.reference.updateChildren(activityUpdates).await()
+            } catch (eventError: Exception) {
+                Log.w("GroupChatRepository", "Members were added but activity entries could not be saved.", eventError)
+            }
+
             Result.success(Unit)
 
         } catch (e: Exception) {
@@ -977,13 +1021,29 @@ class GroupChatRepository {
                 return Result.success(Unit)
             }
 
-            database
-                .getReference("chats")
-                .child(groupId)
-                .child("members")
-                .child(memberId)
-                .setValue(role)
-                .await()
+            val actorName = usernameFor(currentUserId)
+            val targetName = usernameFor(memberId)
+            val eventType =
+                if (role == "admin") "admin_promoted" else "admin_demoted"
+            val eventText =
+                if (role == "admin") {
+                    "@$actorName promoted @$targetName to admin"
+                } else {
+                    "@$actorName removed @$targetName as admin"
+                }
+
+            val updates = mutableMapOf<String, Any>(
+                "chats/$groupId/members/$memberId" to role
+            )
+            updates.putAll(
+                systemEventUpdates(
+                    groupId = groupId,
+                    actorId = currentUserId,
+                    eventType = eventType,
+                    eventText = eventText
+                )
+            )
+            database.reference.updateChildren(updates).await()
 
             Result.success(Unit)
 
@@ -1064,17 +1124,33 @@ class GroupChatRepository {
                 )
             }
 
-            val updates =
-                mapOf<String, Any?>(
-                    "chats/$groupId/members/$memberId" to null,
-                    "groupMemberships/$memberId/$groupId" to null,
-                    "groupReads/$memberId/$groupId" to null
+            val actorName = usernameFor(currentUserId)
+            val targetName = usernameFor(memberId)
+            val updates = mutableMapOf<String, Any?>(
+                "chats/$groupId/members/$memberId" to null,
+                "groupMemberships/$memberId/$groupId" to null,
+                "groupReads/$memberId/$groupId" to null
+            )
+            updates.putAll(
+                systemEventUpdates(
+                    groupId = groupId,
+                    actorId = currentUserId,
+                    eventType = "member_removed",
+                    eventText = "@$actorName removed @$targetName from the group"
                 )
+            )
 
-            database
-                .reference
-                .updateChildren(updates)
-                .await()
+            database.reference.updateChildren(updates).await()
+
+            runCatching {
+                database.getReference("userChats")
+                    .child(memberId)
+                    .child(groupId)
+                    .removeValue()
+                    .await()
+            }.onFailure {
+                Log.w("GroupChatRepository", "Removed member inbox entry could not be cleared.", it)
+            }
 
             Result.success(Unit)
 
@@ -1143,17 +1219,23 @@ class GroupChatRepository {
                 )
             }
 
-            val updates =
-                mapOf<String, Any?>(
-                    "chats/$groupId/members/$currentUserId" to null,
-                    "groupMemberships/$currentUserId/$groupId" to null,
-                    "groupReads/$currentUserId/$groupId" to null
+            val memberName = usernameFor(currentUserId)
+            val updates = mutableMapOf<String, Any?>(
+                "chats/$groupId/members/$currentUserId" to null,
+                "groupMemberships/$currentUserId/$groupId" to null,
+                "groupReads/$currentUserId/$groupId" to null,
+                "userChats/$currentUserId/$groupId" to null
+            )
+            updates.putAll(
+                systemEventUpdates(
+                    groupId = groupId,
+                    actorId = currentUserId,
+                    eventType = "member_left",
+                    eventText = "@$memberName left the group"
                 )
+            )
 
-            database
-                .reference
-                .updateChildren(updates)
-                .await()
+            database.reference.updateChildren(updates).await()
 
             Result.success(Unit)
 
@@ -1162,6 +1244,41 @@ class GroupChatRepository {
         }
     }
 
+
+    private suspend fun usernameFor(uid: String): String {
+        return database.getReference("users")
+            .child(uid)
+            .child("username")
+            .get()
+            .await()
+            .getValue(String::class.java)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: "member"
+    }
+
+    private suspend fun systemEventUpdates(
+        groupId: String,
+        actorId: String,
+        eventType: String,
+        eventText: String
+    ): Map<String, Any> {
+        val messagesRef = database.getReference("chats")
+            .child(groupId)
+            .child("messages")
+        val messageId = messagesRef.push().key
+            ?: throw IllegalStateException("Could not create group activity message ID.")
+
+        val eventMessage = mapOf<String, Any>(
+            "id" to messageId,
+            "senderId" to actorId,
+            "senderNickname" to "SYSTEM",
+            "text" to eventText,
+            "timestamp" to ServerValue.TIMESTAMP,
+            "systemEvent" to eventType
+        )
+        return mapOf("chats/$groupId/messages/$messageId" to eventMessage)
+    }
 
     private fun parseGroup(snapshot: DataSnapshot): Group? {
 
