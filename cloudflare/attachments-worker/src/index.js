@@ -346,15 +346,17 @@ function groupTopicName(chatId) {
   return "inchat_group_" + chatId;
 }
 
-async function changeGroupTopicSubscription(
-  env,
+function userTopicName(uid) {
+  return "inchat_user_" + base64Url(uid);
+}
+
+async function changeTopicSubscription(
   accessToken,
   projectId,
-  chatId,
+  topic,
   registrationToken,
   subscribe,
 ) {
-  const topic = groupTopicName(chatId);
   const registration = encodeURIComponent(registrationToken);
   const base =
     "https://fcm.googleapis.com/v1/projects/" +
@@ -378,7 +380,7 @@ async function changeGroupTopicSubscription(
 
   await fcmRequest(
     accessToken,
-    base + "/" + encodeURIComponent(topic) + "?allowMissing=true",
+    base + "/" + encodeURIComponent(topic),
     "DELETE",
     undefined,
   );
@@ -414,15 +416,13 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   const actorRole = chat.members && chat.members[uid];
   const targetRole = chat.members && chat.members[targetUid];
 
-  if (subscribe) {
-    if (
-      !targetRole ||
-      (uid !== targetUid && actorRole !== "admin")
-    ) {
-      return json({ error: "Not allowed to subscribe this member." }, 403);
-    }
-  } else if (uid !== targetUid && actorRole !== "admin") {
-    return json({ error: "Only an admin can remove another member's topic." }, 403);
+  if (
+    !targetRole ||
+    (uid !== targetUid && actorRole !== "admin")
+  ) {
+    return json({
+      error: "Only a group member or admin can manage this subscription.",
+    }, 403);
   }
 
   const registrationToken = await adminDatabaseRequest(
@@ -442,11 +442,20 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     });
   }
 
-  const result = await changeGroupTopicSubscription(
-    env,
+  if (subscribe) {
+    await changeTopicSubscription(
+      adminAuth.token,
+      adminAuth.projectId,
+      userTopicName(targetUid),
+      registrationToken,
+      true,
+    );
+  }
+
+  const result = await changeTopicSubscription(
     adminAuth.token,
     adminAuth.projectId,
-    chatId,
+    groupTopicName(chatId),
     registrationToken,
     subscribe,
   );
@@ -583,14 +592,22 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       return json({ error: "Invalid group activity sender." }, 403);
     }
 
-    await syncGroupConversationPreview(
-      env,
-      adminAuth.token,
-      chatId,
-      chat,
-      message,
-      messageId,
-    );
+    try {
+      await syncGroupConversationPreview(
+        env,
+        adminAuth.token,
+        chatId,
+        chat,
+        message,
+        messageId,
+      );
+    } catch (previewError) {
+      console.error("Group preview sync failed", {
+        chatId: chatId,
+        messageId: messageId,
+        error: String(previewError),
+      });
+    }
 
     if (systemEvent) {
       return json({
@@ -724,7 +741,9 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     "POST",
     {
       message: {
-        topic: groupTopicName(chatId),
+        condition:
+          "'" + groupTopicName(chatId) + "' in topics && !('" +
+          userTopicName(uid) + "' in topics)",
         notification: {
           title: groupName + " • " + senderNickname,
           body: messageText,
