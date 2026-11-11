@@ -414,31 +414,73 @@ class ChatRepository {
      * read each pending ID from Firebase and clear its local pending marker
      * only when the remote message is present and belongs to this account.
      */
-    suspend fun reconcilePendingOutgoingMessages(chatId: String) {
+    suspend fun reconcilePendingOutgoingMessages(
+        chatId: String,
+        receiverId: String,
+        receiverNickname: String
+    ) {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
-        if (ownerUserId.isBlank() || chatId.isBlank()) return
+        if (
+            ownerUserId.isBlank() ||
+            chatId.isBlank() ||
+            receiverId.isBlank() ||
+            receiverNickname.isBlank()
+        ) return
 
         val pending = localMessageDao.getPendingMessages(ownerUserId, chatId)
         for (localMessage in pending) {
             try {
-                val snapshot = database.getReference("chats")
+                val messageRef = database.getReference("chats")
                     .child(chatId)
                     .child("messages")
                     .child(localMessage.messageId)
-                    .get()
-                    .await()
-
+                val snapshot = messageRef.get().await()
                 val remoteMessage = snapshot.getValue(Message::class.java)
-                if (
+
+                when {
                     remoteMessage != null &&
-                    remoteMessage.id == localMessage.messageId &&
-                    remoteMessage.senderId == ownerUserId
-                ) {
-                    localMessageDao.markMessageSent(
-                        ownerUserId = ownerUserId,
-                        chatId = chatId,
-                        messageId = localMessage.messageId
-                    )
+                        remoteMessage.id == localMessage.messageId &&
+                        remoteMessage.senderId == ownerUserId -> {
+                        localMessageDao.markMessageSent(
+                            ownerUserId = ownerUserId,
+                            chatId = chatId,
+                            messageId = localMessage.messageId
+                        )
+                    }
+
+                    !snapshot.exists() -> {
+                        // The process may have stopped after Room saved the
+                        // message but before Firebase received the write.
+                        // Reuse the same ID so this retry cannot create a duplicate.
+                        val localMessageModel = localMessage.toMessage()
+                        val retryResult = sendMessage(
+                            chatId = chatId,
+                            messageId = localMessage.messageId,
+                            text = localMessageModel.text,
+                            senderId = ownerUserId,
+                            senderNickname = localMessageModel.senderNickname,
+                            receiverId = receiverId,
+                            receiverNickname = receiverNickname,
+                            replyTo = localMessageModel.replyTo,
+                            attachment = localMessageModel.attachment
+                        )
+                        retryResult.onSuccess {
+                            localMessageDao.markMessageSent(
+                                ownerUserId = ownerUserId,
+                                chatId = chatId,
+                                messageId = localMessage.messageId
+                            )
+                        }.onFailure { error ->
+                            Log.w(TAG, "Pending message retry was not accepted: ${localMessage.messageId}", error)
+                        }
+                    }
+
+                    else -> {
+                        Log.w(
+                            TAG,
+                            "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
+                        )
+                    }
                 }
             } catch (error: Exception) {
                 Log.w(TAG, "Could not reconcile pending message ${localMessage.messageId}", error)
