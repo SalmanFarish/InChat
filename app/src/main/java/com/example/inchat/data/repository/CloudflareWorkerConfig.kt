@@ -8,7 +8,7 @@ package com.example.inchat.data.repository
  */
 object CloudflareWorkerConfig {
     const val BASE_URL =
-        "https://REPLACE_WITH_INCHAT_ATTACHMENTS_WORKER_URL"
+        "https://icy-base-2bc4.s91670002.workers.dev"
 
     const val API_BASE_URL = BASE_URL + "/v1"
 
