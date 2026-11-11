@@ -124,17 +124,23 @@ class GroupChatRepository {
 
             try {
                 val creatorName = usernameFor(currentUserId)
-                database.reference.updateChildren(
-                    systemEventUpdates(
-                        groupId = groupId,
-                        actorId = currentUserId,
-                        eventType = "group_created",
-                        eventText = "@$creatorName created the group"
-                    )
-                ).await()
+                val activityUpdates = systemEventUpdates(
+                    groupId = groupId,
+                    actorId = currentUserId,
+                    eventType = "group_created",
+                    eventText = "@$creatorName created the group"
+                )
+                database.reference.updateChildren(activityUpdates).await()
+                dispatchGroupMessageEvents(groupId, activityUpdates)
             } catch (eventError: Exception) {
-                Log.w("GroupChatRepository", "Group was created but its activity entry could not be saved.", eventError)
+                Log.w(
+                    "GroupChatRepository",
+                    "Group was created but its activity entry could not be saved.",
+                    eventError
+                )
             }
+
+            syncGroupTopicMembers(groupId, uniqueMembers)
 
             Result.success(groupId)
 
@@ -713,6 +719,16 @@ class GroupChatRepository {
                 .setValue(messageData)
                 .await()
 
+            CloudflareNotificationRepository()
+                .notifyMessage(groupId, messageId)
+                .onFailure { notificationError ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Group message was saved, but Cloudflare dispatch failed.",
+                        notificationError
+                    )
+                }
+
             Result.success(messageId)
 
         } catch (e: Exception) {
@@ -797,6 +813,7 @@ class GroupChatRepository {
             )
 
             database.reference.updateChildren(updates).await()
+            dispatchGroupMessageEvents(groupId, updates)
 
             Result.success(Unit)
 
@@ -941,9 +958,16 @@ class GroupChatRepository {
             }
             try {
                 database.reference.updateChildren(activityUpdates).await()
+                dispatchGroupMessageEvents(groupId, activityUpdates)
             } catch (eventError: Exception) {
-                Log.w("GroupChatRepository", "Members were added but activity entries could not be saved.", eventError)
+                Log.w(
+                    "GroupChatRepository",
+                    "Members were added but activity entries could not be saved.",
+                    eventError
+                )
             }
+
+            syncGroupTopicMembers(groupId, newMemberIds)
 
             Result.success(Unit)
 
@@ -1056,6 +1080,7 @@ class GroupChatRepository {
                 )
             )
             database.reference.updateChildren(updates).await()
+            dispatchGroupMessageEvents(groupId, updates)
 
             Result.success(Unit)
 
@@ -1152,7 +1177,26 @@ class GroupChatRepository {
                 )
             )
 
-            database.reference.updateChildren(updates).await()
+            val notifications = CloudflareNotificationRepository()
+            notifications
+                .setGroupTopicSubscription(
+                    chatId = groupId,
+                    targetUid = memberId,
+                    subscribe = false
+                )
+                .getOrThrow()
+
+            try {
+                database.reference.updateChildren(updates).await()
+            } catch (updateError: Exception) {
+                notifications.setGroupTopicSubscription(
+                    chatId = groupId,
+                    targetUid = memberId,
+                    subscribe = true
+                )
+                throw updateError
+            }
+            dispatchGroupMessageEvents(groupId, updates)
 
             runCatching {
                 database.getReference("userChats")
@@ -1247,7 +1291,26 @@ class GroupChatRepository {
                 )
             )
 
-            database.reference.updateChildren(updates).await()
+            val notifications = CloudflareNotificationRepository()
+            notifications
+                .setGroupTopicSubscription(
+                    chatId = groupId,
+                    targetUid = currentUserId,
+                    subscribe = false
+                )
+                .getOrThrow()
+
+            try {
+                database.reference.updateChildren(updates).await()
+            } catch (updateError: Exception) {
+                notifications.setGroupTopicSubscription(
+                    chatId = groupId,
+                    targetUid = currentUserId,
+                    subscribe = true
+                )
+                throw updateError
+            }
+            dispatchGroupMessageEvents(groupId, updates)
 
             Result.success(Unit)
 
@@ -1290,6 +1353,53 @@ class GroupChatRepository {
             "systemEvent" to eventType
         )
         return mapOf("chats/$groupId/messages/$messageId" to eventMessage)
+    }
+
+    private suspend fun syncGroupTopicMembers(
+        groupId: String,
+        memberIds: List<String>
+    ) {
+        val notifications = CloudflareNotificationRepository()
+        for (memberId in memberIds.distinct()) {
+            notifications
+                .setGroupTopicSubscription(
+                    chatId = groupId,
+                    targetUid = memberId,
+                    subscribe = true
+                )
+                .onFailure { error ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Could not enable group notifications for $memberId.",
+                        error
+                    )
+                }
+        }
+    }
+
+    private suspend fun dispatchGroupMessageEvents(
+        groupId: String,
+        updates: Map<String, *>
+    ) {
+        val messagePrefix = "chats/$groupId/messages/"
+        val messageIds = updates.keys
+            .filter { it.startsWith(messagePrefix) }
+            .map { it.removePrefix(messagePrefix) }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val notifications = CloudflareNotificationRepository()
+        for (messageId in messageIds) {
+            notifications
+                .notifyMessage(groupId, messageId)
+                .onFailure { error ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Group activity was saved, but preview sync failed.",
+                        error
+                    )
+                }
+        }
     }
 
     private fun parseGroup(snapshot: DataSnapshot): Group? {
