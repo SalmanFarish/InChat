@@ -18,7 +18,7 @@ credential.
 
 ## Worker setup
 
-1. Create an R2 bucket named `inchat-attachments`.
+1. No R2 bucket is required. Attachment bytes are stored in the existing Firebase Realtime Database.
 2. Install dependencies from this directory:
 
    ```sh
