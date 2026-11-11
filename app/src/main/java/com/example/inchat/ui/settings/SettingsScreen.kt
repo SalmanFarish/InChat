@@ -16,7 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,6 +68,7 @@ fun SettingsScreen(
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     val isGoogleAccount = authViewModel.usesGoogleSignIn()
+    val currentEmail by authViewModel.email.collectAsState()
 
     var hasPasswordSignIn by remember {
         mutableStateOf(authViewModel.hasPasswordSignIn())
@@ -174,6 +176,23 @@ fun SettingsScreen(
                     )
                 ) {
                     Column {
+                        if (currentEmail.isNotBlank()) {
+                            CopyableSettingRow(
+                                title = "Email address",
+                                value = currentEmail,
+                                onCopy = {
+                                    clipboardManager.setText(
+                                        AnnotatedString(currentEmail)
+                                    )
+                                }
+                            )
+
+                            androidx.compose.material3.HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+
                         CopyableSettingRow(
                             title = "Username",
                             value = "@" + username.trim(),
@@ -845,7 +864,7 @@ private fun CopyableSettingRow(
 
         IconButton(onClick = onCopy, enabled = value.isNotBlank()) {
             Icon(
-                imageVector = Icons.Default.ContentCopy,
+                imageVector = Icons.Outlined.ContentCopy,
                 contentDescription = "Copy $title",
                 modifier = Modifier.size(17.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
