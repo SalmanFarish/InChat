@@ -9,6 +9,9 @@ class InChatApplication : Application() {
 
     companion object {
 
+        lateinit var instance: InChatApplication
+            private set
+
         const val MESSAGE_CHANNEL_ID =
             "inchat_messages"
 
@@ -21,6 +24,7 @@ class InChatApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
 
         /*
          * Enable Firebase Realtime Database disk persistence
