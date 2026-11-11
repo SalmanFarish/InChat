@@ -495,6 +495,36 @@ class ChatRepository {
     }
 
     /*
+     * A direct entry in the signed-in user's userChats index is written
+     * by the chat message flow only after the direct chat record exists.
+     * Cache that confirmation so opening a conversation from Home does
+     * not need another Firebase existence read before attaching listeners.
+     *
+     * Validate the deterministic chat ID against both participants before
+     * trusting the index. New conversations opened from Search still go
+     * through ensureChat() and its normal create/verify path.
+     */
+    private fun rememberIndexedDirectChats(
+        currentUserId: String,
+        conversations: List<Conversation>
+    ) {
+        if (currentUserId.isBlank()) return
+
+        conversations.forEach { conversation ->
+            if (
+                conversation.chatType != "group" &&
+                conversation.otherUserId.isNotBlank() &&
+                conversation.chatId == getChatRoomId(
+                    currentUserId,
+                    conversation.otherUserId
+                )
+            ) {
+                knownChatIds.add(conversation.chatId)
+            }
+        }
+    }
+
+    /*
      * =========================================================
      * CONVERSATIONS
      * =========================================================
@@ -529,6 +559,10 @@ class ChatRepository {
              */
             conversationCache[currentUserId]
                 ?.let { cachedConversations ->
+                    rememberIndexedDirectChats(
+                        currentUserId = currentUserId,
+                        conversations = cachedConversations
+                    )
                     trySend(
                         cachedConversations
                     )
@@ -590,6 +624,11 @@ class ChatRepository {
 
                         conversationCache[currentUserId] =
                             immutableConversations
+
+                        rememberIndexedDirectChats(
+                            currentUserId = currentUserId,
+                            conversations = immutableConversations
+                        )
 
                         trySend(
                             immutableConversations
