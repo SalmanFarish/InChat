@@ -442,8 +442,8 @@ fun ChatMessageList(
                 val latestOwnMessageId =
                     messages
                         .lastOrNull {
-                            it.senderId ==
-                                    currentUserId
+                            it.senderId == currentUserId &&
+                                    it.systemEvent.isBlank()
                         }
                         ?.id
 
