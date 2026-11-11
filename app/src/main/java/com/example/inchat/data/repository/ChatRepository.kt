@@ -84,6 +84,10 @@ class ChatRepository {
         // network existence check every time the user reopens them.
         private val knownChatIds =
             ConcurrentHashMap.newKeySet<String>()
+
+        // Prevent repeated warm-up reads while Home emits inbox metadata updates.
+        private val prefetchedChatIds =
+            ConcurrentHashMap.newKeySet<String>()
     }
 
     private fun cacheKey(
@@ -529,6 +533,62 @@ class ChatRepository {
         }
     }
 
+    /**
+     * Warm the local message cache for the most recently active chats while
+     * the user is on Home, so opening one is not a cold Firebase fetch.
+     * Only the latest 30 messages from up to 8 chats are prefetched.
+     */
+    suspend fun preloadRecentMessages(
+        ownerUserId: String,
+        conversations: List<Conversation>,
+        maxChats: Int = 8
+    ) {
+        if (
+            ownerUserId.isBlank() ||
+            auth.currentUser?.uid != ownerUserId ||
+            maxChats !in 1..12
+        ) return
+
+        for (conversation in conversations
+            .sortedByDescending { it.lastTimestamp }
+            .take(maxChats)
+        ) {
+            val chatId = conversation.chatId
+            if (chatId.isBlank()) continue
+
+            val key = cacheKey(chatId, ownerUserId)
+            if (!prefetchedChatIds.add(key)) continue
+
+            try {
+                // If this chat is already cached locally, there is nothing to warm.
+                if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
+                    continue
+                }
+
+                val snapshot = database.getReference("chats")
+                    .child(chatId)
+                    .child("messages")
+                    .orderByChild("timestamp")
+                    .limitToLast(30)
+                    .get()
+                    .await()
+
+                val latestMessages = snapshot.children.mapNotNull { child ->
+                    child.getValue(Message::class.java)
+                        ?.takeIf { it.id.isNotBlank() }
+                }
+
+                if (latestMessages.isNotEmpty()) {
+                    localMessageDao.upsertMessages(
+                        latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
+                    )
+                }
+            } catch (error: Exception) {
+                prefetchedChatIds.remove(key)
+                Log.d(TAG, "Background message warm-up skipped for $chatId: ${error.message}")
+            }
+        }
+    }
     /*
      * =========================================================
      * CONVERSATIONS
