@@ -74,13 +74,33 @@ class CloudflareNotificationRepository {
         ).map { Unit }
     }
 
+    suspend fun syncConversationPreview(
+        chatId: String
+    ): Result<Unit> {
+        if (chatId.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException("Chat ID cannot be blank.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.success(Unit)
+        }
+
+        return post(
+            path = "/events/preview",
+            body = JSONObject().put("chatId", chatId)
+        ).map { Unit }
+    }
+
     /**
      * Reconcile this signed-in device's FCM token with every group the
      * current account still belongs to. FCM topic membership is not carried
      * over automatically when an installation token changes.
      */
     suspend fun syncMyGroupSubscriptions(
-        uid: String
+        uid: String,
+        subscribe: Boolean = true
     ): Result<Unit> {
         if (uid.isBlank()) {
             return Result.failure(
@@ -112,7 +132,7 @@ class CloudflareNotificationRepository {
                 val result = setGroupTopicSubscription(
                     chatId = groupId,
                     targetUid = uid,
-                    subscribe = true
+                    subscribe = subscribe
                 )
 
                 if (result.isFailure) {
