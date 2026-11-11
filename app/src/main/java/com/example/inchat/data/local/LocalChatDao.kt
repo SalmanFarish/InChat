@@ -31,6 +31,12 @@ interface LocalChatDao {
         messageId: String
     ): CachedMessageEntity?
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM cached_messages " +
+            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId LIMIT 1)"
+    )
+    suspend fun hasAnyMessages(ownerUserId: String, chatId: String): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMessages(messages: List<CachedMessageEntity>)
 
