@@ -420,12 +420,35 @@ function notificationText(value) {
   return characters.slice(0, 700).join("") + "…";
 }
 
-function groupTopicName(chatId) {
-  return "inchat_group_" + chatId;
+async function privateTopicName(env, kind, identity) {
+  const secret = env.FCM_TOPIC_SECRET;
+  if (typeof secret !== "string" || secret.length < 32) {
+    throw new Error("FCM_TOPIC_SECRET must contain at least 32 characters.");
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(kind + ":" + identity),
+  );
+
+  return "inchat_" + kind + "_" + base64Url(new Uint8Array(digest));
 }
 
-function userTopicName(uid) {
-  return "inchat_user_" + base64Url(uid);
+function groupTopicName(env, chatId) {
+  return privateTopicName(env, "group", chatId);
+}
+
+function userTopicName(env, uid) {
+  return privateTopicName(env, "user", uid);
 }
 
 async function changeTopicSubscription(
@@ -528,11 +551,12 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     });
   }
 
+  const groupTopic = await groupTopicName(env, chatId);
   if (subscribe) {
     await changeTopicSubscription(
       adminAuth.token,
       adminAuth.projectId,
-      userTopicName(targetUid),
+      await userTopicName(env, targetUid),
       registrationToken,
       true,
     );
@@ -541,7 +565,7 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   const result = await changeTopicSubscription(
     adminAuth.token,
     adminAuth.projectId,
-    groupTopicName(chatId),
+    groupTopic,
     registrationToken,
     subscribe,
   );
@@ -981,8 +1005,9 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     {
       message: {
         condition:
-          "'" + groupTopicName(chatId) + "' in topics && !('" +
-          userTopicName(uid) + "' in topics)",
+          "'" + await groupTopicName(env, chatId) +
+          "' in topics && !('" +
+          await userTopicName(env, uid) + "' in topics)",
         data: {
           type: "group_message",
           chatId: chatId,
@@ -1004,7 +1029,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     notificationSent: result.ok,
     chatId: chatId,
     messageId: messageId,
-    topic: groupTopicName(chatId),
   });
 }
 
