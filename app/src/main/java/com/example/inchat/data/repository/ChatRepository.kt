@@ -1287,6 +1287,16 @@ class ChatRepository {
             onQueued()
             messageWrite.await()
 
+            CloudflareNotificationRepository()
+                .notifyMessage(chatId, messageId)
+                .onFailure { notificationError ->
+                    Log.w(
+                        TAG,
+                        "Message was saved, but Cloudflare notification dispatch failed.",
+                        notificationError
+                    )
+                }
+
             val senderConversation = mapOf(
                 "chatId" to chatId,
                 "otherUserId" to receiverId,
