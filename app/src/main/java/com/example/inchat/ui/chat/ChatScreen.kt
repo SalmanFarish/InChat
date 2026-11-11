@@ -139,7 +139,8 @@ fun ChatScreen(
 
     LaunchedEffect(
         currentUserId,
-        otherUserId
+        otherUserId,
+        otherUserNickname
     ) {
 
         chatViewModel.startListening(
@@ -148,7 +149,10 @@ fun ChatScreen(
                 currentUserId,
 
             otherUserId =
-                otherUserId
+                otherUserId,
+
+            otherUserNickname =
+                otherUserNickname
         )
     }
 
