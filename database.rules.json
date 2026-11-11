@@ -83,7 +83,10 @@
                 ".validate": "!newData.exists() ||                               (                                 newData.isString() &&                                 (                                   newData.val() === '❤️' ||                                   newData.val() === '😂' ||                                   newData.val() === '👍' ||                                   newData.val() === '😮' ||                                   newData.val() === '😢' ||                                   newData.val() === '😡'                                 )                               )"
               }
             }
-          }
+          },
+          ".indexOn": [
+            "timestamp"
+          ]
         },
         "deliveredBy": {
           "$uid": {
