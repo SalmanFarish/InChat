@@ -1197,25 +1197,22 @@ class GroupChatRepository {
                 )
             )
 
-            val notifications = CloudflareNotificationRepository()
-            notifications
+            database.reference.updateChildren(updates).await()
+
+            CloudflareNotificationRepository()
                 .setGroupTopicSubscription(
                     chatId = groupId,
                     targetUid = memberId,
                     subscribe = false
                 )
-                .getOrThrow()
+                .onFailure { notificationError ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Member was removed, but their group notification topic could not be cleared.",
+                        notificationError
+                    )
+                }
 
-            try {
-                database.reference.updateChildren(updates).await()
-            } catch (updateError: Exception) {
-                notifications.setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = memberId,
-                    subscribe = true
-                )
-                throw updateError
-            }
             dispatchGroupMessageEvents(groupId, updates)
 
             runCatching {
@@ -1311,25 +1308,22 @@ class GroupChatRepository {
                 )
             )
 
-            val notifications = CloudflareNotificationRepository()
-            notifications
+            database.reference.updateChildren(updates).await()
+
+            CloudflareNotificationRepository()
                 .setGroupTopicSubscription(
                     chatId = groupId,
                     targetUid = currentUserId,
                     subscribe = false
                 )
-                .getOrThrow()
+                .onFailure { notificationError ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "You left the group, but its notification topic could not be cleared.",
+                        notificationError
+                    )
+                }
 
-            try {
-                database.reference.updateChildren(updates).await()
-            } catch (updateError: Exception) {
-                notifications.setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = currentUserId,
-                    subscribe = true
-                )
-                throw updateError
-            }
             dispatchGroupMessageEvents(groupId, updates)
 
             Result.success(Unit)
