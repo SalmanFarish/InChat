@@ -302,7 +302,7 @@ fun GroupChatScreen(
         }
     ) { innerPadding ->
 
-        if (group != null) {
+        if (group != null || messages.isNotEmpty()) {
             ChatMessageList(
                 messages = messages,
                 messagesLoaded = messagesLoaded,
