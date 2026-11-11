@@ -2211,15 +2211,14 @@ class UserRepository {
         return try {
 
             /*
-             * The "usernames" node is the authoritative username index
-             * created when an account claims its username. Use it for
-             * prefix search so existing accounts remain discoverable
-             * even if the newer publicUsernames mirror was never created.
+             * Only the publicUsernames index contains accounts that opted
+             * in to username discovery. The private reservation index is
+             * intentionally not readable as a collection.
              */
             val snapshot =
                 database
                     .getReference(
-                        "usernames"
+                        "publicUsernames"
                     )
                     .orderByKey()
                     .startAt(
