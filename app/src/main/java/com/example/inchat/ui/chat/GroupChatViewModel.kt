@@ -8,7 +8,12 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.GroupChatRepository
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +58,13 @@ class GroupChatViewModel : ViewModel() {
     val pendingMessageIds: StateFlow<Set<String>> =
         _pendingMessageIds.asStateFlow()
 
+    private val database = FirebaseDatabase.getInstance()
+    private val _isConnected = MutableStateFlow(false)
+    val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
+    private var connectionListenerJob: Job? = null
+    private var pendingMessagesJob: Job? = null
+    private var pendingReconciliationJob: Job? = null
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
     private val groupReadJobs = mutableMapOf<String, Job>()
@@ -61,6 +73,39 @@ class GroupChatViewModel : ViewModel() {
     val groupReadTimestamps: StateFlow<Map<String, Long>> =
         _groupReadTimestamps.asStateFlow()
     private var listeningGroupId = ""
+
+    init {
+        startConnectionListener()
+    }
+
+    private fun startConnectionListener() {
+        connectionListenerJob?.cancel()
+        connectionListenerJob = viewModelScope.launch {
+            val connectedRef = database.getReference(".info/connected")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    _isConnected.value =
+                        snapshot.getValue(Boolean::class.java) ?: false
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatViewModel",
+                        "Connection listener cancelled",
+                        error.toException()
+                    )
+                    _isConnected.value = false
+                }
+            }
+
+            connectedRef.addValueEventListener(listener)
+            try {
+                awaitCancellation()
+            } finally {
+                connectedRef.removeEventListener(listener)
+            }
+        }
+    }
 
     fun startListening(
         groupId: String,
@@ -81,11 +126,104 @@ class GroupChatViewModel : ViewModel() {
         _isLoadingOlderMessages.value = false
         groupJob?.cancel()
         messagesJob?.cancel()
+        pendingMessagesJob?.cancel()
+        pendingReconciliationJob?.cancel()
+        pendingMessagesJob = null
+        pendingReconciliationJob = null
+        _pendingMessageIds.value = emptySet()
         groupReadJobs.values.forEach { it.cancel() }
         groupReadJobs.clear()
         _groupReadTimestamps.value = emptyMap()
 
         _group.value = null
+
+        // Restore pending indicators from Room so they survive app restarts.
+        pendingMessagesJob = viewModelScope.launch {
+            try {
+                chatRepository.observePendingMessageIds(groupId).collect { pendingIds ->
+                    if (listeningGroupId == groupId) {
+                        _pendingMessageIds.value = pendingIds
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "GroupChatViewModel",
+                    "Pending group message state could not be observed",
+                    e
+                )
+            }
+        }
+
+        // Once connected, confirm queued IDs against Firebase. Retry only when
+        // the remote record is absent, always reusing its original message ID.
+        pendingReconciliationJob = viewModelScope.launch {
+            _isConnected.collect { connected ->
+                if (!connected || listeningGroupId != groupId) {
+                    return@collect
+                }
+
+                val pendingMessages = chatRepository.getPendingMessages(groupId)
+                for (localMessage in pendingMessages) {
+                    try {
+                        val remoteMessage = chatRepository.getRemoteMessage(
+                            chatId = groupId,
+                            messageId = localMessage.id
+                        )
+
+                        when {
+                            remoteMessage != null &&
+                                remoteMessage.id == localMessage.id &&
+                                remoteMessage.senderId == currentUserId -> {
+                                chatRepository.markOutgoingMessageSent(
+                                    chatId = groupId,
+                                    messageId = localMessage.id
+                                )
+                            }
+
+                            remoteMessage == null -> {
+                                groupRepository.sendMessage(
+                                    groupId = groupId,
+                                    messageId = localMessage.id,
+                                    text = localMessage.text,
+                                    senderId = currentUserId,
+                                    senderNickname = localMessage.senderNickname,
+                                    replyTo = localMessage.replyTo,
+                                    attachment = localMessage.attachment
+                                ).onSuccess {
+                                    chatRepository.markOutgoingMessageSent(
+                                        chatId = groupId,
+                                        messageId = localMessage.id
+                                    )
+                                }.onFailure { error ->
+                                    Log.w(
+                                        "GroupChatViewModel",
+                                        "Pending group message retry failed: " + localMessage.id,
+                                        error
+                                    )
+                                }
+                            }
+
+                            else -> {
+                                Log.w(
+                                    "GroupChatViewModel",
+                                    "Pending group message ID exists remotely with unexpected sender: " + localMessage.id
+                                )
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(
+                            "GroupChatViewModel",
+                            "Could not reconcile pending group message " + localMessage.id,
+                            e
+                        )
+                    }
+                }
+            }
+        }
 
         // Reuse the last known message snapshot immediately while the
         // realtime group/message listeners reconnect.
@@ -264,57 +402,92 @@ class GroupChatViewModel : ViewModel() {
             )
         }
 
-        val messageId =
-            chatRepository.generateMessageId(listeningGroupId)
+        val groupId = listeningGroupId
+        val messageId = chatRepository.generateMessageId(groupId)
 
         if (messageId == null) {
             onResult(false, "Could not generate message ID.")
             return
         }
 
+        val outgoingMessage = Message(
+            id = messageId,
+            senderId = currentUserId,
+            senderNickname = senderNickname,
+            text = cleanText,
+            timestamp = System.currentTimeMillis(),
+            replyTo = replyTo
+        )
+
         _pendingMessageIds.value =
             _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
             try {
-                groupRepository
-                    .sendMessage(
-                        groupId = listeningGroupId,
-                        messageId = messageId,
-                        text = cleanText,
-                        senderId = currentUserId,
-                        senderNickname = senderNickname,
-                        replyTo = replyTo
+                try {
+                    chatRepository.cacheOutgoingMessage(
+                        chatId = groupId,
+                        message = outgoingMessage
                     )
-                    .onSuccess {
-                        _pendingMessageIds.value =
-                            _pendingMessageIds.value - messageId
+                } catch (cacheError: Exception) {
+                    // A local cache problem must not block Firebase delivery.
+                    Log.e(
+                        "GroupChatViewModel",
+                        "Could not cache outgoing group message locally",
+                        cacheError
+                    )
+                }
 
-                        if (
-                            _replyingTo.value?.id ==
-                            selectedReply?.id
-                        ) {
-                            _replyingTo.value = null
-                        }
-
-                        onResult(true, null)
-                    }
-                    .onFailure { error ->
-                        _pendingMessageIds.value =
-                            _pendingMessageIds.value - messageId
-                        onResult(
-                            false,
-                            error.message
-                                ?: "Could not send message."
+                groupRepository.sendMessage(
+                    groupId = groupId,
+                    messageId = messageId,
+                    text = cleanText,
+                    senderId = currentUserId,
+                    senderNickname = senderNickname,
+                    replyTo = replyTo
+                ).onSuccess {
+                    runCatching {
+                        chatRepository.markOutgoingMessageSent(groupId, messageId)
+                    }.onFailure { cacheError ->
+                        Log.e(
+                            "GroupChatViewModel",
+                            "Group message sent but local pending state could not be cleared",
+                            cacheError
                         )
                     }
-            } catch (
-                e: kotlinx.coroutines.CancellationException
-            ) {
+
+                    if (
+                        listeningGroupId == groupId &&
+                        _replyingTo.value?.id == selectedReply?.id
+                    ) {
+                        _replyingTo.value = null
+                    }
+
+                    onResult(true, null)
+                }.onFailure { error ->
+                    runCatching {
+                        chatRepository.removeFailedOutgoingMessage(groupId, messageId)
+                    }.onFailure { cacheError ->
+                        Log.e(
+                            "GroupChatViewModel",
+                            "Failed group message could not be removed from Room",
+                            cacheError
+                        )
+                    }
+
+                    onResult(
+                        false,
+                        error.message ?: "Could not send message."
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Leave the Room row marked pending. The next group session
+                // will reconcile it with Firebase using the same message ID.
                 throw e
             } catch (e: Exception) {
-                _pendingMessageIds.value =
-                    _pendingMessageIds.value - messageId
+                runCatching {
+                    chatRepository.removeFailedOutgoingMessage(groupId, messageId)
+                }
                 onResult(
                     false,
                     e.message ?: "Could not send message."
@@ -483,6 +656,11 @@ class GroupChatViewModel : ViewModel() {
     override fun onCleared() {
         groupJob?.cancel()
         messagesJob?.cancel()
+        pendingMessagesJob?.cancel()
+        pendingReconciliationJob?.cancel()
+        connectionListenerJob?.cancel()
+        groupReadJobs.values.forEach { it.cancel() }
+        groupReadJobs.clear()
         chatRepository.clearOlderMessagePages(listeningGroupId)
         super.onCleared()
     }
