@@ -84,8 +84,9 @@ fun CreateGroupScreen(
             return@LaunchedEffect
         }
 
-        kotlinx.coroutines.delay(220)
+        results = emptyList()
         isSearching = true
+        kotlinx.coroutines.delay(220)
 
         results = withContext(Dispatchers.IO) {
             runCatching {
@@ -125,8 +126,12 @@ fun CreateGroupScreen(
 
         if (index >= 0) {
             selectedUsers.removeAt(index)
+            errorMessage = null
         } else if (selectedUsers.size < 49) {
             selectedUsers.add(user)
+            errorMessage = null
+        } else {
+            errorMessage = "A group can have at most 50 members, including you."
         }
     }
 
