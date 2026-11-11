@@ -300,7 +300,7 @@ fun SwipeableMessageBubble(
                                 vertical = 11.dp
                             )
                 ) {
-                    if (showSenderName) {
+                    if (showSenderName && message.senderNickname.isNotBlank()) {
                         Text(
                             text = message.senderNickname,
                             style = MaterialTheme.typography.labelSmall.copy(
