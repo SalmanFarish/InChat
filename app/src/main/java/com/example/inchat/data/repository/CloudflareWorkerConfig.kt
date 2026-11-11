@@ -3,8 +3,8 @@ package com.example.inchat.data.repository
 /**
  * Shared base URL for the existing InChat Cloudflare Worker.
  *
- * Replace the placeholder after deploying the Worker. Keep secrets in
- * Cloudflare Worker secrets; this URL is public configuration.
+ * Public base URL for the deployed InChat Cloudflare Worker.
+ * Keep Firebase service-account credentials in Cloudflare secrets, never here.
  */
 object CloudflareWorkerConfig {
     const val BASE_URL =
