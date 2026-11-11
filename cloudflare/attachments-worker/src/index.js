@@ -145,6 +145,619 @@ async function authorizeMessageSender(
 
   return message;
 }
+
+let cachedAdminToken = "";
+let cachedAdminTokenExpiresAt = 0;
+let cachedAdminTokenEmail = "";
+
+function base64Url(value) {
+  const bytes = typeof value === "string" ?
+    new TextEncoder().encode(value) :
+    value;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary)
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+async function getFirebaseAdminToken(env) {
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not configured.");
+  }
+
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (_) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON.");
+  }
+
+  if (
+    !serviceAccount.client_email ||
+    !serviceAccount.private_key ||
+    !serviceAccount.project_id
+  ) {
+    throw new Error("Firebase service account fields are incomplete.");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    cachedAdminToken &&
+    cachedAdminTokenEmail === serviceAccount.client_email &&
+    cachedAdminTokenExpiresAt > now + 60
+  ) {
+    return {
+      token: cachedAdminToken,
+      projectId: serviceAccount.project_id,
+    };
+  }
+
+  const pem = serviceAccount.private_key
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s/g, "");
+  const keyBytes = Uint8Array.from(
+    atob(pem),
+    (character) => character.charCodeAt(0),
+  );
+
+  const privateKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyBytes,
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"],
+  );
+
+  const header = base64Url(JSON.stringify({
+    alg: "RS256",
+    typ: "JWT",
+  }));
+  const claim = base64Url(JSON.stringify({
+    iss: serviceAccount.client_email,
+    scope:
+      "https://www.googleapis.com/auth/firebase.database " +
+      "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  }));
+  const unsigned = header + "." + claim;
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    privateKey,
+    new TextEncoder().encode(unsigned),
+  );
+  const assertion = unsigned + "." + base64Url(new Uint8Array(signature));
+
+  const tokenResponse = await fetch(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type:
+          "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: assertion,
+      }),
+    },
+  );
+
+  const tokenBody = await tokenResponse.json();
+  if (!tokenResponse.ok || !tokenBody.access_token) {
+    console.error("Firebase service-account token exchange failed", tokenBody);
+    throw new Error("Could not authorize with Firebase.");
+  }
+
+  cachedAdminToken = tokenBody.access_token;
+  cachedAdminTokenEmail = serviceAccount.client_email;
+  cachedAdminTokenExpiresAt = now + Number(tokenBody.expires_in || 3600);
+
+  return {
+    token: cachedAdminToken,
+    projectId: serviceAccount.project_id,
+  };
+}
+
+async function adminDatabaseRequest(
+  env,
+  accessToken,
+  path,
+  method = "GET",
+  body = undefined,
+) {
+  const cleanPath = path ?
+    "/" + path.split("/").map(encodeURIComponent).join("/") :
+    "";
+  const response = await fetch(
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+      cleanPath +
+      ".json",
+    {
+      method: method,
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        ...(body === undefined ?
+          {} :
+          { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+  );
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(
+      "Realtime Database request failed (" +
+      response.status +
+      "): " +
+      details.slice(0, 300),
+    );
+  }
+
+  if (response.status === 204) return null;
+  const responseText = await response.text();
+  return responseText ? JSON.parse(responseText) : null;
+}
+
+async function fcmRequest(accessToken, url, method, body) {
+  const response = await fetch(url, {
+    method: method,
+    headers: {
+      Authorization: "Bearer " + accessToken,
+      "Content-Type": "application/json",
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+
+  const responseText = await response.text();
+  let responseBody = {};
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : {};
+  } catch (_) {
+    responseBody = { message: responseText.slice(0, 300) };
+  }
+
+  if (!response.ok && response.status !== 409 && response.status !== 404) {
+    console.error("FCM request failed", {
+      status: response.status,
+      response: responseBody,
+    });
+    throw new Error("FCM request failed (" + response.status + ").");
+  }
+
+  return {
+    ok: response.ok || response.status === 409 || response.status === 404,
+    status: response.status,
+    body: responseBody,
+  };
+}
+
+function groupTopicName(chatId) {
+  return "inchat_group_" + chatId;
+}
+
+async function changeGroupTopicSubscription(
+  env,
+  accessToken,
+  projectId,
+  chatId,
+  registrationToken,
+  subscribe,
+) {
+  const topic = groupTopicName(chatId);
+  const registration = encodeURIComponent(registrationToken);
+  const base =
+    "https://fcm.googleapis.com/v1/projects/" +
+    encodeURIComponent(projectId) +
+    "/registrations/" +
+    registration +
+    "/topicSubscriptions";
+
+  if (subscribe) {
+    const result = await fcmRequest(
+      accessToken,
+      base + "?topicName=" + encodeURIComponent(topic),
+      "POST",
+      {},
+    );
+    return {
+      subscribed: result.status !== 409,
+      alreadySubscribed: result.status === 409,
+    };
+  }
+
+  await fcmRequest(
+    accessToken,
+    base + "/" + encodeURIComponent(topic) + "?allowMissing=true",
+    "DELETE",
+    undefined,
+  );
+  return { unsubscribed: true };
+}
+
+async function updateGroupTopic(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+  const targetUid = cleanSegment(body.targetUid, "targetUid");
+  const subscribe = body.subscribe === true;
+
+  if (typeof body.subscribe !== "boolean") {
+    return json({ error: "subscribe must be a boolean." }, 400);
+  }
+
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+
+  if (!chat || chat.type !== "group") {
+    return json({ error: "Group not found." }, 404);
+  }
+
+  const actorRole = chat.members && chat.members[uid];
+  const targetRole = chat.members && chat.members[targetUid];
+
+  if (subscribe) {
+    if (
+      !targetRole ||
+      (uid !== targetUid && actorRole !== "admin")
+    ) {
+      return json({ error: "Not allowed to subscribe this member." }, 403);
+    }
+  } else if (uid !== targetUid && actorRole !== "admin") {
+    return json({ error: "Only an admin can remove another member's topic." }, 403);
+  }
+
+  const registrationToken = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "privateUsers/" + targetUid + "/fcmToken",
+  );
+
+  if (
+    typeof registrationToken !== "string" ||
+    registrationToken.trim() === ""
+  ) {
+    return json({
+      success: true,
+      skipped: true,
+      reason: "No FCM token is registered for this member.",
+    });
+  }
+
+  const result = await changeGroupTopicSubscription(
+    env,
+    adminAuth.token,
+    adminAuth.projectId,
+    chatId,
+    registrationToken,
+    subscribe,
+  );
+
+  return json({
+    success: true,
+    chatId: chatId,
+    targetUid: targetUid,
+    ...result,
+  });
+}
+
+async function syncGroupConversationPreview(
+  env,
+  adminToken,
+  chatId,
+  chat,
+  message,
+  messageId,
+) {
+  const members = Object.keys(chat.members || {});
+  if (members.length < 2) return;
+
+  const latestMessages = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages",
+  );
+
+  let latestId = "";
+  let latestMessage = null;
+  for (const entryId of Object.keys(latestMessages || {})) {
+    const entry = latestMessages[entryId];
+    if (
+      entry &&
+      typeof entry.timestamp === "number" &&
+      (!latestMessage || entry.timestamp > latestMessage.timestamp)
+    ) {
+      latestId = entryId;
+      latestMessage = entry;
+    }
+  }
+
+  const updates = {};
+  if (latestId === messageId && latestMessage) {
+    const isSystemEvent =
+      typeof latestMessage.systemEvent === "string" &&
+      latestMessage.systemEvent.trim() !== "";
+    const groupName = typeof chat.name === "string" ?
+      chat.name.trim() :
+      "";
+
+    for (const memberId of members) {
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "chatId"] = chatId;
+      updates[base + "chatType"] = "group";
+      updates[base + "groupName"] = groupName;
+      updates[base + "memberCount"] = members.length;
+      updates[base + "otherUserId"] = "";
+      updates[base + "otherUsername"] = "";
+      updates[base + "lastMessage"] =
+        typeof latestMessage.text === "string" ?
+          latestMessage.text :
+          "";
+      updates[base + "lastTimestamp"] = latestMessage.timestamp;
+      updates[base + "lastSenderId"] =
+        isSystemEvent ? "" : (latestMessage.senderId || "");
+      updates[base + "lastSenderNickname"] =
+        isSystemEvent ? "" : (latestMessage.senderNickname || "");
+    }
+  }
+
+  const isSystemEvent =
+    typeof message.systemEvent === "string" &&
+    message.systemEvent.trim() !== "";
+
+  if (!isSystemEvent) {
+    for (const memberId of members) {
+      if (memberId === message.senderId) continue;
+      updates[
+        "userChats/" + memberId + "/" + chatId + "/unreadCount"
+      ] = { ".sv": { increment: 1 } };
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await adminDatabaseRequest(
+      env,
+      adminToken,
+      "",
+      "PATCH",
+      updates,
+    );
+  }
+}
+
+async function processMessageEvent(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+  const messageId = cleanSegment(body.messageId, "messageId");
+
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+  const message = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId + "/messages/" + messageId,
+  );
+
+  if (!chat || !message || message.senderId !== uid) {
+    return json({ error: "Message or chat not found for this sender." }, 403);
+  }
+
+  const isGroup = chat.type === "group";
+  const systemEvent = typeof message.systemEvent === "string" ?
+    message.systemEvent.trim() :
+    "";
+
+  if (isGroup) {
+    const isMember = Boolean(chat.members && chat.members[uid]);
+    if (!isMember && systemEvent !== "member_left") {
+      return json({ error: "Sender is not a current group member." }, 403);
+    }
+    if (systemEvent && !isMember && systemEvent !== "member_left") {
+      return json({ error: "Invalid group activity sender." }, 403);
+    }
+
+    await syncGroupConversationPreview(
+      env,
+      adminAuth.token,
+      chatId,
+      chat,
+      message,
+      messageId,
+    );
+
+    if (systemEvent) {
+      return json({
+        success: true,
+        notificationSent: false,
+        reason: "Group activity messages are not push-notified.",
+      });
+    }
+  } else {
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (participantA !== uid && participantB !== uid) {
+      return json({ error: "Sender is not a chat participant." }, 403);
+    }
+  }
+
+  const messageText = typeof message.text === "string" ?
+    message.text.trim() :
+    "Sent an attachment";
+  const senderNickname =
+    typeof message.senderNickname === "string" &&
+    message.senderNickname.trim() !== "" ?
+      message.senderNickname.trim() :
+      "InChat user";
+
+  if (!isGroup) {
+    const receiverId =
+      chat.participantA === uid ?
+        chat.participantB :
+        chat.participantA;
+
+    const senderBlockedReceiver = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "blockedUsers/" + uid + "/" + receiverId,
+    );
+    const receiverBlockedSender = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "blockedUsers/" + receiverId + "/" + uid,
+    );
+
+    if (senderBlockedReceiver || receiverBlockedSender) {
+      return json({
+        success: true,
+        notificationSent: false,
+        reason: "Notifications are disabled for blocked users.",
+      });
+    }
+
+    const receiverToken = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "privateUsers/" + receiverId + "/fcmToken",
+    );
+    if (
+      typeof receiverToken !== "string" ||
+      receiverToken.trim() === ""
+    ) {
+      return json({
+        success: true,
+        notificationSent: false,
+        reason: "The receiver has no registered FCM token.",
+      });
+    }
+
+    const notification = {
+      message: {
+        token: receiverToken,
+        notification: {
+          title: "@" + senderNickname,
+          body: messageText,
+        },
+        data: {
+          type: "chat_message",
+          chatId: chatId,
+          messageId: messageId,
+          senderId: uid,
+          senderName: senderNickname,
+          message: messageText,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "inchat_messages",
+            icon: "ic_stat_inchat",
+          },
+        },
+      },
+    };
+
+    const result = await fcmRequest(
+      adminAuth.token,
+      "https://fcm.googleapis.com/v1/projects/" +
+        encodeURIComponent(adminAuth.projectId) +
+        "/messages:send",
+      "POST",
+      notification,
+    );
+
+    if (
+      result.status === 404 ||
+      JSON.stringify(result.body).includes("UNREGISTERED")
+    ) {
+      await adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        "privateUsers/" + receiverId + "/fcmToken",
+        "DELETE",
+      );
+    }
+
+    return json({
+      success: true,
+      notificationSent: result.ok,
+      chatId: chatId,
+      messageId: messageId,
+    });
+  }
+
+  const groupName =
+    typeof chat.name === "string" && chat.name.trim() !== "" ?
+      chat.name.trim() :
+      "Group";
+
+  const result = await fcmRequest(
+    adminAuth.token,
+    "https://fcm.googleapis.com/v1/projects/" +
+      encodeURIComponent(adminAuth.projectId) +
+      "/messages:send",
+    "POST",
+    {
+      message: {
+        topic: groupTopicName(chatId),
+        notification: {
+          title: groupName + " • " + senderNickname,
+          body: messageText,
+        },
+        data: {
+          type: "group_message",
+          chatId: chatId,
+          messageId: messageId,
+          senderId: uid,
+          senderName: senderNickname,
+          groupName: groupName,
+          message: messageText,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "inchat_messages",
+            icon: "ic_stat_inchat",
+          },
+        },
+      },
+    },
+  );
+
+  return json({
+    success: true,
+    notificationSent: result.ok,
+    chatId: chatId,
+    messageId: messageId,
+    topic: groupTopicName(chatId),
+  });
+}
+
 function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
@@ -290,12 +903,29 @@ export default {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers":
               "Authorization, Content-Type, X-InChat-Attachment-Type, X-InChat-File-Name",
-            "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, PUT, DELETE, POST, OPTIONS",
           },
         });
       }
 
       const url = new URL(request.url);
+      const user = await authenticate(getBearer(request), env);
+      const adminAuth = await getFirebaseAdminToken(env);
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/events/message"
+      ) {
+        return processMessageEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/groups/topic"
+      ) {
+        return updateGroupTopic(request, env, user.uid, adminAuth);
+      }
+
       const match = url.pathname.match(
         /^\/v1\/attachments\/([^/]+)\/([^/]+)$/,
       );
@@ -305,7 +935,6 @@ export default {
       const chatId = cleanSegment(match[1], "chatId");
       const messageId = cleanSegment(match[2], "messageId");
 
-      const user = await authenticate(getBearer(request), env);
       await authorizeChat(chatId, user.uid, user.token, env);
 
       if (request.method === "PUT") {
