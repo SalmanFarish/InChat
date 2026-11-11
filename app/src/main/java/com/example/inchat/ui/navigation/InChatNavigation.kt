@@ -2,7 +2,6 @@ package com.example.inchat.ui.navigation
 
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -48,7 +47,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1425,8 +1423,6 @@ private fun InChatBottomBar(
     pagerState: PagerState,
     onPageSelected: (Int) -> Unit
 ) {
-    val outerPurple = androidx.compose.ui.graphics.Color(0xFF713BFA)
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1437,12 +1433,12 @@ private fun InChatBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(76.dp)
+                .height(70.dp)
                 .clip(RoundedCornerShape(50.dp))
-                .background(outerPurple)
+                .background(MaterialTheme.colorScheme.surface)
                 .border(
-                    width = 1.dp,
-                    color = androidx.compose.ui.graphics.Color(0xFF8C63FF),
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
                     shape = RoundedCornerShape(50.dp)
                 )
                 .padding(5.dp),
@@ -1472,7 +1468,7 @@ private fun BottomNavigationItem(
 ) {
     val selectedBackground by animateColorAsState(
         targetValue = if (selected) {
-            androidx.compose.ui.graphics.Color(0xFFD9C9FF)
+            MaterialTheme.colorScheme.primaryContainer
         } else {
             androidx.compose.ui.graphics.Color.Transparent
         },
@@ -1485,9 +1481,9 @@ private fun BottomNavigationItem(
 
     val contentColor by animateColorAsState(
         targetValue = if (selected) {
-            androidx.compose.ui.graphics.Color(0xFF211438)
+            MaterialTheme.colorScheme.primary
         } else {
-            androidx.compose.ui.graphics.Color(0xFFE9DFFF)
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = spring(
             dampingRatio = 0.86f,
@@ -1501,7 +1497,7 @@ private fun BottomNavigationItem(
             .clip(RoundedCornerShape(40.dp))
             .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(horizontal = 5.dp, vertical = 7.dp),
+            .padding(horizontal = 5.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -1509,20 +1505,20 @@ private fun BottomNavigationItem(
             imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
             contentDescription = item.label,
             tint = contentColor,
-            modifier = Modifier.size(if (selected) 27.dp else 26.dp)
+            modifier = Modifier.size(22.dp)
         )
 
         if (selected) {
             Spacer(Modifier.height(2.dp))
             Text(
                 text = item.label,
-                style = MaterialTheme.typography.labelLarge.copy(
+                style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = JetBrainsMono,
-                    fontSize = 14.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.1.sp
                 ),
-                color = contentColor
+                color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     }
