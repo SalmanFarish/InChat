@@ -52,6 +52,9 @@ class InChatFirebaseMessagingService :
 
         const val NOTIFICATION_TYPE_CHAT =
             "chat_message"
+
+        const val NOTIFICATION_TYPE_GROUP =
+            "group_message"
     }
 
     override fun onMessageReceived(
@@ -101,21 +104,37 @@ class InChatFirebaseMessagingService :
                 ?.trim()
                 .orEmpty()
 
+        val isGroupMessage =
+            data["type"] == NOTIFICATION_TYPE_GROUP
+
+        val groupName =
+            data["groupName"]
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: "Group"
+
+        val notificationTitle =
+            if (isGroupMessage) groupName else "@$senderName"
+
+        val notificationBody =
+            if (isGroupMessage) {
+                "$senderName: $messageText"
+            } else {
+                messageText
+            }
+
         showNotification(
-            senderName =
-                senderName,
-
-            messageText =
-                messageText,
-
-            chatId =
-                chatId,
-
-            otherUserId =
-                senderId,
-
-            messageId =
-                messageId
+            senderName = senderName,
+            notificationTitle = notificationTitle,
+            notificationBody = notificationBody,
+            notificationType = if (isGroupMessage) {
+                NOTIFICATION_TYPE_GROUP
+            } else {
+                NOTIFICATION_TYPE_CHAT
+            },
+            chatId = chatId,
+            otherUserId = senderId,
+            messageId = messageId
         )
     }
 
@@ -151,7 +170,9 @@ class InChatFirebaseMessagingService :
 
     private fun showNotification(
         senderName: String,
-        messageText: String,
+        notificationTitle: String,
+        notificationBody: String,
+        notificationType: String,
         chatId: String,
         otherUserId: String,
         messageId: String
@@ -189,7 +210,7 @@ class InChatFirebaseMessagingService :
 
                 putExtra(
                     EXTRA_NOTIFICATION_TYPE,
-                    NOTIFICATION_TYPE_CHAT
+                    notificationType
                 )
 
                 putExtra(
@@ -256,16 +277,16 @@ class InChatFirebaseMessagingService :
                     com.example.inchat.R.drawable.ic_stat_inchat
                 )
                 .setContentTitle(
-                    "@$senderName"
+                    notificationTitle
                 )
                 .setContentText(
-                    messageText
+                    notificationBody
                 )
                 .setStyle(
                     NotificationCompat
                         .BigTextStyle()
                         .bigText(
-                            messageText
+                            notificationBody
                         )
                 )
                 .setPriority(
