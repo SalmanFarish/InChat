@@ -149,6 +149,7 @@ async function authorizeMessageSender(
 let cachedAdminToken = "";
 let cachedAdminTokenExpiresAt = 0;
 let cachedAdminTokenEmail = "";
+let cachedAdminTokenProjectId = "";
 
 function base64Url(value) {
   const bytes = typeof value === "string" ?
@@ -165,41 +166,67 @@ function base64Url(value) {
 }
 
 async function getFirebaseAdminToken(env) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not configured.");
-  }
-
   let serviceAccount;
-  try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  } catch (_) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON.");
+
+  if (env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+      serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    } catch (_) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON.");
+    }
+  } else {
+    // Support the split Cloudflare variables already used by the deployed
+    // Worker, while also accepting a single service-account JSON secret.
+    serviceAccount = {
+      client_email: env.FIREBASE_CLIENT_EMAIL,
+      private_key: env.FIREBASE_PRIVATE_KEY,
+      project_id: env.FIREBASE_PROJECT_ID,
+    };
   }
 
   if (
-    !serviceAccount.client_email ||
-    !serviceAccount.private_key ||
-    !serviceAccount.project_id
+    typeof serviceAccount.client_email !== "string" ||
+    !serviceAccount.client_email.trim() ||
+    typeof serviceAccount.private_key !== "string" ||
+    !serviceAccount.private_key.trim() ||
+    typeof serviceAccount.project_id !== "string" ||
+    !serviceAccount.project_id.trim()
   ) {
-    throw new Error("Firebase service account fields are incomplete.");
+    throw new Error(
+      "Configure FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_CLIENT_EMAIL, " +
+      "FIREBASE_PRIVATE_KEY and FIREBASE_PROJECT_ID.",
+    );
   }
+
+  const clientEmail = serviceAccount.client_email.trim();
+  const projectId = serviceAccount.project_id.trim();
+  const normalizedPrivateKey = serviceAccount.private_key
+    .trim()
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "")
+    .replace(/\r/g, "");
 
   const now = Math.floor(Date.now() / 1000);
   if (
     cachedAdminToken &&
-    cachedAdminTokenEmail === serviceAccount.client_email &&
+    cachedAdminTokenEmail === clientEmail &&
+    cachedAdminTokenProjectId === projectId &&
     cachedAdminTokenExpiresAt > now + 60
   ) {
     return {
       token: cachedAdminToken,
-      projectId: serviceAccount.project_id,
+      projectId: projectId,
     };
   }
 
-  const pem = serviceAccount.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s/g, "");
+  const keyMatch = normalizedPrivateKey.match(
+    /-----BEGIN PRIVATE KEY-----([\s\S]*?)-----END PRIVATE KEY-----/,
+  );
+  if (!keyMatch) {
+    throw new Error("FIREBASE_PRIVATE_KEY must be a PKCS#8 PEM private key.");
+  }
+
+  const pem = keyMatch[1].replace(/\s/g, "");
   const keyBytes = Uint8Array.from(
     atob(pem),
     (character) => character.charCodeAt(0),
@@ -221,11 +248,12 @@ async function getFirebaseAdminToken(env) {
     typ: "JWT",
   }));
   const claim = base64Url(JSON.stringify({
-    iss: serviceAccount.client_email,
+    iss: clientEmail,
     scope:
       "https://www.googleapis.com/auth/userinfo.email " +
       "https://www.googleapis.com/auth/firebase.database " +
-      "https://www.googleapis.com/auth/firebase.messaging",
+      "https://www.googleapis.com/auth/firebase.messaging " +
+      "https://www.googleapis.com/auth/identitytoolkit",
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
@@ -260,12 +288,13 @@ async function getFirebaseAdminToken(env) {
   }
 
   cachedAdminToken = tokenBody.access_token;
-  cachedAdminTokenEmail = serviceAccount.client_email;
+  cachedAdminTokenEmail = clientEmail;
+  cachedAdminTokenProjectId = projectId;
   cachedAdminTokenExpiresAt = now + Number(tokenBody.expires_in || 3600);
 
   return {
     token: cachedAdminToken,
-    projectId: serviceAccount.project_id,
+    projectId: projectId,
   };
 }
 
@@ -1065,6 +1094,279 @@ async function processMessageEvent(request, env, uid, adminAuth) {
   });
 }
 
+
+/*
+ * =========================================================
+ * PASSWORD RECOVERY (legacy InChat recovery-code flow)
+ * =========================================================
+ *
+ * This endpoint intentionally does not require a signed-in Firebase user.
+ * A one-time recovery code is consumed with an ETag-guarded whole-record PUT
+ * so two concurrent requests cannot both use the same code.
+ */
+function normalizeRecoveryCode(code) {
+  return code.trim().toUpperCase().replace(/-/g, "").replace(/^INCH/, "");
+}
+
+function hexToBytes(hex) {
+  if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) {
+    throw new Error("Invalid recovery-code salt.");
+  }
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function hashRecoveryCode(saltHex, recoveryCode) {
+  const salt = hexToBytes(saltHex);
+  const codeBytes = new TextEncoder().encode(normalizeRecoveryCode(recoveryCode));
+  const combined = new Uint8Array(salt.length + codeBytes.length);
+  combined.set(salt, 0);
+  combined.set(codeBytes, salt.length);
+
+  const digest = await crypto.subtle.digest("SHA-256", combined);
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function constantTimeEquals(first, second) {
+  if (typeof first !== "string" || typeof second !== "string") return false;
+  if (first.length !== second.length) return false;
+
+  let difference = 0;
+  for (let index = 0; index < first.length; index += 1) {
+    difference |=
+      first.toLowerCase().charCodeAt(index) ^
+      second.toLowerCase().charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function consumeRecoveryCode(
+  env,
+  adminToken,
+  uid,
+  index,
+  expectedHash,
+) {
+  const url =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/recoveryCodes/" +
+    encodeURIComponent(uid) +
+    ".json";
+
+  const readResponse = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error("Could not read recovery-code state.");
+  }
+
+  const currentData = await readResponse.json();
+  const currentHash = currentData?.codes?.[String(index)];
+  if (!constantTimeEquals(currentHash, expectedHash)) return false;
+
+  const etag = readResponse.headers.get("ETag");
+  if (!etag) throw new Error("Firebase did not return a recovery-code ETag.");
+
+  const nextData = {
+    ...currentData,
+    codes: {
+      ...currentData.codes,
+      [String(index)]: null,
+    },
+  };
+
+  const writeResponse = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextData),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error("Could not atomically consume the recovery code.");
+  }
+
+  return true;
+}
+
+async function updateFirebasePassword(
+  projectId,
+  uid,
+  newPassword,
+  adminToken,
+) {
+  const response = await fetch(
+    "https://identitytoolkit.googleapis.com/v1/projects/" +
+      encodeURIComponent(projectId) +
+      "/accounts:update",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        localId: uid,
+        password: newPassword,
+        returnSecureToken: false,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const details = await response.text();
+    console.error("Firebase password update failed", {
+      status: response.status,
+      response: details.slice(0, 300),
+    });
+    throw new Error("Firebase Authentication could not update the password.");
+  }
+}
+
+async function recoverPassword(request, env, adminAuth) {
+  try {
+    let body;
+    try {
+      body = await request.json();
+    } catch (_) {
+      return json({ error: "Invalid JSON body." }, 400);
+    }
+
+    const username =
+      typeof body.username === "string" ? body.username.trim() : "";
+    const recoveryCode =
+      typeof body.recoveryCode === "string" ? body.recoveryCode.trim() : "";
+    const newPassword =
+      typeof body.newPassword === "string" ? body.newPassword : "";
+
+    if (!username || !recoveryCode || !newPassword) {
+      return json({
+        error: "Username, recovery code and new password are required.",
+      }, 400);
+    }
+
+    if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    if (newPassword.length < 6 || newPassword.length > 4096) {
+      return json({ error: "Password must be between 6 and 4096 characters." }, 400);
+    }
+
+    const uid = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "usernames/" + username.toLowerCase(),
+    );
+
+    // Keep the response identical for unknown usernames and invalid codes.
+    if (typeof uid !== "string" || !uid.trim()) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const cleanUid = uid.trim();
+    const recoveryData = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "recoveryCodes/" + cleanUid,
+    );
+
+    if (
+      !recoveryData ||
+      typeof recoveryData.salt !== "string" ||
+      !/^[0-9a-fA-F]{32}$/.test(recoveryData.salt) ||
+      !recoveryData.codes ||
+      typeof recoveryData.codes !== "object"
+    ) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const suppliedHash = await hashRecoveryCode(
+      recoveryData.salt,
+      recoveryCode,
+    );
+
+    let matchedIndex = -1;
+    let matchedHash = "";
+    for (let index = 0; index < 5; index += 1) {
+      const storedHash = recoveryData.codes[String(index)];
+      if (
+        typeof storedHash === "string" &&
+        constantTimeEquals(suppliedHash, storedHash)
+      ) {
+        matchedIndex = index;
+        matchedHash = storedHash;
+        break;
+      }
+    }
+
+    if (matchedIndex < 0) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const consumed = await consumeRecoveryCode(
+      env,
+      adminAuth.token,
+      cleanUid,
+      matchedIndex,
+      matchedHash,
+    );
+
+    if (!consumed) {
+      return json({
+        error: "This recovery code has already been used. Try another code.",
+      }, 401);
+    }
+
+    try {
+      await updateFirebasePassword(
+        adminAuth.projectId,
+        cleanUid,
+        newPassword,
+        adminAuth.token,
+      );
+    } catch (error) {
+      // The one-time code stays consumed; do not silently make it reusable.
+      console.error("Password recovery could not finish after code consumption", {
+        uid: cleanUid,
+        error: String(error),
+      });
+      return json({
+        error:
+          "The recovery code was consumed, but the password could not be changed. " +
+          "Contact support before trying another code.",
+      }, 500);
+    }
+
+    console.log("Password recovery completed", { uid: cleanUid });
+    return json({
+      success: true,
+      message: "Password changed successfully.",
+    });
+  } catch (error) {
+    console.error("Password recovery failed", String(error));
+    return json({ error: "Could not complete password recovery." }, 500);
+  }
+}
+
 function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
@@ -1216,6 +1518,15 @@ export default {
       }
 
       const url = new URL(request.url);
+
+      if (
+        request.method === "POST" &&
+        (url.pathname === "/recover" || url.pathname === "/v1/recover")
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return recoverPassword(request, env, adminAuth);
+      }
+
       const user = await authenticate(getBearer(request), env);
 
       if (
