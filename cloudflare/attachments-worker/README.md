@@ -1,41 +1,110 @@
-# InChat Attachments Worker
+# InChat Cloudflare Worker
 
-This Worker is the remote temporary attachment layer for InChat voice messages and small files.
+This Worker is the free-plan server layer for InChat. It handles private R2
+attachments, direct and group push notifications, group inbox previews, and
+server-managed FCM topic membership.
 
-## Storage model
+## Services used
 
-- Firebase Realtime Database stores only attachment metadata.
-- Cloudflare R2 stores the binary object.
-- Android keeps the downloaded file in the app's local attachment directory.
-- Only the attachment sender can request DELETE for the remote object; view-once photos are deleted automatically after a recipient download.
-- No R2 access key is shipped inside the Android APK.
+- Firebase Authentication verifies app users.
+- Firebase Realtime Database remains the chat and user-data database.
+- Firebase Cloud Messaging delivers push notifications.
+- Cloudflare Workers runs the trusted API.
+- Cloudflare R2 stores attachment bytes.
 
-## Limits
+InChat does not deploy Firebase Cloud Functions or use Firebase Cloud Storage.
+The Android app never contains a Firebase service-account key or FCM server
+credential.
 
-- Voice: 1 MiB maximum per recording.
-- Other files: 5 MiB maximum.
-- R2 object key: `attachments/{chatId}/{messageId}`.
-
-## Cloudflare setup
+## Worker setup
 
 1. Create an R2 bucket named `inchat-attachments`.
-2. From this directory install dependencies:
-   `npm install`
-3. Set the Firebase Web API key as a Worker secret:
-   `npx wrangler secret put FIREBASE_WEB_API_KEY`
-4. Deploy:
-   `npm run deploy`
-5. Copy the deployed Worker URL into
-   `CloudflareAttachmentRepository.BASE_URL` in the Android project, keeping the
-   `/v1/attachments` suffix.
+2. Install dependencies from this directory:
 
-The Worker authenticates the Firebase ID token, verifies chat membership through
-Realtime Database security rules, and verifies that the uploader owns the
-message before accepting an object.
+   ```sh
+   npm install
+   npx wrangler login
+   ```
 
-Do not put an R2 access key or secret in the Android app.
+3. Set the Firebase Web API key as a Worker secret. It is present in the
+   Android `google-services.json`, but the Worker reads it from its secret
+   store:
 
-## Why R2
+   ```sh
+   npx wrangler secret put FIREBASE_WEB_API_KEY
+   ```
 
-Firebase Cloud Storage now requires the Firebase Blaze plan. InChat is staying
-on Spark, so Firebase Storage is not used for attachments.
+4. Create a Google Cloud service account in Firebase project
+   `inchat-24b8b`. Grant it these roles:
+
+   - Firebase Admin (`roles/firebase.admin`) for Realtime Database access.
+   - Firebase Cloud Messaging API Admin
+     (`roles/firebasecloudmessaging.admin`) for sending messages and managing
+     topic subscriptions.
+
+   Enable the **Firebase Cloud Messaging API** for the project. Do not enable
+   Cloud Build or Artifact Registry for this Worker.
+
+5. Create a JSON key for that service account. From this directory, run:
+
+   ```sh
+   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+   ```
+
+   Paste the complete contents of the service-account JSON file when Wrangler
+   prompts for the value. Do not commit this JSON file, paste it into chat, or
+   put it in the Android project.
+
+6. Deploy the Worker:
+
+   ```sh
+   npm run deploy
+   ```
+
+7. Copy the deployed `workers.dev` URL into
+   `CloudflareWorkerConfig.BASE_URL` in the Android project. Use the URL only,
+   with no `/v1` suffix. Both notifications and attachment requests use this
+   shared setting.
+
+## Notification flow
+
+- Android writes a message to Realtime Database first.
+- After the database confirms the write, Android calls
+  `POST /v1/events/message` with the chat and message IDs.
+- The Worker verifies the Firebase ID token and the persisted message.
+- Direct messages are sent to the recipient's saved FCM token. Blocked
+  conversations are not notified.
+- Group messages are sent to a private group topic. The Worker manages topic
+  membership from verified group membership, and excludes the sender from
+  their own group notifications.
+- Group inbox previews and unread counts are updated by the Worker. Group
+  activity entries update previews but do not send push notifications.
+- Message edits and deletions call `POST /v1/events/preview` to rebuild the
+  latest preview without changing unread counts.
+
+The app does not choose an FCM recipient or subscribe itself to private group
+topics. The Worker checks membership before changing topic subscriptions.
+
+## Attachments
+
+- Firebase Realtime Database stores attachment metadata only.
+- Cloudflare R2 stores the binary object.
+- Voice attachments are limited to 1 MiB.
+- View-once photos are limited to 5 MiB and are deleted after a recipient
+  downloads them.
+- Only the message sender can upload or delete its remote attachment.
+- A Firebase ID token and group/chat membership are required for attachment
+  access.
+
+## Free-plan notes
+
+The Firebase project can remain on Spark because this architecture does not
+deploy Firebase Cloud Functions or use Firebase Cloud Storage. Cloudflare
+Workers and R2 remain subject to their own free-plan quotas and limits.
+
+Do not run `firebase deploy --only functions`. Deploy Firebase Realtime
+Database rules separately when they change:
+
+```sh
+firebase deploy --only database
+```
