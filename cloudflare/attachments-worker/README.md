@@ -105,7 +105,10 @@ credential.
 10. Password recovery is available at `POST /recover` (also
     `POST /v1/recover`). It uses the same Firebase service-account secret.
     The service account therefore also needs Firebase Authentication Admin
-    permission to update account passwords.
+    (`roles/firebaseauth.admin`) permission to update account passwords.
+    The Wrangler config applies separate approximate per-minute limits by
+    source IP and normalized username. Cloudflare's rate limits are regional
+    and eventually consistent, not strict global lockouts.
 
 ## Notification flow
 
