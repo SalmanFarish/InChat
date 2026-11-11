@@ -15,12 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PersonAdd
@@ -51,7 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.User
-import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
@@ -66,15 +62,10 @@ fun GroupInfoScreen(
     currentUserId: String,
     groupId: String,
     onBackClick: () -> Unit,
-    onGroupThemeClick: () -> Unit,
-    onGroupPhotoClick: () -> Unit = {},
     onGroupLeft: () -> Unit = {}
 ) {
     val groupRepository =
         remember { GroupChatRepository() }
-
-    val appearanceRepository =
-        remember { ChatAppearanceRepository() }
 
     val userRepository =
         remember { UserRepository() }
@@ -82,11 +73,6 @@ fun GroupInfoScreen(
     val group by
         groupRepository
             .observeGroup(groupId)
-            .collectAsState(initial = null)
-
-    val selectedThemeId by
-        appearanceRepository
-            .observeTheme(groupId)
             .collectAsState(initial = null)
 
     var memberUsers by
@@ -461,13 +447,6 @@ fun GroupInfoScreen(
             currentUserId = currentUserId,
             memberUsers = memberUsers,
             membersLoading = membersLoading,
-            selectedTheme =
-                ChatTheme.fromId(
-                    id = selectedThemeId,
-                    defaultTheme = ChatTheme.BITCHAT_GREEN
-                ),
-            onGroupThemeClick = onGroupThemeClick,
-            onGroupPhotoClick = onGroupPhotoClick,
             onAddMembersClick = {
                 memberSearch = ""
                 showAddMembersDialog = true
@@ -493,9 +472,6 @@ private fun GroupInfoContent(
     currentUserId: String,
     memberUsers: Map<String, User>,
     membersLoading: Boolean,
-    selectedTheme: ChatTheme,
-    onGroupThemeClick: () -> Unit,
-    onGroupPhotoClick: () -> Unit,
     onAddMembersClick: () -> Unit,
     onRenameGroupClick: () -> Unit,
     onLeaveGroupClick: () -> Unit,
@@ -531,45 +507,11 @@ private fun GroupInfoContent(
                             .padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        modifier =
-                            Modifier
-                                .size(76.dp)
-                                .clickable(
-                                    enabled = group.members[currentUserId] == "admin",
-                                    interactionSource = null,
-                                    indication = null,
-                                    onClick = onGroupPhotoClick
-                                ),
-                        shape = CircleShape,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .primaryContainer
-                    ) {
-                        if (group.groupPhotoData.isNotBlank()) {
-                            InChatProfileAvatar(
-                                profilePhotoUrl = group.groupPhotoData,
-                                modifier = Modifier.fillMaxSize(),
-                                iconSize = 38.dp,
-                                contentDescription = "Group photo"
-                            )
-                        } else {
-                            Box(
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Groups,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(38.dp),
-                                    tint =
-                                        MaterialTheme
-                                            .colorScheme
-                                            .onPrimaryContainer
-                                )
-                            }
-                        }
-                    }
+                    GroupAvatar(
+                        groupName = group.name,
+                        modifier = Modifier.size(76.dp),
+                        fontSize = 36.sp
+                    )
 
                     Spacer(
                         modifier = Modifier.width(16.dp)
@@ -640,36 +582,10 @@ private fun GroupInfoContent(
             }
         }
 
-        item {
-            GroupInfoSectionLabel(
-                text = "APPEARANCE"
-            )
-        }
-
-        item {
-            GroupInfoActionRow(
-                title = "Chat theme",
-                subtitle =
-                    selectedTheme.title +
-                            " · shared with everyone",
-                icon = Icons.Default.Palette,
-                onClick = onGroupThemeClick
-            )
-        }
-
         if (group.members[currentUserId] == "admin") {
             item {
                 GroupInfoSectionLabel(
                     text = "GROUP"
-                )
-            }
-
-            item {
-                GroupInfoActionRow(
-                    title = "Group photo",
-                    subtitle = "Choose a shared photo for everyone",
-                    icon = Icons.Default.Groups,
-                    onClick = onGroupPhotoClick
                 )
             }
 
@@ -692,7 +608,7 @@ private fun GroupInfoContent(
             }
         }
 
-        item {
+        if (group.createdBy != currentUserId) {
             GroupInfoActionRow(
                 title = "Leave group",
                 subtitle =
@@ -706,6 +622,7 @@ private fun GroupInfoContent(
             )
         }
 
+        }
         item {
             GroupInfoSectionLabel(
                 text =
