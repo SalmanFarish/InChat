@@ -15,6 +15,7 @@ import java.net.URL
 import java.net.HttpURLConnection
 import org.json.JSONObject
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -848,14 +849,26 @@ class AuthViewModel(
                     )
                 }
 
-                // Refresh FirebaseUser provider data in the local SDK session.
-                firebaseUser.reload().await()
-                auth.currentUser?.getIdToken(true)?.await()
+                // The REST response confirms the password is linked to this UID.
+                // Refresh local provider metadata best-effort; a refresh failure
+                // must not report a failed link after Firebase has already saved it.
+                try {
+                    firebaseUser.reload().await()
+                    auth.currentUser?.getIdToken(true)?.await()
+                } catch (refreshError: Exception) {
+                    Log.w(
+                        "AuthViewModel",
+                        "Password was linked but local auth metadata refresh failed",
+                        refreshError
+                    )
+                }
 
                 onResult(
                     true,
                     "Password added. You can now sign in with Google or your email and password."
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(
                     "AuthViewModel",
