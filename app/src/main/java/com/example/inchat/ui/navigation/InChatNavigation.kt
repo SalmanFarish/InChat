@@ -1425,48 +1425,40 @@ private fun InChatBottomBar(
     pagerState: PagerState,
     onPageSelected: (Int) -> Unit
 ) {
+    val outerPurple = androidx.compose.ui.graphics.Color(0xFF713BFA)
+    val inactivePurple = androidx.compose.ui.graphics.Color(0xFF5429A8)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(
-                horizontal = 18.dp,
-                vertical = 8.dp
-            ),
+            .padding(horizontal = 18.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(76.dp)
+                .clip(RoundedCornerShape(50.dp))
+                .background(outerPurple)
                 .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(24.dp)
-                ),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp,
-            tonalElevation = 0.dp
+                    width = 1.dp,
+                    color = androidx.compose.ui.graphics.Color(0xFF8C63FF),
+                    shape = RoundedCornerShape(50.dp)
+                )
+                .padding(5.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(70.dp)
-                    .padding(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                bottomNavItems.forEachIndexed { index, item ->
-                    BottomNavigationItem(
-                        item = item,
-                        selected = pagerState.currentPage == index,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize(),
-                        onClick = {
-                            onPageSelected(index)
-                        }
-                    )
-                }
+            bottomNavItems.forEachIndexed { index, item ->
+                val selected = pagerState.currentPage == index
+                BottomNavigationItem(
+                    item = item,
+                    selected = selected,
+                    modifier = Modifier
+                        .weight(if (selected) 2f else 1f)
+                        .fillMaxSize(),
+                    onClick = { onPageSelected(index) }
+                )
             }
         }
     }
@@ -1481,9 +1473,9 @@ private fun BottomNavigationItem(
 ) {
     val selectedBackground by animateColorAsState(
         targetValue = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
+            androidx.compose.ui.graphics.Color(0xFFD9C9FF)
         } else {
-            MaterialTheme.colorScheme.surface
+            androidx.compose.ui.graphics.Color.Transparent
         },
         animationSpec = spring(
             dampingRatio = 0.82f,
@@ -1494,9 +1486,9 @@ private fun BottomNavigationItem(
 
     val contentColor by animateColorAsState(
         targetValue = if (selected) {
-            MaterialTheme.colorScheme.primary
+            androidx.compose.ui.graphics.Color(0xFF211438)
         } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
+            androidx.compose.ui.graphics.Color(0xFFE9DFFF)
         },
         animationSpec = spring(
             dampingRatio = 0.86f,
@@ -1505,55 +1497,34 @@ private fun BottomNavigationItem(
         label = "bottomNavContent"
     )
 
-    val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.94f,
-        animationSpec = spring(
-            dampingRatio = 0.72f,
-            stiffness = 620f
-        ),
-        label = "bottomNavIconScale"
-    )
-
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(19.dp))
+            .clip(RoundedCornerShape(40.dp))
             .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+            .padding(horizontal = 5.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = if (selected) {
-                item.selectedIcon
-            } else {
-                item.unselectedIcon
-            },
+            imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
             contentDescription = item.label,
             tint = contentColor,
-            modifier = Modifier
-                .size(22.dp)
-                .graphicsLayer {
-                    scaleX = iconScale
-                    scaleY = iconScale
-                }
+            modifier = Modifier.size(if (selected) 27.dp else 26.dp)
         )
 
-        Spacer(Modifier.height(3.dp))
-
-        Text(
-            text = item.label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                fontWeight = if (selected) {
-                    FontWeight.SemiBold
-                } else {
-                    FontWeight.Medium
-                },
-                letterSpacing = 0.15.sp
-            ),
-            color = contentColor
-        )
+        if (selected) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = item.label,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontFamily = JetBrainsMono,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.1.sp
+                ),
+                color = contentColor
+            )
+        }
     }
 }
