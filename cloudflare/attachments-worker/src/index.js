@@ -348,6 +348,14 @@ async function fcmRequest(
   };
 }
 
+function notificationText(value) {
+  const characters = Array.from(
+    typeof value === "string" ? value.trim() : "",
+  );
+  if (characters.length <= 700) return characters.join("");
+  return characters.slice(0, 700).join("") + "…";
+}
+
 function groupTopicName(chatId) {
   return "inchat_group_" + chatId;
 }
@@ -766,9 +774,11 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     }
   }
 
-  const messageText = typeof message.text === "string" ?
-    message.text.trim() :
-    "Sent an attachment";
+  const messageText = notificationText(
+    typeof message.text === "string" && message.text.trim() !== "" ?
+      message.text :
+      "Sent an attachment",
+  );
   const senderNickname =
     typeof message.senderNickname === "string" &&
     message.senderNickname.trim() !== "" ?
@@ -829,10 +839,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         },
         android: {
           priority: "high",
-          notification: {
-            channelId: "inchat_messages",
-            icon: "ic_stat_inchat",
-          },
         },
       },
     };
@@ -893,10 +899,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         },
         android: {
           priority: "high",
-          notification: {
-            channelId: "inchat_messages",
-            icon: "ic_stat_inchat",
-          },
         },
       },
     },
