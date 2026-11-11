@@ -435,12 +435,18 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   const actorRole = chat.members && chat.members[uid];
   const targetRole = chat.members && chat.members[targetUid];
 
-  if (
-    !targetRole ||
-    (uid !== targetUid && actorRole !== "admin")
-  ) {
+  if (subscribe) {
+    if (
+      !targetRole ||
+      (uid !== targetUid && actorRole !== "admin")
+    ) {
+      return json({
+        error: "Only an admin can subscribe an existing group member.",
+      }, 403);
+    }
+  } else if (uid !== targetUid && actorRole !== "admin") {
     return json({
-      error: "Only a group member or admin can manage this subscription.",
+      error: "Only the user or a group admin can remove this topic.",
     }, 403);
   }
 
