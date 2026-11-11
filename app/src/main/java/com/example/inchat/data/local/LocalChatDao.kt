@@ -32,6 +32,24 @@ interface LocalChatDao {
     ): CachedMessageEntity?
 
     @Query(
+        "SELECT messageId FROM cached_messages " +
+            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND isPending = 1"
+    )
+    fun observePendingMessageIds(ownerUserId: String, chatId: String): Flow<List<String>>
+
+    @Query(
+        "SELECT * FROM cached_messages " +
+            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND isPending = 1"
+    )
+    suspend fun getPendingMessages(ownerUserId: String, chatId: String): List<CachedMessageEntity>
+
+    @Query(
+        "UPDATE cached_messages SET isPending = 0 " +
+            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND messageId = :messageId"
+    )
+    suspend fun markMessageSent(ownerUserId: String, chatId: String, messageId: String)
+
+    @Query(
         "SELECT EXISTS(SELECT 1 FROM cached_messages " +
             "WHERE ownerUserId = :ownerUserId AND chatId = :chatId LIMIT 1)"
     )
@@ -95,7 +113,15 @@ interface LocalChatDao {
                 chatId = chatId,
                 fromTimestamp = messages.minOf { it.timestamp }
             )
-            upsertMessages(messages)
+            val mergedMessages = messages.map { incoming ->
+                val wasPending = getMessage(
+                    ownerUserId = ownerUserId,
+                    chatId = chatId,
+                    messageId = incoming.messageId
+                )?.isPending ?: false
+                incoming.copy(isPending = wasPending)
+            }
+            upsertMessages(mergedMessages)
         }
     }
 }
