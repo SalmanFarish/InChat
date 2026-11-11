@@ -364,6 +364,88 @@ class ChatRepository {
             .map { entities -> entities.map { it.toMessage() } }
     }
 
+    /**
+     * Observe the local sending state for this account and conversation.
+     * The IDs are stored separately from the transient ViewModel state so
+     * pending indicators survive process recreation.
+     */
+    fun observePendingMessageIds(chatId: String): Flow<Set<String>> {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) return flowOf(emptySet())
+
+        return localMessageDao.observePendingMessageIds(ownerUserId, chatId)
+            .map { it.toSet() }
+    }
+
+    /**
+     * Save an outgoing message before handing it to Firebase. Firebase's
+     * persistent write queue remains responsible for delivery; Room keeps
+     * the message visible and its pending indicator across process death.
+     */
+    suspend fun cacheOutgoingMessage(chatId: String, message: Message) {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        require(ownerUserId.isNotBlank()) { "You are not authenticated." }
+        require(chatId.isNotBlank() && message.id.isNotBlank()) { "Invalid outgoing message." }
+
+        localMessageDao.upsertMessage(
+            message.toCachedEntity(
+                ownerUserId = ownerUserId,
+                chatId = chatId,
+                isPending = true
+            )
+        )
+    }
+
+    suspend fun markOutgoingMessageSent(chatId: String, messageId: String) {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank() || messageId.isBlank()) return
+        localMessageDao.markMessageSent(ownerUserId, chatId, messageId)
+    }
+
+    suspend fun removeFailedOutgoingMessage(chatId: String, messageId: String) {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank() || messageId.isBlank()) return
+        localMessageDao.deleteMessage(ownerUserId, chatId, messageId)
+    }
+
+    /**
+     * A Firebase write task does not survive ViewModel recreation, while
+     * Realtime Database's disk-persisted write queue does. Once connected,
+     * read each pending ID from Firebase and clear its local pending marker
+     * only when the remote message is present and belongs to this account.
+     */
+    suspend fun reconcilePendingOutgoingMessages(chatId: String) {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) return
+
+        val pending = localMessageDao.getPendingMessages(ownerUserId, chatId)
+        for (localMessage in pending) {
+            try {
+                val snapshot = database.getReference("chats")
+                    .child(chatId)
+                    .child("messages")
+                    .child(localMessage.messageId)
+                    .get()
+                    .await()
+
+                val remoteMessage = snapshot.getValue(Message::class.java)
+                if (
+                    remoteMessage != null &&
+                    remoteMessage.id == localMessage.messageId &&
+                    remoteMessage.senderId == ownerUserId
+                ) {
+                    localMessageDao.markMessageSent(
+                        ownerUserId = ownerUserId,
+                        chatId = chatId,
+                        messageId = localMessage.messageId
+                    )
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not reconcile pending message ${localMessage.messageId}", error)
+            }
+        }
+    }
+
     /*
      * =========================================================
      * MESSAGE LISTENER
