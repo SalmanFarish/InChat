@@ -222,7 +222,7 @@ fun formatMessageTime(
     }
 
     return SimpleDateFormat(
-        "HH:mm",
+        "hh:mm a",
         Locale.getDefault()
     ).format(
         Date(
