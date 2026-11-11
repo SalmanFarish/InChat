@@ -469,7 +469,7 @@ async function changeTopicSubscription(
   if (subscribe) {
     const result = await fcmRequest(
       accessToken,
-      base + "?topicName=" + encodeURIComponent(topic),
+      base + "?topic_name=" + encodeURIComponent(topic),
       "POST",
       {},
       [409],
