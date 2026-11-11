@@ -1426,7 +1426,6 @@ private fun InChatBottomBar(
     onPageSelected: (Int) -> Unit
 ) {
     val outerPurple = androidx.compose.ui.graphics.Color(0xFF713BFA)
-    val inactivePurple = androidx.compose.ui.graphics.Color(0xFF5429A8)
 
     Box(
         modifier = Modifier
