@@ -31,12 +31,14 @@ data class CachedMessageEntity(
     val attachmentFileName: String,
     val attachmentMimeType: String,
     val attachmentSizeBytes: Long,
-    val attachmentViewedAt: Long
+    val attachmentViewedAt: Long,
+    val isPending: Boolean = false
 )
 
 fun Message.toCachedEntity(
     ownerUserId: String,
-    chatId: String
+    chatId: String,
+    isPending: Boolean = false
 ): CachedMessageEntity {
     val reactionJson = JSONObject().apply {
         reactions.forEach { (uid, reaction) -> put(uid, reaction) }
@@ -61,7 +63,8 @@ fun Message.toCachedEntity(
         attachmentFileName = attachment?.fileName.orEmpty(),
         attachmentMimeType = attachment?.mimeType.orEmpty(),
         attachmentSizeBytes = attachment?.sizeBytes ?: 0L,
-        attachmentViewedAt = attachment?.viewedAt ?: 0L
+        attachmentViewedAt = attachment?.viewedAt ?: 0L,
+        isPending = isPending
     )
 }
 
