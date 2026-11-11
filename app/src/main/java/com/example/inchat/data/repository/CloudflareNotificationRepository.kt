@@ -5,6 +5,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -144,26 +147,34 @@ class CloudflareNotificationRepository {
                 .get()
                 .await()
 
-            var firstFailure: Throwable? = null
+            val results = coroutineScope {
+                snapshot.children
+                    .mapNotNull { membership ->
+                        val groupId = membership.key.orEmpty()
+                        val isMember =
+                            membership.getValue(Boolean::class.java) == true
 
-            for (membership in snapshot.children) {
-                val groupId = membership.key.orEmpty()
-                val isMember = membership.getValue(Boolean::class.java) == true
-                if (!isMember || groupId.isBlank()) continue
-
-                val result = setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = uid,
-                    subscribe = subscribe
-                )
-
-                if (result.isFailure && firstFailure == null) {
-                    firstFailure = result.exceptionOrNull()
-                }
+                        if (!isMember || groupId.isBlank()) {
+                            null
+                        } else {
+                            async {
+                                setGroupTopicSubscription(
+                                    chatId = groupId,
+                                    targetUid = uid,
+                                    subscribe = subscribe
+                                )
+                            }
+                        }
+                    }
+                    .awaitAll()
             }
 
+            val firstFailure = results
+                .firstOrNull { it.isFailure }
+                ?.exceptionOrNull()
+
             if (firstFailure != null) {
-                Result.failure(firstFailure!!)
+                Result.failure(firstFailure)
             } else {
                 Result.success(Unit)
             }
