@@ -101,8 +101,9 @@ credential.
   to the Android app.
 - Group inbox previews and unread counts are updated by the Worker. Group
   activity entries update previews but do not send push notifications.
-- Message edits and deletions call `POST /v1/events/preview` to rebuild the
-  latest preview without changing unread counts.
+- Group message edits and deletions call `POST /v1/events/preview` to rebuild
+  the latest preview without changing unread counts. Direct-chat preview
+  updates remain in the Android app.
 
 The app does not choose an FCM recipient or subscribe itself to private group
 topics. The Worker checks membership before changing topic subscriptions.
