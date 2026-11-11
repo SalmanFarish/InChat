@@ -1433,7 +1433,7 @@ private fun InChatBottomBar(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.86f)
                 .height(60.dp)
                 .clip(RoundedCornerShape(50.dp))
                 .background(MaterialTheme.colorScheme.surface)
