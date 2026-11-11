@@ -46,7 +46,27 @@ credential.
    Enable the **Firebase Cloud Messaging API** for the project. Do not enable
    Cloud Build or Artifact Registry for this Worker.
 
-5. Create a JSON key for that service account. From this directory, run:
+5. Create a private secret for the opaque FCM topic names. In PowerShell,
+   generate 32 random bytes:
+
+   ```powershell
+   $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+   $bytes = New-Object byte[] 32
+   $random.GetBytes($bytes)
+   $topicSecret = [Convert]::ToBase64String($bytes)
+   $topicSecret
+   ```
+
+   Copy the generated value, then run:
+
+   ```sh
+   npx wrangler secret put FCM_TOPIC_SECRET
+   ```
+
+   Paste the value at Wrangler's prompt. Keep this secret stable. It prevents
+   a person who only knows a group ID from guessing the group's FCM topic.
+
+6. Create a JSON key for that service account. From this directory, run:
 
    ```sh
    npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
@@ -56,13 +76,13 @@ credential.
    prompts for the value. Do not commit this JSON file, paste it into chat, or
    put it in the Android project.
 
-6. Deploy the Worker:
+7. Deploy the Worker:
 
    ```sh
    npm run deploy
    ```
 
-7. Copy the deployed `workers.dev` URL into
+8. Copy the deployed `workers.dev` URL into
    `CloudflareWorkerConfig.BASE_URL` in the Android project. Use the URL only,
    with no `/v1` suffix. Both notifications and attachment requests use this
    shared setting.
@@ -75,9 +95,10 @@ credential.
 - The Worker verifies the Firebase ID token and the persisted message.
 - Direct messages are sent to the recipient's saved FCM token. Blocked
   conversations are not notified.
-- Group messages are sent to a private group topic. The Worker manages topic
-  membership from verified group membership, and excludes the sender from
-  their own group notifications.
+- Group messages are sent to an opaque, secret-derived FCM topic. The Worker
+  manages topic membership from verified group membership and excludes the
+  sender from their own group notifications. The topic name is never returned
+  to the Android app.
 - Group inbox previews and unread counts are updated by the Worker. Group
   activity entries update previews but do not send push notifications.
 - Message edits and deletions call `POST /v1/events/preview` to rebuild the
