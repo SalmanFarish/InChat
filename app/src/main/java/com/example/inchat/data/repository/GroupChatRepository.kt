@@ -511,12 +511,12 @@ class GroupChatRepository {
                 )
             }
 
-            database
-                .getReference("groupReads")
-                .child(currentUserId)
-                .child(groupId)
-                .setValue(timestamp)
-                .await()
+            database.reference.updateChildren(
+                mapOf(
+                    "groupReads/$currentUserId/$groupId" to timestamp,
+                    "userChats/$currentUserId/$groupId/unreadCount" to 0L
+                )
+            ).await()
 
             Result.success(Unit)
         } catch (e: Exception) {
