@@ -195,9 +195,8 @@ async function main() {
 
   console.log("Clearing InChat Realtime Database data...");
   // Clear normal data branches in one atomic multi-location update.
-  // Presence is handled separately because the deployed syncPresence
-  // Cloud Function can recreate online/lastSeen fields after connections
-  // are deleted.
+  // Presence is cleared separately after connected clients finish their
+  // Realtime Database onDisconnect cleanup.
   const regularPaths = ROOT_DATA_PATHS.filter((path) => path !== "presence");
   const deletions = Object.fromEntries(regularPaths.map((path) => [path, null]));
   await database.ref().update(deletions);
@@ -229,7 +228,7 @@ async function main() {
   if (bucket) console.log("  Legacy profilePhotos/ objects: delete request completed");
   console.log("You can now create the two new test accounts.");
   console.log(
-    "Note: deleteUsers() is a bulk Auth operation and does not fire individual Auth onDelete Cloud Function handlers.",
+    "Note: deleteUsers() is a bulk Auth operation; it does not run per-user cleanup in the app.",
   );
   await app.delete();
 }
