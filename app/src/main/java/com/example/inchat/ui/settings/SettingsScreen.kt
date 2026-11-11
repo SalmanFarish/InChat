@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,6 +74,8 @@ fun SettingsScreen(
     var showAddPasswordDialog by remember { mutableStateOf(false) }
     var newPassword by remember { mutableStateOf("") }
     var confirmNewPassword by remember { mutableStateOf("") }
+    var newPasswordVisible by remember { mutableStateOf(false) }
+    var confirmNewPasswordVisible by remember { mutableStateOf(false) }
     var addPasswordLoading by remember { mutableStateOf(false) }
     var addPasswordError by remember { mutableStateOf<String?>(null) }
     var passwordAddedMessage by remember { mutableStateOf<String?>(null) }
@@ -273,6 +277,8 @@ fun SettingsScreen(
                                 onClick = {
                                     newPassword = ""
                                     confirmNewPassword = ""
+                                    newPasswordVisible = false
+                                    confirmNewPasswordVisible = false
                                     addPasswordError = null
                                     showAddPasswordDialog = true
                                 },
@@ -424,6 +430,8 @@ fun SettingsScreen(
                     showAddPasswordDialog = false
                     newPassword = ""
                     confirmNewPassword = ""
+                    newPasswordVisible = false
+                    confirmNewPasswordVisible = false
                     addPasswordError = null
                 }
             },
@@ -449,7 +457,33 @@ fun SettingsScreen(
                         enabled = !addPasswordLoading,
                         singleLine = true,
                         label = { Text("New password") },
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (newPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    newPasswordVisible = !newPasswordVisible
+                                },
+                                enabled = !addPasswordLoading
+                            ) {
+                                Icon(
+                                    imageVector = if (newPasswordVisible) {
+                                        Icons.Default.VisibilityOff
+                                    } else {
+                                        Icons.Default.Visibility
+                                    },
+                                    contentDescription = if (newPasswordVisible) {
+                                        "Hide new password"
+                                    } else {
+                                        "Show new password"
+                                    },
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
                         )
@@ -467,7 +501,33 @@ fun SettingsScreen(
                         enabled = !addPasswordLoading,
                         singleLine = true,
                         label = { Text("Confirm password") },
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (confirmNewPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    confirmNewPasswordVisible = !confirmNewPasswordVisible
+                                },
+                                enabled = !addPasswordLoading
+                            ) {
+                                Icon(
+                                    imageVector = if (confirmNewPasswordVisible) {
+                                        Icons.Default.VisibilityOff
+                                    } else {
+                                        Icons.Default.Visibility
+                                    },
+                                    contentDescription = if (confirmNewPasswordVisible) {
+                                        "Hide confirmation password"
+                                    } else {
+                                        "Show confirmation password"
+                                    },
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
                         )
@@ -524,6 +584,8 @@ fun SettingsScreen(
                                                 showAddPasswordDialog = false
                                                 newPassword = ""
                                                 confirmNewPassword = ""
+                                                newPasswordVisible = false
+                                                confirmNewPasswordVisible = false
                                                 passwordAddedMessage = message
                                             } else {
                                                 addPasswordError = message
@@ -565,6 +627,8 @@ fun SettingsScreen(
                         showAddPasswordDialog = false
                         newPassword = ""
                         confirmNewPassword = ""
+                        newPasswordVisible = false
+                        confirmNewPasswordVisible = false
                         addPasswordError = null
                     }
                 ) {
