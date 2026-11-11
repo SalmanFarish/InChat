@@ -73,7 +73,8 @@ fun SwipeableMessageBubble(
     onReactionClick: (String) -> Unit,
     chatSwipeOffsetPx: Float = 0f,
     isFirstInGroup: Boolean = true,
-    isLastInGroup: Boolean = true
+    isLastInGroup: Boolean = true,
+    showSenderName: Boolean = false
 ) {
     val density =
         LocalDensity.current
@@ -299,6 +300,23 @@ fun SwipeableMessageBubble(
                                 vertical = 11.dp
                             )
                 ) {
+                    if (showSenderName) {
+                        Text(
+                            text = message.senderNickname,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = JetBrainsMono,
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp,
+                                letterSpacing = 0.25.sp
+                            ),
+                            fontWeight = FontWeight.SemiBold,
+                            color = chatTheme.statusAccentColor,
+                            maxLines = 1
+                        )
+
+                        Spacer(Modifier.height(5.dp))
+                    }
+
                     message.replyTo?.let { reply ->
                         ReplyMessagePreview(
                             reply =
