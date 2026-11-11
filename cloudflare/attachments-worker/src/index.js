@@ -320,11 +320,11 @@ async function claimMessageEvent(
   senderId,
 ) {
   const receiptPath =
-    "/workerEventReceipts/" +
+    "/chats/" +
     encodeURIComponent(chatId) +
-    "/" +
+    "/messages/" +
     encodeURIComponent(messageId) +
-    ".json";
+    "/workerProcessed.json";
   const receiptUrl =
     env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
 
