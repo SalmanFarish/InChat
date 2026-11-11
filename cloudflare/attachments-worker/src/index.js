@@ -944,6 +944,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         "/messages:send",
       "POST",
       notification,
+      [404],
     );
 
     if (
