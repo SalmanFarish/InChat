@@ -37,7 +37,8 @@ credential.
 4. Create a Google Cloud service account in Firebase project
    `inchat-24b8b`. Grant it these roles:
 
-   - Firebase Admin (`roles/firebase.admin`) for Realtime Database access.
+   - Firebase Realtime Database Admin
+     (`roles/firebasedatabase.admin`) for server-side database reads/writes.
    - Firebase Cloud Messaging API Admin
      (`roles/firebasecloudmessaging.admin`) for sending messages and managing
      topic subscriptions.
