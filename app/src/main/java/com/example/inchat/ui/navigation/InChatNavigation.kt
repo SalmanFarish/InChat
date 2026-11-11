@@ -62,7 +62,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.example.inchat.data.repository.UserRepository
-import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
