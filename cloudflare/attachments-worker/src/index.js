@@ -223,6 +223,7 @@ async function getFirebaseAdminToken(env) {
   const claim = base64Url(JSON.stringify({
     iss: serviceAccount.client_email,
     scope:
+      "https://www.googleapis.com/auth/userinfo.email " +
       "https://www.googleapis.com/auth/firebase.database " +
       "https://www.googleapis.com/auth/firebase.messaging",
     aud: "https://oauth2.googleapis.com/token",
