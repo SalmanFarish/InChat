@@ -573,8 +573,11 @@ fun ChatMessageList(
                                         message.timestamp
                                     )
 
+                        val isSystemEvent = message.systemEvent.isNotBlank()
                         val isFirstInGroup =
-                            previousMessage == null ||
+                            isSystemEvent ||
+                                    previousMessage == null ||
+                                    previousMessage.systemEvent.isNotBlank() ||
                                     previousMessage.senderId != message.senderId ||
                                     !isSameCalendarDay(
                                         previousMessage.timestamp,
@@ -584,7 +587,9 @@ fun ChatMessageList(
                         val nextMessage = messages.getOrNull(index + 1)
 
                         val isLastInGroup =
-                            nextMessage == null ||
+                            isSystemEvent ||
+                                    nextMessage == null ||
+                                    nextMessage.systemEvent.isNotBlank() ||
                                     nextMessage.senderId != message.senderId ||
                                     !isSameCalendarDay(
                                         message.timestamp,
@@ -615,6 +620,23 @@ fun ChatMessageList(
                             key =
                                 message.id
                         ) {
+                            if (message.systemEvent.isNotBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = message.text,
+                                        modifier = Modifier.padding(horizontal = 20.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+
 
                             val isMe =
                                 message.senderId ==
@@ -758,6 +780,8 @@ fun ChatMessageList(
                                     }
                                 }
                             )
+                        
+                            }
                         }
                     }
                 }
