@@ -367,6 +367,7 @@ class ChatRepository {
      */
     fun getMessagesFlow(chatId: String): Flow<List<Message>> =
         callbackFlow {
+            val producerScope = this
             val ownerUserId = auth.currentUser?.uid.orEmpty()
             if (ownerUserId.isBlank() || chatId.isBlank()) {
                 trySend(emptyList())
@@ -422,7 +423,7 @@ class ChatRepository {
 
                     // Replace only the range represented by Firebase's latest-200 query.
                     // Previously loaded older pages remain in Room.
-                    launch(Dispatchers.IO) {
+                    producerScope.launch(Dispatchers.IO) {
                         try {
                             localMessageDao.replaceLatestSnapshot(
                                 ownerUserId = ownerUserId,
