@@ -1874,6 +1874,16 @@ class UserRepository {
                 )
                 .await()
 
+            CloudflareNotificationRepository()
+                .syncMyGroupSubscriptions(uid)
+                .onFailure { notificationError ->
+                    Log.w(
+                        "UserRepository",
+                        "FCM token was saved, but group topics could not be synchronized.",
+                        notificationError
+                    )
+                }
+
             Result.success(
                 Unit
             )
