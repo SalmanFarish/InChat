@@ -497,7 +497,11 @@ class ChatViewModel : ViewModel() {
                                 currentChatId == chatId &&
                                 initializedChatId == chatId
                             ) {
-                                chatRepository.reconcilePendingOutgoingMessages(chatId)
+                                chatRepository.reconcilePendingOutgoingMessages(
+                                    chatId = chatId,
+                                    receiverId = otherUserId,
+                                    receiverNickname = otherUserNickname
+                                )
                             }
                         }
                     }
