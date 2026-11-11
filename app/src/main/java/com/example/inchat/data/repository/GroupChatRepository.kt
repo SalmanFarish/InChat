@@ -511,12 +511,24 @@ class GroupChatRepository {
                 )
             }
 
-            database.reference.updateChildren(
-                mapOf(
-                    "groupReads/$currentUserId/$groupId" to timestamp,
-                    "userChats/$currentUserId/$groupId/unreadCount" to 0L
-                )
-            ).await()
+            database
+                .getReference("groupReads")
+                .child(currentUserId)
+                .child(groupId)
+                .setValue(timestamp)
+                .await()
+
+            runCatching {
+                database
+                    .getReference("userChats")
+                    .child(currentUserId)
+                    .child(groupId)
+                    .child("unreadCount")
+                    .setValue(0L)
+                    .await()
+            }.onFailure {
+                Log.w("GroupChatRepository", "Could not clear the group unread badge.", it)
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {
