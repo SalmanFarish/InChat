@@ -1932,6 +1932,16 @@ class UserRepository {
                     )
                 }
 
+            CloudflareNotificationRepository()
+                .clearMyPersonalTopic(uid)
+                .onFailure { notificationError ->
+                    Log.w(
+                        "UserRepository",
+                        "Personal notification topic could not be cleared during logout.",
+                        notificationError
+                    )
+                }
+
             database
                 .getReference(
                     "privateUsers"
