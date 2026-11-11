@@ -1434,7 +1434,7 @@ private fun InChatBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
+                .height(64.dp)
                 .clip(RoundedCornerShape(50.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .border(
@@ -1448,10 +1448,10 @@ private fun InChatBottomBar(
             bottomNavItems.forEachIndexed { index, item ->
                 val selected = pagerState.currentPage == index
                 val animatedWeight by animateFloatAsState(
-                    targetValue = if (selected) 1.65f else 1f,
+                    targetValue = if (selected) 1.7f else 1f,
                     animationSpec = spring(
-                        dampingRatio = 0.86f,
-                        stiffness = 340f
+                        dampingRatio = 0.93f,
+                        stiffness = 420f
                     ),
                     label = "bottomNavItemWeight"
                 )
@@ -1483,8 +1483,8 @@ private fun BottomNavigationItem(
             androidx.compose.ui.graphics.Color.Transparent
         },
         animationSpec = spring(
-            dampingRatio = 0.88f,
-            stiffness = 360f
+            dampingRatio = 0.93f,
+            stiffness = 420f
         ),
         label = "bottomNavBackground"
     )
@@ -1496,8 +1496,8 @@ private fun BottomNavigationItem(
             MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = spring(
-            dampingRatio = 0.88f,
-            stiffness = 360f
+            dampingRatio = 0.93f,
+            stiffness = 420f
         ),
         label = "bottomNavContent"
     )
@@ -1507,7 +1507,7 @@ private fun BottomNavigationItem(
             .clip(RoundedCornerShape(40.dp))
             .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1515,32 +1515,32 @@ private fun BottomNavigationItem(
             imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
             contentDescription = item.label,
             tint = contentColor,
-            modifier = Modifier.size(21.dp)
+            modifier = Modifier.size(25.dp)
         )
 
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
             enter = androidx.compose.animation.fadeIn(
                 animationSpec = spring(
-                    dampingRatio = 0.9f,
-                    stiffness = 380f
+                    dampingRatio = 0.94f,
+                    stiffness = 440f
                 )
             ) + androidx.compose.animation.expandHorizontally(
                 animationSpec = spring(
-                    dampingRatio = 0.88f,
-                    stiffness = 360f
+                    dampingRatio = 0.93f,
+                    stiffness = 420f
                 ),
                 expandFrom = Alignment.Start
             ),
             exit = androidx.compose.animation.fadeOut(
                 animationSpec = spring(
-                    dampingRatio = 0.9f,
-                    stiffness = 380f
+                    dampingRatio = 0.94f,
+                    stiffness = 440f
                 )
             ) + androidx.compose.animation.shrinkHorizontally(
                 animationSpec = spring(
-                    dampingRatio = 0.88f,
-                    stiffness = 360f
+                    dampingRatio = 0.93f,
+                    stiffness = 420f
                 ),
                 shrinkTowards = Alignment.Start
             )
@@ -1548,12 +1548,12 @@ private fun BottomNavigationItem(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(7.dp))
                 Text(
                     text = item.label,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = JetBrainsMono,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.1.sp
                     ),
