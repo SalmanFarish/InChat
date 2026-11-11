@@ -578,6 +578,39 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   });
 }
 
+async function clearPersonalNotificationTopic(
+  env,
+  uid,
+  adminAuth,
+) {
+  const registrationToken = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "privateUsers/" + uid + "/fcmToken",
+  );
+
+  if (
+    typeof registrationToken !== "string" ||
+    registrationToken.trim() === ""
+  ) {
+    return json({
+      success: true,
+      skipped: true,
+      reason: "No FCM token is registered for this account.",
+    });
+  }
+
+  await changeTopicSubscription(
+    adminAuth.token,
+    adminAuth.projectId,
+    await userTopicName(env, uid),
+    registrationToken,
+    false,
+  );
+
+  return json({ success: true });
+}
+
 async function syncGroupConversationPreview(
   env,
   adminToken,
@@ -1207,6 +1240,18 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return processPreviewEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/notifications/personal-topic"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return clearPersonalNotificationTopic(
+          env,
+          user.uid,
+          adminAuth,
+        );
       }
 
       const match = url.pathname.match(
