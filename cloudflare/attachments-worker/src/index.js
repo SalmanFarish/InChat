@@ -1523,6 +1523,28 @@ export default {
         request.method === "POST" &&
         (url.pathname === "/recover" || url.pathname === "/v1/recover")
       ) {
+        // Recovery is intentionally unauthenticated. Apply both per-IP and
+        // per-account throttles before performing privileged Firebase work.
+        const recoveryBody = await request.clone().json().catch(() => ({}));
+        const recoveryUsername =
+          typeof recoveryBody.username === "string" ?
+            recoveryBody.username.trim().toLowerCase() :
+            "";
+        const sourceIp = request.headers.get("CF-Connecting-IP") || "unknown";
+
+        const [ipLimit, usernameLimit] = await Promise.all([
+          env.RECOVERY_IP_LIMITER.limit({ key: sourceIp }),
+          recoveryUsername ?
+            env.RECOVERY_USERNAME_LIMITER.limit({ key: recoveryUsername }) :
+            Promise.resolve({ success: true }),
+        ]);
+
+        if (!ipLimit.success || !usernameLimit.success) {
+          return json({
+            error: "Too many password recovery attempts. Please wait and try again.",
+          }, 429);
+        }
+
         const adminAuth = await getFirebaseAdminToken(env);
         return recoverPassword(request, env, adminAuth);
       }
