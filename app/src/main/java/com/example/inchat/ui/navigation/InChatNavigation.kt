@@ -1427,13 +1427,13 @@ private fun InChatBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 8.dp),
+            .padding(horizontal = 18.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(70.dp)
+                .height(60.dp)
                 .clip(RoundedCornerShape(50.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .border(
@@ -1441,16 +1441,25 @@ private fun InChatBottomBar(
                     color = MaterialTheme.colorScheme.outlineVariant,
                     shape = RoundedCornerShape(50.dp)
                 )
-                .padding(5.dp),
+                .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             bottomNavItems.forEachIndexed { index, item ->
                 val selected = pagerState.currentPage == index
+                val animatedWeight by animateFloatAsState(
+                    targetValue = if (selected) 1.65f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.86f,
+                        stiffness = 340f
+                    ),
+                    label = "bottomNavItemWeight"
+                )
+
                 BottomNavigationItem(
                     item = item,
                     selected = selected,
                     modifier = Modifier
-                        .weight(if (selected) 2f else 1f)
+                        .weight(animatedWeight)
                         .fillMaxSize(),
                     onClick = { onPageSelected(index) }
                 )
@@ -1473,8 +1482,8 @@ private fun BottomNavigationItem(
             androidx.compose.ui.graphics.Color.Transparent
         },
         animationSpec = spring(
-            dampingRatio = 0.82f,
-            stiffness = 520f
+            dampingRatio = 0.88f,
+            stiffness = 360f
         ),
         label = "bottomNavBackground"
     )
@@ -1486,40 +1495,71 @@ private fun BottomNavigationItem(
             MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = spring(
-            dampingRatio = 0.86f,
-            stiffness = 560f
+            dampingRatio = 0.88f,
+            stiffness = 360f
         ),
         label = "bottomNavContent"
     )
 
-    Column(
+    Row(
         modifier = modifier
             .clip(RoundedCornerShape(40.dp))
             .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(horizontal = 5.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
             contentDescription = item.label,
             tint = contentColor,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(21.dp)
         )
 
-        if (selected) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = item.label,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.1.sp
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selected,
+            enter = androidx.compose.animation.fadeIn(
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 380f
+                )
+            ) + androidx.compose.animation.expandHorizontally(
+                animationSpec = spring(
+                    dampingRatio = 0.88f,
+                    stiffness = 360f
                 ),
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                expandFrom = Alignment.Start
+            ),
+            exit = androidx.compose.animation.fadeOut(
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 380f
+                )
+            ) + androidx.compose.animation.shrinkHorizontally(
+                animationSpec = spring(
+                    dampingRatio = 0.88f,
+                    stiffness = 360f
+                ),
+                shrinkTowards = Alignment.Start
             )
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = JetBrainsMono,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.1.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
