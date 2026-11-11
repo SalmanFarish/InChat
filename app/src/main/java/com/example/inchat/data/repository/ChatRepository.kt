@@ -262,10 +262,22 @@ class ChatRepository {
                 .get()
                 .await()
 
+            if (!chatSnapshot.exists()) {
+                return
+            }
+
             if (
-                !chatSnapshot.exists() ||
                 chatSnapshot.child("type").getValue(String::class.java) == "group"
             ) {
+                CloudflareNotificationRepository()
+                    .syncConversationPreview(chatId)
+                    .onFailure { previewError ->
+                        Log.w(
+                            TAG,
+                            "Group preview could not be refreshed after a message edit/delete.",
+                            previewError
+                        )
+                    }
                 return
             }
 
