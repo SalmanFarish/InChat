@@ -1,6 +1,10 @@
 package com.example.inchat.data.repository
 
 import android.util.Log
+import com.example.inchat.InChatApplication
+import com.example.inchat.data.local.LocalChatDatabase
+import com.example.inchat.data.local.toCachedEntity
+import com.example.inchat.data.local.toMessage
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -13,8 +17,12 @@ import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -26,6 +34,9 @@ class ChatRepository {
 
     private val auth =
         FirebaseAuth.getInstance()
+
+    private val localMessageDao =
+        LocalChatDatabase.getInstance(InChatApplication.instance).messageDao()
 
     companion object {
 
@@ -74,6 +85,11 @@ class ChatRepository {
         private val knownChatIds =
             ConcurrentHashMap.newKeySet<String>()
     }
+
+    private fun cacheKey(
+        chatId: String,
+        ownerUserId: String = auth.currentUser?.uid.orEmpty()
+    ): String = "$ownerUserId::$chatId"
 
     /*
      * =========================================================
@@ -208,13 +224,14 @@ class ChatRepository {
      * valid cached result for a conversation with no messages.
      */
     fun getCachedMessages(chatId: String): List<Message>? =
-        messageCache[chatId]
+        messageCache[cacheKey(chatId)]
 
     fun clearOlderMessagePages(chatId: String) {
         if (chatId.isBlank()) return
-        olderMessageCache.remove(chatId)
-        latestMessageCache[chatId]?.let { latest ->
-            messageCache[chatId] = latest
+        val key = cacheKey(chatId)
+        olderMessageCache.remove(key)
+        latestMessageCache[key]?.let { latest ->
+            messageCache[key] = latest
         }
     }
 
@@ -222,13 +239,14 @@ class ChatRepository {
         chatId: String,
         transform: (Message) -> Message?
     ) {
-        messageCache.computeIfPresent(chatId) { _, messages ->
+        val key = cacheKey(chatId)
+        messageCache.computeIfPresent(key) { _, messages ->
             messages.mapNotNull(transform).sortedBy { it.timestamp }
         }
-        olderMessageCache.computeIfPresent(chatId) { _, messages ->
+        olderMessageCache.computeIfPresent(key) { _, messages ->
             messages.mapNotNull(transform).sortedBy { it.timestamp }
         }
-        latestMessageCache.computeIfPresent(chatId) { _, messages ->
+        latestMessageCache.computeIfPresent(key) { _, messages ->
             messages.mapNotNull(transform).sortedBy { it.timestamp }
         }
     }
@@ -330,134 +348,111 @@ class ChatRepository {
      * MESSAGE LISTENER
      * =========================================================
      */
-    fun getMessagesFlow(
-        chatId: String
-    ): Flow<List<Message>> =
+    /**
+     * Emits the locally stored history immediately, then keeps it in sync
+     * with Firebase. The same flow is used for direct and group chats.
+     */
+    fun getLocalMessagesFlow(chatId: String): Flow<List<Message>> {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) return flowOf(emptyList())
+
+        return localMessageDao.observeMessages(ownerUserId, chatId)
+            .map { entities -> entities.map { it.toMessage() } }
+    }
+
+    /*
+     * =========================================================
+     * MESSAGE LISTENER
+     * =========================================================
+     */
+    fun getMessagesFlow(chatId: String): Flow<List<Message>> =
         callbackFlow {
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank() || chatId.isBlank()) {
+                trySend(emptyList())
+                close()
+                return@callbackFlow
+            }
 
-            val messagesRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .orderByChild(
-                        "timestamp"
-                    )
-                    .limitToLast(
-                        200
-                    )
+            val key = cacheKey(chatId, ownerUserId)
 
-
-            /*
-             * Reuse the last known in-memory snapshot immediately.
-             * The live Firebase listener below remains authoritative
-             * and will replace this snapshot as soon as fresh data
-             * is available.
-             */
-            messageCache[chatId]
-                ?.let { cachedMessages ->
-                    trySend(
-                        cachedMessages
-                    )
+            // Room is the first source for the UI. It survives process death.
+            val localMessagesJob = launch(Dispatchers.IO) {
+                localMessageDao.observeMessages(ownerUserId, chatId).collect { entities ->
+                    val localMessages = entities.map { it.toMessage() }
+                    messageCache[key] = localMessages
+                    trySend(localMessages)
                 }
+            }
 
-            val listener =
-                object :
-                    ValueEventListener {
+            // Keep the in-process copy as an additional fast path.
+            messageCache[key]?.let { trySend(it) }
 
-                    override fun onDataChange(
-                        snapshot:
-                        DataSnapshot
-                    ) {
+            val messagesRef = database.getReference("chats")
+                .child(chatId)
+                .child("messages")
+                .orderByChild("timestamp")
+                .limitToLast(200)
 
-                        val messageList =
-                            ArrayList<Message>(
-                                snapshot.childrenCount
-                                    .toInt()
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val latestMessages = snapshot.children.mapNotNull { child ->
+                        child.getValue(Message::class.java)
+                            ?.takeIf { it.id.isNotBlank() }
+                    }.sortedBy { it.timestamp }
+
+                    val immutableLatestMessages = latestMessages.toList()
+                    latestMessageCache[key] = immutableLatestMessages
+
+                    val cachedOlderMessages = if (immutableLatestMessages.isEmpty()) {
+                        olderMessageCache.remove(key)
+                        emptyList()
+                    } else {
+                        val firstLatestTimestamp = immutableLatestMessages.first().timestamp
+                        olderMessageCache[key].orEmpty()
+                            .filter { it.timestamp < firstLatestTimestamp }
+                    }
+
+                    val combinedMessages = (cachedOlderMessages + immutableLatestMessages)
+                        .distinctBy { it.id }
+                        .sortedBy { it.timestamp }
+
+                    messageCache[key] = combinedMessages
+                    trySend(combinedMessages)
+
+                    // Replace only the range represented by Firebase's latest-200 query.
+                    // Previously loaded older pages remain in Room.
+                    launch(Dispatchers.IO) {
+                        try {
+                            localMessageDao.replaceLatestSnapshot(
+                                ownerUserId = ownerUserId,
+                                chatId = chatId,
+                                messages = immutableLatestMessages.map {
+                                    it.toCachedEntity(ownerUserId, chatId)
+                                }
                             )
-
-                        for (
-                        childSnapshot in
-                        snapshot.children
-                        ) {
-
-                            val message =
-                                childSnapshot
-                                    .getValue(
-                                        Message::class.java
-                                    )
-
-                            if (
-                                message != null &&
-                                message.id.isNotBlank()
-                            ) {
-
-                                messageList.add(
-                                    message
-                                )
-                            }
+                        } catch (error: Exception) {
+                            Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
                         }
-
-                        messageList.sortBy {
-                            it.timestamp
-                        }
-
-                        val immutableLatestMessages = messageList.toList()
-                        latestMessageCache[chatId] = immutableLatestMessages
-
-                        val cachedOlderMessages =
-                            if (immutableLatestMessages.isEmpty()) {
-                                olderMessageCache.remove(chatId)
-                                emptyList()
-                            } else {
-                                val firstLatestTimestamp =
-                                    immutableLatestMessages.first().timestamp
-                                olderMessageCache[chatId].orEmpty()
-                                    .filter { it.timestamp < firstLatestTimestamp }
-                            }
-
-                        val combinedMessages =
-                            (cachedOlderMessages + immutableLatestMessages)
-                                .distinctBy { it.id }
-                                .sortedBy { it.timestamp }
-
-                        messageCache[chatId] = combinedMessages
-                        trySend(combinedMessages)
-                    }
-
-                    override fun onCancelled(
-                        error:
-                        DatabaseError
-                    ) {
-                        Log.e(
-                            TAG,
-                            "Realtime Database list listener cancelled for $chatId: ${error.message}"
-                        )
-                        trySend(emptyList())
-                        close()
                     }
                 }
 
-            messagesRef
-                .addValueEventListener(
-                    listener
-                )
+                override fun onCancelled(error: DatabaseError) {
+                    // Keep Room's saved history visible if Firebase cannot refresh it.
+                    Log.e(
+                        TAG,
+                        "Realtime Database list listener cancelled for $chatId: ${error.message}"
+                    )
+                }
+            }
+
+            messagesRef.addValueEventListener(listener)
 
             awaitClose {
-
-                messagesRef
-                    .removeEventListener(
-                        listener
-                    )
+                localMessagesJob.cancel()
+                messagesRef.removeEventListener(listener)
             }
         }
-
     suspend fun getOlderMessages(
         chatId: String,
         beforeTimestamp: Long,
@@ -479,12 +474,20 @@ class ChatRepository {
                 .sortedBy { it.timestamp }
 
             if (page.isNotEmpty()) {
-                olderMessageCache.compute(chatId) { _, cached ->
+                val ownerUserId = auth.currentUser?.uid.orEmpty()
+                if (ownerUserId.isBlank()) {
+                    return Result.failure(IllegalStateException("You are not authenticated."))
+                }
+                val key = cacheKey(chatId, ownerUserId)
+                olderMessageCache.compute(key) { _, cached ->
                     (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
                 }
-                messageCache.compute(chatId) { _, cached ->
+                messageCache.compute(key) { _, cached ->
                     (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
                 }
+                localMessageDao.upsertMessages(
+                    page.map { it.toCachedEntity(ownerUserId, chatId) }
+                )
             }
 
             Result.success(page)
@@ -1251,6 +1254,12 @@ class ChatRepository {
                 if (cached.id == messageId) cached.copy(text = cleanText, edited = true)
                 else cached
             }
+            localMessageDao.updateMessageText(
+                ownerUserId = userId,
+                chatId = chatId,
+                messageId = messageId,
+                text = cleanText
+            )
             refreshDirectConversationPreview(chatId)
 
             Result.success(
@@ -1262,6 +1271,25 @@ class ChatRepository {
             Result.failure(
                 e
             )
+        }
+    }
+
+    private suspend fun persistReaction(
+        chatId: String,
+        messageId: String,
+        userId: String,
+        reaction: String?
+    ) {
+        val cached = localMessageDao.getMessage(userId, chatId, messageId) ?: return
+        val updatedReactions = cached.toMessage().reactions.toMutableMap().apply {
+            if (reaction == null) remove(userId) else put(userId, reaction)
+        }
+        localMessageDao.upsertMessage(
+            cached.toMessage().copy(reactions = updatedReactions)
+                .toCachedEntity(userId, chatId)
+        )
+        updateCachedMessage(chatId) { message ->
+            message.copy(reactions = updatedReactions)
         }
     }
 
@@ -1363,6 +1391,7 @@ class ChatRepository {
                 )
                 .await()
 
+            persistReaction(chatId, messageId, userId, reaction)
             Result.success(
                 Unit
             )
@@ -1438,6 +1467,7 @@ class ChatRepository {
                 .removeValue()
                 .await()
 
+            persistReaction(chatId, messageId, userId, null)
             Result.success(
                 Unit
             )
@@ -1564,6 +1594,7 @@ class ChatRepository {
                 reactionRef
                     .removeValue()
                     .await()
+                persistReaction(chatId, messageId, userId, null)
 
                 return Result.success(
                     false
@@ -1575,6 +1606,7 @@ class ChatRepository {
                     reaction
                 )
                 .await()
+            persistReaction(chatId, messageId, userId, reaction)
 
             Result.success(
                 true
@@ -1675,6 +1707,11 @@ class ChatRepository {
             updateCachedMessage(chatId) { cached ->
                 if (cached.id == messageId) null else cached
             }
+            localMessageDao.deleteMessage(
+                ownerUserId = firebaseUser.uid,
+                chatId = chatId,
+                messageId = messageId
+            )
             refreshDirectConversationPreview(chatId)
 
             Result.success(Unit)
