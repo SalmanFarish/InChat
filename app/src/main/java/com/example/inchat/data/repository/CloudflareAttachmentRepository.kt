@@ -14,7 +14,7 @@ class CloudflareAttachmentRepository {
 
     companion object {
         private const val BASE_URL =
-            "https://REPLACE_WITH_INCHAT_ATTACHMENTS_WORKER_URL/v1/attachments"
+            CloudflareWorkerConfig.API_BASE_URL + "/attachments"
 
         private const val CONNECT_TIMEOUT = 15_000
         private const val READ_TIMEOUT = 60_000
