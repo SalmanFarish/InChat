@@ -1919,6 +1919,19 @@ class UserRepository {
 
         return try {
 
+            CloudflareNotificationRepository()
+                .syncMyGroupSubscriptions(
+                    uid = uid,
+                    subscribe = false
+                )
+                .onFailure { notificationError ->
+                    Log.w(
+                        "UserRepository",
+                        "Some group notification topics could not be removed during logout.",
+                        notificationError
+                    )
+                }
+
             database
                 .getReference(
                     "privateUsers"
@@ -1931,19 +1944,6 @@ class UserRepository {
                 )
                 .removeValue()
                 .await()
-
-            CloudflareNotificationRepository()
-                .syncMyGroupSubscriptions(
-                    uid = uid,
-                    subscribe = false
-                )
-                .onFailure { notificationError ->
-                    Log.w(
-                        "UserRepository",
-                        "FCM token was cleared, but some group topics could not be removed.",
-                        notificationError
-                    )
-                }
 
             Result.success(
                 Unit
