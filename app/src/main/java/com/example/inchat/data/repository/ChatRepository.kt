@@ -62,8 +62,8 @@ class ChatRepository {
          * screens immediately populated while Firebase refreshes
          * the latest server state in the background.
          *
-         * Firebase Realtime Database disk persistence remains the
-         * source of truth across app restarts.
+         * Room provides the persistent local message cache across app
+         * restarts; Firebase remains the remote synchronization source.
          */
         private val conversationCache =
             ConcurrentHashMap<String, List<Conversation>>()
@@ -454,6 +454,7 @@ class ChatRepository {
                 messagesRef.removeEventListener(listener)
             }
         }
+
     suspend fun getOlderMessages(
         chatId: String,
         beforeTimestamp: Long,
