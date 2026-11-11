@@ -461,17 +461,23 @@ async function syncGroupConversationPreview(chatId, chat) {
     latest = child;
   });
 
+  const isSystemEvent = !!(
+    latest &&
+    typeof latest.child("systemEvent").val() === "string" &&
+    latest.child("systemEvent").val().trim() !== ""
+  );
+
   const lastMessage = latest &&
     typeof latest.child("text").val() === "string" ?
     latest.child("text").val() :
     "";
 
-  const lastSenderId = latest &&
+  const lastSenderId = !isSystemEvent && latest &&
     typeof latest.child("senderId").val() === "string" ?
     latest.child("senderId").val() :
     "";
 
-  const lastSenderNickname = latest &&
+  const lastSenderNickname = !isSystemEvent && latest &&
     typeof latest.child("senderNickname").val() === "string" ?
     latest.child("senderNickname").val() :
     "";
@@ -486,19 +492,37 @@ async function syncGroupConversationPreview(chatId, chat) {
     chat.name.trim() :
     "";
 
-  const groupPhotoUrl =
-    typeof chat.photoUrl === "string" ?
-    chat.photoUrl :
-    "";
-
   const updates = {};
+  const previousEntries = await Promise.all(
+      members.map((uid) =>
+        database.ref("userChats").child(uid).child(chatId).once("value"),
+      ),
+  );
 
-  for (const uid of members) {
+  members.forEach((uid, index) => {
+    const previous = previousEntries[index].val() || {};
+    const previousTimestamp =
+      typeof previous.lastTimestamp === "number" ?
+      previous.lastTimestamp :
+      0;
+    const previousUnread =
+      typeof previous.unreadCount === "number" && previous.unreadCount >= 0 ?
+      previous.unreadCount :
+      0;
+
+    const isNewIncomingMessage =
+      !isSystemEvent &&
+      lastMessage !== "" &&
+      lastSenderId !== "" &&
+      lastSenderId !== uid &&
+      lastTimestamp > previousTimestamp;
+
     updates[`userChats/${uid}/${chatId}`] = {
+      ...previous,
       chatId: chatId,
       chatType: "group",
       groupName: groupName,
-      groupPhotoUrl: groupPhotoUrl,
+      groupPhotoUrl: "",
       memberCount: members.length,
       otherUserId: "",
       otherUsername: "",
@@ -506,9 +530,9 @@ async function syncGroupConversationPreview(chatId, chat) {
       lastTimestamp: lastTimestamp,
       lastSenderId: lastSenderId,
       lastSenderNickname: lastSenderNickname,
-      unreadCount: 0,
+      unreadCount: previousUnread + (isNewIncomingMessage ? 1 : 0),
     };
-  }
+  });
 
   await database.ref().update(updates);
 }
