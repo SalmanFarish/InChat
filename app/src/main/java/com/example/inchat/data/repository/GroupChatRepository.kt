@@ -1409,13 +1409,27 @@ class GroupChatRepository {
             .distinct()
 
         val notifications = CloudflareNotificationRepository()
+        var dispatchFailed = false
         for (messageId in messageIds) {
             notifications
                 .notifyMessage(groupId, messageId)
                 .onFailure { error ->
+                    dispatchFailed = true
                     Log.w(
                         "GroupChatRepository",
                         "Group activity was saved, but preview sync failed.",
+                        error
+                    )
+                }
+        }
+
+        if (dispatchFailed) {
+            notifications
+                .syncConversationPreview(groupId)
+                .onFailure { error ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Fallback group preview sync failed.",
                         error
                     )
                 }
