@@ -108,11 +108,8 @@ interface LocalChatDao {
         // An empty listener snapshot can occur before offline data is available.
         // Never interpret it as proof that the server deleted all saved history.
         if (messages.isNotEmpty()) {
-            deleteMessagesFromTimestamp(
-                ownerUserId = ownerUserId,
-                chatId = chatId,
-                fromTimestamp = messages.minOf { it.timestamp }
-            )
+            // Read pending flags before replacing this timestamp range.
+            // Otherwise the delete would erase the local flag before merge.
             val mergedMessages = messages.map { incoming ->
                 val wasPending = getMessage(
                     ownerUserId = ownerUserId,
@@ -121,6 +118,11 @@ interface LocalChatDao {
                 )?.isPending ?: false
                 incoming.copy(isPending = wasPending)
             }
+            deleteMessagesFromTimestamp(
+                ownerUserId = ownerUserId,
+                chatId = chatId,
+                fromTimestamp = messages.minOf { it.timestamp }
+            )
             upsertMessages(mergedMessages)
         }
     }
