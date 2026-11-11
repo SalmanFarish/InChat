@@ -11,7 +11,10 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
@@ -1372,23 +1375,27 @@ class GroupChatRepository {
     private suspend fun syncGroupTopicMembers(
         groupId: String,
         memberIds: List<String>
-    ) {
+    ) = coroutineScope {
         val notifications = CloudflareNotificationRepository()
-        for (memberId in memberIds.distinct()) {
-            notifications
-                .setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = memberId,
-                    subscribe = true
-                )
-                .onFailure { error ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Could not enable group notifications for $memberId.",
-                        error
-                    )
+        memberIds.distinct()
+            .map { memberId ->
+                async {
+                    notifications
+                        .setGroupTopicSubscription(
+                            chatId = groupId,
+                            targetUid = memberId,
+                            subscribe = true
+                        )
+                        .onFailure { error ->
+                            Log.w(
+                                "GroupChatRepository",
+                                "Could not enable group notifications for $memberId.",
+                                error
+                            )
+                        }
                 }
-        }
+            }
+            .awaitAll()
     }
 
     private suspend fun dispatchGroupMessageEvents(
@@ -1396,38 +1403,30 @@ class GroupChatRepository {
         updates: Map<String, *>
     ) {
         val messagePrefix = "chats/$groupId/messages/"
-        val messageIds = updates.keys
-            .filter { it.startsWith(messagePrefix) }
-            .map { it.removePrefix(messagePrefix) }
-            .filter { it.isNotBlank() }
-            .distinct()
+        val latestActivityId = updates.keys
+            .lastOrNull { it.startsWith(messagePrefix) }
+            ?.removePrefix(messagePrefix)
+            ?.takeIf { it.isNotBlank() }
+            ?: return
 
-        val notifications = CloudflareNotificationRepository()
-        var dispatchFailed = false
-        for (messageId in messageIds) {
-            notifications
-                .notifyMessage(groupId, messageId)
-                .onFailure { error ->
-                    dispatchFailed = true
-                    Log.w(
-                        "GroupChatRepository",
-                        "Group activity was saved, but preview sync failed.",
-                        error
-                    )
-                }
-        }
-
-        if (dispatchFailed) {
-            notifications
-                .syncConversationPreview(groupId)
-                .onFailure { error ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Fallback group preview sync failed.",
-                        error
-                    )
-                }
-        }
+        CloudflareNotificationRepository()
+            .notifyMessage(groupId, latestActivityId)
+            .onFailure { error ->
+                Log.w(
+                    "GroupChatRepository",
+                    "Group activity was saved, but preview sync failed.",
+                    error
+                )
+                CloudflareNotificationRepository()
+                    .syncConversationPreview(groupId)
+                    .onFailure { previewError ->
+                        Log.w(
+                            "GroupChatRepository",
+                            "Fallback group preview sync failed.",
+                            previewError
+                        )
+                    }
+            }
     }
 
     private fun parseGroup(snapshot: DataSnapshot): Group? {
