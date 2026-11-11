@@ -9,7 +9,8 @@ data class Message(
     val replyTo: ReplyTo? = null,
     val reactions: Map<String, String> = emptyMap(),
     val edited: Boolean = false,
-    val attachment: Attachment? = null
+    val attachment: Attachment? = null,
+    val systemEvent: String = ""
 )
 
 data class ReplyTo(
