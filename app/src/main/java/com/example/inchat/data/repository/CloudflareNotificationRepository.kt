@@ -3,6 +3,7 @@ package com.example.inchat.data.repository
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -166,6 +167,8 @@ class CloudflareNotificationRepository {
             } else {
                 Result.success(Unit)
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.w(TAG, "Could not synchronize group notification topics.", error)
             Result.failure(error)
@@ -230,6 +233,8 @@ class CloudflareNotificationRepository {
             }
 
             Result.success(response)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Result.failure(error)
         } finally {
