@@ -94,6 +94,13 @@ class AuthViewModel(
             StateFlow<String> =
         _bio.asStateFlow()
 
+    private val _email =
+        MutableStateFlow("")
+
+    val email:
+            StateFlow<String> =
+        _email.asStateFlow()
+
     private val _currentUserId =
         MutableStateFlow("")
 
@@ -119,6 +126,9 @@ class AuthViewModel(
 
         _currentUserId.value =
             uid
+
+        _email.value =
+            auth.currentUser?.email.orEmpty()
 
         _username.value =
             username
@@ -259,6 +269,9 @@ class AuthViewModel(
 
             return
         }
+
+        _email.value =
+            email.orEmpty()
 
         if (
             !isGoogleUser(firebaseUser) &&
@@ -1921,6 +1934,9 @@ class AuthViewModel(
             ""
 
         _bio.value =
+            ""
+
+        _email.value =
             ""
 
         _currentUserId.value =
