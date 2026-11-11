@@ -140,6 +140,16 @@ class GroupChatRepository {
                 )
             }
 
+            CloudflareNotificationRepository()
+                .syncConversationPreview(groupId)
+                .onFailure { previewError ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "New group preview could not be initialized.",
+                        previewError
+                    )
+                }
+
             syncGroupTopicMembers(groupId, uniqueMembers)
 
             Result.success(groupId)
@@ -966,6 +976,16 @@ class GroupChatRepository {
                     eventError
                 )
             }
+
+            CloudflareNotificationRepository()
+                .syncConversationPreview(groupId)
+                .onFailure { previewError ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "New group members' inbox previews could not be initialized.",
+                        previewError
+                    )
+                }
 
             syncGroupTopicMembers(groupId, newMemberIds)
 
