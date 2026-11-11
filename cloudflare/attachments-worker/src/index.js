@@ -312,6 +312,66 @@ async function adminDatabaseRequest(
   return responseText ? JSON.parse(responseText) : null;
 }
 
+async function claimMessageEvent(
+  env,
+  adminToken,
+  chatId,
+  messageId,
+  senderId,
+) {
+  const receiptPath =
+    "/workerEventReceipts/" +
+    encodeURIComponent(chatId) +
+    "/" +
+    encodeURIComponent(messageId) +
+    ".json";
+  const receiptUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
+
+  const readResponse = await fetch(receiptUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not check notification event receipt (" +
+      readResponse.status +
+      ").",
+    );
+  }
+
+  const existing = await readResponse.json();
+  if (existing !== null) return false;
+
+  const etag = readResponse.headers.get("ETag") || "null_etag";
+  const writeResponse = await fetch(receiptUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify({
+      senderId: senderId,
+      processedAt: { ".sv": "timestamp" },
+    }),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error(
+      "Could not claim notification event (" +
+      writeResponse.status +
+      ").",
+    );
+  }
+
+  return true;
+}
+
 async function fcmRequest(
   accessToken,
   url,
@@ -756,7 +816,31 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     if (systemEvent && !isMember && systemEvent !== "member_left") {
       return json({ error: "Invalid group activity sender." }, 403);
     }
+  } else {
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (participantA !== uid && participantB !== uid) {
+      return json({ error: "Sender is not a chat participant." }, 403);
+    }
+  }
 
+  const claimed = await claimMessageEvent(
+    env,
+    adminAuth.token,
+    chatId,
+    messageId,
+    uid,
+  );
+
+  if (!claimed) {
+    return json({
+      success: true,
+      alreadyProcessed: true,
+      notificationSent: false,
+    });
+  }
+
+  if (isGroup) {
     try {
       await syncGroupConversationPreview(
         env,
@@ -780,12 +864,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         notificationSent: false,
         reason: "Group activity messages are not push-notified.",
       });
-    }
-  } else {
-    const participantA = chat.participantA;
-    const participantB = chat.participantB;
-    if (participantA !== uid && participantB !== uid) {
-      return json({ error: "Sender is not a chat participant." }, 403);
     }
   }
 
