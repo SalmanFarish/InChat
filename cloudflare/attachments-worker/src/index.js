@@ -910,12 +910,12 @@ export default {
 
       const url = new URL(request.url);
       const user = await authenticate(getBearer(request), env);
-      const adminAuth = await getFirebaseAdminToken(env);
 
       if (
         request.method === "POST" &&
         url.pathname === "/v1/events/message"
       ) {
+        const adminAuth = await getFirebaseAdminToken(env);
         return processMessageEvent(request, env, user.uid, adminAuth);
       }
 
@@ -923,6 +923,7 @@ export default {
         request.method === "POST" &&
         url.pathname === "/v1/groups/topic"
       ) {
+        const adminAuth = await getFirebaseAdminToken(env);
         return updateGroupTopic(request, env, user.uid, adminAuth);
       }
 
