@@ -104,10 +104,11 @@ exports.sendChatNotification = onValueCreated(
             logger.info(
                 "Group activity entry saved; push notification skipped",
                 {
-              chatId: chatId,
-              messageId: messageId,
-              eventType: message.systemEvent,
-            });
+                  chatId: chatId,
+                  messageId: messageId,
+                  eventType: message.systemEvent,
+                },
+            );
             return;
           }
 
