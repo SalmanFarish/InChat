@@ -1898,26 +1898,24 @@ class AuthViewModel(
      * =========================================================
      */
     fun logout() {
+        val uid = _currentUserId.value
 
-        val uid =
-            _currentUserId.value
-
-        if (
-            uid.isNotBlank()
-        ) {
-
-            viewModelScope.launch {
-
+        viewModelScope.launch {
+            if (uid.isNotBlank()) {
                 userRepository
-                    .clearFcmToken(
-                        uid
-                    )
+                    .clearFcmToken(uid)
+                    .onFailure { error ->
+                        Log.w(
+                            "AuthViewModel",
+                            "Could not fully clear notification registration during logout.",
+                            error
+                        )
+                    }
             }
+
+            auth.signOut()
+            clearLocalAuthState()
         }
-
-        auth.signOut()
-
-        clearLocalAuthState()
     }
 
     /*
