@@ -74,6 +74,25 @@ class CloudflareNotificationRepository {
         ).map { Unit }
     }
 
+    suspend fun clearMyPersonalTopic(
+        uid: String
+    ): Result<Unit> {
+        if (uid.isBlank() || auth.currentUser?.uid != uid) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match notification owner.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.success(Unit)
+        }
+
+        return post(
+            path = "/notifications/personal-topic",
+            body = JSONObject()
+        ).map { Unit }
+    }
+
     suspend fun syncConversationPreview(
         chatId: String
     ): Result<Unit> {
