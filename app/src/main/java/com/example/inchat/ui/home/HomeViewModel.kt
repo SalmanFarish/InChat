@@ -214,6 +214,15 @@ class HomeViewModel : ViewModel() {
         _conversations.value =
             merged
 
+        // Warm recent direct/group message history while Home is visible.
+        viewModelScope.launch {
+            chatRepository.preloadRecentMessages(
+                ownerUserId = listeningUserId,
+                conversations = merged,
+                maxChats = 8
+            )
+        }
+
         /*
          * Show the normal inbox immediately once direct conversations
          * have emitted. When there are no direct chats, wait for the
