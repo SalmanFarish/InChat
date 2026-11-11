@@ -53,6 +53,7 @@ fun ChatMessageList(
     otherUserReadTimestamp: Long,
     pendingMessageIds: Set<String>,
     isConnected: Boolean,
+    showSenderNames: Boolean = false,
     readReceiptsEnabled: Boolean = true,
     chatTheme: ChatTheme,
     onReply: (Message) -> Unit,
@@ -685,6 +686,8 @@ fun ChatMessageList(
                                 isLastInGroup =
                                     isLastInGroup,
 
+                                showSenderName =
+                                    showSenderNames && !isMe && isFirstInGroup,
 
                                 onReply = {
                                     if (
