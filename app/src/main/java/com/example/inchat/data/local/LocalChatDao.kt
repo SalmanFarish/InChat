@@ -62,12 +62,6 @@ interface LocalChatDao {
 
     @Query(
         "DELETE FROM cached_messages " +
-            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId"
-    )
-    suspend fun deleteAllMessagesForChat(ownerUserId: String, chatId: String)
-
-    @Query(
-        "DELETE FROM cached_messages " +
             "WHERE ownerUserId = :ownerUserId AND chatId = :chatId " +
             "AND timestamp >= :fromTimestamp"
     )
@@ -87,9 +81,9 @@ interface LocalChatDao {
         chatId: String,
         messages: List<CachedMessageEntity>
     ) {
-        if (messages.isEmpty()) {
-            deleteAllMessagesForChat(ownerUserId, chatId)
-        } else {
+        // An empty listener snapshot can occur before offline data is available.
+        // Never interpret it as proof that the server deleted all saved history.
+        if (messages.isNotEmpty()) {
             deleteMessagesFromTimestamp(
                 ownerUserId = ownerUserId,
                 chatId = chatId,
