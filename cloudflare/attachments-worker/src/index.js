@@ -274,14 +274,17 @@ async function adminDatabaseRequest(
   path,
   method = "GET",
   body = undefined,
+  query = "",
 ) {
   const cleanPath = path ?
     "/" + path.split("/").map(encodeURIComponent).join("/") :
     "";
+  const queryString = query ? "?" + query : "";
   const response = await fetch(
     env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
       cleanPath +
-      ".json",
+      ".json" +
+      queryString,
     {
       method: method,
       headers: {
@@ -499,6 +502,9 @@ async function syncGroupConversationPreview(
     env,
     adminToken,
     "chats/" + chatId + "/messages",
+    "GET",
+    undefined,
+    "orderBy=%22timestamp%22&limitToLast=1",
   );
 
   let latestId = "";
@@ -579,6 +585,9 @@ async function rebuildConversationPreview(
     env,
     adminToken,
     "chats/" + chatId + "/messages",
+    "GET",
+    undefined,
+    "orderBy=%22timestamp%22&limitToLast=1",
   );
 
   let latest = null;
