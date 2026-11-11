@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.GroupChatRepository
