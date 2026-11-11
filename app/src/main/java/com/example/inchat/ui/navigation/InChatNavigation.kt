@@ -1507,16 +1507,38 @@ private fun BottomNavigationItem(
             .clip(RoundedCornerShape(40.dp))
             .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-            contentDescription = item.label,
-            tint = contentColor,
-            modifier = Modifier.size(25.dp)
-        )
+        if (selected) {
+            Icon(
+                imageVector = item.selectedIcon,
+                contentDescription = item.label,
+                tint = contentColor,
+                modifier = Modifier.size(25.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(
+                        width = 0.8.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = androidx.compose.foundation.shape.CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = item.unselectedIcon,
+                    contentDescription = item.label,
+                    tint = contentColor,
+                    modifier = Modifier.size(23.dp)
+                )
+            }
+        }
 
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
