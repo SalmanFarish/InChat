@@ -1,5 +1,6 @@
 package com.example.inchat.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import com.example.inchat.data.model.Attachment
@@ -32,6 +33,7 @@ data class CachedMessageEntity(
     val attachmentMimeType: String,
     val attachmentSizeBytes: Long,
     val attachmentViewedAt: Long,
+    @ColumnInfo(defaultValue = "0")
     val isPending: Boolean = false
 )
 
