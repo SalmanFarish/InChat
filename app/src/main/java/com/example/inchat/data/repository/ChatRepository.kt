@@ -460,7 +460,12 @@ class ChatRepository {
                 .child(messageId)
                 .get()
                 .await()
-            if (!messageSnapshot.exists()) {
+            val cachedMessage = localMessageDao.getMessage(
+                ownerUserId = ownerUserId,
+                chatId = chatId,
+                messageId = messageId
+            )
+            if (!messageSnapshot.exists() && cachedMessage == null) {
                 return Result.failure(IllegalArgumentException("Message does not exist."))
             }
 
@@ -519,6 +524,31 @@ class ChatRepository {
                 clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + currentlyLoadedMessageIds
             )
+            // Direct-chat preview metadata is owned by this user. Group preview
+            // fields are maintained by the group sync path, so only unreadCount
+            // is updated there.
+            try {
+                val chatSnapshot = database.getReference("chats")
+                    .child(chatId)
+                    .get()
+                    .await()
+                if (chatSnapshot.child("type").getValue(String::class.java) != "group") {
+                    database.getReference("userChats")
+                        .child(ownerUserId)
+                        .child(chatId)
+                        .updateChildren(
+                            mapOf(
+                                "lastMessage" to "No messages yet",
+                                "lastTimestamp" to clearedAt,
+                                "lastSenderId" to ""
+                            )
+                        )
+                        .await()
+                }
+            } catch (previewError: Exception) {
+                Log.w(TAG, "Chat history cleared, but the inbox preview could not be refreshed.", previewError)
+            }
+
             // Clearing a conversation also resets this user's unread badge.
             database.getReference("userChats")
                 .child(ownerUserId)
