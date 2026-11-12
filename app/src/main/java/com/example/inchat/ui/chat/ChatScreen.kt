@@ -310,30 +310,6 @@ fun ChatScreen(
             isOwnMessage =
                 message.senderId ==
                         currentUserId,
-
-            currentUserId =
-                currentUserId,
-
-            onReaction = {
-                    reaction ->
-
-                chatViewModel
-                    .toggleReaction(
-
-                        messageId =
-                            message.id,
-
-                        reaction =
-                            reaction,
-
-                        currentUserId =
-                            currentUserId
-                    )
-
-                messageForActions =
-                    null
-            },
-
             onReply = {
 
                 messageForActions =
