@@ -108,7 +108,7 @@ fun GroupChatScreen(
     var messageForActions by rememberSaveable { mutableStateOf<String?>(null) }
     var messageForInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedMessageIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var messageForTextSelection by remember { mutableStateOf<Message?>(null) }
     var showClearChatConfirmation by rememberSaveable { mutableStateOf(false) }
     var showDeleteSelectedForEveryoneConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -419,6 +419,7 @@ fun GroupChatScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
 
         if (showClearChatConfirmation) {
             AlertDialog(
@@ -474,8 +475,6 @@ fun GroupChatScreen(
                     }
                 }
             )
-        }
-
         }
     }
 }
