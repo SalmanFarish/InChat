@@ -1321,6 +1321,7 @@ private fun ConversationActionRow(
     }
 }
 
+@Composable
 private fun HiddenChatsToggle(
     hiddenCount: Int,
     expanded: Boolean,
