@@ -67,6 +67,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
@@ -326,53 +328,86 @@ fun HomeScreen(
     }
 
     pendingDeleteConversation?.let { conversation ->
-        AlertDialog(
+        Dialog(
             onDismissRequest = {
                 pendingDeleteConversation = null
             },
-            title = {
-                Text("Delete chat?")
-            },
-            text = {
-                Text(
-                    if (conversation.chatType == "group") {
-                        "This removes the group from your chat list."
-                    } else {
-                        "This removes the conversation from your inbox. It does not delete messages for the other person."
-                    }
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            Surface(
+                modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 5.dp,
+                shadowElevation = 16.dp,
+                border = BorderStroke(
+                    width = 0.7.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingDeleteConversation = null
-                        homeViewModel.deleteConversation(
-                            currentUserId = currentUserId,
-                            chatId = conversation.chatId,
-                            chatType = conversation.chatType
-                        ) { success, error ->
-                            if (!success) {
-                                actionMessage = error ?: "Could not delete chat."
-                            }
-                        }
-                    }
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        horizontal = 22.dp,
+                        vertical = 20.dp
+                    )
                 ) {
                     Text(
-                        text = "Delete",
-                        color = MaterialTheme.colorScheme.error
+                        text = "Delete chat?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        pendingDeleteConversation = null
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        text = "This chat will be removed from your list.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 18.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                pendingDeleteConversation = null
+                            }
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        TextButton(
+                            onClick = {
+                                pendingDeleteConversation = null
+                                homeViewModel.deleteConversation(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    chatType = conversation.chatType
+                                ) { success, error ->
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not delete chat."
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = "Delete",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
-                ) {
-                    Text("Cancel")
                 }
             }
-        )
+        }
     }
 
     /*
