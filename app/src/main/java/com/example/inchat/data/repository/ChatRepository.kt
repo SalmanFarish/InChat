@@ -381,6 +381,26 @@ class ChatRepository {
 
 
 
+    private suspend fun readMessageVisibility(
+        chatId: String,
+        ownerUserId: String
+    ): MessageVisibilitySnapshot {
+        val snapshot = database.getReference("userMessageVisibility")
+            .child(ownerUserId)
+            .child(chatId)
+            .get()
+            .await()
+        val hiddenIds = snapshot.child("hiddenMessageIds")
+            .children
+            .filter { it.getValue(Boolean::class.java) == true }
+            .mapNotNull { it.key }
+            .toSet()
+        return MessageVisibilitySnapshot(
+            clearedAt = snapshot.child("clearedAt").getValue(Long::class.java) ?: 0L,
+            hiddenMessageIds = hiddenIds
+        ).also { messageVisibilityCache[cacheKey(chatId, ownerUserId)] = it }
+    }
+
     private fun observeMessageVisibility(chatId: String): Flow<MessageVisibilitySnapshot> {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         if (ownerUserId.isBlank() || chatId.isBlank()) {
@@ -499,9 +519,6 @@ class ChatRepository {
                 clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + currentlyLoadedMessageIds
             )
-            visibleMessageCache[key] = messageCache[key].orEmpty()
-                .filter(messageVisibilityCache.getValue(key)::allows)
-
             // Clearing a conversation also resets this user's unread badge.
             database.getReference("userChats")
                 .child(ownerUserId)
@@ -822,25 +839,28 @@ class ChatRepository {
                 .endAt((beforeTimestamp - 1L).toDouble())
                 .limitToLast(pageSize).get().await()
 
-            val page = snapshot.children
+            val rawPage = snapshot.children
                 .mapNotNull { it.getValue(Message::class.java) }
                 .filter { it.id.isNotBlank() }
                 .sortedBy { it.timestamp }
 
-            if (page.isNotEmpty()) {
-                val ownerUserId = auth.currentUser?.uid.orEmpty()
-                if (ownerUserId.isBlank()) {
-                    return Result.failure(IllegalStateException("You are not authenticated."))
-                }
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            val visibility = readMessageVisibility(chatId, ownerUserId)
+            val page = rawPage.filter(visibility::allows)
+
+            if (rawPage.isNotEmpty()) {
                 val key = cacheKey(chatId, ownerUserId)
                 olderMessageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (cached.orEmpty() + rawPage).distinctBy { it.id }.sortedBy { it.timestamp }
                 }
                 messageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (cached.orEmpty() + rawPage).distinctBy { it.id }.sortedBy { it.timestamp }
                 }
                 localMessageDao.upsertMessages(
-                    page.map { it.toCachedEntity(ownerUserId, chatId) }
+                    rawPage.map { it.toCachedEntity(ownerUserId, chatId) }
                 )
             }
 
