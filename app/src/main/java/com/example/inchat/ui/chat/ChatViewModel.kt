@@ -2217,9 +2217,9 @@ class ChatViewModel : ViewModel() {
             onResult(false, "No chat is open.")
             return
         }
-        val messageIds = _messages.value.map { it.id }
+        val pendingIds = _pendingMessageIds.value
         viewModelScope.launch {
-            val result = chatRepository.clearChatForMe(chatId, messageIds)
+            val result = chatRepository.clearChatForMe(chatId, pendingIds)
             onResult(result.isSuccess, result.exceptionOrNull()?.message)
         }
     }
