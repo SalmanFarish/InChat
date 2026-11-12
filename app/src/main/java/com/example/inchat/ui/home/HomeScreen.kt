@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,10 +57,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
@@ -144,6 +151,14 @@ fun HomeScreen(
 
     var selectedConversation by remember {
         mutableStateOf<Conversation?>(null)
+    }
+
+    var pendingDeleteConversation by remember {
+        mutableStateOf<Conversation?>(null)
+    }
+
+    var actionPopupOnLeft by remember {
+        mutableStateOf(false)
     }
 
     var showHiddenChats by rememberSaveable {
@@ -310,36 +325,52 @@ fun HomeScreen(
         )
     }
 
-    selectedConversation?.let { conversation ->
-        ConversationActionsCard(
-            conversation = conversation,
-            userRepository = userRepository,
-            onTogglePin = {
-                homeViewModel.setConversationPinned(
-                    currentUserId = currentUserId,
-                    chatId = conversation.chatId,
-                    pinned = !conversation.isPinned
-                ) { success, error ->
-                    selectedConversation = null
-                    if (!success) {
-                        actionMessage = error ?: "Could not update the pin."
+    pendingDeleteConversation?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = {
+                pendingDeleteConversation = null
+            },
+            title = {
+                Text("Delete chat?")
+            },
+            text = {
+                Text(
+                    if (conversation.chatType == "group") {
+                        "This removes the group from your chat list."
+                    } else {
+                        "This removes the conversation from your inbox. It does not delete messages for the other person."
                     }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteConversation = null
+                        homeViewModel.deleteConversation(
+                            currentUserId = currentUserId,
+                            chatId = conversation.chatId,
+                            chatType = conversation.chatType
+                        ) { success, error ->
+                            if (!success) {
+                                actionMessage = error ?: "Could not delete chat."
+                            }
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "Delete",
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             },
-            onToggleHidden = {
-                homeViewModel.setConversationHidden(
-                    currentUserId = currentUserId,
-                    chatId = conversation.chatId,
-                    hidden = !conversation.isHidden
-                ) { success, error ->
-                    selectedConversation = null
-                    if (!success) {
-                        actionMessage = error ?: "Could not update hidden chats."
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteConversation = null
                     }
+                ) {
+                    Text("Cancel")
                 }
-            },
-            onDismiss = {
-                selectedConversation = null
             }
         )
     }
@@ -463,7 +494,41 @@ fun HomeScreen(
                                 onConversationClick(conversation)
                             },
                             onLongClick = {
+                                actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
                                 selectedConversation = conversation
+                            },
+                            showActions = selectedConversation?.chatId == conversation.chatId,
+                            popupOnLeft = actionPopupOnLeft,
+                            onDismissActions = {
+                                selectedConversation = null
+                            },
+                            onTogglePin = {
+                                homeViewModel.setConversationPinned(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    pinned = !conversation.isPinned
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update the pin."
+                                    }
+                                }
+                            },
+                            onToggleHidden = {
+                                homeViewModel.setConversationHidden(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    hidden = !conversation.isHidden
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update hidden chats."
+                                    }
+                                }
+                            },
+                            onDelete = {
+                                selectedConversation = null
+                                pendingDeleteConversation = conversation
                             }
                         )
                     }
@@ -492,7 +557,41 @@ fun HomeScreen(
                                         onConversationClick(conversation)
                                     },
                                     onLongClick = {
+                                        actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
                                         selectedConversation = conversation
+                                    },
+                                    showActions = selectedConversation?.chatId == conversation.chatId,
+                                    popupOnLeft = actionPopupOnLeft,
+                                    onDismissActions = {
+                                        selectedConversation = null
+                                    },
+                                    onTogglePin = {
+                                        homeViewModel.setConversationPinned(
+                                            currentUserId = currentUserId,
+                                            chatId = conversation.chatId,
+                                            pinned = !conversation.isPinned
+                                        ) { success, error ->
+                                            selectedConversation = null
+                                            if (!success) {
+                                                actionMessage = error ?: "Could not update the pin."
+                                            }
+                                        }
+                                    },
+                                    onToggleHidden = {
+                                        homeViewModel.setConversationHidden(
+                                            currentUserId = currentUserId,
+                                            chatId = conversation.chatId,
+                                            hidden = !conversation.isHidden
+                                        ) { success, error ->
+                                            selectedConversation = null
+                                            if (!success) {
+                                                actionMessage = error ?: "Could not update hidden chats."
+                                            }
+                                        }
+                                    },
+                                    onDelete = {
+                                        selectedConversation = null
+                                        pendingDeleteConversation = conversation
                                     }
                                 )
                             }
@@ -1099,175 +1198,98 @@ private fun EmptyConversationState(
 
 /*
  * ============================================================
- * CONVERSATION ACTION CARD
+ * CONVERSATION ACTION POPUP
  * ============================================================
  */
 @Composable
-private fun ConversationActionsCard(
+private fun ConversationActionsPopup(
     conversation: Conversation,
-    userRepository: UserRepository,
+    popupOnLeft: Boolean,
+    onDismiss: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
-    onDismiss: () -> Unit
+    onDelete: () -> Unit
 ) {
-    var profilePhoto by remember(conversation.otherUserId) {
-        mutableStateOf(
-            userRepository.getCachedUser(conversation.otherUserId)
-                ?.profilePhotoData
-                ?.ifBlank { userRepository.getCachedUser(conversation.otherUserId)?.profilePhotoUrl }
-                .orEmpty()
+    val density = LocalDensity.current
+    val positionProvider = remember(popupOnLeft, density) {
+        ConversationActionsPopupPositionProvider(
+            preferLeft = popupOnLeft,
+            edgeMarginPx = with(density) { 14.dp.roundToPx() }
         )
     }
 
-    if (conversation.chatType != "group") {
-        LaunchedEffect(conversation.otherUserId) {
-            val user = userRepository.getUserByIdFast(conversation.otherUserId)
-            profilePhoto = user?.profilePhotoData
-                ?.ifBlank { user.profilePhotoUrl }
-                .orEmpty()
-        }
-    }
-
-    val title = if (conversation.chatType == "group") {
-        conversation.groupName
-    } else {
-        conversation.otherUsername
-    }
-
-    Dialog(
+    Popup(
+        popupPositionProvider = positionProvider,
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties = PopupProperties(
+            focusable = true,
             dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
+            dismissOnClickOutside = true
         )
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 26.dp),
-            contentAlignment = Alignment.Center
+        Surface(
+            modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 4.dp,
+            shadowElevation = 18.dp,
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+            )
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 360.dp),
-                shape = RoundedCornerShape(26.dp),
-                color = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                tonalElevation = 5.dp,
-                shadowElevation = 20.dp,
-                border = BorderStroke(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
-                )
+            Column(
+                modifier = Modifier.padding(7.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(17.dp),
-                    verticalArrangement = Arrangement.spacedBy(11.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                    shape = CircleShape
-                                )
-                                .padding(2.dp)
-                        ) {
-                            if (conversation.chatType == "group") {
-                                GroupAvatar(
-                                    groupName = conversation.groupName,
-                                    modifier = Modifier.fillMaxSize(),
-                                    fontSize = 22.sp
-                                )
-                            } else {
-                                InChatProfileAvatar(
-                                    profilePhotoUrl = profilePhoto,
-                                    modifier = Modifier.fillMaxSize(),
-                                    iconSize = 22.dp,
-                                    contentDescription = "Profile picture"
-                                )
-                            }
-                        }
+                ConversationActionRow(
+                    icon = Icons.Outlined.PushPin,
+                    title = if (conversation.isPinned) "Unpin" else "Pin",
+                    onClick = onTogglePin
+                )
 
-                        Spacer(Modifier.width(12.dp))
+                ConversationActionRow(
+                    icon = if (conversation.isHidden) {
+                        Icons.Outlined.Visibility
+                    } else {
+                        Icons.Outlined.VisibilityOff
+                    },
+                    title = if (conversation.isHidden) "Show on Home" else "Hide",
+                    onClick = onToggleHidden
+                )
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontSize = 15.sp
-                                ),
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Spacer(Modifier.height(3.dp))
-
-                            Text(
-                                text = if (conversation.chatType == "group") {
-                                    "GROUP  ·  ${conversation.memberCount} MEMBERS"
-                                } else {
-                                    "PRIVATE CHAT"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily = JetBrainsMono,
-                                    fontSize = 8.sp,
-                                    letterSpacing = 0.55.sp
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
-                    )
-
-                    ConversationActionRow(
-                        icon = Icons.Outlined.PushPin,
-                        title = if (conversation.isPinned) "Unpin chat" else "Pin to top",
-                        onClick = onTogglePin
-                    )
-
-                    ConversationActionRow(
-                        icon = if (conversation.isHidden) {
-                            Icons.Outlined.Visibility
-                        } else {
-                            Icons.Outlined.VisibilityOff
-                        },
-                        title = if (conversation.isHidden) "Show on Home" else "Hide from Home",
-                        onClick = onToggleHidden
-                    )
-
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text(
-                            text = "Cancel",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                ConversationActionRow(
+                    icon = Icons.Outlined.DeleteOutline,
+                    title = "Delete Chat",
+                    destructive = true,
+                    onClick = onDelete
+                )
             }
         }
+    }
+}
+
+private class ConversationActionsPopupPositionProvider(
+    private val preferLeft: Boolean,
+    private val edgeMarginPx: Int
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        val maxX = (windowSize.width - popupContentSize.width - edgeMarginPx)
+            .coerceAtLeast(edgeMarginPx)
+        val x = if (preferLeft) edgeMarginPx else maxX
+
+        val maxY = (windowSize.height - popupContentSize.height - edgeMarginPx)
+            .coerceAtLeast(edgeMarginPx)
+        val y = (anchorBounds.center.y - popupContentSize.height / 2)
+            .coerceIn(edgeMarginPx, maxY)
+
+        return IntOffset(x, y)
     }
 }
 
@@ -1275,47 +1297,53 @@ private fun ConversationActionsCard(
 private fun ConversationActionRow(
     icon: ImageVector,
     title: String,
+    destructive: Boolean = false,
     onClick: () -> Unit
 ) {
+    val foreground = if (destructive) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(46.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(15.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
+        shape = RoundedCornerShape(12.dp),
+        color = if (destructive) {
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.34f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)
+        }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.size(34.dp),
-                shape = RoundedCornerShape(11.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = foreground
+            )
 
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(11.dp))
 
             Text(
                 text = title,
-                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleSmall.copy(
                     fontSize = 13.sp
                 ),
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (destructive) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             )
         }
     }
@@ -1396,7 +1424,13 @@ private fun ConversationItem(
     userRepository: UserRepository,
     currentUserId: String,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    showActions: Boolean,
+    popupOnLeft: Boolean,
+    onDismissActions: () -> Unit,
+    onTogglePin: () -> Unit,
+    onToggleHidden: () -> Unit,
+    onDelete: () -> Unit
 ) {
     var otherUserProfilePhoto by remember(conversation.otherUserId) {
         mutableStateOf(
@@ -1449,6 +1483,7 @@ private fun ConversationItem(
             if (conversation.chatType == "group") "No messages yet" else ""
         }
 
+    Box {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1621,6 +1656,17 @@ private fun ConversationItem(
                     }
                 }
             }
+        }
+    }
+        if (showActions) {
+            ConversationActionsPopup(
+                conversation = conversation,
+                popupOnLeft = popupOnLeft,
+                onDismiss = onDismissActions,
+                onTogglePin = onTogglePin,
+                onToggleHidden = onToggleHidden,
+                onDelete = onDelete
+            )
         }
     }
 }
