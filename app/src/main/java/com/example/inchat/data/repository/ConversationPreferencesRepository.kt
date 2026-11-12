@@ -12,7 +12,8 @@ import kotlinx.coroutines.tasks.await
 
 data class ConversationPreference(
     val isPinned: Boolean = false,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    val clearedAt: Long = 0L
 )
 
 /**
@@ -53,7 +54,9 @@ class ConversationPreferencesRepository {
                         isPinned = child.child("pinned")
                             .getValue(Boolean::class.java) ?: false,
                         isHidden = child.child("hidden")
-                            .getValue(Boolean::class.java) ?: false
+                            .getValue(Boolean::class.java) ?: false,
+                        clearedAt = child.child("clearedAt")
+                            .getValue(Long::class.java) ?: 0L
                     )
                 }.toMap()
 
