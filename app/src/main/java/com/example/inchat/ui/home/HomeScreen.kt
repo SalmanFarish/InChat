@@ -441,15 +441,19 @@ fun HomeScreen(
                             userRepository = userRepository,
                             currentUserId = currentUserId,
                             onClick = {
+                                pendingDeleteConversation = null
+                                selectedConversation = null
                                 onConversationClick(conversation)
                             },
                             onLongClick = {
+                                pendingDeleteConversation = null
                                 actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
                                 selectedConversation = conversation
                             },
                             showActions = selectedConversation?.chatId == conversation.chatId,
                             popupOnLeft = actionPopupOnLeft,
                             onDismissActions = {
+                                pendingDeleteConversation = null
                                 selectedConversation = null
                             },
                             onTogglePin = {
@@ -514,15 +518,19 @@ fun HomeScreen(
                                     userRepository = userRepository,
                                     currentUserId = currentUserId,
                                     onClick = {
+                                        pendingDeleteConversation = null
+                                        selectedConversation = null
                                         onConversationClick(conversation)
                                     },
                                     onLongClick = {
+                                        pendingDeleteConversation = null
                                         actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
                                         selectedConversation = conversation
                                     },
                                     showActions = selectedConversation?.chatId == conversation.chatId,
                                     popupOnLeft = actionPopupOnLeft,
                                     onDismissActions = {
+                                        pendingDeleteConversation = null
                                         selectedConversation = null
                                     },
                                     onTogglePin = {
