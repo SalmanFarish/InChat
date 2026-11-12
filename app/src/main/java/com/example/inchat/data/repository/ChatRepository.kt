@@ -248,7 +248,8 @@ class ChatRepository {
     fun getCachedMessages(chatId: String): List<Message>? {
         val key = cacheKey(chatId)
         val visibility = messageVisibilityCache[key] ?: return null
-        return messageCache[key].orEmpty().filter(visibility::allows)
+        return visibleMessageCache[key]
+            ?: messageCache[key].orEmpty().filter(visibility::allows)
     }
 
     fun clearOlderMessagePages(chatId: String) {
@@ -477,6 +478,15 @@ class ChatRepository {
                 .setValue(true)
                 .await()
 
+            val key = cacheKey(chatId, ownerUserId)
+            val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+            val updatedVisibility = oldVisibility.copy(
+                hiddenMessageIds = oldVisibility.hiddenMessageIds + messageId
+            )
+            messageVisibilityCache[key] = updatedVisibility
+            visibleMessageCache[key] = messageCache[key].orEmpty()
+                .filter(updatedVisibility::allows)
+
             Result.success(Unit)
         } catch (error: Exception) {
             Log.e(TAG, "Could not hide message $messageId for current user", error)
@@ -520,10 +530,14 @@ class ChatRepository {
 
             val key = cacheKey(chatId, ownerUserId)
             val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
-            messageVisibilityCache[key] = oldVisibility.copy(
+            val updatedVisibility = oldVisibility.copy(
                 clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + currentlyLoadedMessageIds
             )
+            messageVisibilityCache[key] = updatedVisibility
+            visibleMessageCache[key] = messageCache[key].orEmpty()
+                .filter(updatedVisibility::allows)
+
             // Direct-chat preview metadata is owned by this user. Group preview
             // fields are maintained by the group sync path, so only unreadCount
             // is updated there.
