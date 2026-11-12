@@ -28,6 +28,7 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatAppearanceRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.notification.ActiveConversationTracker
 import kotlinx.coroutines.flow.flowOf
 
 @OptIn(
@@ -173,8 +174,10 @@ fun ChatScreen(
         chatViewModel.isLoadingOlderMessages.collectAsState()
 
     DisposableEffect(chatViewModel, currentUserId, chatId) {
+        ActiveConversationTracker.setActiveChat(chatId)
         chatViewModel.setChatVisible(currentUserId, true)
         onDispose {
+            ActiveConversationTracker.clearActiveChat(chatId)
             chatViewModel.setChatVisible(currentUserId, false)
         }
     }
