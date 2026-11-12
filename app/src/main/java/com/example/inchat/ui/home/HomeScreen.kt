@@ -361,11 +361,27 @@ fun HomeScreen(
                     modifier = Modifier.padding(7.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    ConversationActionRow(
-                        icon = Icons.Outlined.DeleteOutline,
-                        title = "Delete chat?",
-                        onClick = {}
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .padding(horizontal = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(11.dp))
+                        Text(
+                            text = "Delete chat?",
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
 
                     ConversationActionRow(
                         icon = Icons.Default.Clear,
