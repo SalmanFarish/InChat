@@ -3,28 +3,28 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,24 +32,34 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.FirebaseServerClock
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatMessageActionsDialog(
     message: Message,
     isOwnMessage: Boolean,
-    currentUserId: String,
-    onReaction: (String) -> Unit,
     onReply: () -> Unit,
     onInfo: () -> Unit,
     onEdit: () -> Unit,
@@ -58,39 +68,62 @@ fun ChatMessageActionsDialog(
     onCopied: () -> Unit
 ) {
     val context = LocalContext.current
-    val editAgeMillis = FirebaseServerClock.now() - message.timestamp
+    val density = LocalDensity.current
+    val currentTime = remember(message.id) {
+        mutableStateOf(FirebaseServerClock.now())
+    }
+    val editAgeAtOpen = FirebaseServerClock.now() - message.timestamp
+
+    LaunchedEffect(message.id, message.timestamp, isOwnMessage) {
+        if (
+            isOwnMessage &&
+            message.timestamp > 0L &&
+            editAgeAtOpen in 0L until ChatRepository.MESSAGE_EDIT_WINDOW_MS
+        ) {
+            delay(ChatRepository.MESSAGE_EDIT_WINDOW_MS - editAgeAtOpen)
+            currentTime.value = FirebaseServerClock.now()
+        }
+    }
+
+    val editAgeMillis = currentTime.value - message.timestamp
     val editAllowed =
         isOwnMessage &&
             message.timestamp > 0L &&
-            editAgeMillis in 0L..ChatRepository.MESSAGE_EDIT_WINDOW_MS
-    val confirmingDeleteState = androidx.compose.runtime.remember(message.id) {
-        androidx.compose.runtime.mutableStateOf(false)
+            editAgeMillis in 0L until ChatRepository.MESSAGE_EDIT_WINDOW_MS
+
+    val confirmingDeleteState = remember(message.id) {
+        mutableStateOf(false)
     }
-    val popupOnLeft = androidx.compose.runtime.remember(message.id) {
+    val popupOnLeft = remember(message.id) {
         kotlin.random.Random.Default.nextBoolean()
     }
-    val positionProvider = androidx.compose.runtime.remember(popupOnLeft) {
-        MessageActionsPopupPositionProvider(popupOnLeft)
+    val positionProvider = remember(popupOnLeft, density) {
+        MessageActionsPopupPositionProvider(
+            preferLeft = popupOnLeft,
+            edgeMarginPx = with(density) { 14.dp.roundToPx() }
+        )
     }
 
-    androidx.compose.ui.window.Popup(
+    Popup(
         popupPositionProvider = positionProvider,
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.PopupProperties(
+        properties = PopupProperties(
             focusable = true,
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
     ) {
         Surface(
+            modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 4.dp,
             shadowElevation = 18.dp,
-            modifier = Modifier
-                .widthIn(min = 196.dp, max = 236.dp)
-                .animateContentSize()
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+            )
         ) {
             Column(
                 modifier = Modifier.padding(7.dp),
@@ -119,92 +152,29 @@ fun ChatMessageActionsDialog(
                         )
                     }
                     MessageActionRow(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null
-                            )
-                        },
+                        icon = Icons.Default.Clear,
                         title = "Cancel",
                         onClick = { confirmingDeleteState.value = false }
                     )
                     MessageActionRow(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        },
+                        icon = Icons.Outlined.DeleteOutline,
                         title = "Delete",
-                        titleColor = MaterialTheme.colorScheme.error,
+                        destructive = true,
                         onClick = onDelete
                     )
                 } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ChatRepository.SUPPORTED_REACTIONS.forEach { reaction ->
-                            val selected = message.reactions[currentUserId] == reaction
-                            Box(
-                                modifier = Modifier
-                                    .size(if (selected) 42.dp else 40.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (selected) {
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
-                                        }
-                                    )
-                                    .clickable { onReaction(reaction) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = reaction,
-                                    fontSize = if (selected) 25.sp else 23.sp,
-                                    style = MaterialTheme.typography.headlineSmall.copy(
-                                        platformStyle = PlatformTextStyle(
-                                            includeFontPadding = false
-                                        )
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(5.dp))
                     MessageActionRow(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Reply,
-                                contentDescription = null
-                            )
-                        },
+                        icon = Icons.AutoMirrored.Filled.Reply,
                         title = "Reply",
                         onClick = onReply
                     )
                     MessageActionRow(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null
-                            )
-                        },
+                        icon = Icons.Default.Info,
                         title = "Info",
                         onClick = onInfo
                     )
                     MessageActionRow(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = null
-                            )
-                        },
+                        icon = Icons.Outlined.ContentCopy,
                         title = "Copy",
                         onClick = {
                             val clipboard =
@@ -215,38 +185,18 @@ fun ChatMessageActionsDialog(
                             onCopied()
                         }
                     )
-                    if (isOwnMessage) {
+                    if (editAllowed) {
                         MessageActionRow(
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    tint = if (editAllowed) {
-                                        MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            },
+                            icon = Icons.Default.Edit,
                             title = "Edit",
-                            titleColor = if (editAllowed) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            enabled = editAllowed,
                             onClick = onEdit
                         )
+                    }
+                    if (isOwnMessage) {
                         MessageActionRow(
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
+                            icon = Icons.Outlined.DeleteOutline,
                             title = "Delete",
-                            titleColor = MaterialTheme.colorScheme.error,
+                            destructive = true,
                             onClick = { confirmingDeleteState.value = true }
                         )
                     }
@@ -257,57 +207,75 @@ fun ChatMessageActionsDialog(
 }
 
 private class MessageActionsPopupPositionProvider(
-    private val preferLeft: Boolean
-) : androidx.compose.ui.window.PopupPositionProvider {
+    private val preferLeft: Boolean,
+    private val edgeMarginPx: Int
+) : PopupPositionProvider {
     override fun calculatePosition(
-        anchorBounds: androidx.compose.ui.unit.IntRect,
-        windowSize: androidx.compose.ui.unit.IntSize,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        popupContentSize: androidx.compose.ui.unit.IntSize
-    ): androidx.compose.ui.unit.IntOffset {
-        val margin = 14
-        val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
-        val x = if (preferLeft) margin else maxX
-        val maxY = (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
-        val y = (anchorBounds.center.y - popupContentSize.height / 2).coerceIn(margin, maxY)
-        return androidx.compose.ui.unit.IntOffset(x, y)
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        val maxX = (windowSize.width - popupContentSize.width - edgeMarginPx)
+            .coerceAtLeast(edgeMarginPx)
+        val x = if (preferLeft) edgeMarginPx else maxX
+        val maxY = (windowSize.height - popupContentSize.height - edgeMarginPx)
+            .coerceAtLeast(edgeMarginPx)
+        val y = (anchorBounds.center.y - popupContentSize.height / 2)
+            .coerceIn(edgeMarginPx, maxY)
+        return IntOffset(x, y)
     }
 }
 
-
 @Composable
 private fun MessageActionRow(
-    icon: @Composable () -> Unit,
+    icon: ImageVector,
     title: String,
-    titleColor: androidx.compose.ui.graphics.Color? = null,
-    enabled: Boolean = true,
+    destructive: Boolean = false,
     onClick: () -> Unit
 ) {
-    Row(
+    val foreground = if (destructive) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            icon()
+            .height(46.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (destructive) {
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.34f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)
         }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = titleColor ?: if (enabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = foreground
+            )
+            Spacer(Modifier.width(11.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
+                fontWeight = FontWeight.SemiBold,
+                color = if (destructive) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+        }
     }
 }
 
