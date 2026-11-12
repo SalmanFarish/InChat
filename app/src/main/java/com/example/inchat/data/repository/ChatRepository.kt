@@ -95,8 +95,6 @@ class ChatRepository {
         private val messageVisibilityCache =
             ConcurrentHashMap<String, MessageVisibilitySnapshot>()
 
-        private val visibleMessageCache =
-            ConcurrentHashMap<String, List<Message>>()
     }
 
     private data class MessageVisibilitySnapshot(
@@ -248,8 +246,7 @@ class ChatRepository {
     fun getCachedMessages(chatId: String): List<Message>? {
         val key = cacheKey(chatId)
         val visibility = messageVisibilityCache[key] ?: return null
-        return visibleMessageCache[key]
-            ?: messageCache[key].orEmpty().filter(visibility::allows)
+        return messageCache[key].orEmpty().filter(visibility::allows)
     }
 
     fun clearOlderMessagePages(chatId: String) {
@@ -484,9 +481,6 @@ class ChatRepository {
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + messageId
             )
             messageVisibilityCache[key] = updatedVisibility
-            visibleMessageCache[key] = messageCache[key].orEmpty()
-                .filter(updatedVisibility::allows)
-
             Result.success(Unit)
         } catch (error: Exception) {
             Log.e(TAG, "Could not hide message $messageId for current user", error)
@@ -545,9 +539,6 @@ class ChatRepository {
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + pendingMessageIds
             )
             messageVisibilityCache[key] = updatedVisibility
-            visibleMessageCache[key] = messageCache[key].orEmpty()
-                .filter(updatedVisibility::allows)
-
             // Direct-chat preview metadata is owned by this user. Group preview
             // fields are maintained by the group sync path, so only unreadCount
             // is updated there.
@@ -780,12 +771,6 @@ class ChatRepository {
             observeMessageVisibility(chatId)
         ) { messages, visibility ->
             messages.filter(visibility::allows)
-        }.map { visibleMessages ->
-            val ownerUserId = auth.currentUser?.uid.orEmpty()
-            if (ownerUserId.isNotBlank() && chatId.isNotBlank()) {
-                visibleMessageCache[cacheKey(chatId, ownerUserId)] = visibleMessages
-            }
-            visibleMessages
         }
 
     private fun getRawMessagesFlow(chatId: String): Flow<List<Message>> =
