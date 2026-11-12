@@ -242,6 +242,7 @@ class HomeViewModel : ViewModel() {
                         lastMessage = if (historyWasCleared) "No messages yet" else conversation.lastMessage,
                         lastTimestamp = if (historyWasCleared) clearedAt else conversation.lastTimestamp,
                         lastSenderId = if (historyWasCleared) "" else conversation.lastSenderId,
+                        lastSenderNickname = if (historyWasCleared) "" else conversation.lastSenderNickname,
                         unreadCount = if (historyWasCleared) 0L else conversation.unreadCount,
                         isPinned = preference?.isPinned ?: false,
                         isHidden = preference?.isHidden ?: false
