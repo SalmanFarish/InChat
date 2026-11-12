@@ -62,147 +62,71 @@ fun ChatMessageActionsDialog(
         isOwnMessage &&
             message.timestamp > 0L &&
             editAgeMillis in 0L..ChatRepository.MESSAGE_EDIT_WINDOW_MS
+    var confirmingDelete by androidx.compose.runtime.remember(message.id) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val popupOnLeft = androidx.compose.runtime.remember(message.id) {
+        kotlin.random.Random.Default.nextBoolean()
+    }
+    val positionProvider = androidx.compose.runtime.remember(popupOnLeft) {
+        MessageActionsPopupPositionProvider(popupOnLeft)
+    }
 
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss
+    androidx.compose.ui.window.Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
     ) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 4.dp,
+            shadowElevation = 18.dp,
             modifier = Modifier
-                .widthIn(max = 370.dp)
+                .widthIn(min = 196.dp, max = 236.dp)
                 .animateContentSize()
         ) {
             Column(
-                modifier = Modifier.padding(10.dp)
+                modifier = Modifier.padding(7.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                /*
-                 * Compact reaction dock.
-                 * No heading: the emoji row is the primary action,
-                 * matching the quick reaction feel of modern DMs.
-                 */
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ChatRepository.SUPPORTED_REACTIONS.forEach { reaction ->
-                        val selected =
-                            message.reactions[currentUserId] == reaction
-
-                        Box(
-                            modifier = Modifier
-                                .size(
-                                    if (selected) 50.dp else 46.dp
-                                )
-                                .clip(CircleShape)
-                                .background(
-                                    if (selected) {
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                            .copy(alpha = 0.32f)
-                                    }
-                                )
-                                .clickable {
-                                    onReaction(reaction)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = reaction,
-                                fontSize = if (selected) 29.sp else 26.sp,
-                                style = MaterialTheme.typography.headlineSmall.copy(
-                                    platformStyle = PlatformTextStyle(
-                                        includeFontPadding = false
-                                    )
-                                )
-                            )
-                        }
+                if (confirmingDelete) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Delete this message?",
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = "This message will be deleted.",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                }
-
-                Spacer(
-                    modifier = Modifier.height(8.dp)
-                )
-
-                MessageActionRow(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Reply,
-                            contentDescription = null
-                        )
-                    },
-                    title = "Reply",
-                    onClick = onReply
-                )
-
-                MessageActionRow(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null
-                        )
-                    },
-                    title = "Info",
-                    onClick = onInfo
-                )
-
-                MessageActionRow(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = null
-                        )
-                    },
-                    title = "Copy",
-                    onClick = {
-                        val clipboard =
-                            context.getSystemService(
-                                Context.CLIPBOARD_SERVICE
-                            ) as ClipboardManager
-
-                        clipboard.setPrimaryClip(
-                            ClipData.newPlainText(
-                                "InChat message",
-                                message.text
-                            )
-                        )
-
-                        onCopied()
-                    }
-                )
-
-                if (isOwnMessage) {
                     MessageActionRow(
                         icon = {
                             Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                tint = if (editAllowed) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null
                             )
                         },
-                        title = if (editAllowed) {
-                            "Edit"
-                        } else {
-                            "Edit unavailable · 15 min limit"
-                        },
-                        titleColor = if (editAllowed) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        enabled = editAllowed,
-                        onClick = onEdit
+                        title = "Cancel",
+                        onClick = { confirmingDelete = false }
                     )
-
                     MessageActionRow(
                         icon = {
                             Icon(
@@ -215,63 +139,137 @@ fun ChatMessageActionsDialog(
                         titleColor = MaterialTheme.colorScheme.error,
                         onClick = onDelete
                     )
-                }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ChatRepository.SUPPORTED_REACTIONS.forEach { reaction ->
+                            val selected = message.reactions[currentUserId] == reaction
+                            Box(
+                                modifier = Modifier
+                                    .size(if (selected) 42.dp else 40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (selected) {
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                                        }
+                                    )
+                                    .clickable { onReaction(reaction) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = reaction,
+                                    fontSize = if (selected) 25.sp else 23.sp,
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        platformStyle = PlatformTextStyle(
+                                            includeFontPadding = false
+                                        )
+                                    )
+                                )
+                            }
+                        }
+                    }
 
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Cancel",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Spacer(Modifier.height(5.dp))
+                    MessageActionRow(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Reply,
+                                contentDescription = null
+                            )
+                        },
+                        title = "Reply",
+                        onClick = onReply
                     )
+                    MessageActionRow(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null
+                            )
+                        },
+                        title = "Info",
+                        onClick = onInfo
+                    )
+                    MessageActionRow(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null
+                            )
+                        },
+                        title = "Copy",
+                        onClick = {
+                            val clipboard =
+                                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText("InChat message", message.text)
+                            )
+                            onCopied()
+                        }
+                    )
+                    if (isOwnMessage) {
+                        MessageActionRow(
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = if (editAllowed) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            },
+                            title = "Edit",
+                            titleColor = if (editAllowed) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            enabled = editAllowed,
+                            onClick = onEdit
+                        )
+                        MessageActionRow(
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            title = "Delete",
+                            titleColor = MaterialTheme.colorScheme.error,
+                            onClick = { confirmingDelete = true }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun MessageActionRow(
-    icon: @Composable () -> Unit,
-    title: String,
-    titleColor: androidx.compose.ui.graphics.Color =
-        MaterialTheme.colorScheme.onSurface,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(
-                horizontal = 12.dp,
-                vertical = 12.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(28.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            icon()
-        }
-
-        Spacer(
-            modifier = Modifier.size(12.dp)
-        )
-
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            color = titleColor
-        )
+private class MessageActionsPopupPositionProvider(
+    private val preferLeft: Boolean
+) : androidx.compose.ui.window.PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize
+    ): androidx.compose.ui.unit.IntOffset {
+        val margin = 14
+        val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
+        val x = if (preferLeft) margin else maxX
+        val maxY = (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
+        val y = (anchorBounds.center.y - popupContentSize.height / 2).coerceIn(margin, maxY)
+        return androidx.compose.ui.unit.IntOffset(x, y)
     }
 }
 
