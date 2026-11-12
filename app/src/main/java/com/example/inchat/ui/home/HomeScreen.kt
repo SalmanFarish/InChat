@@ -1484,180 +1484,180 @@ private fun ConversationItem(
         }
 
     Box {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.dp)
-            .combinedClickable(
-                interactionSource = null,
-                indication = null,
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        shape = RoundedCornerShape(18.dp),
-        color = if (hasUnread) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
-        } else {
-            MaterialTheme.colorScheme.surface
-        },
-        border = BorderStroke(
-            width = 0.75.dp,
-            color = if (hasUnread) {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.78f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
-            }
-        )
-    ) {
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .border(
-                        width = 1.dp,
-                        color = avatarBorderColor,
-                        shape = CircleShape
-                    )
-                    .padding(2.dp)
-            ) {
-                if (conversation.chatType == "group") {
-                    GroupAvatar(
-                        groupName = conversation.groupName,
-                        modifier = Modifier.fillMaxSize(),
-                        fontSize = 24.sp
-                    )
+                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .combinedClickable(
+                    interactionSource = null,
+                    indication = null,
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                ),
+            shape = RoundedCornerShape(18.dp),
+            color = if (hasUnread) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            border = BorderStroke(
+                width = 0.75.dp,
+                color = if (hasUnread) {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.78f)
                 } else {
-                    InChatProfileAvatar(
-                        profilePhotoUrl = otherUserProfilePhoto,
-                        modifier = Modifier.fillMaxSize(),
-                        iconSize = 24.dp,
-                        contentDescription = "Profile picture"
-                    )
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
                 }
-            }
-
-            Spacer(Modifier.width(12.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .border(
+                            width = 1.dp,
+                            color = avatarBorderColor,
+                            shape = CircleShape
+                        )
+                        .padding(2.dp)
                 ) {
-                    Text(
-                        text = if (conversation.chatType == "group") {
-                            conversation.groupName
-                        } else {
-                            conversation.otherUsername
-                        },
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontSize = 14.sp,
-                            lineHeight = 19.sp
-                        ),
-                        fontWeight = if (hasUnread) {
-                            FontWeight.Bold
-                        } else {
-                            FontWeight.SemiBold
-                        },
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (conversation.isPinned) {
-                        Icon(
-                            imageVector = Icons.Outlined.PushPin,
-                            contentDescription = "Pinned",
-                            modifier = Modifier
-                                .padding(start = 6.dp)
-                                .size(13.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                    if (conversation.chatType == "group") {
+                        GroupAvatar(
+                            groupName = conversation.groupName,
+                            modifier = Modifier.fillMaxSize(),
+                            fontSize = 24.sp
+                        )
+                    } else {
+                        InChatProfileAvatar(
+                            profilePhotoUrl = otherUserProfilePhoto,
+                            modifier = Modifier.fillMaxSize(),
+                            iconSize = 24.dp,
+                            contentDescription = "Profile picture"
                         )
                     }
                 }
 
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.width(12.dp))
 
-                Text(
-                    text = messagePrefix + previewText,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp
-                    ),
-                    fontWeight = if (hasUnread) {
-                        FontWeight.Medium
-                    } else {
-                        FontWeight.Normal
-                    },
-                    color = if (hasUnread) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(Modifier.width(10.dp))
-
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = formatConversationTime(conversation.lastTimestamp),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = JetBrainsMono,
-                        fontSize = 9.sp,
-                        letterSpacing = 0.1.sp
-                    ),
-                    fontWeight = if (hasUnread) {
-                        FontWeight.SemiBold
-                    } else {
-                        FontWeight.Normal
-                    },
-                    color = if (hasUnread) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1
-                )
-
-                if (hasUnread) {
-                    Surface(
-                        modifier = Modifier.padding(top = 7.dp),
-                        shape = RoundedCornerShape(9.dp),
-                        color = MaterialTheme.colorScheme.primary
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (conversation.unreadCount > 99L) {
-                                "99+"
+                            text = if (conversation.chatType == "group") {
+                                conversation.groupName
                             } else {
-                                conversation.unreadCount.toString()
+                                conversation.otherUsername
                             },
-                            modifier = Modifier.padding(
-                                horizontal = 7.dp,
-                                vertical = 3.dp
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontSize = 14.sp,
+                                lineHeight = 19.sp
                             ),
+                            fontWeight = if (hasUnread) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.SemiBold
+                            },
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        if (conversation.isPinned) {
+                            Icon(
+                                imageVector = Icons.Outlined.PushPin,
+                                contentDescription = "Pinned",
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .size(13.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(5.dp))
+
+                    Text(
+                        text = messagePrefix + previewText,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        ),
+                        fontWeight = if (hasUnread) {
+                            FontWeight.Medium
+                        } else {
+                            FontWeight.Normal
+                        },
+                        color = if (hasUnread) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(Modifier.width(10.dp))
+
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = formatConversationTime(conversation.lastTimestamp),
+                        style = MaterialTheme.typography.labelSmall.copy(
                             fontFamily = JetBrainsMono,
                             fontSize = 9.sp,
-                            lineHeight = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
+                            letterSpacing = 0.1.sp
+                        ),
+                        fontWeight = if (hasUnread) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                        color = if (hasUnread) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1
+                    )
+
+                    if (hasUnread) {
+                        Surface(
+                            modifier = Modifier.padding(top = 7.dp),
+                            shape = RoundedCornerShape(9.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        ) {
+                            Text(
+                                text = if (conversation.unreadCount > 99L) {
+                                    "99+"
+                                } else {
+                                    conversation.unreadCount.toString()
+                                },
+                                modifier = Modifier.padding(
+                                    horizontal = 7.dp,
+                                    vertical = 3.dp
+                                ),
+                                fontFamily = JetBrainsMono,
+                                fontSize = 9.sp,
+                                lineHeight = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
             }
         }
-    }
         if (showActions) {
             ConversationActionsPopup(
                 conversation = conversation,
