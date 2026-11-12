@@ -528,6 +528,17 @@ class ChatRepository {
                 .get().await().getValue(Long::class.java)
                 ?: FirebaseServerClock.now()
 
+            try {
+                database.getReference("conversationPreferences")
+                    .child(ownerUserId)
+                    .child(chatId)
+                    .child("clearedAt")
+                    .setValue(clearedAt)
+                    .await()
+            } catch (preferenceError: Exception) {
+                Log.w(TAG, "History cleared, but the Home preview preference could not be saved.", preferenceError)
+            }
+
             val key = cacheKey(chatId, ownerUserId)
             val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
             val updatedVisibility = oldVisibility.copy(
