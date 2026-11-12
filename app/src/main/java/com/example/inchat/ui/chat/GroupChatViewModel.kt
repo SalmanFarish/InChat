@@ -607,9 +607,9 @@ class GroupChatViewModel : ViewModel() {
             onResult(false, "No group chat is open.")
             return
         }
-        val messageIds = _messages.value.map { it.id }
+        val pendingIds = _pendingMessageIds.value
         viewModelScope.launch {
-            val result = chatRepository.clearChatForMe(groupId, messageIds)
+            val result = chatRepository.clearChatForMe(groupId, pendingIds)
             onResult(result.isSuccess, result.exceptionOrNull()?.message)
         }
     }
