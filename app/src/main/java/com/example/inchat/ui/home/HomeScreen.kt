@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,11 +27,15 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -47,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -138,11 +144,12 @@ fun HomeScreen(
         mutableStateOf("")
     }
 
-    var conversationToDelete by
-    remember {
-        mutableStateOf<Conversation?>(
-            null
-        )
+    var selectedConversation by remember {
+        mutableStateOf<Conversation?>(null)
+    }
+
+    var showHiddenChats by rememberSaveable {
+        mutableStateOf(false)
     }
 
     var actionMessage by
@@ -234,126 +241,26 @@ fun HomeScreen(
             }
         }
 
-    val totalUnreadCount =
-        remember(conversations) {
-            conversations.sumOf { it.unreadCount }
+    val visibleFilteredConversations =
+        remember(filteredConversations) {
+            filteredConversations.filterNot { it.isHidden }
         }
 
-    /*
-     * =========================================================
-     * DELETE CONVERSATION DIALOG
-     * =========================================================
-     */
-    if (
-        conversationToDelete != null
-    ) {
+    val hiddenFilteredConversations =
+        remember(filteredConversations) {
+            filteredConversations.filter { it.isHidden }
+        }
 
-        AlertDialog(
+    val visibleChatCount =
+        remember(conversations) {
+            conversations.count { !it.isHidden }
+        }
 
-            onDismissRequest = {
-
-                conversationToDelete =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    if (conversationToDelete?.chatType == "group") {
-                        "Hide group from Home?"
-                    } else {
-                        "Delete conversation?"
-                    }
-                )
-            },
-
-            text = {
-
-                val conversation =
-                    conversationToDelete
-
-                Text(
-                    if (conversation?.chatType == "group") {
-                        "This removes the group from your chats. " +
-                                "You remain a member of the group."
-                    } else {
-                        "This removes the conversation from your chats. " +
-                                "Your messages will not be deleted."
-                    }
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        val conversation =
-                            conversationToDelete
-
-                        if (
-                            conversation != null
-                        ) {
-
-                            homeViewModel
-                                .deleteConversation(
-
-                                    currentUserId =
-                                        currentUserId,
-
-                                    chatId =
-                                        conversation.chatId,
-
-                                    chatType =
-                                        conversation.chatType
-
-                                ) { success, error ->
-
-                                    actionMessage =
-                                        if (
-                                            success
-                                        ) {
-
-                                            "Conversation deleted"
-
-                                        } else {
-
-                                            error
-                                                ?: "Could not delete conversation"
-                                        }
-                                }
-                        }
-
-                        conversationToDelete =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "Delete"
-                    )
-                }
-            },
-
-            dismissButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        conversationToDelete =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "Cancel"
-                    )
-                }
-            }
-        )
-    }
+    val totalUnreadCount =
+        remember(conversations) {
+            conversations.filterNot { it.isHidden }
+                .sumOf { it.unreadCount }
+        }
 
     /*
      * =========================================================
@@ -405,6 +312,40 @@ fun HomeScreen(
         )
     }
 
+    selectedConversation?.let { conversation ->
+        ConversationActionsSheet(
+            conversation = conversation,
+            userRepository = userRepository,
+            onTogglePin = {
+                homeViewModel.setConversationPinned(
+                    currentUserId = currentUserId,
+                    chatId = conversation.chatId,
+                    pinned = !conversation.isPinned
+                ) { success, error ->
+                    selectedConversation = null
+                    if (!success) {
+                        actionMessage = error ?: "Could not update the pin."
+                    }
+                }
+            },
+            onToggleHidden = {
+                homeViewModel.setConversationHidden(
+                    currentUserId = currentUserId,
+                    chatId = conversation.chatId,
+                    hidden = !conversation.isHidden
+                ) { success, error ->
+                    selectedConversation = null
+                    if (!success) {
+                        actionMessage = error ?: "Could not update hidden chats."
+                    }
+                }
+            },
+            onDismiss = {
+                selectedConversation = null
+            }
+        )
+    }
+
     /*
      * =========================================================
      * HOME
@@ -432,7 +373,7 @@ fun HomeScreen(
         ) {
 
             HomeHeader(
-                chatCount = conversations.size,
+                chatCount = visibleChatCount,
                 unreadCount = totalUnreadCount,
                 onProfileClick = onProfileClick,
                 onCreateGroupClick = onCreateGroupClick
@@ -459,7 +400,7 @@ fun HomeScreen(
 
             if (conversationsLoaded && conversations.isNotEmpty()) {
                 HomeSectionHeading(
-                    totalChats = conversations.size,
+                    totalChats = visibleChatCount,
                     unreadCount = totalUnreadCount
                 )
             }
@@ -513,40 +454,51 @@ fun HomeScreen(
                 ) {
 
                     items(
-
-                        items =
-                            filteredConversations,
-
-                        key = {
-                            it.chatId
-                        }
-
+                        items = visibleFilteredConversations,
+                        key = { it.chatId }
                     ) { conversation ->
-
                         ConversationItem(
-
-                            conversation =
-                                conversation,
-
-                            userRepository =
-                                userRepository,
-
-                            currentUserId =
-                                currentUserId,
-
+                            conversation = conversation,
+                            userRepository = userRepository,
+                            currentUserId = currentUserId,
                             onClick = {
-
-                                onConversationClick(
-                                    conversation
-                                )
+                                onConversationClick(conversation)
                             },
-
                             onLongClick = {
-
-                                conversationToDelete =
-                                    conversation
+                                selectedConversation = conversation
                             }
                         )
+                    }
+
+                    if (hiddenFilteredConversations.isNotEmpty()) {
+                        item(key = "hidden_chats_toggle") {
+                            HiddenChatsToggle(
+                                hiddenCount = hiddenFilteredConversations.size,
+                                expanded = showHiddenChats,
+                                onClick = {
+                                    showHiddenChats = !showHiddenChats
+                                }
+                            )
+                        }
+
+                        if (showHiddenChats) {
+                            items(
+                                items = hiddenFilteredConversations,
+                                key = { "hidden_${it.chatId}" }
+                            ) { conversation ->
+                                ConversationItem(
+                                    conversation = conversation,
+                                    userRepository = userRepository,
+                                    currentUserId = currentUserId,
+                                    onClick = {
+                                        onConversationClick(conversation)
+                                    },
+                                    onLongClick = {
+                                        selectedConversation = conversation
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1149,6 +1101,330 @@ private fun EmptyConversationState(
 
 /*
  * ============================================================
+ * CONVERSATION ACTION CARD
+ * ============================================================
+ */
+@Composable
+private fun ConversationActionsSheet(
+    conversation: Conversation,
+    userRepository: UserRepository,
+    onTogglePin: () -> Unit,
+    onToggleHidden: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var profilePhoto by remember(conversation.otherUserId) {
+        mutableStateOf(
+            userRepository.getCachedUser(conversation.otherUserId)
+                ?.profilePhotoData
+                ?.ifBlank { userRepository.getCachedUser(conversation.otherUserId)?.profilePhotoUrl }
+                .orEmpty()
+        )
+    }
+
+    if (conversation.chatType != "group") {
+        LaunchedEffect(conversation.otherUserId) {
+            val user = userRepository.getUserByIdFast(conversation.otherUserId)
+            profilePhoto = user?.profilePhotoData
+                ?.ifBlank { user.profilePhotoUrl }
+                .orEmpty()
+        }
+    }
+
+    val title = if (conversation.chatType == "group") {
+        conversation.groupName
+    } else {
+        conversation.otherUsername
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(
+            topStart = 28.dp,
+            topEnd = 28.dp
+        ),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 11.dp, bottom = 5.dp)
+                    .size(width = 38.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 5.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            shape = CircleShape
+                        )
+                        .padding(2.dp)
+                ) {
+                    if (conversation.chatType == "group") {
+                        GroupAvatar(
+                            groupName = conversation.groupName,
+                            modifier = Modifier.fillMaxSize(),
+                            fontSize = 24.sp
+                        )
+                    } else {
+                        InChatProfileAvatar(
+                            profilePhotoUrl = profilePhoto,
+                            modifier = Modifier.fillMaxSize(),
+                            iconSize = 24.dp,
+                            contentDescription = "Profile picture"
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(13.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp
+                        ),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Text(
+                        text = if (conversation.chatType == "group") {
+                            "GROUP  •  " + conversation.memberCount + " MEMBERS"
+                        } else {
+                            "PRIVATE CONVERSATION"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = JetBrainsMono,
+                            fontSize = 9.sp,
+                            letterSpacing = 0.55.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (conversation.isPinned) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = "PINNED",
+                            modifier = Modifier.padding(
+                                horizontal = 9.dp,
+                                vertical = 5.dp
+                            ),
+                            fontFamily = JetBrainsMono,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+            )
+
+            ConversationActionRow(
+                icon = Icons.Outlined.PushPin,
+                title = if (conversation.isPinned) "Unpin chat" else "Pin to top",
+                subtitle = if (conversation.isPinned) {
+                    "Remove this chat from your pinned conversations"
+                } else {
+                    "Keep this conversation at the top of Home"
+                },
+                onClick = onTogglePin
+            )
+
+            ConversationActionRow(
+                icon = if (conversation.isHidden) {
+                    Icons.Outlined.Visibility
+                } else {
+                    Icons.Outlined.VisibilityOff
+                },
+                title = if (conversation.isHidden) "Show on Home" else "Hide from Home",
+                subtitle = if (conversation.isHidden) {
+                    "Move this conversation back to your inbox"
+                } else {
+                    "Move this conversation to Hidden chats"
+                },
+                onClick = onToggleHidden
+            )
+
+            Text(
+                text = "These settings affect only your inbox. Messages and the other person's chat are not changed.",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(
+                    horizontal = 3.dp,
+                    vertical = 1.dp
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(17.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+        border = BorderStroke(
+            width = 0.75.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 13.dp,
+                vertical = 12.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(39.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontSize = 13.sp
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(Modifier.height(3.dp))
+
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HiddenChatsToggle(
+    hiddenCount: Int,
+    expanded: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 7.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(
+            width = 0.75.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 14.dp,
+                vertical = 12.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (expanded) {
+                    Icons.Outlined.Visibility
+                } else {
+                    Icons.Outlined.VisibilityOff
+                },
+                contentDescription = null,
+                modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(Modifier.width(10.dp))
+
+            Text(
+                text = "HIDDEN CHATS  /  " + hiddenCount,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = JetBrainsMono,
+                    fontSize = 9.sp,
+                    letterSpacing = 0.55.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            Text(
+                text = if (expanded) "HIDE" else "SHOW",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = JetBrainsMono,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/*
+ * ============================================================
  * CONVERSATION ITEM
  * ============================================================
  */
@@ -1274,25 +1550,41 @@ private fun ConversationItem(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                Text(
-                    text = if (conversation.chatType == "group") {
-                        conversation.groupName
-                    } else {
-                        conversation.otherUsername
-                    },
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp
-                    ),
-                    fontWeight = if (hasUnread) {
-                        FontWeight.Bold
-                    } else {
-                        FontWeight.SemiBold
-                    },
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (conversation.chatType == "group") {
+                            conversation.groupName
+                        } else {
+                            conversation.otherUsername
+                        },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp
+                        ),
+                        fontWeight = if (hasUnread) {
+                            FontWeight.Bold
+                        } else {
+                            FontWeight.SemiBold
+                        },
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    if (conversation.isPinned) {
+                        Icon(
+                            imageVector = Icons.Outlined.PushPin,
+                            contentDescription = "Pinned",
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .size(13.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
                 Spacer(Modifier.height(5.dp))
 
