@@ -264,6 +264,19 @@ fun ChatScreen(
         )
     }
 
+    var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var messageForTextSelection by remember { mutableStateOf<Message?>(null) }
+    var showClearChatConfirmation by remember { mutableStateOf(false) }
+    var showDeleteSelectedForEveryoneConfirmation by remember { mutableStateOf(false) }
+
+    fun toggleMessageSelection(message: Message) {
+        selectedMessageIds = if (message.id in selectedMessageIds) {
+            selectedMessageIds - message.id
+        } else {
+            selectedMessageIds + message.id
+        }
+    }
+
     LaunchedEffect(chatInitializationError) {
         if (!chatInitializationError.isNullOrBlank()) {
             actionMessage =
@@ -348,10 +361,31 @@ fun ChatScreen(
                 )
             },
 
-            onDelete = {
-
+            onDeleteForMe = {
                 messageForActions = null
-                chatViewModel.deleteMessage(message.id)
+                chatViewModel.deleteMessagesForMe(setOf(message.id)) { success, error ->
+                    if (!success) actionMessage = error ?: "Could not delete message for you."
+                }
+            },
+
+            onDeleteForEveryone = {
+                messageForActions = null
+                chatViewModel.deleteMessagesForEveryone(
+                    messageIds = setOf(message.id),
+                    currentUserId = currentUserId
+                ) { success, error ->
+                    if (!success) actionMessage = error ?: "Could not delete message for everyone."
+                }
+            },
+
+            onSelectMessages = {
+                messageForActions = null
+                toggleMessageSelection(message)
+            },
+
+            onSelectText = {
+                messageForActions = null
+                messageForTextSelection = message
             },
 
             onDismiss = {
@@ -368,6 +402,13 @@ fun ChatScreen(
                 actionMessage =
                     "Message copied"
             }
+        )
+    }
+
+    messageForTextSelection?.let { message ->
+        SelectMessageTextDialog(
+            message = message,
+            onDismiss = { messageForTextSelection = null }
         )
     }
 
@@ -455,7 +496,38 @@ fun ChatScreen(
                 .background,
 
         topBar = {
-
+            if (selectedMessageIds.isNotEmpty()) {
+                val selectedMessages = messages.filter { it.id in selectedMessageIds }
+                val selectedAreAllOwn = selectedMessages.size == selectedMessageIds.size &&
+                    selectedMessages.all { it.senderId == currentUserId }
+                MessageSelectionTopBar(
+                    selectedCount = selectedMessageIds.size,
+                    canDeleteForEveryone = selectedAreAllOwn,
+                    onClose = { selectedMessageIds = emptySet() },
+                    onCopy = {
+                        val copiedText = selectedMessages
+                            .sortedBy { it.timestamp }
+                            .mapNotNull { it.text.takeIf(String::isNotBlank) }
+                            .joinToString("\n")
+                        if (copiedText.isNotBlank()) {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
+                            actionMessage = "Messages copied"
+                        }
+                        selectedMessageIds = emptySet()
+                    },
+                    onDeleteForMe = {
+                        val ids = selectedMessageIds
+                        chatViewModel.deleteMessagesForMe(ids) { success, error ->
+                            selectedMessageIds = emptySet()
+                            if (!success) actionMessage = error ?: "Could not delete selected messages."
+                        }
+                    },
+                    onDeleteForEveryone = {
+                        showDeleteSelectedForEveryoneConfirmation = true
+                    }
+                )
+            } else {
             ChatTopBar(
 
                 otherUserNickname =
@@ -477,8 +549,12 @@ fun ChatScreen(
                     onBackClick,
 
                 onChatInfoClick =
-                    onChatInfoClick
+                    onChatInfoClick,
+                onClearChatClick = {
+                    showClearChatConfirmation = true
+                }
             )
+            }
         },
 
         bottomBar = {
@@ -677,7 +753,10 @@ fun ChatScreen(
                 },
 
                 innerPadding =
-                    innerPadding
+                    innerPadding,
+
+                selectedMessageIds = selectedMessageIds,
+                onToggleMessageSelection = ::toggleMessageSelection
             )
         } else {
             androidx.compose.foundation.layout.Box(
@@ -689,5 +768,62 @@ fun ChatScreen(
                         )
             )
         }
+
+    if (showClearChatConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearChatConfirmation = false },
+            title = { Text("Clear chat?") },
+            text = {
+                Text("This removes the conversation history from your view only. Other participants will keep their messages.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearChatConfirmation = false
+                        chatViewModel.clearChatForMe { success, error ->
+                            if (success) {
+                                actionMessage = "Chat cleared for you"
+                            } else {
+                                actionMessage = error ?: "Could not clear chat."
+                            }
+                        }
+                    }
+                ) { Text("Clear chat", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearChatConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDeleteSelectedForEveryoneConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
+            title = { Text("Delete selected messages?") },
+            text = {
+                Text("These messages will be removed for every participant. This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteSelectedForEveryoneConfirmation = false
+                        val ids = selectedMessageIds
+                        chatViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
+                            selectedMessageIds = emptySet()
+                            if (!success) actionMessage = error ?: "Could not delete selected messages."
+                        }
+                    }
+                ) { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedForEveryoneConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     }
 }
