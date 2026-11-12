@@ -62,7 +62,7 @@ fun ChatMessageActionsDialog(
         isOwnMessage &&
             message.timestamp > 0L &&
             editAgeMillis in 0L..ChatRepository.MESSAGE_EDIT_WINDOW_MS
-    var confirmingDelete by androidx.compose.runtime.remember(message.id) {
+    val confirmingDeleteState = androidx.compose.runtime.remember(message.id) {
         androidx.compose.runtime.mutableStateOf(false)
     }
     val popupOnLeft = androidx.compose.runtime.remember(message.id) {
@@ -95,7 +95,7 @@ fun ChatMessageActionsDialog(
                 modifier = Modifier.padding(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (confirmingDelete) {
+                if (confirmingDeleteState.value) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -125,7 +125,7 @@ fun ChatMessageActionsDialog(
                             )
                         },
                         title = "Cancel",
-                        onClick = { confirmingDelete = false }
+                        onClick = { confirmingDeleteState.value = false }
                     )
                     MessageActionRow(
                         icon = {
@@ -246,7 +246,7 @@ fun ChatMessageActionsDialog(
                             },
                             title = "Delete",
                             titleColor = MaterialTheme.colorScheme.error,
-                            onClick = { confirmingDelete = true }
+                            onClick = { confirmingDeleteState.value = true }
                         )
                     }
                 }
@@ -270,6 +270,43 @@ private class MessageActionsPopupPositionProvider(
         val maxY = (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
         val y = (anchorBounds.center.y - popupContentSize.height / 2).coerceIn(margin, maxY)
         return androidx.compose.ui.unit.IntOffset(x, y)
+    }
+}
+
+
+@Composable
+private fun MessageActionRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    titleColor: androidx.compose.ui.graphics.Color? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            icon()
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = titleColor ?: if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 
