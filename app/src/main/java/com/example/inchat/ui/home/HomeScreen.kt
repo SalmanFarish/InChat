@@ -1433,6 +1433,9 @@ private fun ConversationItem(
     onDismissActions: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
+    confirmingDelete: Boolean,
+    onCancelDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
     onDelete: () -> Unit
 ) {
     var otherUserProfilePhoto by remember(conversation.otherUserId) {
