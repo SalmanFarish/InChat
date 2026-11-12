@@ -67,8 +67,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
@@ -328,83 +326,72 @@ fun HomeScreen(
     }
 
     pendingDeleteConversation?.let { conversation ->
-        Dialog(
+        val density = LocalDensity.current
+        val positionProvider = remember(actionPopupOnLeft, density) {
+            ConversationActionsPopupPositionProvider(
+                preferLeft = actionPopupOnLeft,
+                edgeMarginPx = with(density) { 14.dp.roundToPx() }
+            )
+        }
+
+        Popup(
+            popupPositionProvider = positionProvider,
             onDismissRequest = {
                 pendingDeleteConversation = null
             },
-            properties = DialogProperties(
+            properties = PopupProperties(
+                focusable = true,
                 dismissOnBackPress = true,
                 dismissOnClickOutside = true
             )
         ) {
             Surface(
-                modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
-                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 5.dp,
-                shadowElevation = 16.dp,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 4.dp,
+                shadowElevation = 18.dp,
                 border = BorderStroke(
-                    width = 0.7.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(
-                        horizontal = 22.dp,
-                        vertical = 20.dp
-                    )
+                    modifier = Modifier.padding(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "Delete chat?",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                    ConversationActionRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Delete chat?",
+                        onClick = {}
                     )
 
-                    Spacer(Modifier.height(8.dp))
-
-                    Text(
-                        text = "This chat will be removed from your list.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 18.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(
-                            onClick = {
-                                pendingDeleteConversation = null
-                            }
-                        ) {
-                            Text("Cancel")
+                    ConversationActionRow(
+                        icon = Icons.Default.Clear,
+                        title = "Cancel",
+                        onClick = {
+                            pendingDeleteConversation = null
                         }
+                    )
 
-                        TextButton(
-                            onClick = {
-                                pendingDeleteConversation = null
-                                homeViewModel.deleteConversation(
-                                    currentUserId = currentUserId,
-                                    chatId = conversation.chatId,
-                                    chatType = conversation.chatType
-                                ) { success, error ->
-                                    if (!success) {
-                                        actionMessage = error ?: "Could not delete chat."
-                                    }
+                    ConversationActionRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Delete Chat",
+                        destructive = true,
+                        onClick = {
+                            pendingDeleteConversation = null
+                            homeViewModel.deleteConversation(
+                                currentUserId = currentUserId,
+                                chatId = conversation.chatId,
+                                chatType = conversation.chatType
+                            ) { success, error ->
+                                if (!success) {
+                                    actionMessage = error ?: "Could not delete chat."
                                 }
                             }
-                        ) {
-                            Text(
-                                text = "Delete",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold
-                            )
                         }
-                    }
+                    )
                 }
             }
         }
