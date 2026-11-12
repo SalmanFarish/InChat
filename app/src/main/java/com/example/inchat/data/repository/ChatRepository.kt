@@ -452,21 +452,9 @@ class ChatRepository {
                 return Result.failure(IllegalArgumentException("Invalid message data."))
             }
 
-            val messageSnapshot = database.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .child(messageId)
-                .get()
-                .await()
-            val cachedMessage = localMessageDao.getMessage(
-                ownerUserId = ownerUserId,
-                chatId = chatId,
-                messageId = messageId
-            )
-            if (!messageSnapshot.exists() && cachedMessage == null) {
-                return Result.failure(IllegalArgumentException("Message does not exist."))
-            }
-
+            // The message is already present in the chat UI. Do not perform
+            // a preflight read: this per-user marker can be queued offline, and
+            // the database rules independently verify chat membership.
             database.getReference("userMessageVisibility")
                 .child(ownerUserId)
                 .child(chatId)
