@@ -128,7 +128,7 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
         "$chatId": {
-          ".validate": "!newData.exists() || (newData.numChildren() <= 2 && (newData.hasChild('pinned') || newData.hasChild('hidden')) && (!newData.hasChild('pinned') || newData.child('pinned').isBoolean()) && (!newData.hasChild('hidden') || newData.child('hidden').isBoolean()))"
+          ".validate": "!newData.exists() || ((newData.hasChild('pinned') || newData.hasChild('hidden')) && (!newData.hasChild('pinned') || newData.child('pinned').isBoolean()) && (!newData.hasChild('hidden') || newData.child('hidden').isBoolean()))"
         }
       }
     },
