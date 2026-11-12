@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.ConversationPreference
+import com.example.inchat.data.repository.ConversationPreferencesRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +21,12 @@ class HomeViewModel : ViewModel() {
 
     private val groupChatRepository =
         GroupChatRepository()
+
+    private val conversationPreferencesRepository =
+        ConversationPreferencesRepository()
+
+    private val _conversationPreferences =
+        MutableStateFlow<Map<String, ConversationPreference>>(emptyMap())
 
     private val _conversations =
         MutableStateFlow<List<Conversation>>(
@@ -88,6 +96,9 @@ class HomeViewModel : ViewModel() {
             _groupConversations.value =
                 emptyList()
 
+            _conversationPreferences.value =
+                emptyMap()
+
             _directConversationsLoaded.value =
                 false
 
@@ -129,6 +140,9 @@ class HomeViewModel : ViewModel() {
 
         _groupConversations.value =
             emptyList()
+
+        _conversationPreferences.value =
+            emptyMap()
 
         _directConversationsLoaded.value =
             false
@@ -193,6 +207,15 @@ class HomeViewModel : ViewModel() {
                             publishConversations()
                         }
                 }
+
+                launch {
+                    conversationPreferencesRepository
+                        .observePreferences(currentUserId)
+                        .collect { preferences ->
+                            _conversationPreferences.value = preferences
+                            publishConversations()
+                        }
+                }
             }
     }
 
@@ -206,9 +229,18 @@ class HomeViewModel : ViewModel() {
                 .distinctBy {
                     it.chatId
                 }
-                .sortedByDescending {
-                    it.lastTimestamp
+                .map { conversation ->
+                    val preference = _conversationPreferences.value[conversation.chatId]
+                    conversation.copy(
+                        isPinned = preference?.isPinned ?: false,
+                        isHidden = preference?.isHidden ?: false
+                    )
                 }
+                .sortedWith(
+                    compareBy<Conversation> { it.isHidden }
+                        .thenByDescending { it.isPinned }
+                        .thenByDescending { it.lastTimestamp }
+                )
                 .take(50)
 
         _conversations.value =
@@ -218,7 +250,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             chatRepository.preloadRecentMessages(
                 ownerUserId = listeningUserId,
-                conversations = merged,
+                conversations = merged.filterNot { it.isHidden },
                 maxChats = 8
             )
         }
@@ -235,6 +267,63 @@ class HomeViewModel : ViewModel() {
                         _groupConversationsLoaded.value ||
                                 _directConversations.value.isNotEmpty()
                         )
+    }
+
+    /*
+     * =========================================================
+     * PER-USER INBOX ACTIONS
+     * =========================================================
+     */
+    fun setConversationPinned(
+        currentUserId: String,
+        chatId: String,
+        pinned: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            conversationPreferencesRepository
+                .setPinned(currentUserId, chatId, pinned)
+                .onSuccess {
+                    val updated = _conversationPreferences.value.toMutableMap()
+                    val current = updated[chatId] ?: ConversationPreference()
+                    updated[chatId] = current.copy(isPinned = pinned)
+                    _conversationPreferences.value = updated
+                    publishConversations()
+                    onResult(true, null)
+                }
+                .onFailure { error ->
+                    onResult(
+                        false,
+                        error.message ?: "Could not update the pin."
+                    )
+                }
+        }
+    }
+
+    fun setConversationHidden(
+        currentUserId: String,
+        chatId: String,
+        hidden: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            conversationPreferencesRepository
+                .setHidden(currentUserId, chatId, hidden)
+                .onSuccess {
+                    val updated = _conversationPreferences.value.toMutableMap()
+                    val current = updated[chatId] ?: ConversationPreference()
+                    updated[chatId] = current.copy(isHidden = hidden)
+                    _conversationPreferences.value = updated
+                    publishConversations()
+                    onResult(true, null)
+                }
+                .onFailure { error ->
+                    onResult(
+                        false,
+                        error.message ?: "Could not update hidden chats."
+                    )
+                }
+        }
     }
 
     /*
