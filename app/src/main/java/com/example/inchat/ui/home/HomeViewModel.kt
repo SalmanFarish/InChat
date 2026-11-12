@@ -235,7 +235,14 @@ class HomeViewModel : ViewModel() {
                 }
                 .map { conversation ->
                     val preference = _conversationPreferences.value[conversation.chatId]
+                    val clearedAt = preference?.clearedAt ?: 0L
+                    val historyWasCleared = clearedAt > 0L &&
+                        clearedAt >= conversation.lastTimestamp
                     conversation.copy(
+                        lastMessage = if (historyWasCleared) "No messages yet" else conversation.lastMessage,
+                        lastTimestamp = if (historyWasCleared) clearedAt else conversation.lastTimestamp,
+                        lastSenderId = if (historyWasCleared) "" else conversation.lastSenderId,
+                        unreadCount = if (historyWasCleared) 0L else conversation.unreadCount,
                         isPinned = preference?.isPinned ?: false,
                         isHidden = preference?.isHidden ?: false
                     )
