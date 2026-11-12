@@ -1104,6 +1104,7 @@ private fun EmptyConversationState(
  * CONVERSATION ACTION CARD
  * ============================================================
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConversationActionsSheet(
     conversation: Conversation,
