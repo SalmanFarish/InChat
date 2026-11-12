@@ -13,9 +13,6 @@ object ActiveConversationTracker {
 
     fun setAppInForeground(foreground: Boolean) {
         appInForeground = foreground
-        if (!foreground) {
-            activeChatId = null
-        }
     }
 
     fun setActiveChat(chatId: String) {
