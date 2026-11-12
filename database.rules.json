@@ -209,6 +209,23 @@
         ".write": "auth != null &&                    !data.exists() &&                    newData.exists() &&                    newData.child('reporterId').val() === auth.uid",
         ".validate": "newData.hasChildren([                         'reporterId',                         'reportedUserId',                         'reportedUsername',                         'reason',                         'timestamp'                       ]) &&                        newData.child('reporterId').isString() &&                       newData.child('reporterId').val() === auth.uid &&                        newData.child('reportedUserId').isString() &&                       newData.child('reportedUserId').val() !== auth.uid &&                        newData.child('reportedUsername').isString() &&                       newData.child('reportedUsername').val().length >= 1 &&                       newData.child('reportedUsername').val().length <= 20 &&                        newData.child('reason').isString() &&                       newData.child('reason').val().length >= 1 &&                       newData.child('reason').val().length <= 500 &&                        newData.child('timestamp').isNumber() &&                       newData.child('timestamp').val() >= 0"
       }
+    },
+    "userMessageVisibility": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$chatId": {
+          ".read": "auth != null && auth.uid === $uid && ((root.child('chats').child($chatId).child('type').val() === 'group' && root.child('chats').child($chatId).child('members').child(auth.uid).exists()) || (root.child('chats').child($chatId).child('type').val() !== 'group' && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid)))",
+          ".write": "auth != null && auth.uid === $uid && ((root.child('chats').child($chatId).child('type').val() === 'group' && root.child('chats').child($chatId).child('members').child(auth.uid).exists()) || (root.child('chats').child($chatId).child('type').val() !== 'group' && (root.child('chats').child($chatId).child('participantA').val() === auth.uid || root.child('chats').child($chatId).child('participantB').val() === auth.uid)))",
+          "clearedAt": {
+            ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)"
+          },
+          "hiddenMessageIds": {
+            "$messageId": {
+              ".validate": "!newData.exists() || newData.val() === true"
+            }
+          }
+        }
+      }
     }
   }
 }
