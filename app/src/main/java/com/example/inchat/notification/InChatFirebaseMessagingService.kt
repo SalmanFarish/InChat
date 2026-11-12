@@ -123,6 +123,10 @@ class InChatFirebaseMessagingService :
                 messageText
             }
 
+        if (ActiveConversationTracker.shouldSuppressNotification(chatId)) {
+            return
+        }
+
         showNotification(
             senderName = senderName,
             notificationTitle = notificationTitle,
