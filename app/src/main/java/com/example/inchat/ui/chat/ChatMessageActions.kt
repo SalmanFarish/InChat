@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.filled.Clear
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +64,10 @@ fun ChatMessageActionsDialog(
     onReply: () -> Unit,
     onInfo: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onDeleteForMe: () -> Unit,
+    onDeleteForEveryone: () -> Unit,
+    onSelectMessages: () -> Unit,
+    onSelectText: () -> Unit,
     onDismiss: () -> Unit,
     onCopied: () -> Unit
 ) {
@@ -134,14 +140,14 @@ fun ChatMessageActionsDialog(
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "Delete this message?",
+                            text = "Delete this message for everyone?",
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            text = "This message will be deleted.",
+                            text = "This message will be removed from all participants' chats.",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -156,9 +162,9 @@ fun ChatMessageActionsDialog(
                     )
                     MessageActionRow(
                         icon = Icons.Outlined.DeleteOutline,
-                        title = "Delete",
+                        title = "Delete for everyone",
                         destructive = true,
-                        onClick = onDelete
+                        onClick = onDeleteForEveryone
                     )
                 } else {
                     MessageActionRow(
@@ -190,10 +196,25 @@ fun ChatMessageActionsDialog(
                             onClick = onEdit
                         )
                     }
+                    MessageActionRow(
+                        icon = Icons.Outlined.SelectAll,
+                        title = "Select messages",
+                        onClick = onSelectMessages
+                    )
+                    MessageActionRow(
+                        icon = Icons.Outlined.TextFields,
+                        title = "Select text",
+                        onClick = onSelectText
+                    )
+                    MessageActionRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Delete for me",
+                        onClick = onDeleteForMe
+                    )
                     if (isOwnMessage) {
                         MessageActionRow(
                             icon = Icons.Outlined.DeleteOutline,
-                            title = "Delete",
+                            title = "Delete for everyone",
                             destructive = true,
                             onClick = { confirmingDeleteState.value = true }
                         )
@@ -275,6 +296,37 @@ private fun MessageActionRow(
             )
         }
     }
+}
+
+
+@Composable
+fun SelectMessageTextDialog(
+    message: Message,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Select text",
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            SelectionContainer {
+                Text(
+                    text = message.text.ifBlank { "This message has no selectable text." },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 @Composable
