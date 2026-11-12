@@ -496,7 +496,7 @@ class ChatRepository {
 
     suspend fun clearChatForMe(
         chatId: String,
-        currentlyLoadedMessageIds: List<String>
+        pendingMessageIds: Set<String>
     ): Result<Unit> {
         return try {
             val ownerUserId = auth.currentUser?.uid.orEmpty()
@@ -514,11 +514,10 @@ class ChatRepository {
                 "clearedAt" to ServerValue.TIMESTAMP
             )
             // Pending local messages can have timestamp 0 until Firebase assigns
-            // their server timestamp. Store their IDs too, so they stay cleared.
-            currentlyLoadedMessageIds
-                .asSequence()
+            // their server timestamp. Store only those IDs; the clearedAt cutoff
+            // hides all persisted history without growing this marker map.
+            pendingMessageIds
                 .filter(String::isNotBlank)
-                .distinct()
                 .forEach { id ->
                     updates["hiddenMessageIds/$id"] = true
                 }
@@ -543,7 +542,7 @@ class ChatRepository {
             val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
             val updatedVisibility = oldVisibility.copy(
                 clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
-                hiddenMessageIds = oldVisibility.hiddenMessageIds + currentlyLoadedMessageIds
+                hiddenMessageIds = oldVisibility.hiddenMessageIds + pendingMessageIds
             )
             messageVisibilityCache[key] = updatedVisibility
             visibleMessageCache[key] = messageCache[key].orEmpty()
