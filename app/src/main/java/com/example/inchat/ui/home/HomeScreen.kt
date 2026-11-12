@@ -1279,7 +1279,7 @@ private fun ConversationActionsSheet(
             )
 
             Text(
-                text = "These settings affect only your inbox. Messages and the other person's chat are not changed.",
+                text = "These settings affect only your inbox. Hiding does not delete messages or mute notifications.",
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = 11.sp,
                     lineHeight = 16.sp
