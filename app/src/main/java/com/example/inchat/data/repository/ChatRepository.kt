@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -88,6 +89,23 @@ class ChatRepository {
         // Prevent repeated warm-up reads while Home emits inbox metadata updates.
         private val prefetchedChatIds =
             ConcurrentHashMap.newKeySet<String>()
+
+        // Per-account, per-chat view state. This never changes the shared
+        // messages node and is safe to reuse for direct and group chats.
+        private val messageVisibilityCache =
+            ConcurrentHashMap<String, MessageVisibilitySnapshot>()
+
+        private val visibleMessageCache =
+            ConcurrentHashMap<String, List<Message>>()
+    }
+
+    private data class MessageVisibilitySnapshot(
+        val clearedAt: Long = 0L,
+        val hiddenMessageIds: Set<String> = emptySet()
+    ) {
+        fun allows(message: Message): Boolean =
+            message.id !in hiddenMessageIds &&
+                (clearedAt <= 0L || message.timestamp > clearedAt)
     }
 
     private fun cacheKey(
@@ -227,8 +245,11 @@ class ChatRepository {
      * Null means this chat has not been loaded yet; an empty list is a
      * valid cached result for a conversation with no messages.
      */
-    fun getCachedMessages(chatId: String): List<Message>? =
-        messageCache[cacheKey(chatId)]
+    fun getCachedMessages(chatId: String): List<Message>? {
+        val key = cacheKey(chatId)
+        val visibility = messageVisibilityCache[key] ?: return null
+        return messageCache[key].orEmpty().filter(visibility::allows)
+    }
 
     fun clearOlderMessagePages(chatId: String) {
         if (chatId.isBlank()) return
@@ -359,6 +380,143 @@ class ChatRepository {
     }
 
 
+
+    private fun observeMessageVisibility(chatId: String): Flow<MessageVisibilitySnapshot> {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) {
+            return flowOf(MessageVisibilitySnapshot())
+        }
+
+        return callbackFlow {
+            val key = cacheKey(chatId, ownerUserId)
+            val ref = database.getReference("userMessageVisibility")
+                .child(ownerUserId)
+                .child(chatId)
+
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val hiddenIds = snapshot.child("hiddenMessageIds")
+                        .children
+                        .filter { it.getValue(Boolean::class.java) == true }
+                        .mapNotNull { it.key }
+                        .toSet()
+                    val visibility = MessageVisibilitySnapshot(
+                        clearedAt = snapshot.child("clearedAt")
+                            .getValue(Long::class.java) ?: 0L,
+                        hiddenMessageIds = hiddenIds
+                    )
+                    messageVisibilityCache[key] = visibility
+                    trySend(visibility)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(TAG, "Message visibility listener cancelled for $chatId", error.toException())
+                    val cached = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+                    trySend(cached)
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+    }
+
+    suspend fun deleteMessageForMe(
+        chatId: String,
+        messageId: String
+    ): Result<Unit> {
+        return try {
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            if (chatId.isBlank() || messageId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid message data."))
+            }
+
+            val messageSnapshot = database.getReference("chats")
+                .child(chatId)
+                .child("messages")
+                .child(messageId)
+                .get()
+                .await()
+            if (!messageSnapshot.exists()) {
+                return Result.failure(IllegalArgumentException("Message does not exist."))
+            }
+
+            database.getReference("userMessageVisibility")
+                .child(ownerUserId)
+                .child(chatId)
+                .child("hiddenMessageIds")
+                .child(messageId)
+                .setValue(true)
+                .await()
+
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not hide message $messageId for current user", error)
+            Result.failure(error)
+        }
+    }
+
+    suspend fun clearChatForMe(
+        chatId: String,
+        currentlyLoadedMessageIds: List<String>
+    ): Result<Unit> {
+        return try {
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            if (chatId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid chat."))
+            }
+
+            val visibilityRef = database.getReference("userMessageVisibility")
+                .child(ownerUserId)
+                .child(chatId)
+            val updates = mutableMapOf<String, Any>(
+                "clearedAt" to ServerValue.TIMESTAMP
+            )
+            // Pending local messages can have timestamp 0 until Firebase assigns
+            // their server timestamp. Store their IDs too, so they stay cleared.
+            currentlyLoadedMessageIds
+                .asSequence()
+                .filter(String::isNotBlank)
+                .distinct()
+                .forEach { id ->
+                    updates["hiddenMessageIds/$id"] = true
+                }
+
+            visibilityRef.updateChildren(updates).await()
+            val clearedAt = visibilityRef.child("clearedAt")
+                .get().await().getValue(Long::class.java)
+                ?: FirebaseServerClock.now()
+
+            val key = cacheKey(chatId, ownerUserId)
+            val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+            messageVisibilityCache[key] = oldVisibility.copy(
+                clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
+                hiddenMessageIds = oldVisibility.hiddenMessageIds + currentlyLoadedMessageIds
+            )
+            visibleMessageCache[key] = messageCache[key].orEmpty()
+                .filter(messageVisibilityCache.getValue(key)::allows)
+
+            // Clearing a conversation also resets this user's unread badge.
+            database.getReference("userChats")
+                .child(ownerUserId)
+                .child(chatId)
+                .child("unreadCount")
+                .setValue(0L)
+                .await()
+
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not clear chat $chatId for current user", error)
+            Result.failure(error)
+        }
+    }
+
     /*
      * =========================================================
      * MESSAGE LISTENER
@@ -372,8 +530,13 @@ class ChatRepository {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         if (ownerUserId.isBlank() || chatId.isBlank()) return flowOf(emptyList())
 
-        return localMessageDao.observeMessages(ownerUserId, chatId)
-            .map { entities -> entities.map { it.toMessage() } }
+        return combine(
+            localMessageDao.observeMessages(ownerUserId, chatId)
+                .map { entities -> entities.map { it.toMessage() } },
+            observeMessageVisibility(chatId)
+        ) { messages, visibility ->
+            messages.filter(visibility::allows)
+        }
     }
 
     /**
@@ -541,6 +704,20 @@ class ChatRepository {
      * =========================================================
      */
     fun getMessagesFlow(chatId: String): Flow<List<Message>> =
+        combine(
+            getRawMessagesFlow(chatId),
+            observeMessageVisibility(chatId)
+        ) { messages, visibility ->
+            messages.filter(visibility::allows)
+        }.map { visibleMessages ->
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isNotBlank() && chatId.isNotBlank()) {
+                visibleMessageCache[cacheKey(chatId, ownerUserId)] = visibleMessages
+            }
+            visibleMessages
+        }
+
+    private fun getRawMessagesFlow(chatId: String): Flow<List<Message>> =
         callbackFlow {
             val producerScope = this
             val ownerUserId = auth.currentUser?.uid.orEmpty()
