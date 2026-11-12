@@ -59,7 +59,9 @@ fun ChatMessageList(
     onReply: (Message) -> Unit,
     onLongClick: (Message) -> Unit,
     onReactionClick: (Message, String) -> Unit,
-    innerPadding: androidx.compose.foundation.layout.PaddingValues
+    innerPadding: androidx.compose.foundation.layout.PaddingValues,
+    selectedMessageIds: Set<String> = emptySet(),
+    onToggleMessageSelection: (Message) -> Unit = {}
 ) {
 
     val listState =
@@ -711,6 +713,13 @@ fun ChatMessageList(
                                 showSenderName =
                                     showSenderNames && !isMe && isFirstInGroup,
 
+                                isSelected = message.id in selectedMessageIds,
+                                onClick = {
+                                    if (selectedMessageIds.isNotEmpty()) {
+                                        onToggleMessageSelection(message)
+                                    }
+                                },
+
                                 onReply = {
                                     if (
                                         !messagingBlocked
@@ -722,14 +731,12 @@ fun ChatMessageList(
                                 },
 
                                 onLongClick = {
-
-                                    if (
-                                        !messagingBlocked
-                                    ) {
-
-                                        onLongClick(
-                                            message
-                                        )
+                                    if (!messagingBlocked) {
+                                        if (selectedMessageIds.isNotEmpty()) {
+                                            onToggleMessageSelection(message)
+                                        } else {
+                                            onLongClick(message)
+                                        }
                                     }
                                 },
 
