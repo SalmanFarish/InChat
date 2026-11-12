@@ -548,6 +548,72 @@ class GroupChatViewModel : ViewModel() {
         }
     }
 
+    fun deleteMessagesForMe(
+        messageIds: Set<String>,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val groupId = listeningGroupId
+        if (groupId.isBlank() || messageIds.isEmpty()) {
+            onResult(false, "No messages selected.")
+            return
+        }
+
+        viewModelScope.launch {
+            for (messageId in messageIds) {
+                val result = chatRepository.deleteMessageForMe(groupId, messageId)
+                if (result.isFailure) {
+                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
+                    return@launch
+                }
+            }
+            onResult(true, null)
+        }
+    }
+
+    fun deleteMessagesForEveryone(
+        messageIds: Set<String>,
+        currentUserId: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val groupId = listeningGroupId
+        if (groupId.isBlank() || messageIds.isEmpty()) {
+            onResult(false, "No messages selected.")
+            return
+        }
+        val selectedMessages = _messages.value.filter { it.id in messageIds }
+        if (
+            selectedMessages.size != messageIds.size ||
+            selectedMessages.any { it.senderId != currentUserId }
+        ) {
+            onResult(false, "You can only delete your own messages for everyone.")
+            return
+        }
+
+        viewModelScope.launch {
+            for (messageId in messageIds) {
+                val result = chatRepository.deleteMessage(groupId, messageId)
+                if (result.isFailure) {
+                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for everyone.")
+                    return@launch
+                }
+            }
+            onResult(true, null)
+        }
+    }
+
+    fun clearChatForMe(onResult: (Boolean, String?) -> Unit) {
+        val groupId = listeningGroupId
+        if (groupId.isBlank()) {
+            onResult(false, "No group chat is open.")
+            return
+        }
+        val messageIds = _messages.value.map { it.id }
+        viewModelScope.launch {
+            val result = chatRepository.clearChatForMe(groupId, messageIds)
+            onResult(result.isSuccess, result.exceptionOrNull()?.message)
+        }
+    }
+
     fun deleteMessage(
         messageId: String,
         onResult: (Boolean, String?) -> Unit
