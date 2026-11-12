@@ -242,12 +242,6 @@ fun ChatScreen(
         mutableStateOf<String?>(null)
     }
 
-    var messageToDelete by
-    remember {
-        mutableStateOf<Message?>(
-            null
-        )
-    }
 
     var messageForActions by
     remember {
@@ -380,11 +374,8 @@ fun ChatScreen(
 
             onDelete = {
 
-                messageForActions =
-                    null
-
-                messageToDelete =
-                    message
+                messageForActions = null
+                chatViewModel.deleteMessage(message.id)
             },
 
             onDismiss = {
@@ -422,39 +413,6 @@ fun ChatScreen(
         )
     }
 
-    /*
-     * =========================================================
-     * DELETE MESSAGE
-     * =========================================================
-     */
-    if (
-        messageToDelete != null
-    ) {
-
-        DeleteMessageDialog(
-
-            onConfirm = {
-
-                messageToDelete
-                    ?.let { message ->
-
-                        chatViewModel
-                            .deleteMessage(
-                                message.id
-                            )
-                    }
-
-                messageToDelete =
-                    null
-            },
-
-            onDismiss = {
-
-                messageToDelete =
-                    null
-            }
-        )
-    }
 
     /*
      * =========================================================
