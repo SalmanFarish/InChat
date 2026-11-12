@@ -325,94 +325,6 @@ fun HomeScreen(
         )
     }
 
-    pendingDeleteConversation?.let { conversation ->
-        val density = LocalDensity.current
-        val positionProvider = remember(actionPopupOnLeft, density) {
-            ConversationActionsPopupPositionProvider(
-                preferLeft = actionPopupOnLeft,
-                edgeMarginPx = with(density) { 14.dp.roundToPx() }
-            )
-        }
-
-        Popup(
-            popupPositionProvider = positionProvider,
-            onDismissRequest = {
-                pendingDeleteConversation = null
-            },
-            properties = PopupProperties(
-                focusable = true,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
-        ) {
-            Surface(
-                modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                tonalElevation = 4.dp,
-                shadowElevation = 18.dp,
-                border = BorderStroke(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .padding(horizontal = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.DeleteOutline,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.width(11.dp))
-                        Text(
-                            text = "Delete chat?",
-                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    ConversationActionRow(
-                        icon = Icons.Default.Clear,
-                        title = "Cancel",
-                        onClick = {
-                            pendingDeleteConversation = null
-                        }
-                    )
-
-                    ConversationActionRow(
-                        icon = Icons.Outlined.DeleteOutline,
-                        title = "Delete Chat",
-                        destructive = true,
-                        onClick = {
-                            pendingDeleteConversation = null
-                            homeViewModel.deleteConversation(
-                                currentUserId = currentUserId,
-                                chatId = conversation.chatId,
-                                chatType = conversation.chatType
-                            ) { success, error ->
-                                if (!success) {
-                                    actionMessage = error ?: "Could not delete chat."
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-        }
-    }
-
     /*
      * =========================================================
      * HOME
@@ -564,10 +476,20 @@ fun HomeScreen(
                                     }
                                 }
                             },
-                            onDelete = {
+                            confirmingDelete = pendingDeleteConversation?.chatId == conversation.chatId,
+                            onCancelDelete = { pendingDeleteConversation = null },
+                            onConfirmDelete = {
+                                pendingDeleteConversation = null
                                 selectedConversation = null
-                                pendingDeleteConversation = conversation
-                            }
+                                homeViewModel.deleteConversation(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    chatType = conversation.chatType
+                                ) { success, error ->
+                                    if (!success) actionMessage = error ?: "Could not delete chat."
+                                }
+                            },
+                            onDelete = { pendingDeleteConversation = conversation }
                         )
                     }
 
@@ -627,10 +549,20 @@ fun HomeScreen(
                                             }
                                         }
                                     },
-                                    onDelete = {
+                                    confirmingDelete = pendingDeleteConversation?.chatId == conversation.chatId,
+                                    onCancelDelete = { pendingDeleteConversation = null },
+                                    onConfirmDelete = {
+                                        pendingDeleteConversation = null
                                         selectedConversation = null
-                                        pendingDeleteConversation = conversation
-                                    }
+                                        homeViewModel.deleteConversation(
+                                            currentUserId = currentUserId,
+                                            chatId = conversation.chatId,
+                                            chatType = conversation.chatType
+                                        ) { success, error ->
+                                            if (!success) actionMessage = error ?: "Could not delete chat."
+                                        }
+                                    },
+                                    onDelete = { pendingDeleteConversation = conversation }
                                 )
                             }
                         }
@@ -1246,6 +1178,9 @@ private fun ConversationActionsPopup(
     onDismiss: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
+    confirmingDelete: Boolean,
+    onCancelDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
     onDelete: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -1281,28 +1216,58 @@ private fun ConversationActionsPopup(
                 modifier = Modifier.padding(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                ConversationActionRow(
-                    icon = Icons.Outlined.PushPin,
-                    title = if (conversation.isPinned) "Unpin" else "Pin",
-                    onClick = onTogglePin
-                )
+                if (confirmingDelete) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Delete this chat?",
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = "This chat will be removed from your inbox. You can't undo this.",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
-                ConversationActionRow(
-                    icon = if (conversation.isHidden) {
-                        Icons.Outlined.Visibility
-                    } else {
-                        Icons.Outlined.VisibilityOff
-                    },
-                    title = if (conversation.isHidden) "Show on Home" else "Hide",
-                    onClick = onToggleHidden
-                )
-
-                ConversationActionRow(
-                    icon = Icons.Outlined.DeleteOutline,
-                    title = "Delete Chat",
-                    destructive = true,
-                    onClick = onDelete
-                )
+                    ConversationActionRow(
+                        icon = Icons.Default.Clear,
+                        title = "Cancel",
+                        onClick = onCancelDelete
+                    )
+                    ConversationActionRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Delete Chat",
+                        destructive = true,
+                        onClick = onConfirmDelete
+                    )
+                } else {
+                    ConversationActionRow(
+                        icon = Icons.Outlined.PushPin,
+                        title = if (conversation.isPinned) "Unpin" else "Pin",
+                        onClick = onTogglePin
+                    )
+                    ConversationActionRow(
+                        icon = if (conversation.isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        title = if (conversation.isHidden) "Show on Home" else "Hide",
+                        onClick = onToggleHidden
+                    )
+                    ConversationActionRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Delete Chat",
+                        destructive = true,
+                        onClick = onDelete
+                    )
+                }
             }
         }
     }
@@ -1703,6 +1668,9 @@ private fun ConversationItem(
                 onDismiss = onDismissActions,
                 onTogglePin = onTogglePin,
                 onToggleHidden = onToggleHidden,
+                confirmingDelete = confirmingDelete,
+                onCancelDelete = onCancelDelete,
+                onConfirmDelete = onConfirmDelete,
                 onDelete = onDelete
             )
         }
