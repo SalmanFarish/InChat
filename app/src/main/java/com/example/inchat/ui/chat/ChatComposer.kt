@@ -4,12 +4,17 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,13 +25,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -485,37 +489,16 @@ fun ChatComposer(
                             messageText
                                 .isNotBlank()
 
-                val sendScale by
-                animateFloatAsState(
-
-                    targetValue =
-                        if (
-                            sendEnabled
-                        ) {
-
-                            1f
-
-                        } else {
-
-                            0.88f
-                        },
-
-                    animationSpec =
-                        spring(),
-
-                    label =
-                        "sendButtonScale"
-                )
-
-                IconButton(
-
+                ComposerSendButton(
+                    enabled = sendEnabled,
+                    isEditing = editingMessage != null,
                     onClick = {
 
                         if (
                             messagingBlocked
                         ) {
 
-                            return@IconButton
+                            return@ComposerSendButton
                         }
 
                         val text =
@@ -526,7 +509,7 @@ fun ChatComposer(
                             text.isBlank()
                         ) {
 
-                            return@IconButton
+                            return@ComposerSendButton
                         }
 
                         val editing =
@@ -541,7 +524,7 @@ fun ChatComposer(
                             editing != null
                         ) {
                             if (savingEdit) {
-                                return@IconButton
+                                return@ComposerSendButton
                             }
 
                             savingEdit = true
@@ -578,7 +561,7 @@ fun ChatComposer(
                                     }
                                 }
 
-                            return@IconButton
+                            return@ComposerSendButton
                         }
 
                         /*
@@ -635,73 +618,81 @@ fun ChatComposer(
                                 }
                             )
                     },
-
-                    enabled =
-                        sendEnabled,
-
-                    modifier =
-                        Modifier
-                            .size(
-                                50.dp
-                            )
-                            .graphicsLayer {
-
-                                scaleX =
-                                    sendScale
-
-                                scaleY =
-                                    sendScale
-                            },
-
-                    colors =
-                        IconButtonDefaults
-                            .iconButtonColors(
-
-                                containerColor =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .primary,
-
-                                contentColor =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .onPrimary,
-
-                                disabledContainerColor =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .surfaceVariant,
-
-                                disabledContentColor =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .onSurfaceVariant
-                            )
-                ) {
-
-                    Icon(
-
-                        imageVector =
-                            if (editingMessage != null) {
-                                Icons.Default.Check
-                            } else {
-                                Icons.AutoMirrored.Filled.Send
-                            },
-
-                        contentDescription =
-                            if (
-                                editingMessage != null
-                            ) {
-
-                                "Save edited message"
-
-                            } else {
-
-                                "Send message"
-                            }
-                    )
-                }
+                )
             }
+        }
+    }
+}
+
+
+/**
+ * Bitchat-inspired compact send control: a soft accent disc with an upward arrow
+ * and a restrained press animation. The same control is shared by private and group chats.
+ */
+@Composable
+internal fun ComposerSendButton(
+    enabled: Boolean,
+    isEditing: Boolean,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "composerSendPressScale"
+    )
+    val activeColor = MaterialTheme.colorScheme.primary
+
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(
+                    color = if (enabled) {
+                        activeColor.copy(alpha = 0.20f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isEditing) {
+                    Icons.Default.Check
+                } else {
+                    Icons.Filled.ArrowUpward
+                },
+                contentDescription = if (isEditing) {
+                    "Save edited message"
+                } else {
+                    "Send message"
+                },
+                modifier = Modifier.size(20.dp),
+                tint = if (enabled) {
+                    activeColor
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
         }
     }
 }
