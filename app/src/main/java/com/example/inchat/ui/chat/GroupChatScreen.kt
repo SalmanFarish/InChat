@@ -109,15 +109,6 @@ fun GroupChatScreen(
         ChatMessageActionsDialog(
             message = message,
             isOwnMessage = message.senderId == currentUserId,
-            currentUserId = currentUserId,
-            onReaction = { reaction ->
-                groupViewModel.toggleReaction(
-                    messageId = message.id,
-                    reaction = reaction,
-                    currentUserId = currentUserId
-                )
-                messageForActions = null
-            },
             onReply = {
                 messageForActions = null
                 draftBeforeEdit = null
