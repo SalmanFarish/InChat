@@ -31,11 +31,9 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -59,6 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.widthIn
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
@@ -70,9 +71,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(
-    ExperimentalMaterial3Api::class
-)
 @Composable
 fun HomeScreen(
     authViewModel: AuthViewModel,
@@ -313,7 +311,7 @@ fun HomeScreen(
     }
 
     selectedConversation?.let { conversation ->
-        ConversationActionsSheet(
+        ConversationActionsCard(
             conversation = conversation,
             userRepository = userRepository,
             onTogglePin = {
@@ -1104,9 +1102,8 @@ private fun EmptyConversationState(
  * CONVERSATION ACTION CARD
  * ============================================================
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConversationActionsSheet(
+private fun ConversationActionsCard(
     conversation: Conversation,
     userRepository: UserRepository,
     onTogglePin: () -> Unit,
@@ -1137,159 +1134,139 @@ private fun ConversationActionsSheet(
         conversation.otherUsername
     }
 
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        shape = RoundedCornerShape(
-            topStart = 28.dp,
-            topEnd = 28.dp
-        ),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 11.dp, bottom = 5.dp)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-            )
-        }
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(13.dp)
+                .padding(horizontal = 26.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 5.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .widthIn(max = 360.dp),
+                shape = RoundedCornerShape(26.dp),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 5.dp,
+                shadowElevation = 20.dp,
+                border = BorderStroke(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+                )
             ) {
-                Box(
+                Column(
                     modifier = Modifier
-                        .size(54.dp)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            shape = CircleShape
-                        )
-                        .padding(2.dp)
+                        .fillMaxWidth()
+                        .padding(17.dp),
+                    verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
-                    if (conversation.chatType == "group") {
-                        GroupAvatar(
-                            groupName = conversation.groupName,
-                            modifier = Modifier.fillMaxSize(),
-                            fontSize = 24.sp
-                        )
-                    } else {
-                        InChatProfileAvatar(
-                            profilePhotoUrl = profilePhoto,
-                            modifier = Modifier.fillMaxSize(),
-                            iconSize = 24.dp,
-                            contentDescription = "Profile picture"
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                    shape = CircleShape
+                                )
+                                .padding(2.dp)
+                        ) {
+                            if (conversation.chatType == "group") {
+                                GroupAvatar(
+                                    groupName = conversation.groupName,
+                                    modifier = Modifier.fillMaxSize(),
+                                    fontSize = 22.sp
+                                )
+                            } else {
+                                InChatProfileAvatar(
+                                    profilePhotoUrl = profilePhoto,
+                                    modifier = Modifier.fillMaxSize(),
+                                    iconSize = 22.dp,
+                                    contentDescription = "Profile picture"
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = 15.sp
+                                ),
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Spacer(Modifier.height(3.dp))
+
+                            Text(
+                                text = if (conversation.chatType == "group") {
+                                    "GROUP  ·  ${conversation.memberCount} MEMBERS"
+                                } else {
+                                    "PRIVATE CHAT"
+                                },
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = JetBrainsMono,
+                                    fontSize = 8.sp,
+                                    letterSpacing = 0.55.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                }
 
-                Spacer(Modifier.width(13.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp
-                        ),
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
                     )
 
-                    Spacer(Modifier.height(4.dp))
+                    ConversationActionRow(
+                        icon = Icons.Outlined.PushPin,
+                        title = if (conversation.isPinned) "Unpin chat" else "Pin to top",
+                        onClick = onTogglePin
+                    )
 
-                    Text(
-                        text = if (conversation.chatType == "group") {
-                            "GROUP  •  " + conversation.memberCount + " MEMBERS"
+                    ConversationActionRow(
+                        icon = if (conversation.isHidden) {
+                            Icons.Outlined.Visibility
                         } else {
-                            "PRIVATE CONVERSATION"
+                            Icons.Outlined.VisibilityOff
                         },
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 9.sp,
-                            letterSpacing = 0.55.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        title = if (conversation.isHidden) "Show on Home" else "Hide from Home",
+                        onClick = onToggleHidden
                     )
-                }
 
-                if (conversation.isPinned) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.End)
                     ) {
                         Text(
-                            text = "PINNED",
-                            modifier = Modifier.padding(
-                                horizontal = 9.dp,
-                                vertical = 5.dp
-                            ),
-                            fontFamily = JetBrainsMono,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            text = "Cancel",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
-            )
-
-            ConversationActionRow(
-                icon = Icons.Outlined.PushPin,
-                title = if (conversation.isPinned) "Unpin chat" else "Pin to top",
-                subtitle = if (conversation.isPinned) {
-                    "Remove this chat from your pinned conversations"
-                } else {
-                    "Keep this conversation at the top of Home"
-                },
-                onClick = onTogglePin
-            )
-
-            ConversationActionRow(
-                icon = if (conversation.isHidden) {
-                    Icons.Outlined.Visibility
-                } else {
-                    Icons.Outlined.VisibilityOff
-                },
-                title = if (conversation.isHidden) "Show on Home" else "Hide from Home",
-                subtitle = if (conversation.isHidden) {
-                    "Move this conversation back to your inbox"
-                } else {
-                    "Move this conversation to Hidden chats"
-                },
-                onClick = onToggleHidden
-            )
-
-            Text(
-                text = "These settings affect only your inbox. Hiding does not delete messages or mute notifications.",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(
-                    horizontal = 3.dp,
-                    vertical = 1.dp
-                )
-            )
         }
     }
 }
@@ -1298,37 +1275,32 @@ private fun ConversationActionsSheet(
 private fun ConversationActionRow(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .height(52.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(17.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
-        border = BorderStroke(
-            width = 0.75.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
-        )
+        shape = RoundedCornerShape(15.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
     ) {
         Row(
-            modifier = Modifier.padding(
-                horizontal = 13.dp,
-                vertical = 12.dp
-            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                modifier = Modifier.size(39.dp),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(34.dp),
+                shape = RoundedCornerShape(11.dp),
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        modifier = Modifier.size(19.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1336,32 +1308,19 @@ private fun ConversationActionRow(
 
             Spacer(Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 13.sp
-                    ),
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(Modifier.height(3.dp))
-
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 13.sp
+                ),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
 
-@Composable
 private fun HiddenChatsToggle(
     hiddenCount: Int,
     expanded: Boolean,
