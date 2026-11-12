@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
@@ -164,12 +164,12 @@ fun ChatMessageActionsDialog(
                     )
                 } else {
                     MessageActionRow(
-                        icon = Icons.AutoMirrored.Filled.Reply,
+                        icon = Icons.AutoMirrored.Outlined.Reply,
                         title = "Reply",
                         onClick = onReply
                     )
                     MessageActionRow(
-                        icon = Icons.Default.Info,
+                        icon = Icons.Outlined.Info,
                         title = "Info",
                         onClick = onInfo
                     )
@@ -187,7 +187,7 @@ fun ChatMessageActionsDialog(
                     )
                     if (editAllowed) {
                         MessageActionRow(
-                            icon = Icons.Default.Edit,
+                            icon = Icons.Outlined.Edit,
                             title = "Edit",
                             onClick = onEdit
                         )
