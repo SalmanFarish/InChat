@@ -722,11 +722,10 @@ fun ChatMessageList(
 
                                 onReply = {
                                     if (
-                                        !messagingBlocked
+                                        !messagingBlocked &&
+                                        selectedMessageIds.isEmpty()
                                     ) {
-                                        onReply(
-                                            message
-                                        )
+                                        onReply(message)
                                     }
                                 },
 
@@ -741,15 +740,11 @@ fun ChatMessageList(
                                 },
 
                                 onReactionClick = { reaction ->
-
                                     if (
-                                        !messagingBlocked
+                                        !messagingBlocked &&
+                                        selectedMessageIds.isEmpty()
                                     ) {
-
-                                        onReactionClick(
-                                            message,
-                                            reaction
-                                        )
+                                        onReactionClick(message, reaction)
                                     }
                                 },
 
