@@ -719,14 +719,14 @@ fun SettingsScreen(
             text = {
                 Column {
                     Text(
-                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data.",
+                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
                         style = MaterialTheme.typography.bodyMedium
                     )
 
                     Spacer(Modifier.height(12.dp))
 
                     Text(
-                        text = "Shared conversations are not deleted from other participants' accounts.",
+                        text = "Groups with at least two members remaining stay active, with ownership transferred when needed. A two-person group is removed for everyone. One-to-one conversations remain in other participants' accounts.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
