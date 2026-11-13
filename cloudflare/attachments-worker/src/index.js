@@ -382,12 +382,13 @@ async function claimMessageEvent(
   if (existing !== null && typeof existing === "object") {
     if (!existing.status || existing.status === "sent") return null;
     if (
-      existing.status !== "failed" &&
-      !(
-        existing.status === "processing" &&
-        Number(existing.leaseUntil || 0) <= now
-      )
+      existing.status === "processing" &&
+      Number(existing.leaseUntil || 0) > now
     ) {
+      return { busy: true };
+    }
+
+    if (existing.status !== "failed" && existing.status !== "processing") {
       return null;
     }
   } else if (existing !== null) {
@@ -1348,12 +1349,20 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     uid,
   );
 
-  if (!claimId) {
+  if (claimId === null) {
     return json({
       success: true,
       alreadyProcessed: true,
       notificationSent: false,
     });
+  }
+
+  if (typeof claimId !== "string") {
+    return json({
+      success: false,
+      retryable: true,
+      error: "This message notification is already being processed.",
+    }, 503);
   }
 
   try {
