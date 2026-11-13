@@ -757,9 +757,6 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     }
 
     updates["chats/" + chatId + "/members/" + uid] = null;
-    updates["groupMemberships/" + uid + "/" + chatId] = null;
-    updates["groupReads/" + uid + "/" + chatId] = null;
-    updates["userChats/" + uid + "/" + chatId] = null;
 
     const remainingAdmins = remainingMembers
       .filter(([, role]) => role === "admin");
