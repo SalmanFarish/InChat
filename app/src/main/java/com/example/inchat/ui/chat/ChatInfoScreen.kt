@@ -106,7 +106,6 @@ fun ChatInfoScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
 
     if (showBlockDialog) {
-        val isBlocking = blockState == BlockState.NONE
         AlertDialog(
             onDismissRequest = { showBlockDialog = false },
             title = {
