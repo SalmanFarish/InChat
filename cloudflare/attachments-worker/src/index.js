@@ -662,7 +662,17 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     ["groupMemberships/" + uid]: null,
     ["groupReads/" + uid]: null,
     ["userChats/" + uid]: null,
+    ["userMessageVisibility/" + uid]: null,
+    ["conversationPreferences/" + uid]: null,
   };
+
+  // Typing indicators are ephemeral, but remove any stale direct-chat value
+  // owned by the account as part of deletion.
+  for (const [chatId, entry] of Object.entries(inbox || {})) {
+    if (entry && entry.chatType !== "group" && !groupIds.has(chatId)) {
+      updates["typing/" + chatId + "/" + uid] = null;
+    }
+  }
 
   const hasRegistrationToken =
     typeof registrationToken === "string" &&
@@ -695,7 +705,10 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       "chats/" + chatId,
     );
 
-    if (!chat || chat.type !== "group") continue;
+    if (!chat || chat.type !== "group") {
+      updates["typing/" + chatId + "/" + uid] = null;
+      continue;
+    }
 
     const memberEntries = Object.entries(chat.members || {})
       .filter(([memberId, role]) =>
@@ -718,7 +731,10 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       );
     }
 
-    if (!wasMember) continue;
+    if (!wasMember) {
+      updates["typing/" + chatId + "/" + uid] = null;
+      continue;
+    }
 
     const remainingMembers = memberEntries
       .filter(([memberId]) => memberId !== uid)
@@ -729,11 +745,14 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       // would otherwise leave one person in an unusable group conversation.
       updates["chats/" + chatId] = null;
       updates["attachments/" + chatId] = null;
+      updates["typing/" + chatId] = null;
 
       for (const [memberId] of remainingMembers) {
         updates["groupMemberships/" + memberId + "/" + chatId] = null;
         updates["groupReads/" + memberId + "/" + chatId] = null;
         updates["userChats/" + memberId + "/" + chatId] = null;
+        updates["userMessageVisibility/" + memberId + "/" + chatId] = null;
+        updates["conversationPreferences/" + memberId + "/" + chatId] = null;
 
         const memberToken = await adminDatabaseRequest(
           env,
@@ -757,6 +776,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     }
 
     updates["chats/" + chatId + "/members/" + uid] = null;
+    updates["typing/" + chatId + "/" + uid] = null;
 
     const remainingAdmins = remainingMembers
       .filter(([, role]) => role === "admin");
