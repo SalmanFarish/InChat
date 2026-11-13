@@ -8,43 +8,35 @@ import androidx.compose.ui.graphics.Color
 private val TerminalGreenColorScheme =
     darkColorScheme(
         primary = TerminalGreen,
-        onPrimary = Black,
+        onPrimary = Color(0xFF001B05),
         primaryContainer = Color(0xFF0A2810),
-        onPrimaryContainer = White,
+        onPrimaryContainer = Color(0xFFC7FFD0),
 
         secondary = TerminalGreenSoft,
-        onSecondary = Black,
+        onSecondary = Color(0xFF001B05),
         secondaryContainer = Color(0xFF122917),
-        onSecondaryContainer = White,
+        onSecondaryContainer = Color(0xFFB9F7C1),
 
         tertiary = TerminalGreenBright,
-        onTertiary = Black,
+        onTertiary = Color(0xFF001B05),
         tertiaryContainer = Color(0xFF0C3214),
-        onTertiaryContainer = White,
+        onTertiaryContainer = Color(0xFFD2FFD8),
 
-        background = Black,
-        onBackground = White,
+        background = AppBackground,
+        onBackground = TextPrimary,
 
-        surface = Black,
-        onSurface = White,
-        surfaceVariant = Black,
-        onSurfaceVariant = White,
-        surfaceDim = Black,
-        surfaceBright = Black,
-        surfaceContainerLowest = Black,
-        surfaceContainerLow = Black,
-        surfaceContainer = Black,
-        surfaceContainerHigh = Black,
-        surfaceContainerHighest = Black,
-        surfaceTint = Black,
+        surface = AppSurface,
+        onSurface = TextPrimary,
+        surfaceVariant = AppSurfaceVariant,
+        onSurfaceVariant = TextSecondary,
 
         outline = AppOutline,
         outlineVariant = AppOutlineVariant,
 
         error = TerminalError,
-        onError = Black,
+        onError = Color(0xFF240000),
         errorContainer = Color(0xFF351111),
-        onErrorContainer = White
+        onErrorContainer = Color(0xFFFFDADA)
     )
 
 /**
