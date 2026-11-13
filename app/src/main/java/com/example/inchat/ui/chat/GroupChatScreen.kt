@@ -46,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
-import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(
@@ -206,8 +205,6 @@ fun GroupChatScreen(
                 } else {
                     0
                 },
-            currentTimeMillis =
-                FirebaseServerClock.now(),
             onDismiss = {
                 messageForInfo = null
             }
