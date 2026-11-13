@@ -151,11 +151,6 @@ dependencies {
         "com.google.firebase:firebase-database"
     )
 
-    // Firebase Cloud Storage
-    implementation(
-        "com.google.firebase:firebase-storage"
-    )
-
     // Firebase Cloud Messaging
     implementation(
         "com.google.firebase:firebase-messaging"
