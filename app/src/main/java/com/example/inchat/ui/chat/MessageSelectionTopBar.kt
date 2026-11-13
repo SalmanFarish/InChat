@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,8 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -30,7 +27,6 @@ fun MessageSelectionTopBar(
     onDeleteForMe: () -> Unit,
     onDeleteForEveryone: () -> Unit
 ) {
-    val copied = remember { mutableStateOf(false) }
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = onClose) {
@@ -47,13 +43,10 @@ fun MessageSelectionTopBar(
             )
         },
         actions = {
-            IconButton(onClick = {
-                onCopy()
-                copied.value = true
-            }) {
+            IconButton(onClick = onCopy) {
                 Icon(
-                    imageVector = if (copied.value) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
-                    contentDescription = if (copied.value) "Copied selected messages" else "Copy selected messages"
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy selected messages"
                 )
             }
             IconButton(onClick = onDeleteForMe) {
