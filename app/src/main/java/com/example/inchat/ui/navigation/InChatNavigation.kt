@@ -1077,9 +1077,6 @@ private fun MainTabPager(
         Int
 ) {
 
-    val pagerScope =
-        rememberCoroutineScope()
-
     val searchViewModel:
         SearchViewModel =
         viewModel()
