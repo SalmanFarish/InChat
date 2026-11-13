@@ -264,11 +264,7 @@ fun GroupChatScreen(
                         selectedMessageIds = emptySet()
                     },
                     onDeleteForMe = {
-                        val ids = selectedMessageIds
-                        groupViewModel.deleteMessagesForMe(ids) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
+                        showDeleteSelectedForMeConfirmation = true
                     },
                     onDeleteForEveryone = {
                         showDeleteSelectedForEveryoneConfirmation = true
@@ -451,7 +447,34 @@ fun GroupChatScreen(
             )
         }
 
-        if (showDeleteSelectedForEveryoneConfirmation) {
+            if (showDeleteSelectedForMeConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
+                title = { Text("Delete selected messages for you?") },
+                text = {
+                    Text("These messages will disappear only from your view. Other group members will keep them.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteSelectedForMeConfirmation = false
+                            val ids = selectedMessageIds
+                            groupViewModel.deleteMessagesForMe(ids) { success, error ->
+                                selectedMessageIds = emptySet()
+                                if (!success) actionMessage = error ?: "Could not delete selected messages."
+                            }
+                        }
+                    ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+    if (showDeleteSelectedForEveryoneConfirmation) {
             AlertDialog(
                 onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
                 title = { Text("Delete selected messages?") },
