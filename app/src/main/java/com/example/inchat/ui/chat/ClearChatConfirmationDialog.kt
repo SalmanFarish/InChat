@@ -125,8 +125,13 @@ private fun ClearChatActionRow(
             .height(46.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
+        border = if (destructive) {
+            BorderStroke(0.8.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.9f))
+        } else {
+            null
+        },
         color = if (destructive) {
-            MaterialTheme.colorScheme.error
+            androidx.compose.ui.graphics.Color.Black
         } else {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)
         }
