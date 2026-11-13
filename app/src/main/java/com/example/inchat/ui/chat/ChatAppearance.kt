@@ -84,7 +84,7 @@ enum class ChatTheme(
         colors = ChatThemePalette(
             background = Black,
             incomingBubble = Color(0xFF030A04),
-            outgoingBubble = Color(0xFF041108),
+            outgoingBubble = Color(0xFF06170A),
             incomingText = Color(0xFF83F28F),
             outgoingText = Color(0xFFA6FFB2),
             secondaryText = Color(0xFF70A77B),
