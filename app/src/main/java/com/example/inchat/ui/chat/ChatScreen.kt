@@ -713,31 +713,20 @@ fun ChatScreen(
         }
 
     if (showClearChatConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showClearChatConfirmation = false },
-            title = { Text("Clear chat?") },
-            text = {
-                Text("This removes the conversation history from your view only. Other participants will keep their messages.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showClearChatConfirmation = false
-                        chatViewModel.clearChatForMe { success, error ->
-                            if (success) {
-                                actionMessage = "Chat cleared for you"
-                            } else {
-                                actionMessage = error ?: "Could not clear chat."
-                            }
-                        }
+        ClearChatConfirmationDialog(
+            title = "Clear chat?",
+            description = "This removes the conversation history from your view only. The other participant will keep their messages.",
+            onConfirm = {
+                showClearChatConfirmation = false
+                chatViewModel.clearChatForMe { success, error ->
+                    if (success) {
+                        actionMessage = "Chat cleared for you"
+                    } else {
+                        actionMessage = error ?: "Could not clear chat."
                     }
-                ) { Text("Clear chat", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearChatConfirmation = false }) {
-                    Text("Cancel")
                 }
-            }
+            },
+            onDismiss = { showClearChatConfirmation = false }
         )
     }
 
