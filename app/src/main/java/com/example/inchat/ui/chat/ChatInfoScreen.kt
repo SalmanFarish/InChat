@@ -21,8 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,8 +53,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.inchat.data.repository.ChatAppearanceRepository
-import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.JetBrainsMono
@@ -64,23 +64,9 @@ fun ChatInfoScreen(
     otherUserId: String,
     otherUserNickname: String,
     chatViewModel: ChatViewModel,
-    onBackClick: () -> Unit,
-    onChatThemeClick: () -> Unit
+    onBackClick: () -> Unit
 ) {
     val userRepository = remember { UserRepository() }
-    val appearanceRepository = remember { ChatAppearanceRepository() }
-    val chatId = remember(currentUserId, otherUserId) {
-        ChatRepository().getChatRoomId(currentUserId, otherUserId)
-    }
-
-    val selectedThemeId by appearanceRepository
-        .observeTheme(chatId)
-        .collectAsState(initial = null)
-    val selectedTheme = ChatTheme.fromId(
-        id = selectedThemeId,
-        defaultTheme = ChatTheme.BITCHAT_GREEN
-    )
-
     var otherUserProfilePhoto by remember(otherUserId) { mutableStateOf("") }
     LaunchedEffect(otherUserId) {
         val user = userRepository.getUserByIdFast(otherUserId)
@@ -347,14 +333,34 @@ fun ChatInfoScreen(
             }
 
             item {
-                ChatInfoSectionLabel("APPEARANCE")
+                ChatInfoSectionLabel("SHARED CONTENT")
                 ChatInfoCard {
-                    ChatInfoActionRow(
-                        icon = Icons.Outlined.ColorLens,
-                        title = "Chat style",
-                        subtitle = "${selectedTheme.title} · Shared with both participants",
-                        accent = MaterialTheme.colorScheme.primary,
-                        onClick = onChatThemeClick
+                    ChatInfoPlaceholderRow(
+                        icon = Icons.Outlined.PhotoLibrary,
+                        title = "Photos & videos",
+                        subtitle = "Images and clips shared in this chat"
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
+                    ChatInfoPlaceholderRow(
+                        icon = Icons.Outlined.Link,
+                        title = "Links",
+                        subtitle = "Websites shared in messages"
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
+                    ChatInfoPlaceholderRow(
+                        icon = Icons.Outlined.InsertDriveFile,
+                        title = "Files",
+                        subtitle = "Documents and other attachments"
                     )
                 }
             }
@@ -604,6 +610,78 @@ private fun ChatInfoActionRow(
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatInfoPlaceholderRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Text(
+                text = "SOON",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = JetBrainsMono,
+                    fontSize = 8.sp,
+                    letterSpacing = 0.45.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
