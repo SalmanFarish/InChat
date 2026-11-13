@@ -640,6 +640,171 @@ async function clearPersonalNotificationTopic(
   return json({ success: true });
 }
 
+
+async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
+  const [membershipIndex, readIndex, inbox, registrationToken] =
+    await Promise.all([
+      adminDatabaseRequest(env, adminAuth.token, "groupMemberships/" + uid),
+      adminDatabaseRequest(env, adminAuth.token, "groupReads/" + uid),
+      adminDatabaseRequest(env, adminAuth.token, "userChats/" + uid),
+      adminDatabaseRequest(env, adminAuth.token, "privateUsers/" + uid + "/fcmToken"),
+    ]);
+
+  const groupIds = new Set([
+    ...Object.keys(membershipIndex || {}),
+    ...Object.keys(readIndex || {}),
+    ...Object.entries(inbox || {})
+      .filter(([, entry]) => entry && entry.chatType === "group")
+      .map(([chatId]) => chatId),
+  ]);
+
+  const updates = {
+    ["groupMemberships/" + uid]: null,
+    ["groupReads/" + uid]: null,
+    ["userChats/" + uid]: null,
+  };
+
+  const hasRegistrationToken =
+    typeof registrationToken === "string" &&
+    registrationToken.trim() !== "";
+
+  if (hasRegistrationToken) {
+    await changeTopicSubscription(
+      adminAuth.token,
+      adminAuth.projectId,
+      await userTopicName(env, uid),
+      registrationToken,
+      false,
+    );
+  }
+
+  let updatedGroups = 0;
+  let dissolvedGroups = 0;
+
+  for (const rawChatId of groupIds) {
+    let chatId;
+    try {
+      chatId = cleanSegment(rawChatId, "chatId");
+    } catch (_) {
+      continue;
+    }
+
+    const chat = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "chats/" + chatId,
+    );
+
+    if (!chat || chat.type !== "group") continue;
+
+    const memberEntries = Object.entries(chat.members || {})
+      .filter(([memberId, role]) =>
+        typeof memberId === "string" &&
+        memberId.length > 0 &&
+        typeof role === "string" &&
+        role.length > 0
+      );
+
+    const wasMember = memberEntries.some(([memberId]) => memberId === uid);
+
+    // Clear a possible stale topic as well as a current membership.
+    if (hasRegistrationToken) {
+      await changeTopicSubscription(
+        adminAuth.token,
+        adminAuth.projectId,
+        await groupTopicName(env, chatId),
+        registrationToken,
+        false,
+      );
+    }
+
+    if (!wasMember) continue;
+
+    const remainingMembers = memberEntries
+      .filter(([memberId]) => memberId !== uid)
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    if (remainingMembers.length < 2) {
+      // The app requires at least two group members. Dissolve a group that
+      // would otherwise leave one person in an unusable group conversation.
+      updates["chats/" + chatId] = null;
+      updates["attachments/" + chatId] = null;
+
+      for (const [memberId] of remainingMembers) {
+        updates["groupMemberships/" + memberId + "/" + chatId] = null;
+        updates["groupReads/" + memberId + "/" + chatId] = null;
+        updates["userChats/" + memberId + "/" + chatId] = null;
+
+        const memberToken = await adminDatabaseRequest(
+          env,
+          adminAuth.token,
+          "privateUsers/" + memberId + "/fcmToken",
+        );
+
+        if (typeof memberToken === "string" && memberToken.trim() !== "") {
+          await changeTopicSubscription(
+            adminAuth.token,
+            adminAuth.projectId,
+            await groupTopicName(env, chatId),
+            memberToken,
+            false,
+          );
+        }
+      }
+
+      dissolvedGroups += 1;
+      continue;
+    }
+
+    updates["chats/" + chatId + "/members/" + uid] = null;
+    updates["groupMemberships/" + uid + "/" + chatId] = null;
+    updates["groupReads/" + uid + "/" + chatId] = null;
+    updates["userChats/" + uid + "/" + chatId] = null;
+
+    const remainingAdmins = remainingMembers
+      .filter(([, role]) => role === "admin");
+
+    if (chat.createdBy === uid || remainingAdmins.length === 0) {
+      const successor = remainingAdmins.length > 0 ?
+        remainingAdmins[0][0] :
+        remainingMembers[0][0];
+
+      updates["chats/" + chatId + "/members/" + successor] = "admin";
+      updates["chats/" + chatId + "/createdBy"] = successor;
+    }
+
+    // Update only inbox entries that already exist; never create partial rows.
+    const remainingInboxEntries = await Promise.all(
+      remainingMembers.map(async ([memberId]) => ({
+        memberId: memberId,
+        entry: await adminDatabaseRequest(
+          env,
+          adminAuth.token,
+          "userChats/" + memberId + "/" + chatId,
+        ),
+      })),
+    );
+
+    for (const item of remainingInboxEntries) {
+      if (item.entry && typeof item.entry === "object") {
+        updates[
+          "userChats/" + item.memberId + "/" + chatId + "/memberCount"
+        ] = remainingMembers.length;
+      }
+    }
+
+    updatedGroups += 1;
+  }
+
+  await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+
+  return json({
+    success: true,
+    updatedGroups: updatedGroups,
+    dissolvedGroups: dissolvedGroups,
+  });
+}
+
 async function syncGroupConversationPreview(
   env,
   adminToken,
@@ -1743,6 +1908,14 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return updateGroupTopic(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/account/group-cleanup"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return cleanupAccountGroupsForDeletion(env, user.uid, adminAuth);
       }
 
       if (
