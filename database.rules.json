@@ -10,6 +10,21 @@
         },
         "bio": {
           ".validate": "newData.isString() &&                         newData.val().length <= 160"
+        },
+        "readReceiptsVisible": {
+          ".validate": "newData.isBoolean()"
+        },
+        "typingIndicatorVisible": {
+          ".validate": "newData.isBoolean()"
+        },
+        "discoverableByUsername": {
+          ".validate": "newData.isBoolean()"
+        },
+        "profilePhotoUrl": {
+          ".validate": "newData.isString() && newData.val().length <= 2048"
+        },
+        "profilePhotoData": {
+          ".validate": "newData.isString() && newData.val().length <= 275000"
         }
       }
     },
