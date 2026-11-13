@@ -114,7 +114,7 @@ private fun ClearChatActionRow(
     onClick: () -> Unit
 ) {
     val foreground = if (destructive) {
-        MaterialTheme.colorScheme.error
+        MaterialTheme.colorScheme.onError
     } else {
         MaterialTheme.colorScheme.primary
     }
@@ -126,7 +126,7 @@ private fun ClearChatActionRow(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         color = if (destructive) {
-            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.34f)
+            MaterialTheme.colorScheme.error
         } else {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)
         }
@@ -147,7 +147,7 @@ private fun ClearChatActionRow(
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
                 fontWeight = FontWeight.SemiBold,
                 color = if (destructive) {
-                    MaterialTheme.colorScheme.error
+                    MaterialTheme.colorScheme.onError
                 } else {
                     MaterialTheme.colorScheme.onSurface
                 }
