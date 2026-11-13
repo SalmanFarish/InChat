@@ -882,6 +882,15 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     return json({ error: "Group not found." }, 404);
   }
 
+  // Reject non-admin management attempts before performing per-target profile
+  // reads. The ETag-guarded mutation below checks the role again after races.
+  if (
+    action !== "leave" &&
+    (!chat.members || chat.members[uid] !== "admin")
+  ) {
+    return json({ error: "Only group admins can manage members." }, 403);
+  }
+
   const updates = {};
   let activityMessageId = "";
   let previewMembers = chat.members || {};
@@ -904,6 +913,14 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
     if (requestedIds.length === 0) {
       return json({ error: "Select at least one new member." }, 400);
+    }
+
+    const currentMembers = chat.members || {};
+    const preliminaryNewIds = requestedIds.filter((memberId) =>
+      !Object.prototype.hasOwnProperty.call(currentMembers, memberId),
+    );
+    if (Object.keys(currentMembers).length + preliminaryNewIds.length > 50) {
+      return json({ error: "A group can contain at most 50 members." }, 409);
     }
 
     const profiles = await Promise.all(requestedIds.map((memberId) =>
