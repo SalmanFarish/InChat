@@ -455,6 +455,15 @@ class ChatRepository {
                             )
                         )
                         .await()
+
+                    // Clearing direct history also clears unread state. Advance
+                    // the private read cursor so delayed Worker events for older
+                    // messages cannot restore an unread badge.
+                    database.getReference("chatReadState")
+                        .child(ownerUserId)
+                        .child(chatId)
+                        .setValue(clearedAt)
+                        .await()
                 }
             } catch (previewError: Exception) {
                 Log.w(TAG, "Chat history cleared, but the inbox preview could not be refreshed.", previewError)
