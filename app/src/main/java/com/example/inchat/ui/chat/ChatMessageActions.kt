@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.filled.Clear
@@ -25,10 +24,14 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Dialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -67,7 +70,6 @@ fun ChatMessageActionsDialog(
     onDeleteForMe: () -> Unit,
     onDeleteForEveryone: () -> Unit,
     onSelectMessages: () -> Unit,
-    onSelectText: () -> Unit,
     onDismiss: () -> Unit,
     onCopied: () -> Unit
 ) {
@@ -216,11 +218,6 @@ fun ChatMessageActionsDialog(
                         onClick = onSelectMessages
                     )
                     MessageActionRow(
-                        icon = Icons.Outlined.TextFields,
-                        title = "Select text",
-                        onClick = onSelectText
-                    )
-                    MessageActionRow(
                         icon = Icons.Outlined.DeleteOutline,
                         title = "Delete for me",
                         onClick = { confirmingDeleteForMeState.value = true }
@@ -314,36 +311,6 @@ private fun MessageActionRow(
 
 
 @Composable
-fun SelectMessageTextDialog(
-    message: Message,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Select text",
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        text = {
-            SelectionContainer {
-                Text(
-                    text = message.text.ifBlank { "This message has no selectable text." },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
-            }
-        }
-    )
-}
-
-@Composable
 fun MessageInfoDialog(
     message: Message,
     isOwnMessage: Boolean,
@@ -353,90 +320,209 @@ fun MessageInfoDialog(
     currentTimeMillis: Long = System.currentTimeMillis(),
     onDismiss: () -> Unit
 ) {
+    val isDelivered =
+        isOwnMessage &&
+            deliveredTimestamp > 0L &&
+            message.timestamp > 0L &&
+            deliveredTimestamp >= message.timestamp
+
     val isSeen =
         isOwnMessage &&
             readTimestamp > 0L &&
             message.timestamp > 0L &&
             readTimestamp >= message.timestamp
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Message info",
-                fontWeight = FontWeight.SemiBold
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 360.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 4.dp,
+            shadowElevation = 18.dp,
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
             )
-        },
-        text = {
+        ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                MessageInfoRow(
-                    label = if (isOwnMessage) "Sent" else "Received",
-                    value = formatMessageTime(message.timestamp)
-                )
-
-                if (isOwnMessage) {
-                    MessageInfoRow(
-                        label = "Delivered",
-                        value = if (deliveredTimestamp >= message.timestamp && deliveredTimestamp > 0L) {
-                            formatMessageTime(deliveredTimestamp)
-                        } else {
-                            "Not delivered yet"
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(42.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(21.dp)
+                            )
                         }
-                    )
+                    }
 
-                    MessageInfoRow(
-                        label = "Read",
-                        value = when {
-                            !isSeen -> "Not read yet"
-                            seenByCount > 1 ->
-                                "Read by $seenByCount people"
-                            else ->
-                                "Read"
-                        }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "Message info",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isOwnMessage) "Sent message" else "Received message",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                ) {
+                    Text(
+                        text = message.text.ifBlank { "No text content" },
+                        modifier = Modifier.padding(13.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
 
-                if (message.edited) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
                     MessageInfoRow(
-                        label = "Edited",
+                        icon = Icons.Outlined.Schedule,
+                        label = if (isOwnMessage) "Sent" else "Received",
                         value = formatMessageTime(message.timestamp)
                     )
+
+                    if (isOwnMessage) {
+                        MessageInfoRow(
+                            icon = Icons.Outlined.DoneAll,
+                            label = "Delivered",
+                            value = if (isDelivered) {
+                                formatMessageTime(deliveredTimestamp)
+                            } else {
+                                "Not delivered yet"
+                            },
+                            highlighted = isDelivered
+                        )
+
+                        MessageInfoRow(
+                            icon = Icons.Outlined.Visibility,
+                            label = "Read",
+                            value = when {
+                                !isSeen -> "Not read yet"
+                                seenByCount > 1 -> "Read by $seenByCount people"
+                                else -> "Read"
+                            },
+                            highlighted = isSeen
+                        )
+                    }
+
+                    if (message.edited) {
+                        MessageInfoRow(
+                            icon = Icons.Outlined.Edit,
+                            label = "Edited",
+                            value = "Yes"
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Done")
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("Done")
-            }
         }
-    )
+    }
 }
 
 @Composable
 private fun MessageInfoRow(
+    icon: ImageVector,
     label: String,
-    value: String
+    value: String,
+    highlighted: Boolean = false
 ) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(36.dp),
+            shape = RoundedCornerShape(11.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (highlighted) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
 
-        Spacer(
-            modifier = Modifier.height(2.dp)
-        )
-
-        Text(
-            text = value.ifBlank { "—" },
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium
-        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (highlighted) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+        }
     }
 }
 
