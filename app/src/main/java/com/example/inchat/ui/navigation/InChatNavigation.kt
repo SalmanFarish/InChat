@@ -1152,16 +1152,6 @@ private fun MainTabPager(
                         )
                     },
 
-                    onProfileClick = {
-
-                        pagerScope.launch {
-
-                            pagerState
-                                .animateScrollToPage(
-                                    2
-                                )
-                        }
-                    }
                 )
             }
 
