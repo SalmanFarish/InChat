@@ -242,7 +242,7 @@ class CloudflareNotificationRepository {
     }
 
     private fun isRetryableNotificationFailure(error: Throwable): Boolean {
-        val statusCode = Regex("""failed \\((\\d{3})\\)""")
+        val statusCode = Regex("""failed \((\d{3})\)""")
             .find(error.message.orEmpty())
             ?.groupValues
             ?.getOrNull(1)
