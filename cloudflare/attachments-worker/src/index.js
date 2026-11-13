@@ -823,6 +823,100 @@ async function rebuildConversationPreview(
   }
 }
 
+
+/*
+ * Create/update both direct-chat inbox entries from the trusted Worker.
+ * A client must never be allowed to write another user's inbox metadata.
+ */
+async function syncDirectInboxForNewMessage(
+  env,
+  adminToken,
+  chatId,
+  chat,
+  message,
+) {
+  const participantA = chat.participantA;
+  const participantB = chat.participantB;
+  const senderId = message.senderId;
+
+  if (
+    typeof participantA !== "string" ||
+    typeof participantB !== "string" ||
+    participantA === "" ||
+    participantB === "" ||
+    participantA === participantB ||
+    (senderId !== participantA && senderId !== participantB)
+  ) {
+    throw new Error("Cannot update inbox for an invalid direct chat.");
+  }
+
+  const recipientId = senderId === participantA ? participantB : participantA;
+  const [
+    senderProfile,
+    recipientProfile,
+    senderInbox,
+    recipientInbox,
+  ] = await Promise.all([
+    adminDatabaseRequest(env, adminToken, "users/" + senderId),
+    adminDatabaseRequest(env, adminToken, "users/" + recipientId),
+    adminDatabaseRequest(env, adminToken, "userChats/" + senderId + "/" + chatId),
+    adminDatabaseRequest(env, adminToken, "userChats/" + recipientId + "/" + chatId),
+  ]);
+
+  const senderNickname =
+    typeof senderProfile?.username === "string" &&
+    senderProfile.username.trim() !== "" ?
+      senderProfile.username.trim().slice(0, 20) :
+      (typeof message.senderNickname === "string" ?
+        message.senderNickname.trim().slice(0, 20) :
+        "User");
+
+  const recipientNickname =
+    typeof recipientProfile?.username === "string" &&
+    recipientProfile.username.trim() !== "" ?
+      recipientProfile.username.trim().slice(0, 20) :
+      "User";
+
+  const lastMessage =
+    typeof message.text === "string" && message.text.trim() !== "" ?
+      message.text.slice(0, 5000) :
+      "Sent an attachment";
+  const lastTimestamp =
+    typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ?
+      message.timestamp :
+      Date.now();
+
+  const updates = {};
+  const senderBase = "userChats/" + senderId + "/" + chatId + "/";
+  const recipientBase = "userChats/" + recipientId + "/" + chatId + "/";
+
+  for (const [base, otherUserId, otherUsername] of [
+    [senderBase, recipientId, recipientNickname],
+    [recipientBase, senderId, senderNickname],
+  ]) {
+    updates[base + "chatId"] = chatId;
+    updates[base + "otherUserId"] = otherUserId;
+    updates[base + "otherUsername"] = otherUsername || "User";
+    updates[base + "lastMessage"] = lastMessage;
+    updates[base + "lastTimestamp"] = lastTimestamp;
+    updates[base + "lastSenderId"] = senderId;
+  }
+
+  // Preserve an existing sender unread count; create new senders' entries at zero.
+  if (!senderInbox || typeof senderInbox.unreadCount !== "number") {
+    updates[senderBase + "unreadCount"] = 0;
+  }
+
+  // Increment the recipient exactly once for this claimed message event.
+  if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
+    updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
+  } else {
+    updates[recipientBase + "unreadCount"] = 1;
+  }
+
+  await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
+}
+
 async function processPreviewEvent(request, env, uid, adminAuth) {
   let body;
   try {
@@ -950,6 +1044,22 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         success: true,
         notificationSent: false,
         reason: "Group activity messages are not push-notified.",
+      });
+    }
+  } else {
+    try {
+      await syncDirectInboxForNewMessage(
+        env,
+        adminAuth.token,
+        chatId,
+        chat,
+        message,
+      );
+    } catch (previewError) {
+      console.error("Direct inbox preview sync failed", {
+        chatId: chatId,
+        messageId: messageId,
+        error: String(previewError),
       });
     }
   }
