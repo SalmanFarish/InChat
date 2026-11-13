@@ -1235,10 +1235,7 @@ class ChatRepository {
 
                     "userChats/$currentUserId/$chatId/unreadCount" to
                             0L,
-                    // Private cursor lets the Worker recognize messages already
-                    // viewed, even when this user has read receipts disabled.
-                    "userChats/$currentUserId/$chatId/lastReadTimestamp" to
-                            ServerValue.TIMESTAMP
+
                 )
 
             updates[
@@ -1251,6 +1248,15 @@ class ChatRepository {
                 } else {
                     null
                 }
+
+            // Store read state separately from the inbox entry. A brand-new
+            // direct conversation may not have a complete userChats record yet.
+            // The Worker reads this private cursor before it increments unread.
+            database.getReference("chatReadState")
+                .child(currentUserId)
+                .child(chatId)
+                .setValue(ServerValue.TIMESTAMP)
+                .await()
 
             database.reference
                 .updateChildren(
