@@ -10,6 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -46,12 +47,40 @@ class CloudflareNotificationRepository {
             return Result.success(Unit)
         }
 
-        return post(
-            path = "/events/message",
-            body = JSONObject()
-                .put("chatId", chatId)
-                .put("messageId", messageId)
-        ).map { Unit }
+        val requestBody = JSONObject()
+            .put("chatId", chatId)
+            .put("messageId", messageId)
+
+        // A Worker may be busy with the same event or may have released a
+        // failed claim. Retry transient responses so expired leases and
+        // temporary FCM/Realtime Database failures can be recovered.
+        val retryDelaysMs = longArrayOf(0L, 1_000L, 3_000L, 7_000L, 12_000L, 18_000L)
+        var lastFailure: Throwable? = null
+
+        for (waitMs in retryDelaysMs) {
+            if (waitMs > 0L) delay(waitMs)
+
+            val attempt = post(
+                path = "/events/message",
+                body = requestBody
+            )
+
+            if (attempt.isSuccess) {
+                return Result.success(Unit)
+            }
+
+            val failure = attempt.exceptionOrNull()
+                ?: IllegalStateException("Notification dispatch failed.")
+            lastFailure = failure
+
+            if (!isRetryableNotificationFailure(failure)) {
+                return Result.failure(failure)
+            }
+        }
+
+        return Result.failure(
+            lastFailure ?: IllegalStateException("Notification dispatch failed.")
+        )
     }
 
     suspend fun setGroupTopicSubscription(
@@ -210,6 +239,22 @@ class CloudflareNotificationRepository {
             Log.w(TAG, "Could not synchronize group notification topics.", error)
             Result.failure(error)
         }
+    }
+
+    private fun isRetryableNotificationFailure(error: Throwable): Boolean {
+        val statusCode = Regex("""failed \\((\\d{3})\\)""")
+            .find(error.message.orEmpty())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+        // Authentication, validation and permission errors need user/code
+        // fixes, not repeated requests. Retry rate limits, server failures,
+        // request timeouts and transport failures.
+        return statusCode == null ||
+            statusCode == 408 ||
+            statusCode == 429 ||
+            statusCode >= 500
     }
 
     private suspend fun post(
