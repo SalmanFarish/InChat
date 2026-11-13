@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 /*
  * InChat Terminal Green palette.
  * Pure AMOLED black with restrained terminal-green accents,
- * quiet forest-green surfaces, and soft readable text.
+ * pure white neutral text and restrained green accents.
  */
 
 val Black = Color(0xFF000000)
