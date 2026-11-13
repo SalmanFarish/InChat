@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -65,8 +64,10 @@ import kotlin.time.Duration.Companion.milliseconds
 fun ChatMessageActionsDialog(
     message: Message,
     isOwnMessage: Boolean,
+    deliveredTimestamp: Long = 0L,
+    readTimestamp: Long = 0L,
+    seenByCount: Int = 0,
     onReply: () -> Unit,
-    onInfo: () -> Unit,
     onEdit: () -> Unit,
     onDeleteForMe: () -> Unit,
     onDeleteForEveryone: () -> Unit,
@@ -98,6 +99,9 @@ fun ChatMessageActionsDialog(
             message.timestamp > 0L &&
             editAgeMillis in 0L until ChatRepository.MESSAGE_EDIT_WINDOW_MS
 
+    val showInfoState = remember(message.id) {
+        mutableStateOf(false)
+    }
     val confirmingDeleteState = remember(message.id) {
         mutableStateOf(false)
     }
@@ -124,7 +128,10 @@ fun ChatMessageActionsDialog(
         )
     ) {
         Surface(
-            modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
+            modifier = Modifier.widthIn(
+                min = if (showInfoState.value) 220.dp else 190.dp,
+                max = if (showInfoState.value) 280.dp else 228.dp
+            ),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
@@ -139,7 +146,17 @@ fun ChatMessageActionsDialog(
                 modifier = Modifier.padding(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (confirmingDeleteState.value || confirmingDeleteForMeState.value) {
+                if (showInfoState.value) {
+                    MessageInfoContent(
+                        message = message,
+                        isOwnMessage = isOwnMessage,
+                        deliveredTimestamp = deliveredTimestamp,
+                        readTimestamp = readTimestamp,
+                        seenByCount = seenByCount,
+                        onBack = { showInfoState.value = false },
+                        onDismiss = onDismiss
+                    )
+                } else if (confirmingDeleteState.value || confirmingDeleteForMeState.value) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -192,7 +209,7 @@ fun ChatMessageActionsDialog(
                     MessageActionRow(
                         icon = Icons.Outlined.Info,
                         title = "Info",
-                        onClick = onInfo
+                        onClick = { showInfoState.value = true }
                     )
                     MessageActionRow(
                         icon = Icons.Outlined.ContentCopy,
@@ -312,12 +329,13 @@ private fun MessageActionRow(
 
 
 @Composable
-fun MessageInfoDialog(
+private fun MessageInfoContent(
     message: Message,
     isOwnMessage: Boolean,
-    deliveredTimestamp: Long = 0L,
-    readTimestamp: Long = 0L,
-    seenByCount: Int = 0,
+    deliveredTimestamp: Long,
+    readTimestamp: Long,
+    seenByCount: Int,
+    onBack: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val isDelivered =
@@ -332,137 +350,92 @@ fun MessageInfoDialog(
             message.timestamp > 0L &&
             readTimestamp >= message.timestamp
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 360.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 4.dp,
-            shadowElevation = 18.dp,
-            border = BorderStroke(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            Text(
+                text = "‹ Back",
+                modifier = Modifier
+                    .clickable(onClick = onBack)
+                    .padding(vertical = 7.dp, horizontal = 4.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Message info",
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 7.dp),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(34.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        modifier = Modifier.size(42.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(21.dp)
-                            )
-                        }
-                    }
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = "Close",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = "Message info",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = if (isOwnMessage) "Sent message" else "Received message",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ) {
+            Text(
+                text = message.text.ifBlank { "No text content" },
+                modifier = Modifier.padding(11.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
 
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Clear,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            MessageInfoRow(
+                icon = Icons.Outlined.Schedule,
+                label = if (isOwnMessage) "Sent" else "Received",
+                value = formatMessageTime(message.timestamp)
+            )
 
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                ) {
-                    Text(
-                        text = message.text.ifBlank { "No text content" },
-                        modifier = Modifier.padding(13.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 3,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
+            if (isOwnMessage) {
+                MessageInfoRow(
+                    icon = Icons.Outlined.DoneAll,
+                    label = "Delivered",
+                    value = if (isDelivered) {
+                        formatMessageTime(deliveredTimestamp)
+                    } else {
+                        "Not delivered yet"
+                    },
+                    highlighted = isDelivered
+                )
 
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    MessageInfoRow(
-                        icon = Icons.Outlined.Schedule,
-                        label = if (isOwnMessage) "Sent" else "Received",
-                        value = formatMessageTime(message.timestamp)
-                    )
+                MessageInfoRow(
+                    icon = Icons.Outlined.Visibility,
+                    label = "Read",
+                    value = when {
+                        !isSeen -> "Not read yet"
+                        seenByCount > 1 -> "Read by $seenByCount people"
+                        else -> "Read"
+                    },
+                    highlighted = isSeen
+                )
+            }
 
-                    if (isOwnMessage) {
-                        MessageInfoRow(
-                            icon = Icons.Outlined.DoneAll,
-                            label = "Delivered",
-                            value = if (isDelivered) {
-                                formatMessageTime(deliveredTimestamp)
-                            } else {
-                                "Not delivered yet"
-                            },
-                            highlighted = isDelivered
-                        )
-
-                        MessageInfoRow(
-                            icon = Icons.Outlined.Visibility,
-                            label = "Read",
-                            value = when {
-                                !isSeen -> "Not read yet"
-                                seenByCount > 1 -> "Read by $seenByCount people"
-                                else -> "Read"
-                            },
-                            highlighted = isSeen
-                        )
-                    }
-
-                    if (message.edited) {
-                        MessageInfoRow(
-                            icon = Icons.Outlined.Edit,
-                            label = "Edited",
-                            value = "Yes"
-                        )
-                    }
-                }
-
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("Done")
-                }
+            if (message.edited) {
+                MessageInfoRow(
+                    icon = Icons.Outlined.Edit,
+                    label = "Edited",
+                    value = "Yes"
+                )
             }
         }
     }
@@ -480,7 +453,7 @@ private fun MessageInfoRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(32.dp),
             shape = RoundedCornerShape(11.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)
         ) {
@@ -491,7 +464,7 @@ private fun MessageInfoRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                     tint = if (highlighted) {
                         MaterialTheme.colorScheme.primary
                     } else {
@@ -504,8 +477,8 @@ private fun MessageInfoRow(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .padding(start = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
                 text = label,
@@ -514,7 +487,7 @@ private fun MessageInfoRow(
             )
             Text(
                 text = value.ifBlank { "—" },
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = if (highlighted) {
                     MaterialTheme.colorScheme.primary
