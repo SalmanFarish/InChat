@@ -179,7 +179,9 @@ fun ChatTopBar(
             }
             DropdownMenu(
                 expanded = overflowExpanded,
-                onDismissRequest = { overflowExpanded = false }
+                onDismissRequest = { overflowExpanded = false },
+                containerColor = Color.Black,
+                tonalElevation = 0.dp
             ) {
                 DropdownMenuItem(
                     modifier = Modifier.background(Color.Black, RoundedCornerShape(8.dp)),
