@@ -987,6 +987,15 @@ async function syncGroupConversationPreview(
   const members = Object.keys(chat.members || {});
   if (members.length < 2) return;
 
+  // The inbox changes and this marker are written in one RTDB multi-location
+  // PATCH. A retry after an FCM failure therefore cannot increment unread
+  // counts a second time.
+  const inboxAlreadySynced = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
+  );
+
   const latestMessages = await adminDatabaseRequest(
     env,
     adminToken,
@@ -1043,7 +1052,7 @@ async function syncGroupConversationPreview(
     typeof message.systemEvent === "string" &&
     message.systemEvent.trim() !== "";
 
-  if (!isSystemEvent) {
+  if (!isSystemEvent && !inboxAlreadySynced) {
     for (const memberId of members) {
       if (memberId === message.senderId) continue;
       updates[
@@ -1051,6 +1060,10 @@ async function syncGroupConversationPreview(
       ] = { ".sv": { increment: 1 } };
     }
   }
+
+  updates[
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
+  ] = true;
 
   if (Object.keys(updates).length > 0) {
     await adminDatabaseRequest(
@@ -1170,6 +1183,7 @@ async function syncDirectInboxForNewMessage(
   chatId,
   chat,
   message,
+  messageId,
 ) {
   const participantA = chat.participantA;
   const participantB = chat.participantB;
@@ -1187,6 +1201,11 @@ async function syncDirectInboxForNewMessage(
   }
 
   const recipientId = senderId === participantA ? participantB : participantA;
+  const inboxAlreadySynced = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
+  );
   const [
     senderProfile,
     recipientProfile,
@@ -1243,12 +1262,21 @@ async function syncDirectInboxForNewMessage(
     updates[senderBase + "unreadCount"] = 0;
   }
 
-  // Increment the recipient exactly once for this claimed message event.
-  if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
-    updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
-  } else {
-    updates[recipientBase + "unreadCount"] = 1;
+  // The marker is included in the same atomic PATCH as the unread update.
+  // If FCM later fails, a retry will refresh previews without incrementing again.
+  if (!inboxAlreadySynced) {
+    if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
+      updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
+    } else {
+      updates[recipientBase + "unreadCount"] = 1;
+    }
+  } else if (!recipientInbox || typeof recipientInbox.unreadCount !== "number") {
+    updates[recipientBase + "unreadCount"] = 0;
   }
+
+  updates[
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
+  ] = true;
 
   await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
 }
@@ -1393,6 +1421,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       chatId,
       chat,
       message,
+      messageId,
     );
   }
 
