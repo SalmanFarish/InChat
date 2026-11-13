@@ -118,7 +118,7 @@ class CloudflareNotificationRepository {
         groupName?.let { body.put("groupName", it) }
         if (action == "create" || action == "add") {
             val ids = org.json.JSONArray()
-            memberIds.forEach(ids::put)
+            memberIds.forEach { ids.put(it) }
             body.put("memberIds", ids)
         }
         targetUid?.let { body.put("targetUid", it) }
