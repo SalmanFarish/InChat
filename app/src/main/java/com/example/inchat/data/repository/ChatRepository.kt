@@ -1415,10 +1415,9 @@ class ChatRepository {
             }
 
             /*
-             * Persist the message first. Conversation previews are secondary
-             * metadata; they must not be part of the same atomic update because
-             * a denial on either user's userChats node would reject the actual
-             * message as well.
+             * Persist the message first. The trusted Cloudflare Worker verifies
+             * the saved message and updates both inbox records. This client
+             * deliberately does not write either user's inbox metadata.
              */
             val messageWrite = database.getReference("chats")
                 .child(chatId)
