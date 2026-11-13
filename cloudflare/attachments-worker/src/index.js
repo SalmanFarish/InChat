@@ -758,7 +758,7 @@ function groupActivityMessage(uid, eventType, text, messageId) {
     senderId: uid,
     senderNickname: "SYSTEM",
     text: text,
-    timestamp: Date.now(),
+    timestamp: { ".sv": "timestamp" },
     systemEvent: eventType,
   };
 }
@@ -854,6 +854,16 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     }
 
     await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+    try {
+      await rebuildConversationPreview(
+        env,
+        adminAuth.token,
+        chatId,
+        updates["chats/" + chatId],
+      );
+    } catch (previewError) {
+      console.warn("Could not initialize new group inbox previews", previewError);
+    }
     return json({
       success: true,
       action: action,
@@ -874,6 +884,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
   const updates = {};
   let activityMessageId = "";
+  let previewMembers = chat.members || {};
 
   if (action === "add") {
     if (!Array.isArray(body.memberIds) || body.memberIds.length < 1 ||
@@ -931,22 +942,24 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     );
 
     const newMemberIds = mutation.result.newMemberIds;
+    previewMembers = mutation.members;
     for (const memberId of requestedIds) {
       updates["groupMemberships/" + memberId + "/" + chatId] = true;
     }
 
-    for (let index = 0; index < newMemberIds.length; index += 1) {
-      const memberId = newMemberIds[index];
-      const memberName = await groupUsername(env, adminAuth.token, memberId);
+    if (newMemberIds.length > 0) {
+      const memberNames = await Promise.all(newMemberIds.map((memberId) =>
+        groupUsername(env, adminAuth.token, memberId),
+      ));
       const messageId = crypto.randomUUID().replace(/-/g, "");
-      const activity = groupActivityMessage(
-        uid,
-        "member_added",
-        "@" + actorName + " added @" + memberName + " to the group",
-        messageId,
-      );
-      activity.timestamp += index;
-      updates["chats/" + chatId + "/messages/" + messageId] = activity;
+      const addedNames = memberNames.map((name) => "@" + name).join(", ");
+      updates["chats/" + chatId + "/messages/" + messageId] =
+        groupActivityMessage(
+          uid,
+          "member_added",
+          "@" + actorName + " added " + addedNames + " to the group",
+          messageId,
+        );
       activityMessageId = messageId;
     }
   } else {
@@ -1032,6 +1045,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
         return { members: nextMembers, result: { removed: true } };
       },
     );
+    previewMembers = mutation.members;
 
     if (action === "set_role" && mutation.changed) {
       const targetName = await groupUsername(env, adminAuth.token, targetUid);
@@ -1076,6 +1090,17 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
   if (Object.keys(updates).length > 0) {
     await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+  }
+
+  try {
+    await rebuildConversationPreview(
+      env,
+      adminAuth.token,
+      chatId,
+      { ...chat, members: previewMembers },
+    );
+  } catch (previewError) {
+    console.warn("Could not rebuild group inbox previews after membership change", previewError);
   }
 
   return json({
