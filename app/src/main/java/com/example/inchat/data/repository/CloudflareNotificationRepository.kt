@@ -97,6 +97,32 @@ class CloudflareNotificationRepository {
         ).map { Unit }
     }
 
+    /**
+     * Removes the current account from every group before its Firebase Auth
+     * identity is deleted. The Worker transfers group ownership where needed
+     * and removes server-managed FCM topic subscriptions.
+     */
+    suspend fun cleanupGroupsForAccountDeletion(
+        uid: String
+    ): Result<Unit> {
+        if (uid.isBlank() || auth.currentUser?.uid != uid) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match account owner.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.failure(
+                IllegalStateException("The account cleanup service is not configured.")
+            )
+        }
+
+        return post(
+            path = "/account/group-cleanup",
+            body = JSONObject()
+        ).map { Unit }
+    }
+
     suspend fun syncConversationPreview(
         chatId: String
     ): Result<Unit> {
