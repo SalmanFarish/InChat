@@ -106,7 +106,6 @@ fun GroupChatScreen(
     var messageText by rememberSaveable { mutableStateOf("") }
     var draftBeforeEdit by rememberSaveable { mutableStateOf<String?>(null) }
     var messageForActions by rememberSaveable { mutableStateOf<String?>(null) }
-    var messageForInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showClearChatConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -133,15 +132,22 @@ fun GroupChatScreen(
         ChatMessageActionsDialog(
             message = message,
             isOwnMessage = message.senderId == currentUserId,
+            readTimestamp =
+                groupReadTimestamps.values
+                    .filter { it >= message.timestamp && message.timestamp > 0L }
+                    .maxOrNull()
+                    ?: 0L,
+            seenByCount =
+                if (message.senderId == currentUserId && message.timestamp > 0L) {
+                    groupReadTimestamps.values.count { it >= message.timestamp }
+                } else {
+                    0
+                },
             onReply = {
                 messageForActions = null
                 draftBeforeEdit = null
                 messageText = ""
                 groupViewModel.setReplyingTo(message)
-            },
-            onInfo = {
-                messageForActions = null
-                messageForInfo = message.id
             },
             onEdit = {
                 messageForActions = null
@@ -178,35 +184,6 @@ fun GroupChatScreen(
             },
             onCopied = {
                 messageForActions = null
-            }
-        )
-    }
-
-    val infoTarget =
-        messageForInfo?.let { id ->
-            messages.firstOrNull { it.id == id }
-        }
-
-    infoTarget?.let { message ->
-        MessageInfoDialog(
-            message = message,
-            isOwnMessage =
-                message.senderId == currentUserId,
-            readTimestamp =
-                groupReadTimestamps.values
-                    .filter { it >= message.timestamp && message.timestamp > 0L }
-                    .maxOrNull()
-                    ?: 0L,
-            seenByCount =
-                if (message.senderId == currentUserId && message.timestamp > 0L) {
-                    groupReadTimestamps.values.count {
-                        it >= message.timestamp
-                    }
-                } else {
-                    0
-                },
-            onDismiss = {
-                messageForInfo = null
             }
         )
     }
