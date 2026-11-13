@@ -1639,17 +1639,24 @@ async function clearDirectUnreadIfAlreadyRead(
   const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
     "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
 
-  const readResponse = await fetch(url, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-    },
-  });
+  const [readResponse, readTimestampValue] = await Promise.all([
+    fetch(url, {
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "X-Firebase-ETag": "true",
+      },
+    }),
+    adminDatabaseRequest(
+      env,
+      adminToken,
+      "chatReadState/" + recipientId + "/" + chatId,
+    ),
+  ]);
 
   if (readResponse.status === 404) return false;
   if (!readResponse.ok) {
     throw new Error(
-      "Could not check the recipient's read state (" +
+      "Could not check the recipient's inbox (" +
       readResponse.status + ").",
     );
   }
@@ -1658,7 +1665,7 @@ async function clearDirectUnreadIfAlreadyRead(
   const etag = readResponse.headers.get("ETag");
   if (!inbox || !etag) return false;
 
-  const lastReadTimestamp = Number(inbox.lastReadTimestamp || 0);
+  const lastReadTimestamp = Number(readTimestampValue || 0);
   const latestMessageTimestamp = Number(inbox.lastTimestamp || 0);
   const unreadCount = Number(inbox.unreadCount || 0);
 
@@ -1730,11 +1737,17 @@ async function syncDirectInboxForNewMessage(
     recipientProfile,
     senderInbox,
     recipientInbox,
+    recipientReadTimestamp,
   ] = await Promise.all([
     adminDatabaseRequest(env, adminToken, "users/" + senderId),
     adminDatabaseRequest(env, adminToken, "users/" + recipientId),
     adminDatabaseRequest(env, adminToken, "userChats/" + senderId + "/" + chatId),
     adminDatabaseRequest(env, adminToken, "userChats/" + recipientId + "/" + chatId),
+    adminDatabaseRequest(
+      env,
+      adminToken,
+      "chatReadState/" + recipientId + "/" + chatId,
+    ),
   ]);
 
   const senderNickname =
@@ -1788,10 +1801,9 @@ async function syncDirectInboxForNewMessage(
     updates[senderBase + "unreadCount"] = 0;
   }
 
-  // The private read cursor is separate from public read receipts, so unread
-  // badges remain accurate even when the recipient disables read receipts.
-  const recipientLastReadTimestamp =
-    Number(recipientInbox?.lastReadTimestamp || 0);
+  // The private read cursor is separate from both the inbox row and public
+  // read receipts, so a first-message read and hidden receipts work correctly.
+  const recipientLastReadTimestamp = Number(recipientReadTimestamp || 0);
   const recipientAlreadyReadMessage =
     Number.isFinite(recipientLastReadTimestamp) &&
     recipientLastReadTimestamp >= lastTimestamp;
