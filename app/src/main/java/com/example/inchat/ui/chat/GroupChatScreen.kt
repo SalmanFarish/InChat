@@ -111,6 +111,7 @@ fun GroupChatScreen(
     var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var messageForTextSelection by remember { mutableStateOf<Message?>(null) }
     var showClearChatConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showDeleteSelectedForMeConfirmation by rememberSaveable { mutableStateOf(false) }
     var showDeleteSelectedForEveryoneConfirmation by rememberSaveable { mutableStateOf(false) }
     var overflowExpanded by rememberSaveable { mutableStateOf(false) }
 
