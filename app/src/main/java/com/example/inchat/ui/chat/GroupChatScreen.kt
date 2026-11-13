@@ -288,7 +288,7 @@ fun GroupChatScreen(
                         tonalElevation = 0.dp
                     ) {
                         DropdownMenuItem(
-                            modifier = Modifier.background(Color.Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                            modifier = Modifier.background(Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
                             text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
                             leadingIcon = {
                                 Icon(
