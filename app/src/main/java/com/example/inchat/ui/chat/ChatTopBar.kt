@@ -179,11 +179,12 @@ fun ChatTopBar(
                 onDismissRequest = { overflowExpanded = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("Clear chat") },
+                    text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Outlined.DeleteSweep,
-                            contentDescription = null
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
                         )
                     },
                     onClick = {
