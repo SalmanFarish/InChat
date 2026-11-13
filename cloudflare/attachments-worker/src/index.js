@@ -374,9 +374,28 @@ async function claimMessageEvent(
   }
 
   const existing = await readResponse.json();
-  if (existing !== null) return false;
-
   const etag = readResponse.headers.get("ETag") || "null_etag";
+  const now = Date.now();
+
+  // Old receipts were written before retryable states existed. Treat them as
+  // completed to avoid re-sending notifications for historical messages.
+  if (existing !== null && typeof existing === "object") {
+    if (!existing.status || existing.status === "sent") return null;
+    if (
+      existing.status !== "failed" &&
+      !(
+        existing.status === "processing" &&
+        Number(existing.leaseUntil || 0) <= now
+      )
+    ) {
+      return null;
+    }
+  } else if (existing !== null) {
+    return null;
+  }
+
+  const claimId = crypto.randomUUID();
+  const attempt = Math.max(0, Number(existing?.attempt || 0)) + 1;
   const writeResponse = await fetch(receiptUrl, {
     method: "PUT",
     headers: {
@@ -386,11 +405,15 @@ async function claimMessageEvent(
     },
     body: JSON.stringify({
       senderId: senderId,
-      processedAt: { ".sv": "timestamp" },
+      status: "processing",
+      claimId: claimId,
+      attempt: attempt,
+      leaseUntil: now + 30000,
+      updatedAt: { ".sv": "timestamp" },
     }),
   });
 
-  if (writeResponse.status === 412) return false;
+  if (writeResponse.status === 412) return null;
   if (!writeResponse.ok) {
     throw new Error(
       "Could not claim notification event (" +
@@ -399,7 +422,106 @@ async function claimMessageEvent(
     );
   }
 
+  return claimId;
+}
+
+async function updateMessageEventReceipt(
+  env,
+  adminToken,
+  chatId,
+  messageId,
+  claimId,
+  status,
+  errorMessage = "",
+) {
+  const receiptPath =
+    "/chats/" +
+    encodeURIComponent(chatId) +
+    "/messages/" +
+    encodeURIComponent(messageId) +
+    "/workerProcessed.json";
+  const receiptUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
+
+  const readResponse = await fetch(receiptUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not read notification receipt state (" +
+      readResponse.status +
+      ").",
+    );
+  }
+
+  const current = await readResponse.json();
+  if (!current || current.claimId !== claimId) return false;
+
+  const etag = readResponse.headers.get("ETag");
+  if (!etag) throw new Error("Firebase did not return a receipt ETag.");
+
+  const nextState = {
+    ...current,
+    status: status,
+    leaseUntil: 0,
+    updatedAt: { ".sv": "timestamp" },
+  };
+
+  if (status === "failed") {
+    nextState.lastError = notificationText(errorMessage).slice(0, 300);
+  } else {
+    delete nextState.lastError;
+    nextState.processedAt = { ".sv": "timestamp" };
+  }
+
+  const writeResponse = await fetch(receiptUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextState),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error(
+      "Could not update notification receipt (" +
+      writeResponse.status +
+      ").",
+    );
+  }
+
   return true;
+}
+
+async function completeClaimedMessageEvent(
+  env,
+  adminToken,
+  chatId,
+  messageId,
+  claimId,
+  responseBody,
+) {
+  const completed = await updateMessageEventReceipt(
+    env,
+    adminToken,
+    chatId,
+    messageId,
+    claimId,
+    "sent",
+  );
+
+  if (!completed) {
+    throw new Error("Notification receipt claim expired before completion.");
+  }
+
+  return json(responseBody);
 }
 
 async function fcmRequest(
@@ -1218,7 +1340,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     }
   }
 
-  const claimed = await claimMessageEvent(
+  const claimId = await claimMessageEvent(
     env,
     adminAuth.token,
     chatId,
@@ -1226,7 +1348,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     uid,
   );
 
-  if (!claimed) {
+  if (!claimId) {
     return json({
       success: true,
       alreadyProcessed: true,
@@ -1234,47 +1356,35 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     });
   }
 
+  try {
   if (isGroup) {
-    try {
-      await syncGroupConversationPreview(
-        env,
-        adminAuth.token,
-        chatId,
-        chat,
-        message,
-        messageId,
-      );
-    } catch (previewError) {
-      console.error("Group preview sync failed", {
-        chatId: chatId,
-        messageId: messageId,
-        error: String(previewError),
-      });
-    }
+    await syncGroupConversationPreview(
+      env,
+      adminAuth.token,
+      chatId,
+      chat,
+      message,
+      messageId,
+    );
 
     if (systemEvent) {
-      return json({
-        success: true,
-        notificationSent: false,
-        reason: "Group activity messages are not push-notified.",
-      });
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "Group activity messages are not push-notified.",
+        },
+      );
     }
   } else {
-    try {
-      await syncDirectInboxForNewMessage(
-        env,
-        adminAuth.token,
-        chatId,
-        chat,
-        message,
-      );
-    } catch (previewError) {
-      console.error("Direct inbox preview sync failed", {
-        chatId: chatId,
-        messageId: messageId,
-        error: String(previewError),
-      });
-    }
+    await syncDirectInboxForNewMessage(
+      env,
+      adminAuth.token,
+      chatId,
+      chat,
+      message,
+    );
   }
 
   const messageText = notificationText(
@@ -1306,11 +1416,14 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     );
 
     if (senderBlockedReceiver || receiverBlockedSender) {
-      return json({
-        success: true,
-        notificationSent: false,
-        reason: "Notifications are disabled for blocked users.",
-      });
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "Notifications are disabled for blocked users.",
+        },
+      );
     }
 
     const receiverToken = await adminDatabaseRequest(
@@ -1322,11 +1435,14 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       typeof receiverToken !== "string" ||
       receiverToken.trim() === ""
     ) {
-      return json({
-        success: true,
-        notificationSent: false,
-        reason: "The receiver has no registered FCM token.",
-      });
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "The receiver has no registered FCM token.",
+        },
+      );
     }
 
     const notification = {
@@ -1368,12 +1484,15 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       );
     }
 
-    return json({
-      success: true,
-      notificationSent: result.ok,
-      chatId: chatId,
-      messageId: messageId,
-    });
+    return await completeClaimedMessageEvent(
+      env, adminAuth.token, chatId, messageId, claimId,
+      {
+        success: true,
+        notificationSent: result.ok,
+        chatId: chatId,
+        messageId: messageId,
+      },
+    );
   }
 
   const groupName =
@@ -1409,12 +1528,35 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     },
   );
 
-  return json({
-    success: true,
-    notificationSent: result.ok,
-    chatId: chatId,
-    messageId: messageId,
-  });
+  return await completeClaimedMessageEvent(
+    env, adminAuth.token, chatId, messageId, claimId,
+    {
+      success: true,
+      notificationSent: result.ok,
+      chatId: chatId,
+      messageId: messageId,
+    },
+  );
+  } catch (eventError) {
+    try {
+      await updateMessageEventReceipt(
+        env,
+        adminAuth.token,
+        chatId,
+        messageId,
+        claimId,
+        "failed",
+        String(eventError),
+      );
+    } catch (receiptError) {
+      console.error("Could not release failed notification claim", {
+        chatId: chatId,
+        messageId: messageId,
+        error: String(receiptError),
+      });
+    }
+    throw eventError;
+  }
 }
 
 
