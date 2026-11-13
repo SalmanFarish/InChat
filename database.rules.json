@@ -70,7 +70,8 @@
           "$memberUid": {
             ".write": "false",
             ".validate": "newData.isString() &&                           (                             newData.val() === 'admin' ||                             newData.val() === 'member'                           ) &&                           root.child('users')                               .child($memberUid)                               .exists() &&                           (                             $memberUid !== root.child('chats')                                 .child($chatId)                                 .child('createdBy')                                 .val() ||                             newData.val() === 'admin'                           )"
-          }
+          },
+          ".write": "false"
         },
         "appearance": {
           "themeId": {
