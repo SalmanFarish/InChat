@@ -275,108 +275,16 @@ class ChatRepository {
     }
 
     private suspend fun refreshDirectConversationPreview(chatId: String) {
-        try {
-            val chatSnapshot = database.getReference("chats")
-                .child(chatId)
-                .get()
-                .await()
-
-            if (!chatSnapshot.exists()) {
-                return
+        CloudflareNotificationRepository()
+            .syncConversationPreview(chatId)
+            .onFailure { previewError ->
+                Log.w(
+                    TAG,
+                    "Could not refresh conversation preview after a message edit/delete.",
+                    previewError
+                )
             }
-
-            if (
-                chatSnapshot.child("type").getValue(String::class.java) == "group"
-            ) {
-                CloudflareNotificationRepository()
-                    .syncConversationPreview(chatId)
-                    .onFailure { previewError ->
-                        Log.w(
-                            TAG,
-                            "Group preview could not be refreshed after a message edit/delete.",
-                            previewError
-                        )
-                    }
-                return
-            }
-
-            val participantA = chatSnapshot.child("participantA")
-                .getValue(String::class.java)
-                .orEmpty()
-            val participantB = chatSnapshot.child("participantB")
-                .getValue(String::class.java)
-                .orEmpty()
-
-            if (participantA.isBlank() || participantB.isBlank()) {
-                return
-            }
-
-            val latestSnapshot = database.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .orderByChild("timestamp")
-                .limitToLast(1)
-                .get()
-                .await()
-
-            val latest = latestSnapshot.children
-                .mapNotNull { it.getValue(Message::class.java) }
-                .maxByOrNull { it.timestamp }
-
-            val previewText =
-                latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
-            val previewTimestamp = latest?.timestamp ?: 0L
-            // Existing userChats validation requires lastSenderId to be a participant.
-            val previewSenderId = latest?.senderId ?: participantA
-
-            val previewUpdates = mapOf<String, Any>(
-                "lastMessage" to previewText,
-                "lastTimestamp" to previewTimestamp,
-                "lastSenderId" to previewSenderId
-            )
-
-            for (uid in listOf(participantA, participantB)) {
-                try {
-                    // Partial updates preserve each participant's own unread count
-                    // and do not recreate an inbox entry they removed.
-                    database.getReference("userChats")
-                        .child(uid)
-                        .child(chatId)
-                        .updateChildren(previewUpdates)
-                        .await()
-                } catch (error: Exception) {
-                    Log.w(
-                        TAG,
-                        "Could not refresh inbox preview for $uid/$chatId",
-                        error
-                    )
-                }
-
-                conversationCache.computeIfPresent(uid) { _, conversations ->
-                    conversations.map { conversation ->
-                        if (conversation.chatId == chatId) {
-                            conversation.copy(
-                                lastMessage = previewText,
-                                lastTimestamp = previewTimestamp,
-                                lastSenderId = previewSenderId
-                            )
-                        } else {
-                            conversation
-                        }
-                    }
-                }
-            }
-        } catch (error: Exception) {
-            // The message edit/delete already succeeded. A preview refresh
-            // failure must not make the UI report the message operation failed.
-            Log.w(
-                TAG,
-                "Could not refresh direct conversation preview for $chatId",
-                error
-            )
-        }
     }
-
 
 
     private suspend fun readMessageVisibility(
@@ -1533,43 +1441,9 @@ class ChatRepository {
                     )
                 }
 
-            val senderConversation = mapOf(
-                "chatId" to chatId,
-                "otherUserId" to receiverId,
-                "otherUsername" to receiverNickname,
-                "lastMessage" to text,
-                "lastTimestamp" to ServerValue.TIMESTAMP,
-                "lastSenderId" to senderId,
-                "unreadCount" to 0L
-            )
-
-            val receiverConversation = mapOf(
-                "chatId" to chatId,
-                "otherUserId" to senderId,
-                "otherUsername" to senderNickname,
-                "lastMessage" to text,
-                "lastTimestamp" to ServerValue.TIMESTAMP,
-                "lastSenderId" to senderId,
-                "unreadCount" to ServerValue.increment(1)
-            )
-
-            // Conversation previews are secondary metadata. Queue them
-            // without making the composer wait for two more server round trips.
-            database.getReference("userChats")
-                .child(senderId)
-                .child(chatId)
-                .setValue(senderConversation)
-                .addOnFailureListener { metadataError ->
-                    Log.w(TAG, "Message sent, but sender conversation preview was not updated", metadataError)
-                }
-
-            database.getReference("userChats")
-                .child(receiverId)
-                .child(chatId)
-                .setValue(receiverConversation)
-                .addOnFailureListener { metadataError ->
-                    Log.w(TAG, "Message sent, but receiver conversation preview was not updated", metadataError)
-                }
+            // The Cloudflare Worker creates and updates both direct-chat inbox
+            // records after verifying the persisted message. Clients never write
+            // another user's inbox entry.
 
             Result.success(messageId)
         } catch (e: Exception) {
