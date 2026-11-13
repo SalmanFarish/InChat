@@ -184,7 +184,7 @@ fun ChatTopBar(
                 tonalElevation = 0.dp
             ) {
                 DropdownMenuItem(
-                    modifier = Modifier.background(Color.Black, RoundedCornerShape(8.dp)),
+                    modifier = Modifier.background(Black, RoundedCornerShape(8.dp)),
                     text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
                     leadingIcon = {
                         Icon(
