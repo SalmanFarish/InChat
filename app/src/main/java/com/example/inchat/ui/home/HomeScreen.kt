@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Visibility
@@ -444,7 +445,7 @@ fun HomeScreen(
                             },
                             onLongClick = {
                                 pendingDeleteConversation = null
-                                actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
+                                actionPopupOnLeft = kotlin.random.Random.nextBoolean()
                                 selectedConversation = conversation
                             },
                             showActions = selectedConversation?.chatId == conversation.chatId,
@@ -521,7 +522,7 @@ fun HomeScreen(
                                     },
                                     onLongClick = {
                                         pendingDeleteConversation = null
-                                        actionPopupOnLeft = kotlin.random.Random.Default.nextBoolean()
+                                        actionPopupOnLeft = kotlin.random.Random.nextBoolean()
                                         selectedConversation = conversation
                                     },
                                     showActions = selectedConversation?.chatId == conversation.chatId,
@@ -587,7 +588,6 @@ fun HomeScreen(
 private fun HomeHeader(
     chatCount: Int,
     unreadCount: Long,
-    onProfileClick: () -> Unit,
     onCreateGroupClick: () -> Unit
 ) {
     Row(
@@ -619,7 +619,7 @@ private fun HomeHeader(
                 Spacer(Modifier.width(7.dp))
 
                 Text(
-                    text = "INCHAT",
+                    text = "InChat",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = JetBrainsMono,
                         fontSize = 10.sp,
@@ -1375,7 +1375,7 @@ private fun HiddenChatsToggle(
             Spacer(Modifier.width(10.dp))
 
             Text(
-                text = "HIDDEN CHATS  /  " + hiddenCount,
+                text = "HIDDEN CHATS  /  $hiddenCount",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = JetBrainsMono,
                     fontSize = 9.sp,
@@ -1575,7 +1575,7 @@ private fun ConversationItem(
                     Spacer(Modifier.height(5.dp))
 
                     Text(
-                        text = messagePrefix + previewText,
+                        text = "$messagePrefix$previewText",
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontSize = 11.sp,
                             lineHeight = 16.sp
