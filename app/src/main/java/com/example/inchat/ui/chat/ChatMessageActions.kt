@@ -317,7 +317,6 @@ fun MessageInfoDialog(
     deliveredTimestamp: Long = 0L,
     readTimestamp: Long = 0L,
     seenByCount: Int = 0,
-    currentTimeMillis: Long = System.currentTimeMillis(),
     onDismiss: () -> Unit
 ) {
     val isDelivered =
