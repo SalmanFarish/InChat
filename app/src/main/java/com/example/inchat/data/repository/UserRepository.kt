@@ -1704,6 +1704,21 @@ class UserRepository {
 
         return try {
 
+            /*
+             * Remove this installation's FCM topic subscriptions before
+             * deleting its saved token. Otherwise, FCM group topics can
+             * continue delivering notifications to a deleted account.
+             * This cleanup is best-effort so a temporary Worker outage
+             * cannot permanently block account deletion.
+             */
+            clearFcmToken(uid).onFailure { notificationError ->
+                Log.w(
+                    "UserRepository",
+                    "Account data will be deleted, but some FCM topic subscriptions may remain.",
+                    notificationError
+                )
+            }
+
             val usernameKey =
                 usernameKey(
                     username
