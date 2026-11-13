@@ -1705,12 +1705,24 @@ class UserRepository {
         return try {
 
             /*
-             * Remove this installation's FCM topic subscriptions before
-             * deleting its saved token. Otherwise, FCM group topics can
-             * continue delivering notifications to a deleted account.
-             * This cleanup is best-effort so a temporary Worker outage
-             * cannot permanently block account deletion.
+             * Remove this account from its groups on the trusted Worker
+             * before deleting its profile or Firebase Auth identity. This
+             * also transfers creator ownership and removes group topic
+             * subscriptions. This step is required to prevent ghost members.
              */
+            val groupCleanupResult =
+                CloudflareNotificationRepository()
+                    .cleanupGroupsForAccountDeletion(uid)
+
+            if (groupCleanupResult.isFailure) {
+                return Result.failure(
+                    groupCleanupResult.exceptionOrNull()
+                        ?: IllegalStateException("Could not clean up group memberships.")
+                )
+            }
+
+            // Group topics were removed by the Worker. Finish the existing
+            // personal-topic and saved-token cleanup.
             clearFcmToken(uid).onFailure { notificationError ->
                 Log.w(
                     "UserRepository",
