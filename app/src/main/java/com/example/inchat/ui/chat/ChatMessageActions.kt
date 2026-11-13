@@ -28,8 +28,6 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Dialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,6 +51,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -59,6 +59,7 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.FirebaseServerClock
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun ChatMessageActionsDialog(
@@ -76,7 +77,7 @@ fun ChatMessageActionsDialog(
     val context = LocalContext.current
     val density = LocalDensity.current
     val currentTime = remember(message.id) {
-        mutableStateOf(FirebaseServerClock.now())
+        mutableLongStateOf(FirebaseServerClock.now())
     }
     val editAgeAtOpen = FirebaseServerClock.now() - message.timestamp
 
@@ -86,12 +87,12 @@ fun ChatMessageActionsDialog(
             message.timestamp > 0L &&
             editAgeAtOpen in 0L until ChatRepository.MESSAGE_EDIT_WINDOW_MS
         ) {
-            delay(ChatRepository.MESSAGE_EDIT_WINDOW_MS - editAgeAtOpen)
-            currentTime.value = FirebaseServerClock.now()
+            delay((ChatRepository.MESSAGE_EDIT_WINDOW_MS - editAgeAtOpen).milliseconds)
+            currentTime.longValue = FirebaseServerClock.now()
         }
     }
 
-    val editAgeMillis = currentTime.value - message.timestamp
+    val editAgeMillis = currentTime.longValue - message.timestamp
     val editAllowed =
         isOwnMessage &&
             message.timestamp > 0L &&
@@ -104,7 +105,7 @@ fun ChatMessageActionsDialog(
         mutableStateOf(false)
     }
     val popupOnLeft = remember(message.id) {
-        kotlin.random.Random.Default.nextBoolean()
+        kotlin.random.Random.nextBoolean()
     }
     val positionProvider = remember(popupOnLeft, density) {
         MessageActionsPopupPositionProvider(
@@ -523,37 +524,4 @@ private fun MessageInfoRow(
             )
         }
     }
-}
-
-@Composable
-fun DeleteMessageDialog(
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("Delete Message")
-        },
-        text = {
-            Text("Do you want to delete this message?")
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm
-            ) {
-                Text(
-                    text = "Delete",
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("Cancel")
-            }
-        }
-    )
 }
