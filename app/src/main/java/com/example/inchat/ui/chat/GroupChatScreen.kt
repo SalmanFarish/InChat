@@ -380,31 +380,20 @@ fun GroupChatScreen(
         }
 
         if (showClearChatConfirmation) {
-            AlertDialog(
-                onDismissRequest = { showClearChatConfirmation = false },
-                title = { Text("Clear group chat?") },
-                text = {
-                    Text("This removes the group history from your view only. Other members will keep their messages.")
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showClearChatConfirmation = false
-                            groupViewModel.clearChatForMe { success, error ->
-                                actionMessage = if (success) {
-                                    "Group chat cleared for you"
-                                } else {
-                                    error ?: "Could not clear group chat."
-                                }
-                            }
+            ClearChatConfirmationDialog(
+                title = "Clear group chat?",
+                description = "This removes the group history from your view only. Other group members will keep their messages.",
+                onConfirm = {
+                    showClearChatConfirmation = false
+                    groupViewModel.clearChatForMe { success, error ->
+                        actionMessage = if (success) {
+                            "Group chat cleared for you"
+                        } else {
+                            error ?: "Could not clear group chat."
                         }
-                    ) { Text("Clear chat", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showClearChatConfirmation = false }) {
-                        Text("Cancel")
                     }
-                }
+                },
+                onDismiss = { showClearChatConfirmation = false }
             )
         }
 
