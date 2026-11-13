@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -222,7 +223,7 @@ fun GroupChatScreen(
                         if (copiedText.isNotBlank()) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-                            actionMessage = "Messages copied"
+                            Toast.makeText(context, "✓ Copied", Toast.LENGTH_SHORT).show()
                         }
                         selectedMessageIds = emptySet()
                     },
