@@ -942,10 +942,7 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() },
-                    onChatThemeClick = {
-                        navController.navigate("chat_theme/" + infoUserId)
-                    }
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 
