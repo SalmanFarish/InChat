@@ -543,7 +543,7 @@ class ChatRepository {
                             mapOf(
                                 "lastMessage" to "No messages yet",
                                 "lastTimestamp" to clearedAt,
-                                "lastSenderId" to ""
+                                "lastSenderId" to ownerUserId
                             )
                         )
                         .await()
