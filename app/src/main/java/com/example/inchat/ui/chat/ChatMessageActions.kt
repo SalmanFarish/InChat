@@ -98,6 +98,9 @@ fun ChatMessageActionsDialog(
     val confirmingDeleteState = remember(message.id) {
         mutableStateOf(false)
     }
+    val confirmingDeleteForMeState = remember(message.id) {
+        mutableStateOf(false)
+    }
     val popupOnLeft = remember(message.id) {
         kotlin.random.Random.Default.nextBoolean()
     }
@@ -133,21 +136,29 @@ fun ChatMessageActionsDialog(
                 modifier = Modifier.padding(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (confirmingDeleteState.value) {
+                if (confirmingDeleteState.value || confirmingDeleteForMeState.value) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "Delete this message for everyone?",
+                            text = if (confirmingDeleteForMeState.value) {
+                                "Delete this message for you?"
+                            } else {
+                                "Delete this message for everyone?"
+                            },
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            text = "This message will be removed from all participants' chats.",
+                            text = if (confirmingDeleteForMeState.value) {
+                                "It will disappear from your chat only."
+                            } else {
+                                "This message will be removed from all participants' chats."
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -158,13 +169,16 @@ fun ChatMessageActionsDialog(
                     MessageActionRow(
                         icon = Icons.Default.Clear,
                         title = "Cancel",
-                        onClick = { confirmingDeleteState.value = false }
+                        onClick = {
+                            confirmingDeleteState.value = false
+                            confirmingDeleteForMeState.value = false
+                        }
                     )
                     MessageActionRow(
                         icon = Icons.Outlined.DeleteOutline,
-                        title = "Delete for everyone",
+                        title = if (confirmingDeleteForMeState.value) "Delete for me" else "Delete for everyone",
                         destructive = true,
-                        onClick = onDeleteForEveryone
+                        onClick = if (confirmingDeleteForMeState.value) onDeleteForMe else onDeleteForEveryone
                     )
                 } else {
                     MessageActionRow(
@@ -209,7 +223,7 @@ fun ChatMessageActionsDialog(
                     MessageActionRow(
                         icon = Icons.Outlined.DeleteOutline,
                         title = "Delete for me",
-                        onClick = onDeleteForMe
+                        onClick = { confirmingDeleteForMeState.value = true }
                     )
                     if (isOwnMessage) {
                         MessageActionRow(
