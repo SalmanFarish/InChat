@@ -37,126 +37,53 @@ class GroupChatRepository {
         groupName: String,
         memberIds: List<String>
     ): Result<String> {
-
         return try {
-
             val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match group creator."
-                    )
+                    IllegalStateException("Authenticated user does not match group creator.")
                 )
             }
 
             val cleanName = groupName.trim()
-
             if (cleanName.isBlank() || cleanName.length > 50) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "Group name must be between 1 and 50 characters."
-                    )
+                    IllegalArgumentException("Group name must be between 1 and 50 characters.")
                 )
             }
 
-            val uniqueMembers =
-                (listOf(currentUserId) + memberIds)
-                    .filter { it.isNotBlank() }
-                    .distinct()
+            val uniqueMembers = (listOf(currentUserId) + memberIds)
+                .filter { it.isNotBlank() }
+                .distinct()
 
             if (uniqueMembers.size < 2) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "Select at least one other person."
-                    )
+                    IllegalArgumentException("Select at least one other person.")
                 )
             }
-
             if (uniqueMembers.size > 50) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "A group can contain at most 50 members."
-                    )
+                    IllegalArgumentException("A group can contain at most 50 members.")
                 )
             }
 
-            val groupId =
-                database
-                    .getReference("chats")
-                    .push()
-                    .key
-                    ?: return Result.failure(
-                        IllegalStateException(
-                            "Could not create group ID."
-                        )
-                    )
-
-            val members =
-                uniqueMembers.associateWith { uid ->
-                    if (uid == currentUserId) "admin" else "member"
-                }
-
-            val groupData =
-                mapOf<String, Any>(
-                    "chatId" to groupId,
-                    "type" to "group",
-                    "name" to cleanName,
-                    "createdBy" to currentUserId,
-                    "createdAt" to ServerValue.TIMESTAMP,
-                    "members" to members
+            val groupId = database.getReference("chats").push().key
+                ?: return Result.failure(
+                    IllegalStateException("Could not create group ID.")
                 )
 
-            database
-                .getReference("chats")
-                .child(groupId)
-                .setValue(groupData)
-                .await()
+            val notifications = CloudflareNotificationRepository()
+            val activityMessageId = notifications.manageGroupMembership(
+                action = "create",
+                chatId = groupId,
+                groupName = cleanName,
+                memberIds = uniqueMembers
+            ).getOrThrow()
 
-            val membershipUpdates =
-                uniqueMembers.associate { uid ->
-                    "groupMemberships/$uid/$groupId" to true
-                }
-
-            database.reference
-                .updateChildren(membershipUpdates)
-                .await()
-
-            try {
-                val creatorName = usernameFor(currentUserId)
-                val activityUpdates = systemEventUpdates(
-                    groupId = groupId,
-                    actorId = currentUserId,
-                    eventType = "group_created",
-                    eventText = "@$creatorName created the group"
-                )
-                database.reference.updateChildren(activityUpdates).await()
-                dispatchGroupMessageEvents(groupId, activityUpdates)
-            } catch (eventError: Exception) {
-                Log.w(
-                    "GroupChatRepository",
-                    "Group was created but its activity entry could not be saved.",
-                    eventError
-                )
-            }
-
-            CloudflareNotificationRepository()
-                .syncConversationPreview(groupId)
-                .onFailure { previewError ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "New group preview could not be initialized.",
-                        previewError
-                    )
-                }
-
+            dispatchGroupMembershipActivity(groupId, activityMessageId)
             syncGroupTopicMembers(groupId, uniqueMembers)
 
             Result.success(groupId)
-
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -848,437 +775,193 @@ class GroupChatRepository {
         groupId: String,
         memberIds: List<String>
     ): Result<Unit> {
-
         return try {
-
             val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match group admin."
-                    )
+                    IllegalStateException("Authenticated user does not match group admin.")
                 )
             }
 
-            val group =
-                getGroup(groupId)
-                    ?: return Result.failure(
-                        IllegalArgumentException(
-                            "Group does not exist."
-                        )
-                    )
+            val group = getGroup(groupId)
+                ?: return Result.failure(IllegalArgumentException("Group does not exist."))
 
             if (group.members[currentUserId] != "admin") {
                 return Result.failure(
-                    IllegalStateException(
-                        "Only group admins can add members."
-                    )
+                    IllegalStateException("Only group admins can add members.")
                 )
             }
 
-            val newMemberIds =
-                memberIds
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .filterNot { group.members.containsKey(it) }
+            val newMemberIds = memberIds
+                .filter { it.isNotBlank() }
+                .distinct()
+                .filterNot { group.members.containsKey(it) }
 
             if (newMemberIds.isEmpty()) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "No new members were selected."
-                    )
+                    IllegalArgumentException("No new members were selected.")
                 )
             }
-
-            if (
-                group.members.size +
-                        newMemberIds.size >
-                50
-            ) {
+            if (group.members.size + newMemberIds.size > 50) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "A group can contain at most 50 members."
-                    )
+                    IllegalArgumentException("A group can contain at most 50 members.")
                 )
             }
 
-            /*
-             * Add chat membership first. The groupMemberships rules
-             * intentionally verify that the target is already a
-             * member, so the index must be written in a second step.
-             */
-            val memberUpdates =
-                newMemberIds.associate { uid ->
-                    "chats/$groupId/members/$uid" to "member"
-                }
+            val notifications = CloudflareNotificationRepository()
+            val activityMessageId = notifications.manageGroupMembership(
+                action = "add",
+                chatId = groupId,
+                memberIds = newMemberIds
+            ).getOrThrow()
 
-            database
-                .reference
-                .updateChildren(memberUpdates)
-                .await()
-
-            try {
-
-                val membershipUpdates =
-                    newMemberIds.associate { uid ->
-                        "groupMemberships/$uid/$groupId" to true
-                    }
-
-                database
-                    .reference
-                    .updateChildren(membershipUpdates)
-                    .await()
-
-            } catch (indexError: Exception) {
-
-                /*
-                 * The index update is atomic. If it fails, roll back
-                 * the newly-created chat memberships rather than
-                 * leaving people in a group that is absent from Home.
-                 */
-                runCatching {
-
-                    val rollbackUpdates =
-                        newMemberIds.associate { uid ->
-                            "chats/$groupId/members/$uid" to null
-                        }
-
-                    database
-                        .reference
-                        .updateChildren(rollbackUpdates)
-                        .await()
-                }
-
-                throw indexError
-            }
-
-            val actorName = usernameFor(currentUserId)
-            val activityUpdates = mutableMapOf<String, Any>()
-            for (memberId in newMemberIds) {
-                val memberName = usernameFor(memberId)
-                activityUpdates.putAll(
-                    systemEventUpdates(
-                        groupId = groupId,
-                        actorId = currentUserId,
-                        eventType = "member_added",
-                        eventText = "@$actorName added @$memberName to the group"
-                    )
-                )
-            }
-            try {
-                database.reference.updateChildren(activityUpdates).await()
-                dispatchGroupMessageEvents(groupId, activityUpdates)
-            } catch (eventError: Exception) {
-                Log.w(
-                    "GroupChatRepository",
-                    "Members were added but activity entries could not be saved.",
-                    eventError
-                )
-            }
-
-            CloudflareNotificationRepository()
-                .syncConversationPreview(groupId)
-                .onFailure { previewError ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "New group members' inbox previews could not be initialized.",
-                        previewError
-                    )
-                }
-
+            dispatchGroupMembershipActivity(groupId, activityMessageId)
             syncGroupTopicMembers(groupId, newMemberIds)
 
             Result.success(Unit)
-
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    /*
-     * =========================================================
-     * CHANGE MEMBER ROLE
-     * =========================================================
-     *
-     * The creator is permanently an admin. Admins cannot change
-     * their own role, which guarantees that the group always keeps
-     * at least its creator as an administrator.
-     */
     suspend fun setMemberRole(
         currentUserId: String,
         groupId: String,
         memberId: String,
         role: String
     ): Result<Unit> {
-
         return try {
-
             val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match group admin."
-                    )
+                    IllegalStateException("Authenticated user does not match group admin.")
                 )
             }
 
-            if (
-                memberId.isBlank() ||
-                role !in setOf("admin", "member")
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid group role."
-                    )
-                )
+            if (memberId.isBlank() || role !in setOf("admin", "member")) {
+                return Result.failure(IllegalArgumentException("Invalid group role."))
             }
 
-            val group =
-                getGroup(groupId)
-                    ?: return Result.failure(
-                        IllegalArgumentException(
-                            "Group does not exist."
-                        )
-                    )
+            val group = getGroup(groupId)
+                ?: return Result.failure(IllegalArgumentException("Group does not exist."))
 
             if (group.members[currentUserId] != "admin") {
                 return Result.failure(
-                    IllegalStateException(
-                        "Only group admins can change member roles."
-                    )
+                    IllegalStateException("Only group admins can change member roles.")
                 )
             }
-
             if (!group.members.containsKey(memberId)) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "That user is not a group member."
-                    )
+                    IllegalArgumentException("That user is not a group member.")
                 )
             }
-
-            if (
-                memberId == currentUserId ||
-                memberId == group.createdBy
-            ) {
+            if (memberId == currentUserId || memberId == group.createdBy) {
                 return Result.failure(
-                    IllegalStateException(
-                        "The group creator remains an admin."
-                    )
+                    IllegalStateException("The group creator remains an admin.")
                 )
             }
-
             if (group.members[memberId] == role) {
                 return Result.success(Unit)
             }
 
-            val actorName = usernameFor(currentUserId)
-            val targetName = usernameFor(memberId)
-            val eventType =
-                if (role == "admin") "admin_promoted" else "admin_demoted"
-            val eventText =
-                if (role == "admin") {
-                    "@$actorName promoted @$targetName to admin"
-                } else {
-                    "@$actorName removed @$targetName as admin"
-                }
+            val notifications = CloudflareNotificationRepository()
+            val activityMessageId = notifications.manageGroupMembership(
+                action = "set_role",
+                chatId = groupId,
+                targetUid = memberId,
+                role = role
+            ).getOrThrow()
 
-            val updates = mutableMapOf<String, Any>(
-                "chats/$groupId/members/$memberId" to role
-            )
-            updates.putAll(
-                systemEventUpdates(
-                    groupId = groupId,
-                    actorId = currentUserId,
-                    eventType = eventType,
-                    eventText = eventText
-                )
-            )
-            database.reference.updateChildren(updates).await()
-            dispatchGroupMessageEvents(groupId, updates)
-
+            dispatchGroupMembershipActivity(groupId, activityMessageId)
             Result.success(Unit)
-
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    /*
-     * =========================================================
-     * REMOVE MEMBER
-     * =========================================================
-     *
-     * Removing someone also removes their Home membership index
-     * and private group read cursor in the same database update.
-     */
     suspend fun removeMember(
         currentUserId: String,
         groupId: String,
         memberId: String
     ): Result<Unit> {
-
         return try {
-
             val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match group admin."
-                    )
+                    IllegalStateException("Authenticated user does not match group admin.")
                 )
             }
 
-            val group =
-                getGroup(groupId)
-                    ?: return Result.failure(
-                        IllegalArgumentException(
-                            "Group does not exist."
-                        )
-                    )
+            val group = getGroup(groupId)
+                ?: return Result.failure(IllegalArgumentException("Group does not exist."))
 
             if (group.members[currentUserId] != "admin") {
                 return Result.failure(
-                    IllegalStateException(
-                        "Only group admins can remove members."
-                    )
+                    IllegalStateException("Only group admins can remove members.")
                 )
             }
-
             if (!group.members.containsKey(memberId)) {
                 return Result.failure(
-                    IllegalArgumentException(
-                        "That user is not a group member."
-                    )
+                    IllegalArgumentException("That user is not a group member.")
                 )
             }
-
-            if (
-                memberId == group.createdBy ||
-                memberId == currentUserId
-            ) {
+            if (memberId == group.createdBy || memberId == currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "The group creator cannot be removed."
-                    )
+                    IllegalStateException("The group creator cannot be removed.")
                 )
             }
-
             if (group.members.size <= 2) {
                 return Result.failure(
-                    IllegalStateException(
-                        "A group needs at least two members."
-                    )
+                    IllegalStateException("A group needs at least two members.")
                 )
             }
 
-            val actorName = usernameFor(currentUserId)
-            val targetName = usernameFor(memberId)
-            val updates = mutableMapOf<String, Any?>(
-                "chats/$groupId/members/$memberId" to null,
-                "groupMemberships/$memberId/$groupId" to null,
-                "groupReads/$memberId/$groupId" to null
-            )
-            updates.putAll(
-                systemEventUpdates(
-                    groupId = groupId,
-                    actorId = currentUserId,
-                    eventType = "member_removed",
-                    eventText = "@$actorName removed @$targetName from the group"
+            val notifications = CloudflareNotificationRepository()
+            val activityMessageId = notifications.manageGroupMembership(
+                action = "remove",
+                chatId = groupId,
+                targetUid = memberId
+            ).getOrThrow()
+
+            notifications.setGroupTopicSubscription(
+                chatId = groupId,
+                targetUid = memberId,
+                subscribe = false
+            ).onFailure { error ->
+                Log.w(
+                    "GroupChatRepository",
+                    "Member was removed, but their group notification topic could not be cleared.",
+                    error
                 )
-            )
-
-            database.reference.updateChildren(updates).await()
-
-            CloudflareNotificationRepository()
-                .setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = memberId,
-                    subscribe = false
-                )
-                .onFailure { notificationError ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Member was removed, but their group notification topic could not be cleared.",
-                        notificationError
-                    )
-                }
-
-            dispatchGroupMessageEvents(groupId, updates)
-
-            runCatching {
-                database.getReference("userChats")
-                    .child(memberId)
-                    .child(groupId)
-                    .removeValue()
-                    .await()
-            }.onFailure {
-                Log.w("GroupChatRepository", "Removed member inbox entry could not be cleared.", it)
             }
 
+            dispatchGroupMembershipActivity(groupId, activityMessageId)
             Result.success(Unit)
-
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    /*
-     * =========================================================
-     * LEAVE GROUP
-     * =========================================================
-     *
-     * The creator stays with the group so the group always keeps
-     * a permanent administrator.
-     */
     suspend fun leaveGroup(
         currentUserId: String,
         groupId: String
     ): Result<Unit> {
-
         return try {
-
             val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != currentUserId
-            ) {
+            if (firebaseUser == null || firebaseUser.uid != currentUserId) {
                 return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match group member."
-                    )
+                    IllegalStateException("Authenticated user does not match group member.")
                 )
             }
 
-            val group =
-                getGroup(groupId)
-                    ?: return Result.failure(
-                        IllegalArgumentException(
-                            "Group does not exist."
-                        )
-                    )
+            val group = getGroup(groupId)
+                ?: return Result.failure(IllegalArgumentException("Group does not exist."))
 
             if (!group.members.containsKey(currentUserId)) {
                 return Result.failure(
-                    IllegalStateException(
-                        "You are not a member of this group."
-                    )
+                    IllegalStateException("You are not a member of this group.")
                 )
             }
-
             if (currentUserId == group.createdBy) {
                 return Result.failure(
                     IllegalStateException(
@@ -1286,56 +969,36 @@ class GroupChatRepository {
                     )
                 )
             }
-
             if (group.members.size <= 2) {
                 return Result.failure(
-                    IllegalStateException(
-                        "A group needs at least two members."
-                    )
+                    IllegalStateException("A group needs at least two members.")
                 )
             }
 
-            val memberName = usernameFor(currentUserId)
-            val updates = mutableMapOf<String, Any?>(
-                "chats/$groupId/members/$currentUserId" to null,
-                "groupMemberships/$currentUserId/$groupId" to null,
-                "groupReads/$currentUserId/$groupId" to null,
-                "userChats/$currentUserId/$groupId" to null
-            )
-            updates.putAll(
-                systemEventUpdates(
-                    groupId = groupId,
-                    actorId = currentUserId,
-                    eventType = "member_left",
-                    eventText = "@$memberName left the group"
+            val notifications = CloudflareNotificationRepository()
+            val activityMessageId = notifications.manageGroupMembership(
+                action = "leave",
+                chatId = groupId
+            ).getOrThrow()
+
+            notifications.setGroupTopicSubscription(
+                chatId = groupId,
+                targetUid = currentUserId,
+                subscribe = false
+            ).onFailure { error ->
+                Log.w(
+                    "GroupChatRepository",
+                    "You left the group, but its notification topic could not be cleared.",
+                    error
                 )
-            )
+            }
 
-            database.reference.updateChildren(updates).await()
-
-            CloudflareNotificationRepository()
-                .setGroupTopicSubscription(
-                    chatId = groupId,
-                    targetUid = currentUserId,
-                    subscribe = false
-                )
-                .onFailure { notificationError ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "You left the group, but its notification topic could not be cleared.",
-                        notificationError
-                    )
-                }
-
-            dispatchGroupMessageEvents(groupId, updates)
-
+            dispatchGroupMembershipActivity(groupId, activityMessageId)
             Result.success(Unit)
-
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
-
 
     private suspend fun usernameFor(uid: String): String {
         return database.getReference("users")
@@ -1396,6 +1059,40 @@ class GroupChatRepository {
                 }
             }
             .awaitAll()
+    }
+
+    private suspend fun dispatchGroupMembershipActivity(
+        groupId: String,
+        messageId: String?
+    ) {
+        val notifications = CloudflareNotificationRepository()
+        if (!messageId.isNullOrBlank()) {
+            notifications.notifyMessage(groupId, messageId)
+                .onFailure { error ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Group membership changed, but its activity preview could not be synchronized.",
+                        error
+                    )
+                    notifications.syncConversationPreview(groupId)
+                        .onFailure { previewError ->
+                            Log.w(
+                                "GroupChatRepository",
+                                "Fallback group preview sync failed.",
+                                previewError
+                            )
+                        }
+                }
+        } else {
+            notifications.syncConversationPreview(groupId)
+                .onFailure { error ->
+                    Log.w(
+                        "GroupChatRepository",
+                        "Group preview could not be synchronized after a membership retry.",
+                        error
+                    )
+                }
+        }
     }
 
     private suspend fun dispatchGroupMessageEvents(
