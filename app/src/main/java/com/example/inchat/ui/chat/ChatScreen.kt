@@ -249,13 +249,6 @@ fun ChatScreen(
         )
     }
 
-    var messageForInfo by
-    remember {
-        mutableStateOf<Message?>(
-            null
-        )
-    }
-
     var actionMessage by
     remember {
         mutableStateOf<String?>(
@@ -322,6 +315,8 @@ fun ChatScreen(
             isOwnMessage =
                 message.senderId ==
                         currentUserId,
+            deliveredTimestamp = otherUserDeliveredTimestamp,
+            readTimestamp = otherUserReadTimestamp,
             onReply = {
 
                 messageForActions =
@@ -335,15 +330,6 @@ fun ChatScreen(
                     .setReplyingTo(
                         message
                     )
-            },
-
-            onInfo = {
-
-                messageForActions =
-                    null
-
-                messageForInfo =
-                    message
             },
 
             onEdit = {
@@ -398,23 +384,6 @@ fun ChatScreen(
             }
         )
     }
-
-    messageForInfo?.let { message ->
-
-        MessageInfoDialog(
-            message = message,
-            isOwnMessage =
-                message.senderId == currentUserId,
-            deliveredTimestamp =
-                otherUserDeliveredTimestamp,
-            readTimestamp =
-                otherUserReadTimestamp,
-            onDismiss = {
-                messageForInfo = null
-            }
-        )
-    }
-
 
     /*
      * =========================================================
