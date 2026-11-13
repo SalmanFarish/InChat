@@ -110,6 +110,18 @@ credential.
     source IP and normalized username. Cloudflare's rate limits are regional
     and eventually consistent, not strict global lockouts.
 
+## Group membership security
+
+- Group creation and member-management actions use
+  `POST /v1/groups/manage-members`.
+- The Worker checks the authenticated user, admin/member permissions, target
+  accounts, and the 50-member limit before changing the group.
+- Member updates use Firebase Realtime Database ETags so concurrent add
+  requests re-check the current member list rather than exceeding the limit.
+- Client-side writes to `chats/{groupId}/members` and direct client group
+  creation are denied by `database.rules.json`. Deploy the Worker before
+  deploying the updated database rules and Android app.
+
 ## Notification flow
 
 - Android writes a message to Realtime Database first.
