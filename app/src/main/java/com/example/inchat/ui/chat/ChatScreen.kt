@@ -518,11 +518,7 @@ fun ChatScreen(
                         selectedMessageIds = emptySet()
                     },
                     onDeleteForMe = {
-                        val ids = selectedMessageIds
-                        chatViewModel.deleteMessagesForMe(ids) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
+                        showDeleteSelectedForMeConfirmation = true
                     },
                     onDeleteForEveryone = {
                         showDeleteSelectedForEveryoneConfirmation = true
@@ -793,6 +789,33 @@ fun ChatScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearChatConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDeleteSelectedForMeConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
+            title = { Text("Delete selected messages for you?") },
+            text = {
+                Text("These messages will disappear only from your chat. Other participants will keep them.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteSelectedForMeConfirmation = false
+                        val ids = selectedMessageIds
+                        chatViewModel.deleteMessagesForMe(ids) { success, error ->
+                            selectedMessageIds = emptySet()
+                            if (!success) actionMessage = error ?: "Could not delete selected messages."
+                        }
+                    }
+                ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
                     Text("Cancel")
                 }
             }
