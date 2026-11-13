@@ -1245,16 +1245,23 @@ async function syncDirectInboxForNewMessage(
   const senderBase = "userChats/" + senderId + "/" + chatId + "/";
   const recipientBase = "userChats/" + recipientId + "/" + chatId + "/";
 
-  for (const [base, otherUserId, otherUsername] of [
-    [senderBase, recipientId, recipientNickname],
-    [recipientBase, senderId, senderNickname],
+  for (const [base, otherUserId, otherUsername, existingInbox] of [
+    [senderBase, recipientId, recipientNickname, senderInbox],
+    [recipientBase, senderId, senderNickname, recipientInbox],
   ]) {
     updates[base + "chatId"] = chatId;
     updates[base + "otherUserId"] = otherUserId;
     updates[base + "otherUsername"] = otherUsername || "User";
-    updates[base + "lastMessage"] = lastMessage;
-    updates[base + "lastTimestamp"] = lastTimestamp;
-    updates[base + "lastSenderId"] = senderId;
+
+    // A delayed retry for an older message must not roll back a newer preview.
+    if (
+      !existingInbox ||
+      lastTimestamp >= Number(existingInbox.lastTimestamp || 0)
+    ) {
+      updates[base + "lastMessage"] = lastMessage;
+      updates[base + "lastTimestamp"] = lastTimestamp;
+      updates[base + "lastSenderId"] = senderId;
+    }
   }
 
   // Preserve an existing sender unread count; create new senders' entries at zero.
