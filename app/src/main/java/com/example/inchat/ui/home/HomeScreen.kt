@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Visibility
@@ -83,8 +82,7 @@ fun HomeScreen(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     onConversationClick: (Conversation) -> Unit,
-    onCreateGroupClick: () -> Unit,
-    onProfileClick: () -> Unit
+    onCreateGroupClick: () -> Unit
 ) {
 
     val currentUserId by
@@ -354,7 +352,6 @@ fun HomeScreen(
             HomeHeader(
                 chatCount = visibleChatCount,
                 unreadCount = totalUnreadCount,
-                onProfileClick = onProfileClick,
                 onCreateGroupClick = onCreateGroupClick
             )
 
@@ -658,27 +655,6 @@ private fun HomeHeader(
                     letterSpacing = 0.65.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        IconButton(
-            onClick = onProfileClick,
-            modifier = Modifier
-                .padding(end = 8.dp)
-                .size(43.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = CircleShape
-                )
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Profile",
-                modifier = Modifier.size(19.dp),
-                tint = MaterialTheme.colorScheme.onSurface
             )
         }
 
