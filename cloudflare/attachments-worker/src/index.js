@@ -676,6 +676,416 @@ async function unsubscribeTopicForAccountCleanup(
   }
 }
 
+
+async function mutateGroupMembersWithEtag(env, adminToken, chatId, mutate) {
+  const path = "chats/" + chatId + "/members";
+  const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const readResponse = await fetch(url, {
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "X-Firebase-ETag": "true",
+      },
+    });
+
+    if (!readResponse.ok) {
+      throw new Error(
+        "Could not read group members (" + readResponse.status + ").",
+      );
+    }
+
+    const currentMembers = await readResponse.json() || {};
+    const etag = readResponse.headers.get("ETag");
+    if (!etag) throw new Error("Realtime Database did not return a membership ETag.");
+
+    const decision = mutate(currentMembers);
+    if (!decision || decision.noChange) {
+      return {
+        members: currentMembers,
+        changed: false,
+        result: decision ? decision.result : undefined,
+      };
+    }
+
+    const writeResponse = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "Content-Type": "application/json",
+        "If-Match": etag,
+      },
+      body: JSON.stringify(decision.members),
+    });
+
+    if (writeResponse.status === 412) continue;
+    if (!writeResponse.ok) {
+      const details = await writeResponse.text();
+      throw new Error(
+        "Could not update group membership (" +
+        writeResponse.status + "): " + details.slice(0, 240),
+      );
+    }
+
+    return {
+      members: decision.members,
+      changed: true,
+      result: decision.result,
+    };
+  }
+
+  throw new Response(
+    "Group membership changed at the same time. Please try again.",
+    { status: 409 },
+  );
+}
+
+async function groupUsername(env, adminToken, uid) {
+  const user = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "users/" + uid,
+  );
+  return typeof user?.username === "string" && user.username.trim() ?
+    user.username.trim() :
+    "member";
+}
+
+function groupActivityMessage(uid, eventType, text, messageId) {
+  return {
+    id: messageId,
+    senderId: uid,
+    senderNickname: "SYSTEM",
+    text: text,
+    timestamp: Date.now(),
+    systemEvent: eventType,
+  };
+}
+
+async function manageGroupMembership(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const action = typeof body.action === "string" ? body.action.trim() : "";
+  if (!["create", "add", "set_role", "remove", "leave"].includes(action)) {
+    return json({ error: "Unsupported group membership action." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+
+  if (action === "create") {
+    const groupName = typeof body.groupName === "string" ?
+      body.groupName.trim() :
+      "";
+    if (!groupName || groupName.length > 50) {
+      return json({ error: "Group name must be between 1 and 50 characters." }, 400);
+    }
+
+    if (!Array.isArray(body.memberIds) || body.memberIds.length > 50) {
+      return json({ error: "Select between 1 and 50 group members." }, 400);
+    }
+
+    let requestedIds;
+    try {
+      requestedIds = [...new Set(body.memberIds.map((value) =>
+        cleanSegment(value, "memberUid"),
+      ))];
+    } catch (error) {
+      if (error instanceof Response) return error;
+      throw error;
+    }
+
+    const memberIds = [...new Set([uid, ...requestedIds])];
+    if (memberIds.length < 2) {
+      return json({ error: "Select at least one other person." }, 400);
+    }
+    if (memberIds.length > 50) {
+      return json({ error: "A group can contain at most 50 members." }, 409);
+    }
+
+    const profiles = await Promise.all(memberIds.map((memberId) =>
+      adminDatabaseRequest(env, adminAuth.token, "users/" + memberId),
+    ));
+    if (profiles.some((profile) => !profile || typeof profile.username !== "string")) {
+      return json({ error: "One or more selected accounts could not be found." }, 404);
+    }
+
+    const existing = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "chats/" + chatId,
+    );
+    if (existing) {
+      return json({ error: "This group ID is already in use." }, 409);
+    }
+
+    const messageId = crypto.randomUUID().replace(/-/g, "");
+    const creatorName = await groupUsername(env, adminAuth.token, uid);
+    const members = {};
+    for (const memberId of memberIds) {
+      members[memberId] = memberId === uid ? "admin" : "member";
+    }
+
+    const updates = {
+      ["chats/" + chatId]: {
+        chatId: chatId,
+        type: "group",
+        name: groupName,
+        createdBy: uid,
+        createdAt: { ".sv": "timestamp" },
+        members: members,
+        messages: {
+          [messageId]: groupActivityMessage(
+            uid,
+            "group_created",
+            "@" + creatorName + " created the group",
+            messageId,
+          ),
+        },
+      },
+    };
+    for (const memberId of memberIds) {
+      updates["groupMemberships/" + memberId + "/" + chatId] = true;
+    }
+
+    await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+    return json({
+      success: true,
+      action: action,
+      chatId: chatId,
+      messageId: messageId,
+      memberIds: memberIds,
+    });
+  }
+
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+  if (!chat || chat.type !== "group") {
+    return json({ error: "Group not found." }, 404);
+  }
+
+  const updates = {};
+  let activityMessageId = "";
+
+  if (action === "add") {
+    if (!Array.isArray(body.memberIds) || body.memberIds.length < 1 ||
+        body.memberIds.length > 50) {
+      return json({ error: "Select between 1 and 50 members to add." }, 400);
+    }
+
+    let requestedIds;
+    try {
+      requestedIds = [...new Set(body.memberIds.map((value) =>
+        cleanSegment(value, "memberUid"),
+      ))].filter((memberId) => memberId !== uid);
+    } catch (error) {
+      if (error instanceof Response) return error;
+      throw error;
+    }
+
+    if (requestedIds.length === 0) {
+      return json({ error: "Select at least one new member." }, 400);
+    }
+
+    const profiles = await Promise.all(requestedIds.map((memberId) =>
+      adminDatabaseRequest(env, adminAuth.token, "users/" + memberId),
+    ));
+    if (profiles.some((profile) => !profile || typeof profile.username !== "string")) {
+      return json({ error: "One or more selected accounts could not be found." }, 404);
+    }
+
+    const actorName = await groupUsername(env, adminAuth.token, uid);
+    const mutation = await mutateGroupMembersWithEtag(
+      env,
+      adminAuth.token,
+      chatId,
+      (currentMembers) => {
+        if (currentMembers[uid] !== "admin") {
+          throw new Response("Only group admins can add members.", { status: 403 });
+        }
+
+        const newMemberIds = requestedIds.filter((memberId) =>
+          !Object.prototype.hasOwnProperty.call(currentMembers, memberId),
+        );
+
+        if (Object.keys(currentMembers).length + newMemberIds.length > 50) {
+          throw new Response("A group can contain at most 50 members.", { status: 409 });
+        }
+
+        if (newMemberIds.length === 0) {
+          return { noChange: true, result: { newMemberIds: [] } };
+        }
+
+        const nextMembers = { ...currentMembers };
+        for (const memberId of newMemberIds) nextMembers[memberId] = "member";
+        return { members: nextMembers, result: { newMemberIds: newMemberIds } };
+      },
+    );
+
+    const newMemberIds = mutation.result.newMemberIds;
+    for (const memberId of requestedIds) {
+      updates["groupMemberships/" + memberId + "/" + chatId] = true;
+    }
+
+    for (let index = 0; index < newMemberIds.length; index += 1) {
+      const memberId = newMemberIds[index];
+      const memberName = await groupUsername(env, adminAuth.token, memberId);
+      const messageId = crypto.randomUUID().replace(/-/g, "");
+      const activity = groupActivityMessage(
+        uid,
+        "member_added",
+        "@" + actorName + " added @" + memberName + " to the group",
+        messageId,
+      );
+      activity.timestamp += index;
+      updates["chats/" + chatId + "/messages/" + messageId] = activity;
+      activityMessageId = messageId;
+    }
+  } else {
+    let targetUid = uid;
+    let desiredRole = "";
+    if (action === "set_role") {
+      try {
+        targetUid = cleanSegment(body.targetUid, "targetUid");
+      } catch (error) {
+        if (error instanceof Response) return error;
+        throw error;
+      }
+      desiredRole = body.role;
+      if (desiredRole !== "admin" && desiredRole !== "member") {
+        return json({ error: "Invalid group role." }, 400);
+      }
+    } else if (action === "remove") {
+      try {
+        targetUid = cleanSegment(body.targetUid, "targetUid");
+      } catch (error) {
+        if (error instanceof Response) return error;
+        throw error;
+      }
+    }
+
+    const actorName = await groupUsername(env, adminAuth.token, uid);
+    const mutation = await mutateGroupMembersWithEtag(
+      env,
+      adminAuth.token,
+      chatId,
+      (currentMembers) => {
+        const isCreator = targetUid === chat.createdBy;
+
+        if (action === "leave") {
+          if (isCreator) {
+            throw new Response(
+              "The group creator cannot leave. Transfer ownership is not available yet.",
+              { status: 409 },
+            );
+          }
+          if (!Object.prototype.hasOwnProperty.call(currentMembers, uid)) {
+            return { noChange: true, result: { removed: false } };
+          }
+          if (Object.keys(currentMembers).length <= 2) {
+            throw new Response("A group needs at least two members.", { status: 409 });
+          }
+          const nextMembers = { ...currentMembers };
+          delete nextMembers[uid];
+          return { members: nextMembers, result: { removed: true } };
+        }
+
+        if (currentMembers[uid] !== "admin") {
+          throw new Response("Only group admins can manage members.", { status: 403 });
+        }
+
+        if (action === "set_role") {
+          if (!Object.prototype.hasOwnProperty.call(currentMembers, targetUid)) {
+            throw new Response("That user is not a group member.", { status: 404 });
+          }
+          if (targetUid === uid || isCreator) {
+            throw new Response("The group creator remains an admin.", { status: 409 });
+          }
+          if (currentMembers[targetUid] === desiredRole) {
+            return { noChange: true, result: { changed: false } };
+          }
+          const nextMembers = { ...currentMembers, [targetUid]: desiredRole };
+          return { members: nextMembers, result: { changed: true } };
+        }
+
+        if (targetUid === chat.createdBy || targetUid === uid) {
+          throw new Response("The group creator or current admin cannot be removed here.", {
+            status: 409,
+          });
+        }
+        if (!Object.prototype.hasOwnProperty.call(currentMembers, targetUid)) {
+          return { noChange: true, result: { removed: false } };
+        }
+        if (Object.keys(currentMembers).length <= 2) {
+          throw new Response("A group needs at least two members.", { status: 409 });
+        }
+        const nextMembers = { ...currentMembers };
+        delete nextMembers[targetUid];
+        return { members: nextMembers, result: { removed: true } };
+      },
+    );
+
+    if (action === "set_role" && mutation.changed) {
+      const targetName = await groupUsername(env, adminAuth.token, targetUid);
+      const promoted = desiredRole === "admin";
+      const messageId = crypto.randomUUID().replace(/-/g, "");
+      updates["chats/" + chatId + "/messages/" + messageId] =
+        groupActivityMessage(
+          uid,
+          promoted ? "admin_promoted" : "admin_demoted",
+          promoted ?
+            "@" + actorName + " promoted @" + targetName + " to admin" :
+            "@" + actorName + " removed @" + targetName + " as admin",
+          messageId,
+        );
+      activityMessageId = messageId;
+    }
+
+    if (action === "remove" || action === "leave") {
+      const removedUid = action === "leave" ? uid : targetUid;
+      updates["groupMemberships/" + removedUid + "/" + chatId] = null;
+      updates["groupReads/" + removedUid + "/" + chatId] = null;
+      updates["userChats/" + removedUid + "/" + chatId] = null;
+
+      if (mutation.changed) {
+        const targetName = action === "leave" ?
+          actorName :
+          await groupUsername(env, adminAuth.token, removedUid);
+        const messageId = crypto.randomUUID().replace(/-/g, "");
+        updates["chats/" + chatId + "/messages/" + messageId] =
+          groupActivityMessage(
+            uid,
+            action === "leave" ? "member_left" : "member_removed",
+            action === "leave" ?
+              "@" + targetName + " left the group" :
+              "@" + actorName + " removed @" + targetName + " from the group",
+            messageId,
+          );
+        activityMessageId = messageId;
+      }
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+  }
+
+  return json({
+    success: true,
+    action: action,
+    chatId: chatId,
+    messageId: activityMessageId,
+  });
+}
+
 async function updateGroupTopic(request, env, uid, adminAuth) {
   let body;
   try {
@@ -2135,6 +2545,14 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return processMessageEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/groups/manage-members"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return manageGroupMembership(request, env, user.uid, adminAuth);
       }
 
       if (
