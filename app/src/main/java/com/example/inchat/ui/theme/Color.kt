@@ -27,5 +27,5 @@ val TextSecondary = White
 val TextMuted = White
 
 val SurfaceSubtle = AppSurfaceVariant
-val Divider = Color(0xFF1C3E22)
+val Divider = Color(0xFF142A18)
 val SurfaceElevated = AppSurface
