@@ -1629,6 +1629,73 @@ async function rebuildConversationPreview(
  * Create/update both direct-chat inbox entries from the trusted Worker.
  * A client must never be allowed to write another user's inbox metadata.
  */
+async function clearDirectUnreadIfAlreadyRead(
+  env,
+  adminToken,
+  recipientId,
+  chatId,
+) {
+  const path = "userChats/" + recipientId + "/" + chatId;
+  const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
+
+  const readResponse = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (readResponse.status === 404) return false;
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not check the recipient's read state (" +
+      readResponse.status + ").",
+    );
+  }
+
+  const inbox = await readResponse.json();
+  const etag = readResponse.headers.get("ETag");
+  if (!inbox || !etag) return false;
+
+  const lastReadTimestamp = Number(inbox.lastReadTimestamp || 0);
+  const latestMessageTimestamp = Number(inbox.lastTimestamp || 0);
+  const unreadCount = Number(inbox.unreadCount || 0);
+
+  if (
+    !Number.isFinite(lastReadTimestamp) ||
+    !Number.isFinite(latestMessageTimestamp) ||
+    lastReadTimestamp <= 0 ||
+    lastReadTimestamp < latestMessageTimestamp ||
+    unreadCount <= 0
+  ) {
+    return false;
+  }
+
+  const nextInbox = { ...inbox, unreadCount: 0 };
+  const writeResponse = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextInbox),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    const details = await writeResponse.text();
+    throw new Error(
+      "Could not reconcile a read conversation (" +
+      writeResponse.status + "): " + details.slice(0, 240),
+    );
+  }
+
+  return true;
+}
+
+
 async function syncDirectInboxForNewMessage(
   env,
   adminToken,
@@ -1721,9 +1788,17 @@ async function syncDirectInboxForNewMessage(
     updates[senderBase + "unreadCount"] = 0;
   }
 
+  // The private read cursor is separate from public read receipts, so unread
+  // badges remain accurate even when the recipient disables read receipts.
+  const recipientLastReadTimestamp =
+    Number(recipientInbox?.lastReadTimestamp || 0);
+  const recipientAlreadyReadMessage =
+    Number.isFinite(recipientLastReadTimestamp) &&
+    recipientLastReadTimestamp >= lastTimestamp;
+
   // The marker is included in the same atomic PATCH as the unread update.
   // If FCM later fails, a retry will refresh previews without incrementing again.
-  if (!inboxAlreadySynced) {
+  if (!inboxAlreadySynced && !recipientAlreadyReadMessage) {
     if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
       updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
     } else {
@@ -1738,6 +1813,16 @@ async function syncDirectInboxForNewMessage(
   ] = true;
 
   await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
+
+  // Close the narrow race where the chat is marked read after the initial
+  // inbox snapshot but before this message's increment is committed. ETag
+  // prevents this repair from clearing a newer message that arrived later.
+  await clearDirectUnreadIfAlreadyRead(
+    env,
+    adminToken,
+    recipientId,
+    chatId,
+  );
 }
 
 async function processPreviewEvent(request, env, uid, adminAuth) {
