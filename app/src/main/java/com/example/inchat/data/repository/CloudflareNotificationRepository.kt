@@ -83,6 +83,55 @@ class CloudflareNotificationRepository {
         )
     }
 
+    /**
+     * Performs group creation and membership/role changes through the trusted
+     * Worker. Firebase client rules intentionally deny direct writes to
+     * chats/{groupId}/members.
+     */
+    suspend fun manageGroupMembership(
+        action: String,
+        chatId: String,
+        groupName: String? = null,
+        memberIds: List<String> = emptyList(),
+        targetUid: String? = null,
+        role: String? = null
+    ): Result<String?> {
+        if (
+            action !in setOf("create", "add", "set_role", "remove", "leave") ||
+            chatId.isBlank()
+        ) {
+            return Result.failure(
+                IllegalArgumentException("Invalid group membership request.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.failure(
+                IllegalStateException("The group management service is not configured.")
+            )
+        }
+
+        val body = JSONObject()
+            .put("action", action)
+            .put("chatId", chatId)
+
+        groupName?.let { body.put("groupName", it) }
+        if (action == "create" || action == "add") {
+            val ids = org.json.JSONArray()
+            memberIds.forEach(ids::put)
+            body.put("memberIds", ids)
+        }
+        targetUid?.let { body.put("targetUid", it) }
+        role?.let { body.put("role", it) }
+
+        return post(
+            path = "/groups/manage-members",
+            body = body
+        ).map { response ->
+            response.optString("messageId").takeIf { it.isNotBlank() }
+        }
+    }
+
     suspend fun setGroupTopicSubscription(
         chatId: String,
         targetUid: String,
