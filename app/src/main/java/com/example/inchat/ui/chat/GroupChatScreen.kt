@@ -41,13 +41,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
+import com.example.inchat.ui.theme.Black
 import com.example.inchat.ui.theme.JetBrainsMono
 
 @OptIn(
@@ -284,7 +284,7 @@ fun GroupChatScreen(
                     DropdownMenu(
                         expanded = overflowExpanded,
                         onDismissRequest = { overflowExpanded = false },
-                        containerColor = Color.Black,
+                        containerColor = Black,
                         tonalElevation = 0.dp
                     ) {
                         DropdownMenuItem(
