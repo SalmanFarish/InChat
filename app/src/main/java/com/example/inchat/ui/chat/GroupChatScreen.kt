@@ -182,9 +182,7 @@ fun GroupChatScreen(
             onDismiss = {
                 messageForActions = null
             },
-            onCopied = {
-                messageForActions = null
-            }
+            onCopied = { }
         )
     }
 
