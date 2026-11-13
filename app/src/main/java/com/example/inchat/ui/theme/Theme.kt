@@ -8,19 +8,19 @@ import androidx.compose.ui.graphics.Color
 private val TerminalGreenColorScheme =
     darkColorScheme(
         primary = TerminalGreen,
-        onPrimary = Color(0xFF001B05),
+        onPrimary = Black,
         primaryContainer = Color(0xFF0A2810),
-        onPrimaryContainer = Color(0xFFC7FFD0),
+        onPrimaryContainer = White,
 
         secondary = TerminalGreenSoft,
-        onSecondary = Color(0xFF001B05),
+        onSecondary = Black,
         secondaryContainer = Color(0xFF122917),
-        onSecondaryContainer = Color(0xFFB9F7C1),
+        onSecondaryContainer = White,
 
         tertiary = TerminalGreenBright,
-        onTertiary = Color(0xFF001B05),
+        onTertiary = Black,
         tertiaryContainer = Color(0xFF0C3214),
-        onTertiaryContainer = Color(0xFFD2FFD8),
+        onTertiaryContainer = White,
 
         background = Black,
         onBackground = White,
@@ -42,9 +42,9 @@ private val TerminalGreenColorScheme =
         outlineVariant = AppOutlineVariant,
 
         error = TerminalError,
-        onError = Color(0xFF240000),
+        onError = Black,
         errorContainer = Color(0xFF351111),
-        onErrorContainer = Color(0xFFFFDADA)
+        onErrorContainer = White
     )
 
 /**
