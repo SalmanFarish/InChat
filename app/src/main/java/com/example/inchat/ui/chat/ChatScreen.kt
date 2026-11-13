@@ -267,6 +267,7 @@ fun ChatScreen(
     var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var messageForTextSelection by remember { mutableStateOf<Message?>(null) }
     var showClearChatConfirmation by remember { mutableStateOf(false) }
+    var showDeleteSelectedForMeConfirmation by remember { mutableStateOf(false) }
     var showDeleteSelectedForEveryoneConfirmation by remember { mutableStateOf(false) }
 
     fun toggleMessageSelection(message: Message) {
