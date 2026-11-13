@@ -3,7 +3,6 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -375,13 +374,7 @@ fun ChatScreen(
                     null
             },
 
-            onCopied = {
-
-                messageForActions =
-                    null
-
-                Toast.makeText(context, "✓ Copied", Toast.LENGTH_SHORT).show()
-            }
+            onCopied = { }
         )
     }
 
@@ -466,7 +459,7 @@ fun ChatScreen(
                         if (copiedText.isNotBlank()) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-                            Toast.makeText(context, "✓ Copied", Toast.LENGTH_SHORT).show()
+
                         }
                         selectedMessageIds = emptySet()
                     },
