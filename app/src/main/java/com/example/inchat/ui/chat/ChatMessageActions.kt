@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.Schedule
@@ -98,6 +99,7 @@ fun ChatMessageActionsDialog(
             message.timestamp > 0L &&
             editAgeMillis in 0L until ChatRepository.MESSAGE_EDIT_WINDOW_MS
 
+    val copiedState = remember(message.id) { mutableStateOf(false) }
     val showInfoState = remember(message.id) {
         mutableStateOf(false)
     }
@@ -211,7 +213,7 @@ fun ChatMessageActionsDialog(
                         onClick = { showInfoState.value = true }
                     )
                     MessageActionRow(
-                        icon = Icons.Outlined.ContentCopy,
+                        icon = if (copiedState.value) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
                         title = "Copy",
                         onClick = {
                             val clipboard =
@@ -219,6 +221,7 @@ fun ChatMessageActionsDialog(
                             clipboard.setPrimaryClip(
                                 ClipData.newPlainText("InChat message", message.text)
                             )
+                            copiedState.value = true
                             onCopied()
                         }
                     )
