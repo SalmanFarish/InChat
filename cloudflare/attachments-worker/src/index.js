@@ -431,7 +431,10 @@ async function fcmRequest(
       status: response.status,
       response: responseBody,
     });
-    throw new Error("FCM request failed (" + response.status + ").");
+    const error = new Error("FCM request failed (" + response.status + ").");
+    error.status = response.status;
+    error.response = responseBody;
+    throw error;
   }
 
   return {
@@ -517,6 +520,37 @@ async function changeTopicSubscription(
     [404],
   );
   return { unsubscribed: true };
+}
+
+async function unsubscribeTopicForAccountCleanup(
+  accessToken,
+  projectId,
+  topic,
+  registrationToken,
+) {
+  try {
+    return await changeTopicSubscription(
+      accessToken,
+      projectId,
+      topic,
+      registrationToken,
+      false,
+    );
+  } catch (error) {
+    // FCM marks an expired/invalid registration token as INVALID_ARGUMENT.
+    // There is no live token left to unsubscribe, so it must not block deletion.
+    if (
+      error &&
+      error.status === 400 &&
+      error.response &&
+      error.response.error &&
+      error.response.error.status === "INVALID_ARGUMENT"
+    ) {
+      console.warn("Skipping topic cleanup for an invalid FCM registration token.");
+      return { unsubscribed: false, invalidToken: true };
+    }
+    throw error;
+  }
 }
 
 async function updateGroupTopic(request, env, uid, adminAuth) {
@@ -679,12 +713,11 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     registrationToken.trim() !== "";
 
   if (hasRegistrationToken) {
-    await changeTopicSubscription(
+    await unsubscribeTopicForAccountCleanup(
       adminAuth.token,
       adminAuth.projectId,
       await userTopicName(env, uid),
       registrationToken,
-      false,
     );
   }
 
@@ -722,12 +755,11 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     // Clear a possible stale topic as well as a current membership.
     if (hasRegistrationToken) {
-      await changeTopicSubscription(
+      await unsubscribeTopicForAccountCleanup(
         adminAuth.token,
         adminAuth.projectId,
         await groupTopicName(env, chatId),
         registrationToken,
-        false,
       );
     }
 
@@ -761,12 +793,11 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
         );
 
         if (typeof memberToken === "string" && memberToken.trim() !== "") {
-          await changeTopicSubscription(
+          await unsubscribeTopicForAccountCleanup(
             adminAuth.token,
             adminAuth.projectId,
             await groupTopicName(env, chatId),
             memberToken,
-            false,
           );
         }
       }
