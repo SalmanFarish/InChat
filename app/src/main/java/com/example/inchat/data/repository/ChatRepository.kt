@@ -1234,7 +1234,11 @@ class ChatRepository {
                 mutableMapOf<String, Any?>(
 
                     "userChats/$currentUserId/$chatId/unreadCount" to
-                            0L
+                            0L,
+                    // Private cursor lets the Worker recognize messages already
+                    // viewed, even when this user has read receipts disabled.
+                    "userChats/$currentUserId/$chatId/lastReadTimestamp" to
+                            ServerValue.TIMESTAMP
                 )
 
             updates[
