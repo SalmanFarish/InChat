@@ -68,7 +68,6 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
-import com.example.inchat.ui.chat.ChatThemeScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.chat.CreateGroupScreen
 import com.example.inchat.ui.chat.GroupChatScreen
@@ -942,21 +941,6 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                route = "chat_theme/{otherUserId}",
-                arguments = listOf(
-                    navArgument("otherUserId") {
-                        type = NavType.StringType
-                    }
-                )
-            ) { entry ->
-                ChatThemeScreen(
-                    currentUserId = uid,
-                    otherUserId = entry.arguments?.getString("otherUserId").orEmpty(),
                     onBackClick = { navController.popBackStack() }
                 )
             }
