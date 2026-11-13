@@ -1270,6 +1270,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   const updates = {
     ["groupMemberships/" + uid]: null,
     ["groupReads/" + uid]: null,
+    ["chatReadState/" + uid]: null,
     ["userChats/" + uid]: null,
     ["userMessageVisibility/" + uid]: null,
     ["conversationPreferences/" + uid]: null,
