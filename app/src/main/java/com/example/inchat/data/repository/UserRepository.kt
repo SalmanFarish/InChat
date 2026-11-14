@@ -2097,7 +2097,7 @@ class UserRepository {
             return existingLookup.await()
         }
 
-        try {
+        return try {
             val userRef =
                 database
                     .getReference(
