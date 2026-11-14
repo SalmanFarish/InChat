@@ -253,7 +253,7 @@ class GroupChatRepository {
                 null
             } else {
                 Conversation(
-                    chatId = group.chatId,
+                    chatId = groupId,
                     chatType = "group",
                     groupName = group.name,
                     memberCount = group.memberCount,
