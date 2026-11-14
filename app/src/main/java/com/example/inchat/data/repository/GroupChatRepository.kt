@@ -269,168 +269,46 @@ class GroupChatRepository {
         currentUserId: String,
         groupId: String
     ): Flow<Long> =
-        observeGroupReadTimestamp(
-            currentUserId = currentUserId,
-            groupId = groupId
-        )
-            .distinctUntilChanged()
-            .flatMapLatest { lastReadTimestamp ->
-                observeGroupMessagesSince(
-                    groupId = groupId,
-                    lastReadTimestamp = lastReadTimestamp
-                ).map { messages ->
-                    messages.count { message ->
-                        message.timestamp > lastReadTimestamp &&
-                                message.senderId != currentUserId
-                    }.toLong()
-                }
-            }
-            .distinctUntilChanged()
-
-    private fun observeGroupReadTimestamp(
-        currentUserId: String,
-        groupId: String
-    ): Flow<Long> =
         callbackFlow {
             if (
                 currentUserId.isBlank() ||
-                groupId.isBlank()
+                groupId.isBlank() ||
+                auth.currentUser?.uid != currentUserId
             ) {
                 trySend(0L)
                 close()
                 return@callbackFlow
             }
 
-            val ref =
-                database
-                    .getReference("groupReads")
-                    .child(currentUserId)
-                    .child(groupId)
+            // The notification Worker increments this counter atomically for
+            // each incoming group message; markGroupRead resets it to zero.
+            // Observe the maintained value instead of downloading and
+            // recounting the entire unread message history after each update.
+            val ref = database.getReference("userChats")
+                .child(currentUserId)
+                .child(groupId)
+                .child("unreadCount")
 
-            val listener =
-                object : com.google.firebase.database.ValueEventListener {
-                    override fun onDataChange(
-                        snapshot: DataSnapshot
-                    ) {
-                        trySend(
-                            snapshot.getValue(Long::class.java) ?: 0L
-                        )
-                    }
-
-                    override fun onCancelled(
-                        error: DatabaseError
-                    ) {
-                        Log.e(
-                            "GroupChatRepository",
-                            "Group read timestamp listener cancelled for $groupId: ${error.message}"
-                        )
-                        trySend(0L)
-                        close()
-                    }
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    trySend(
+                        (snapshot.getValue(Long::class.java) ?: 0L).coerceAtLeast(0L)
+                    )
                 }
 
-            ref.addValueEventListener(listener)
-
-            awaitClose {
-                ref.removeEventListener(listener)
-            }
-        }
-
-    fun observeGroupReadTimestampForMember(
-        groupId: String,
-        memberId: String
-    ): Flow<Long> =
-        callbackFlow {
-            if (groupId.isBlank() || memberId.isBlank()) {
-                trySend(0L)
-                close()
-                return@callbackFlow
-            }
-
-            val ref =
-                database
-                    .getReference("groupReads")
-                    .child(memberId)
-                    .child(groupId)
-
-            val listener =
-                object : com.google.firebase.database.ValueEventListener {
-                    override fun onDataChange(snapshot: DataSnapshot) {
-                        trySend(
-                            snapshot.getValue(Long::class.java) ?: 0L
-                        )
-                    }
-
-                    override fun onCancelled(error: DatabaseError) {
-                        Log.e(
-                            "GroupChatRepository",
-                            "Member read timestamp listener cancelled for $groupId: ${error.message}"
-                        )
-                        trySend(0L)
-                        close()
-                    }
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group unread counter listener cancelled for $groupId: ${error.message}"
+                    )
+                    trySend(0L)
+                    close()
                 }
+            }
 
             ref.addValueEventListener(listener)
-
-            awaitClose {
-                ref.removeEventListener(listener)
-            }
-        }
-
-    private fun observeGroupMessagesSince(
-        groupId: String,
-        lastReadTimestamp: Long
-    ): Flow<List<Message>> =
-        callbackFlow {
-            if (groupId.isBlank()) {
-                trySend(emptyList())
-                close()
-                return@callbackFlow
-            }
-
-            val ref =
-                database
-                    .getReference("chats")
-                    .child(groupId)
-                    .child("messages")
-                    .orderByChild("timestamp")
-                    // The timestamp index is declared in database.rules.json.
-                    // Fetch only unread-era messages, not the group's full history.
-                    .startAt(lastReadTimestamp.toDouble())
-
-            val listener =
-                object : com.google.firebase.database.ValueEventListener {
-                    override fun onDataChange(
-                        snapshot: DataSnapshot
-                    ) {
-                        // Firebase already returns query results in timestamp order.
-                        trySend(
-                            snapshot.children.mapNotNull {
-                                it.getValue(Message::class.java)
-                            }
-                        )
-                    }
-
-                    override fun onCancelled(
-                        error: DatabaseError
-                    ) {
-                        Log.e(
-                            "GroupChatRepository",
-                            "Group messages listener cancelled for $groupId: ${error.message}"
-                        )
-                        trySend(emptyList())
-                        close()
-                    }
-                }
-
-            ref.addValueEventListener(listener)
-
-            awaitClose {
-                ref.removeEventListener(listener)
-            }
-        }
-
+            awaitClose { ref.removeEventListener(listener) }
+        }.distinctUntilChanged()
     suspend fun markGroupRead(
         currentUserId: String,
         groupId: String,
