@@ -702,7 +702,6 @@ class GroupChatViewModel : ViewModel() {
                         _messages.value =
                             (olderMessages + _messages.value)
                                 .distinctBy { it.id }
-                                .sortedBy { it.timestamp }
                         _hasOlderMessages.value =
                             olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
                     }
