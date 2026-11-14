@@ -271,14 +271,17 @@ class ChatRepository {
         transform: (Message) -> Message?
     ) {
         val key = cacheKey(chatId)
+        // Cache lists are already chronological, and current transforms only
+        // edit message fields or remove an item without changing its timestamp.
+        // Preserve that order instead of sorting up to three cached lists again.
         messageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
         olderMessageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
         latestMessageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
     }
 
