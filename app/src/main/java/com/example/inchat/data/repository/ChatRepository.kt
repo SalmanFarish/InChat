@@ -811,10 +811,11 @@ class ChatRepository {
                 .endAt((beforeTimestamp - 1L).toDouble())
                 .limitToLast(pageSize).get().await()
 
+            // orderByChild(timestamp) plus endAt/limitToLast already yields
+            // the page in chronological order.
             val rawPage = snapshot.children
                 .mapNotNull { it.getValue(Message::class.java) }
                 .filter { it.id.isNotBlank() }
-                .sortedBy { it.timestamp }
 
             val ownerUserId = auth.currentUser?.uid.orEmpty()
             if (ownerUserId.isBlank()) {
@@ -825,11 +826,13 @@ class ChatRepository {
 
             if (rawPage.isNotEmpty()) {
                 val key = cacheKey(chatId, ownerUserId)
+                // The requested page is strictly older than beforeTimestamp,
+                // so prepend it to the already chronological cached lists.
                 olderMessageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + rawPage).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (rawPage + cached.orEmpty()).distinctBy { it.id }
                 }
                 messageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + rawPage).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (rawPage + cached.orEmpty()).distinctBy { it.id }
                 }
                 localMessageDao.upsertMessages(
                     rawPage.map { it.toCachedEntity(ownerUserId, chatId) }
