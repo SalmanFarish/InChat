@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -175,6 +176,7 @@ class HomeViewModel : ViewModel() {
                                 it.chatType != "group"
                             }
                         }
+                        .distinctUntilChanged()
                         .collect { list ->
 
                             _directConversations.value =
@@ -197,6 +199,7 @@ class HomeViewModel : ViewModel() {
                         .observeGroupConversations(
                             currentUserId
                         )
+                        .distinctUntilChanged()
                         .collect { list ->
 
                             _groupConversations.value =
@@ -215,6 +218,7 @@ class HomeViewModel : ViewModel() {
                         .catch {
                             emit(emptyMap())
                         }
+                        .distinctUntilChanged()
                         .collect { preferences ->
                             _conversationPreferences.value = preferences
                             publishConversations()
