@@ -112,33 +112,29 @@ fun HomeScreen(
 
     /*
      * Start profile reads as soon as the inbox arrives, before LazyColumn
-     * composes each individual row. This removes the per-row startup delay.
+     * composes each individual row. Keep the key limited to user IDs so
+     * message previews and unread-count changes do not restart profile loads.
      */
-    LaunchedEffect(
+    val profileUserIds = remember(conversations) {
         conversations
-    ) {
+            .asSequence()
+            .filter { it.chatType != "group" }
+            .map { it.otherUserId }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toList()
+    }
 
-        val userIds =
-            conversations
-                .asSequence()
-                .filter {
-                    it.chatType != "group"
+    LaunchedEffect(profileUserIds) {
+        // Avoid opening a burst of Firebase reads for every inbox contact.
+        // Loads run six at a time while still warming the whole conversation list.
+        for (userIdBatch in profileUserIds.chunked(6)) {
+            kotlinx.coroutines.coroutineScope {
+                userIdBatch.forEach { otherUserId ->
+                    launch {
+                        userRepository.getUserByIdFast(otherUserId)
+                    }
                 }
-                .map {
-                    it.otherUserId
-                }
-                .filter {
-                    it.isNotBlank()
-                }
-                .distinct()
-                .toList()
-
-        for (otherUserId in userIds) {
-            launch {
-                userRepository
-                    .getUserByIdFast(
-                        otherUserId
-                    )
             }
         }
     }
@@ -432,7 +428,8 @@ fun HomeScreen(
 
                     items(
                         items = visibleFilteredConversations,
-                        key = { it.chatId }
+                        key = { it.chatId },
+                        contentType = { "conversation" }
                     ) { conversation ->
                         ConversationItem(
                             conversation = conversation,
@@ -496,7 +493,10 @@ fun HomeScreen(
                     }
 
                     if (hiddenFilteredConversations.isNotEmpty()) {
-                        item(key = "hidden_chats_toggle") {
+                        item(
+                            key = "hidden_chats_toggle",
+                            contentType = "hidden_chats_toggle"
+                        ) {
                             HiddenChatsToggle(
                                 hiddenCount = hiddenFilteredConversations.size,
                                 expanded = showHiddenChats,
@@ -509,7 +509,8 @@ fun HomeScreen(
                         if (showHiddenChats) {
                             items(
                                 items = hiddenFilteredConversations,
-                                key = { "hidden_${it.chatId}" }
+                                key = { "hidden_${it.chatId}" },
+                                contentType = { "conversation" }
                             ) { conversation ->
                                 ConversationItem(
                                     conversation = conversation,
@@ -953,8 +954,8 @@ private fun HomeConversationLoadingState() {
     ) {
 
         items(
-            count =
-                6
+            count = 6,
+            contentType = { "conversation_skeleton" }
         ) {
 
             Row(
