@@ -51,10 +51,10 @@ class CloudflareNotificationRepository {
             .put("chatId", chatId)
             .put("messageId", messageId)
 
-        // A Worker may be busy with the same event or may have released a
-        // failed claim. Retry transient responses so expired leases and
-        // temporary FCM/Realtime Database failures can be recovered.
-        val retryDelaysMs = longArrayOf(0L, 1_000L, 3_000L, 7_000L, 12_000L, 18_000L)
+        // Make one short immediate retry for a transient failure. WorkManager
+        // owns the longer exponential retry schedule so a push is not delayed
+        // by a long chain of sleeps inside this foreground-independent task.
+        val retryDelaysMs = longArrayOf(0L, 1_000L)
         var lastFailure: Throwable? = null
 
         for (waitMs in retryDelaysMs) {
