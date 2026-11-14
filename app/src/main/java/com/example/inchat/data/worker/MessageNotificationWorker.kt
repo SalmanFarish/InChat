@@ -109,9 +109,32 @@ class MessageNotificationWorker(
                 )
                 .build()
 
-            val uniqueName = "message-event-$senderId-$chatId-$messageId"
             WorkManager.getInstance(context.applicationContext)
-                .enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(
+                    uniqueWorkName(senderId, chatId, messageId),
+                    ExistingWorkPolicy.KEEP,
+                    request
+                )
         }
+
+        fun cancel(
+            context: Context,
+            senderId: String,
+            chatId: String,
+            messageId: String
+        ) {
+            if (senderId.isBlank() || chatId.isBlank() || messageId.isBlank()) {
+                return
+            }
+
+            WorkManager.getInstance(context.applicationContext)
+                .cancelUniqueWork(uniqueWorkName(senderId, chatId, messageId))
+        }
+
+        private fun uniqueWorkName(
+            senderId: String,
+            chatId: String,
+            messageId: String
+        ): String = "message-event-$senderId-$chatId-$messageId"
     }
 }
