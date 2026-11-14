@@ -12,7 +12,10 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -424,28 +427,40 @@ class GroupChatViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                try {
-                    chatRepository.cacheOutgoingMessage(
-                        chatId = groupId,
-                        message = outgoingMessage
-                    )
-                } catch (cacheError: Exception) {
-                    // A local cache problem must not block Firebase delivery.
-                    Log.e(
-                        "GroupChatViewModel",
-                        "Could not cache outgoing group message locally",
-                        cacheError
+                // Begin the Firebase write before waiting for Room's disk cache.
+                // UNDIDSPATCHED runs sendMessage through setValue() immediately;
+                // the local backup is written in parallel on the IO dispatcher.
+                val sendJob = async(start = CoroutineStart.UNDISPATCHED) {
+                    groupRepository.sendMessage(
+                        groupId = groupId,
+                        messageId = messageId,
+                        text = cleanText,
+                        senderId = currentUserId,
+                        senderNickname = senderNickname,
+                        replyTo = replyTo
                     )
                 }
 
-                groupRepository.sendMessage(
-                    groupId = groupId,
-                    messageId = messageId,
-                    text = cleanText,
-                    senderId = currentUserId,
-                    senderNickname = senderNickname,
-                    replyTo = replyTo
-                ).onSuccess {
+                val cacheJob = async(Dispatchers.IO) {
+                    try {
+                        chatRepository.cacheOutgoingMessage(
+                            chatId = groupId,
+                            message = outgoingMessage
+                        )
+                    } catch (cacheError: Exception) {
+                        // A local cache problem must not block Firebase delivery.
+                        Log.e(
+                            "GroupChatViewModel",
+                            "Could not cache outgoing group message locally",
+                            cacheError
+                        )
+                    }
+                }
+
+                val sendResult = sendJob.await()
+                cacheJob.await()
+
+                sendResult.onSuccess {
                     runCatching {
                         chatRepository.markOutgoingMessageSent(groupId, messageId)
                     }.onFailure { cacheError ->
