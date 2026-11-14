@@ -417,6 +417,7 @@ async function claimMessageEvent(
       "If-Match": etag,
     },
     body: JSON.stringify({
+      ...(existing && typeof existing === "object" ? existing : {}),
       senderId: senderId,
       status: "processing",
       claimId: claimId,
@@ -438,6 +439,12 @@ async function claimMessageEvent(
   return {
     claimId: claimId,
     notificationSent: existing?.notificationSent === true,
+    notificationSentTo:
+      existing?.notificationSentTo &&
+      typeof existing.notificationSentTo === "object" &&
+      !Array.isArray(existing.notificationSentTo) ?
+        existing.notificationSentTo :
+        {},
   };
 }
 
@@ -580,6 +587,84 @@ async function markMessageNotificationSent(
   return true;
 }
 
+async function markGroupNotificationRecipientsSent(
+  env,
+  adminToken,
+  chatId,
+  messageId,
+  claimId,
+  recipientIds,
+) {
+  const uniqueRecipientIds = [...new Set(recipientIds)].filter(
+    (recipientId) => typeof recipientId === "string" && recipientId !== "",
+  );
+  if (uniqueRecipientIds.length === 0) return true;
+
+  const receiptPath =
+    "/chats/" +
+    encodeURIComponent(chatId) +
+    "/messages/" +
+    encodeURIComponent(messageId) +
+    "/workerProcessed.json";
+  const receiptUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
+
+  const readResponse = await fetch(receiptUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not read group notification delivery state (" +
+      readResponse.status + ").",
+    );
+  }
+
+  const current = await readResponse.json();
+  if (!current || current.claimId !== claimId) return false;
+
+  const etag = readResponse.headers.get("ETag");
+  if (!etag) throw new Error("Firebase did not return a group delivery receipt ETag.");
+
+  const notificationSentTo =
+    current.notificationSentTo &&
+    typeof current.notificationSentTo === "object" &&
+    !Array.isArray(current.notificationSentTo) ?
+      { ...current.notificationSentTo } :
+      {};
+
+  for (const recipientId of uniqueRecipientIds) {
+    notificationSentTo[recipientId] = true;
+  }
+
+  const writeResponse = await fetch(receiptUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify({
+      ...current,
+      notificationSentTo: notificationSentTo,
+      updatedAt: { ".sv": "timestamp" },
+    }),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error(
+      "Could not save group notification delivery state (" +
+      writeResponse.status + ").",
+    );
+  }
+
+  return true;
+}
+
 async function completeClaimedMessageEvent(
   env,
   adminToken,
@@ -602,6 +687,31 @@ async function completeClaimedMessageEvent(
   }
 
   return json(responseBody);
+}
+
+const GROUP_DIRECT_NOTIFICATION_MAX_RECIPIENTS = 19;
+const GROUP_FCM_SEND_CONCURRENCY = 4;
+
+async function mapWithConcurrencyLimit(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    items.length,
+    Math.max(1, Math.floor(concurrency)),
+  );
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index], index);
+      }
+    }),
+  );
+
+  return results;
 }
 
 async function fcmRequest(
@@ -1251,16 +1361,62 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     }, 403);
   }
 
+  const registrationPath =
+    "groupNotificationDevices/" + chatId + "/" + targetUid;
   const registrationToken = await adminDatabaseRequest(
     env,
     adminAuth.token,
     "privateUsers/" + targetUid + "/fcmToken",
   );
+  const hasRegistrationToken =
+    typeof registrationToken === "string" &&
+    registrationToken.trim() !== "";
 
-  if (
-    typeof registrationToken !== "string" ||
-    registrationToken.trim() === ""
-  ) {
+  if (!subscribe) {
+    // Remove the mirrored token even when this account no longer has a
+    // registered FCM token. This keeps the direct-recipient index accurate.
+    await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      registrationPath,
+      "DELETE",
+    );
+
+    if (!hasRegistrationToken) {
+      return json({
+        success: true,
+        skipped: true,
+        reason: "No FCM token is registered for this member.",
+      });
+    }
+
+    const result = await changeTopicSubscription(
+      adminAuth.token,
+      adminAuth.projectId,
+      await groupTopicName(env, chatId),
+      registrationToken,
+      false,
+    );
+
+    return json({
+      success: true,
+      chatId: chatId,
+      targetUid: targetUid,
+      ...result,
+    });
+  }
+
+  // Keep an empty record for members without notifications enabled. It lets
+  // the sender distinguish "synced with no token" from "not synced yet".
+  await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    registrationPath,
+    "PUT",
+    hasRegistrationToken ? registrationToken : "",
+  );
+
+  if (!hasRegistrationToken) {
     return json({
       success: true,
       skipped: true,
@@ -1269,22 +1425,20 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   }
 
   const groupTopic = await groupTopicName(env, chatId);
-  if (subscribe) {
-    await changeTopicSubscription(
-      adminAuth.token,
-      adminAuth.projectId,
-      await userTopicName(env, targetUid),
-      registrationToken,
-      true,
-    );
-  }
+  await changeTopicSubscription(
+    adminAuth.token,
+    adminAuth.projectId,
+    await userTopicName(env, targetUid),
+    registrationToken,
+    true,
+  );
 
   const result = await changeTopicSubscription(
     adminAuth.token,
     adminAuth.projectId,
     groupTopic,
     registrationToken,
-    subscribe,
+    true,
   );
 
   return json({
@@ -2094,34 +2248,156 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           typeof chat.name === "string" && chat.name.trim() !== "" ?
             chat.name.trim() :
             "Group";
-
-        const result = await fcmRequest(
+        const memberIds = Object.keys(chat.members || {})
+          .filter((memberId) => memberId !== uid);
+        const deviceRegistry = await adminDatabaseRequest(
+          env,
           adminAuth.token,
-          "https://fcm.googleapis.com/v1/projects/" +
-            encodeURIComponent(adminAuth.projectId) +
-            "/messages:send",
-          "POST",
-          {
-            message: {
-              condition:
-                "'" + await groupTopicName(env, chatId) +
-                "' in topics && !('" +
-                await userTopicName(env, uid) + "' in topics)",
-              data: {
-                type: "group_message",
-                chatId: chatId,
-                messageId: messageId,
-                senderId: uid,
-                senderName: senderNickname,
-                groupName: groupName,
-                message: messageText,
-              },
-              android: {
-                priority: "high",
+          "groupNotificationDevices/" + chatId,
+        );
+
+        const registryIsComplete = memberIds.every((memberId) =>
+          Object.prototype.hasOwnProperty.call(deviceRegistry || {}, memberId)
+        );
+        const canUseDirectDelivery =
+          memberIds.length <= GROUP_DIRECT_NOTIFICATION_MAX_RECIPIENTS &&
+          registryIsComplete;
+
+        if (canUseDirectDelivery) {
+          const previouslySent = claim.notificationSentTo || {};
+          const pendingRecipients = memberIds
+            .filter((memberId) => !previouslySent[memberId])
+            .map((memberId) => ({
+              memberId: memberId,
+              token: typeof deviceRegistry[memberId] === "string" ?
+                deviceRegistry[memberId].trim() :
+                "",
+            }))
+            .filter((recipient) => recipient.token !== "");
+
+          const deliveryResults = await mapWithConcurrencyLimit(
+            pendingRecipients,
+            GROUP_FCM_SEND_CONCURRENCY,
+            async (recipient) => {
+              try {
+                const result = await fcmRequest(
+                  adminAuth.token,
+                  "https://fcm.googleapis.com/v1/projects/" +
+                    encodeURIComponent(adminAuth.projectId) +
+                    "/messages:send",
+                  "POST",
+                  {
+                    message: {
+                      token: recipient.token,
+                      data: {
+                        type: "group_message",
+                        chatId: chatId,
+                        messageId: messageId,
+                        senderId: uid,
+                        senderName: senderNickname,
+                        groupName: groupName,
+                        message: messageText,
+                      },
+                      android: {
+                        priority: "high",
+                      },
+                    },
+                  },
+                  [404],
+                );
+
+                const unregistered =
+                  result.status === 404 ||
+                  JSON.stringify(result.body).includes("UNREGISTERED");
+
+                return {
+                  memberId: recipient.memberId,
+                  completed: result.ok || unregistered,
+                  unregistered: unregistered,
+                };
+              } catch (error) {
+                return {
+                  memberId: recipient.memberId,
+                  completed: false,
+                  error: error,
+                };
+              }
+            },
+          );
+
+          const completedRecipientIds = deliveryResults
+            .filter((result) => result.completed)
+            .map((result) => result.memberId);
+          const staleRecipientIds = deliveryResults
+            .filter((result) => result.unregistered)
+            .map((result) => result.memberId);
+
+          const recipientsRecorded = await markGroupNotificationRecipientsSent(
+            env,
+            adminAuth.token,
+            chatId,
+            messageId,
+            claimId,
+            completedRecipientIds,
+          );
+          if (!recipientsRecorded) {
+            throw new Error("Group notification claim expired before recipient delivery could be recorded.");
+          }
+
+          if (staleRecipientIds.length > 0) {
+            const staleUpdates = {};
+            for (const memberId of staleRecipientIds) {
+              staleUpdates[
+                "groupNotificationDevices/" + chatId + "/" + memberId
+              ] = "";
+            }
+            await adminDatabaseRequest(
+              env,
+              adminAuth.token,
+              "",
+              "PATCH",
+              staleUpdates,
+            );
+          }
+
+          const failedDelivery = deliveryResults.find(
+            (result) => !result.completed,
+          );
+          if (failedDelivery) {
+            throw failedDelivery.error ||
+              new Error("A group member's FCM notification could not be sent.");
+          }
+        } else {
+          // Topics remain the safe fallback while a group is syncing devices
+          // or when a group is too large for the free Worker's subrequest cap.
+          await fcmRequest(
+            adminAuth.token,
+            "https://fcm.googleapis.com/v1/projects/" +
+              encodeURIComponent(adminAuth.projectId) +
+              "/messages:send",
+            "POST",
+            {
+              message: {
+                condition:
+                  "'" + await groupTopicName(env, chatId) +
+                  "' in topics && !('" +
+                  await userTopicName(env, uid) + "' in topics)",
+                data: {
+                  type: "group_message",
+                  chatId: chatId,
+                  messageId: messageId,
+                  senderId: uid,
+                  senderName: senderNickname,
+                  groupName: groupName,
+                  message: messageText,
+                },
+                android: {
+                  priority: "high",
+                },
               },
             },
-          },
-        );
+          );
+        }
 
         const recorded = await markMessageNotificationSent(
           env,
@@ -2133,7 +2409,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         if (!recorded) {
           throw new Error("Notification claim expired before the FCM delivery could be recorded.");
         }
-        return result.ok;
+        return true;
       })();
 
       const pushResults = await Promise.all([previewSync, push]);
