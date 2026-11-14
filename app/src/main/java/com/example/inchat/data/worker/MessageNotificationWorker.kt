@@ -17,11 +17,12 @@ import com.google.firebase.auth.FirebaseAuth
 import java.util.concurrent.TimeUnit
 
 /**
- * Delivers the trusted message event after the message itself has been saved.
+ * Delivers the trusted message event after the local Realtime Database write
+ * has been queued. The server-side Worker verifies that the message is visible
+ * and asks WorkManager to retry when an offline write has not synced yet.
  *
- * The Worker owns the retry lifecycle so sending a message does not wait for
- * notification/network retries. The same event also updates the inbox preview
- * and unread count on the server, so it must not be skipped.
+ * This work is persisted before waiting for the database acknowledgement, so
+ * closing Android cannot silently drop the notification/inbox event.
  */
 class MessageNotificationWorker(
     appContext: Context,
