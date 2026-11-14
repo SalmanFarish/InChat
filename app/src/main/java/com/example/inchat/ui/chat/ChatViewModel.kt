@@ -2364,8 +2364,9 @@ class ChatViewModel : ViewModel() {
                 ).onSuccess { olderMessages ->
                     if (currentChatId == chatId) {
                         _messages.value =
-                            (olderMessages + _messages.value)
-                                .distinctBy { it.id }
+                            // The Firebase page ends strictly before the
+                            // oldest loaded timestamp, so these IDs cannot overlap.
+                            olderMessages + _messages.value
                         _hasOlderMessages.value =
                             olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
                     }
