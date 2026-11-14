@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -94,18 +95,11 @@ class GroupChatRepository {
     }
 
     suspend fun getGroup(groupId: String): Group? {
+        if (groupId.isBlank()) return null
 
-        if (groupId.isBlank()) {
-            return null
-        }
-
-        return parseGroup(
-            database
-                .getReference("chats")
-                .child(groupId)
-                .get()
-                .await()
-        )
+        // Reuse the metadata-only observer for one-shot reads as well.
+        // A read from /chats/{groupId} would include its full messages subtree.
+        return observeGroup(groupId).first()
     }
 
     fun observeMyGroupIds(currentUserId: String): Flow<List<String>> =
@@ -1222,57 +1216,5 @@ class GroupChatRepository {
             }
     }
 
-    private fun parseGroup(snapshot: DataSnapshot): Group? {
 
-        if (
-            !snapshot.exists() ||
-            snapshot.child("type")
-                .getValue(String::class.java) != "group"
-        ) {
-            return null
-        }
-
-        val members =
-            snapshot
-                .child("members")
-                .children
-                .mapNotNull { child ->
-                    val uid = child.key
-                    val role =
-                        child.getValue(String::class.java)
-
-                    if (uid.isNullOrBlank() || role.isNullOrBlank()) {
-                        null
-                    } else {
-                        uid to role
-                    }
-                }
-                .toMap()
-
-        return Group(
-            chatId =
-                snapshot
-                    .child("chatId")
-                    .getValue(String::class.java)
-                    .orEmpty()
-                    .ifBlank { snapshot.key.orEmpty() },
-            type = "group",
-            name =
-                snapshot
-                    .child("name")
-                    .getValue(String::class.java)
-                    .orEmpty(),
-            createdBy =
-                snapshot
-                    .child("createdBy")
-                    .getValue(String::class.java)
-                    .orEmpty(),
-            createdAt =
-                snapshot
-                    .child("createdAt")
-                    .getValue(Long::class.java)
-                    ?: 0L,
-            members = members
-        )
-    }
 }
