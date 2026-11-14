@@ -556,16 +556,17 @@ class GroupChatRepository {
                     )
             }
 
-            database
+            val messageWrite = database
                 .getReference("chats")
                 .child(groupId)
                 .child("messages")
                 .child(messageId)
                 .setValue(messageData)
-                .await()
 
-            // Notification and group inbox synchronization run in durable
-            // background work. Do not make the sender wait for HTTP retries.
+            // Persist the notification event before waiting for Firebase's
+            // server acknowledgement so an offline queued message survives
+            // Android process death. The Worker retries while the message is
+            // not yet visible to the trusted Worker backend.
             try {
                 MessageNotificationWorker.enqueue(
                     context = InChatApplication.instance,
@@ -574,18 +575,23 @@ class GroupChatRepository {
                     messageId = messageId
                 )
             } catch (queueError: Exception) {
-                // The group message is already saved. A scheduling problem
-                // must not turn a successful message write into a failed send.
                 Log.e(
                     "GroupChatRepository",
-                    "Group message was saved, but its background event could not be queued.",
+                    "Group message was queued, but its background event could not be scheduled.",
                     queueError
                 )
             }
 
+            messageWrite.await()
             Result.success(messageId)
 
         } catch (e: Exception) {
+            MessageNotificationWorker.cancel(
+                context = InChatApplication.instance,
+                senderId = senderId,
+                chatId = groupId,
+                messageId = messageId
+            )
             Result.failure(e)
         }
     }
