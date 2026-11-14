@@ -76,6 +76,10 @@ class HomeViewModel : ViewModel() {
     private var listeningUserId =
         ""
 
+    // Only warm message caches again when the selected chat IDs change.
+    private var lastPreloadedChatIds: List<String> = emptyList()
+    private var preloadingJob: Job? = null
+
     /*
      * =========================================================
      * CONVERSATION LISTENER
@@ -113,6 +117,10 @@ class HomeViewModel : ViewModel() {
             listeningUserId =
                 ""
 
+            preloadingJob?.cancel()
+            preloadingJob = null
+            lastPreloadedChatIds = emptyList()
+
             conversationsJob?.cancel()
 
             conversationsJob =
@@ -131,6 +139,10 @@ class HomeViewModel : ViewModel() {
 
         listeningUserId =
             currentUserId
+
+        preloadingJob?.cancel()
+        preloadingJob = null
+        lastPreloadedChatIds = emptyList()
 
         conversationsJob?.cancel()
 
@@ -263,12 +275,30 @@ class HomeViewModel : ViewModel() {
             merged
 
         // Warm recent direct/group message history while Home is visible.
-        viewModelScope.launch {
-            chatRepository.preloadRecentMessages(
-                ownerUserId = listeningUserId,
-                conversations = merged.filterNot { it.isHidden },
-                maxChats = 8
-            )
+        // Unread-count, preview, or preference updates often republish the same
+        // inbox. Do not restart the same eight-chat cache warm-up each time.
+        val preloadConversations = merged.filterNot { it.isHidden }
+        val preloadChatIds = preloadConversations
+            .asSequence()
+            .sortedByDescending { it.lastTimestamp }
+            .take(8)
+            .map { it.chatId }
+            .toList()
+
+        if (preloadChatIds != lastPreloadedChatIds) {
+            lastPreloadedChatIds = preloadChatIds
+            preloadingJob?.cancel()
+            preloadingJob = if (preloadChatIds.isEmpty()) {
+                null
+            } else {
+                viewModelScope.launch {
+                    chatRepository.preloadRecentMessages(
+                        ownerUserId = listeningUserId,
+                        conversations = preloadConversations,
+                        maxChats = 8
+                    )
+                }
+            }
         }
 
         /*
