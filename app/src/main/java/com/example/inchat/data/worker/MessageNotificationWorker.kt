@@ -104,8 +104,11 @@ class MessageNotificationWorker(
                 // app is out of expedited quota, preserve delivery as normal work.
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setBackoffCriteria(
+                    // Firebase may need a moment to expose the just-written
+                    // message to the Worker endpoint. Retry at WorkManager's
+                    // minimum delay instead of making the user wait 30 seconds.
                     BackoffPolicy.EXPONENTIAL,
-                    30L,
+                    10L,
                     TimeUnit.SECONDS
                 )
                 .build()
