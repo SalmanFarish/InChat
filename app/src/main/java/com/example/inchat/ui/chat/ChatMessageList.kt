@@ -598,6 +598,9 @@ fun ChatMessageList(
                         val nextMessage = messages.getOrNull(index + 1)
                         val sameDayAsNext =
                             nextMessage != null &&
+                                    !isSystemEvent &&
+                                    nextMessage.systemEvent.isBlank() &&
+                                    nextMessage.senderId == message.senderId &&
                                     isSameCalendarDay(
                                         message.timestamp,
                                         nextMessage.timestamp
