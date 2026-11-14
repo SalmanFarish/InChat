@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -724,7 +725,12 @@ class ChatRepository {
 
             // Room is the first source for the UI. It survives process death.
             val localMessagesJob = launch(Dispatchers.IO) {
-                localMessageDao.observeMessages(ownerUserId, chatId).collect { entities ->
+                // Room can re-run this query after writes to other chats because
+                // all cached messages share one table. Skip identical results
+                // before converting entities and forwarding them to the UI.
+                localMessageDao.observeMessages(ownerUserId, chatId)
+                    .distinctUntilChanged()
+                    .collect { entities ->
                     val localMessages = entities.map { it.toMessage() }
                     messageCache[key] = localMessages
                     trySend(localMessages)
