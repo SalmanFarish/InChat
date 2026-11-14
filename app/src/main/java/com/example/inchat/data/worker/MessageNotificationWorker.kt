@@ -7,6 +7,7 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -98,6 +99,9 @@ class MessageNotificationWorker(
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build()
                 )
+                // Run immediately when Android allows expedited work. If the
+                // app is out of expedited quota, preserve delivery as normal work.
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setBackoffCriteria(
                     BackoffPolicy.EXPONENTIAL,
                     30L,
