@@ -891,7 +891,7 @@ class ChatRepository {
             .sortedByDescending { it.lastTimestamp }
             .take(maxChats)
             .filter { it.chatId.isNotBlank() }
-            .filter { prefetchedChatIds.add(cacheKey(it.chatId, ownerUserId)) }
+            .distinctBy { it.chatId }
             .toList()
 
         // Warm a few chats at once instead of serially waiting for each
@@ -902,9 +902,10 @@ class ChatRepository {
                 async {
                     val chatId = conversation.chatId
                     val key = cacheKey(chatId, ownerUserId)
+                    if (!prefetchedChatIds.add(key)) return@async
 
-                    semaphore.withPermit {
-                        try {
+                    try {
+                        semaphore.withPermit {
                             // If this chat is already cached locally, there is nothing to warm.
                             if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
                                 return@withPermit
@@ -928,16 +929,16 @@ class ChatRepository {
                                     latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
                                 )
                             }
-                        } catch (error: CancellationException) {
-                            prefetchedChatIds.remove(key)
-                            throw error
-                        } catch (error: Exception) {
-                            prefetchedChatIds.remove(key)
-                            Log.d(
-                                TAG,
-                                "Background message warm-up skipped for $chatId: ${error.message}"
-                            )
                         }
+                    } catch (error: CancellationException) {
+                        prefetchedChatIds.remove(key)
+                        throw error
+                    } catch (error: Exception) {
+                        prefetchedChatIds.remove(key)
+                        Log.d(
+                            TAG,
+                            "Background message warm-up skipped for $chatId: ${error.message}"
+                        )
                     }
                 }
             }.awaitAll()
