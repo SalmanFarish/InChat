@@ -538,38 +538,118 @@ class GroupChatRepository {
             }
         }
 
-    fun observeGroup(groupId: String): Flow<Group?> =
+    fun observeGroup(groupId: String): Flow<Group?> {
+        if (groupId.isBlank()) return flowOf(null)
+
+        // Do not listen at /chats/{groupId}: that node also contains the
+        // entire messages history. Separate metadata listeners prevent every
+        // new message from retransmitting the group's full message subtree.
+        return combine(
+            observeGroupString(groupId, "type"),
+            observeGroupString(groupId, "name"),
+            observeGroupString(groupId, "createdBy"),
+            observeGroupLong(groupId, "createdAt"),
+            observeGroupMembers(groupId)
+        ) { type, name, createdBy, createdAt, members ->
+            if (type != "group") {
+                null
+            } else {
+                Group(
+                    chatId = groupId,
+                    type = "group",
+                    name = name,
+                    createdBy = createdBy,
+                    createdAt = createdAt,
+                    members = members
+                )
+            }
+        }.distinctUntilChanged()
+    }
+
+    private fun observeGroupString(
+        groupId: String,
+        field: String
+    ): Flow<String> =
         callbackFlow {
-
-            val ref =
-                database
-                    .getReference("chats")
-                    .child(groupId)
-
-            val listener =
-                object : com.google.firebase.database.ValueEventListener {
-
-                    override fun onDataChange(snapshot: DataSnapshot) {
-                        trySend(parseGroup(snapshot))
-                    }
-
-                    override fun onCancelled(
-                        error: com.google.firebase.database.DatabaseError
-                    ) {
-                        Log.e(
-                            "GroupChatRepository",
-                            "Group listener cancelled for $groupId: ${error.message}"
-                        )
-                        trySend(null)
-                        close()
-                    }
+            val ref = database.getReference("chats")
+                .child(groupId)
+                .child(field)
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    trySend(snapshot.getValue(String::class.java).orEmpty())
                 }
 
-            ref.addValueEventListener(listener)
-
-            awaitClose {
-                ref.removeEventListener(listener)
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group $field listener cancelled for $groupId: ${error.message}"
+                    )
+                    trySend("")
+                    close()
+                }
             }
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+
+    private fun observeGroupLong(
+        groupId: String,
+        field: String
+    ): Flow<Long> =
+        callbackFlow {
+            val ref = database.getReference("chats")
+                .child(groupId)
+                .child(field)
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    trySend(snapshot.getValue(Long::class.java) ?: 0L)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group $field listener cancelled for $groupId: ${error.message}"
+                    )
+                    trySend(0L)
+                    close()
+                }
+            }
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }
+
+    private fun observeGroupMembers(
+        groupId: String
+    ): Flow<Map<String, String>> =
+        callbackFlow {
+            val ref = database.getReference("chats")
+                .child(groupId)
+                .child("members")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val members = snapshot.children.mapNotNull { child ->
+                        val uid = child.key
+                        val role = child.getValue(String::class.java)
+                        if (uid.isNullOrBlank() || role.isNullOrBlank()) {
+                            null
+                        } else {
+                            uid to role
+                        }
+                    }.toMap()
+                    trySend(members)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group members listener cancelled for $groupId: ${error.message}"
+                    )
+                    trySend(emptyMap())
+                    close()
+                }
+            }
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
         }
 
     suspend fun sendMessage(
