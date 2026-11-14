@@ -66,6 +66,26 @@ class CloudflareNotificationRepository {
             )
 
             if (attempt.isSuccess) {
+                val response = attempt.getOrThrow()
+                val notificationSent = response.optBoolean("notificationSent", true)
+                val alreadyProcessed = response.optBoolean("alreadyProcessed", false)
+                val reason = response.optString("reason").takeIf { it.isNotBlank() }
+
+                when {
+                    notificationSent -> Log.i(
+                        TAG,
+                        "FCM event accepted by Worker for chat=$chatId message=$messageId"
+                    )
+                    alreadyProcessed -> Log.i(
+                        TAG,
+                        "Worker had already processed chat=$chatId message=$messageId"
+                    )
+                    else -> Log.w(
+                        TAG,
+                        "Worker accepted event without confirming an FCM push " +
+                            "for chat=$chatId message=$messageId; reason=" + (reason ?: "not supplied")
+                    )
+                }
                 return Result.success(Unit)
             }
 
