@@ -617,66 +617,82 @@ class ChatRepository {
         ) return
 
         val pending = localMessageDao.getPendingMessages(ownerUserId, chatId)
-        for (localMessage in pending) {
-            try {
-                val messageRef = database.getReference("chats")
-                    .child(chatId)
-                    .child("messages")
-                    .child(localMessage.messageId)
-                val snapshot = messageRef.get().await()
-                val remoteMessage = snapshot.getValue(Message::class.java)
+        // Reconcile a small number at once: reconnects become faster without
+        // flooding Realtime Database when a chat has many queued messages.
+        val semaphore = Semaphore(4)
+        coroutineScope {
+            pending.map { localMessage ->
+                async {
+                    semaphore.withPermit {
+                        try {
+                            val messageRef = database.getReference("chats")
+                                .child(chatId)
+                                .child("messages")
+                                .child(localMessage.messageId)
+                            val snapshot = messageRef.get().await()
+                            val remoteMessage = snapshot.getValue(Message::class.java)
 
-                when {
-                    remoteMessage != null &&
-                        remoteMessage.id == localMessage.messageId &&
-                        remoteMessage.senderId == ownerUserId -> {
-                        localMessageDao.markMessageSent(
-                            ownerUserId = ownerUserId,
-                            chatId = chatId,
-                            messageId = localMessage.messageId
-                        )
-                    }
+                            when {
+                                remoteMessage != null &&
+                                    remoteMessage.id == localMessage.messageId &&
+                                    remoteMessage.senderId == ownerUserId -> {
+                                    localMessageDao.markMessageSent(
+                                        ownerUserId = ownerUserId,
+                                        chatId = chatId,
+                                        messageId = localMessage.messageId
+                                    )
+                                }
 
-                    !snapshot.exists() -> {
-                        // The process may have stopped after Room saved the
-                        // message but before Firebase received the write.
-                        // Reuse the same ID so this retry cannot create a duplicate.
-                        val localMessageModel = localMessage.toMessage()
-                        val retryResult = sendMessage(
-                            chatId = chatId,
-                            messageId = localMessage.messageId,
-                            text = localMessageModel.text,
-                            senderId = ownerUserId,
-                            senderNickname = localMessageModel.senderNickname,
-                            receiverId = receiverId,
-                            receiverNickname = receiverNickname,
-                            replyTo = localMessageModel.replyTo,
-                            attachment = localMessageModel.attachment
-                        )
-                        retryResult.onSuccess {
-                            localMessageDao.markMessageSent(
-                                ownerUserId = ownerUserId,
-                                chatId = chatId,
-                                messageId = localMessage.messageId
+                                !snapshot.exists() -> {
+                                    // Reuse the original ID so retries cannot create duplicates.
+                                    val localMessageModel = localMessage.toMessage()
+                                    val retryResult = sendMessage(
+                                        chatId = chatId,
+                                        messageId = localMessage.messageId,
+                                        text = localMessageModel.text,
+                                        senderId = ownerUserId,
+                                        senderNickname = localMessageModel.senderNickname,
+                                        receiverId = receiverId,
+                                        receiverNickname = receiverNickname,
+                                        replyTo = localMessageModel.replyTo,
+                                        attachment = localMessageModel.attachment
+                                    )
+                                    retryResult.onSuccess {
+                                        localMessageDao.markMessageSent(
+                                            ownerUserId = ownerUserId,
+                                            chatId = chatId,
+                                            messageId = localMessage.messageId
+                                        )
+                                    }.onFailure { error ->
+                                        Log.w(
+                                            TAG,
+                                            "Pending message retry was not accepted: ${localMessage.messageId}",
+                                            error
+                                        )
+                                    }
+                                }
+
+                                else -> {
+                                    Log.w(
+                                        TAG,
+                                        "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
+                                    )
+                                }
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            Log.w(
+                                TAG,
+                                "Could not reconcile pending message ${localMessage.messageId}",
+                                error
                             )
-                        }.onFailure { error ->
-                            Log.w(TAG, "Pending message retry was not accepted: ${localMessage.messageId}", error)
                         }
                     }
-
-                    else -> {
-                        Log.w(
-                            TAG,
-                            "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
-                        )
-                    }
                 }
-            } catch (error: Exception) {
-                Log.w(TAG, "Could not reconcile pending message ${localMessage.messageId}", error)
-            }
+            }.awaitAll()
         }
     }
-
     /*
      * =========================================================
      * MESSAGE LISTENER
@@ -846,6 +862,8 @@ class ChatRepository {
             }
 
             Result.success(page)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.e(TAG, "Could not load older messages for $chatId", error)
             Result.failure(error)
