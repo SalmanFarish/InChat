@@ -1437,3 +1437,1502 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   return json({
     success: true,
     updatedGroups: updatedGroups,
+    dissolvedGroups: dissolvedGroups,
+  });
+}
+
+async function syncGroupConversationPreview(
+  env,
+  adminToken,
+  chatId,
+  chat,
+  message,
+  messageId,
+) {
+  const members = Object.keys(chat.members || {});
+  if (members.length < 2) return;
+
+  // The inbox changes and this marker are written in one RTDB multi-location
+  // PATCH. A retry after an FCM failure therefore cannot increment unread
+  // counts a second time.
+  const inboxAlreadySynced = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
+  );
+
+  const latestMessages = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages",
+    "GET",
+    undefined,
+    "orderBy=%22timestamp%22&limitToLast=1",
+  );
+
+  let latestId = "";
+  let latestMessage = null;
+  for (const entryId of Object.keys(latestMessages || {})) {
+    const entry = latestMessages[entryId];
+    if (
+      entry &&
+      typeof entry.timestamp === "number" &&
+      (!latestMessage || entry.timestamp > latestMessage.timestamp)
+    ) {
+      latestId = entryId;
+      latestMessage = entry;
+    }
+  }
+
+  const updates = {};
+  if (latestId === messageId && latestMessage) {
+    const isSystemEvent =
+      typeof latestMessage.systemEvent === "string" &&
+      latestMessage.systemEvent.trim() !== "";
+    const groupName = typeof chat.name === "string" ?
+      chat.name.trim() :
+      "";
+
+    for (const memberId of members) {
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "chatId"] = chatId;
+      updates[base + "chatType"] = "group";
+      updates[base + "groupName"] = groupName;
+      updates[base + "memberCount"] = members.length;
+      updates[base + "otherUserId"] = "";
+      updates[base + "otherUsername"] = "";
+      updates[base + "lastMessage"] =
+        typeof latestMessage.text === "string" ?
+          latestMessage.text :
+          "";
+      updates[base + "lastTimestamp"] = latestMessage.timestamp;
+      updates[base + "lastSenderId"] =
+        isSystemEvent ? "" : (latestMessage.senderId || "");
+      updates[base + "lastSenderNickname"] =
+        isSystemEvent ? "" : (latestMessage.senderNickname || "");
+    }
+  }
+
+  const isSystemEvent =
+    typeof message.systemEvent === "string" &&
+    message.systemEvent.trim() !== "";
+
+  if (!isSystemEvent && !inboxAlreadySynced) {
+    for (const memberId of members) {
+      if (memberId === message.senderId) continue;
+      updates[
+        "userChats/" + memberId + "/" + chatId + "/unreadCount"
+      ] = { ".sv": { increment: 1 } };
+    }
+  }
+
+  updates[
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
+  ] = true;
+
+  if (Object.keys(updates).length > 0) {
+    await adminDatabaseRequest(
+      env,
+      adminToken,
+      "",
+      "PATCH",
+      updates,
+    );
+  }
+}
+
+
+async function rebuildConversationPreview(
+  env,
+  adminToken,
+  chatId,
+  chat,
+) {
+  const messages = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages",
+    "GET",
+    undefined,
+    "orderBy=%22timestamp%22&limitToLast=1",
+  );
+
+  let latest = null;
+  for (const messageId of Object.keys(messages || {})) {
+    const message = messages[messageId];
+    if (
+      message &&
+      typeof message.timestamp === "number" &&
+      (!latest || message.timestamp > latest.timestamp)
+    ) {
+      latest = message;
+    }
+  }
+
+  const updates = {};
+  if (chat.type === "group") {
+    const members = Object.keys(chat.members || {});
+    const isSystemEvent = !!(
+      latest &&
+      typeof latest.systemEvent === "string" &&
+      latest.systemEvent.trim() !== ""
+    );
+
+    for (const memberId of members) {
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "chatId"] = chatId;
+      updates[base + "chatType"] = "group";
+      updates[base + "groupName"] =
+        typeof chat.name === "string" ? chat.name.trim() : "";
+      updates[base + "memberCount"] = members.length;
+      updates[base + "otherUserId"] = "";
+      updates[base + "otherUsername"] = "";
+      updates[base + "lastMessage"] =
+        typeof latest?.text === "string" ? latest.text : "";
+      updates[base + "lastTimestamp"] = latest?.timestamp || 0;
+      updates[base + "lastSenderId"] =
+        !isSystemEvent && latest?.senderId ? latest.senderId : "";
+      updates[base + "lastSenderNickname"] =
+        !isSystemEvent && latest?.senderNickname ?
+          latest.senderNickname :
+          "";
+    }
+  } else {
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (
+      typeof participantA !== "string" ||
+      typeof participantB !== "string" ||
+      participantA === "" ||
+      participantB === "" ||
+      participantA === participantB
+    ) {
+      throw new Error("Cannot rebuild preview for invalid direct chat.");
+    }
+
+    const lastMessage =
+      typeof latest?.text === "string" && latest.text.trim() !== "" ?
+        latest.text :
+        "No messages yet";
+    const lastTimestamp = latest?.timestamp || 0;
+    const lastSenderId = latest?.senderId || participantA;
+
+    for (const memberId of [participantA, participantB]) {
+      const existing = await adminDatabaseRequest(
+        env,
+        adminToken,
+        "userChats/" + memberId + "/" + chatId,
+      );
+      if (!existing) continue;
+
+      const base = "userChats/" + memberId + "/" + chatId + "/";
+      updates[base + "lastMessage"] = lastMessage;
+      updates[base + "lastTimestamp"] = lastTimestamp;
+      updates[base + "lastSenderId"] = lastSenderId;
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
+  }
+}
+
+
+/*
+ * Create/update both direct-chat inbox entries from the trusted Worker.
+ * A client must never be allowed to write another user's inbox metadata.
+ */
+async function clearDirectUnreadIfAlreadyRead(
+  env,
+  adminToken,
+  recipientId,
+  chatId,
+) {
+  const path = "userChats/" + recipientId + "/" + chatId;
+  const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
+
+  const [readResponse, readTimestampValue] = await Promise.all([
+    fetch(url, {
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "X-Firebase-ETag": "true",
+      },
+    }),
+    adminDatabaseRequest(
+      env,
+      adminToken,
+      "chatReadState/" + recipientId + "/" + chatId,
+    ),
+  ]);
+
+  if (readResponse.status === 404) return false;
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not check the recipient's inbox (" +
+      readResponse.status + ").",
+    );
+  }
+
+  const inbox = await readResponse.json();
+  const etag = readResponse.headers.get("ETag");
+  if (!inbox || !etag) return false;
+
+  const lastReadTimestamp = Number(readTimestampValue || 0);
+  const latestMessageTimestamp = Number(inbox.lastTimestamp || 0);
+  const unreadCount = Number(inbox.unreadCount || 0);
+
+  if (
+    !Number.isFinite(lastReadTimestamp) ||
+    !Number.isFinite(latestMessageTimestamp) ||
+    lastReadTimestamp <= 0 ||
+    lastReadTimestamp < latestMessageTimestamp ||
+    unreadCount <= 0
+  ) {
+    return false;
+  }
+
+  const nextInbox = { ...inbox, unreadCount: 0 };
+  const writeResponse = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextInbox),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    const details = await writeResponse.text();
+    throw new Error(
+      "Could not reconcile a read conversation (" +
+      writeResponse.status + "): " + details.slice(0, 240),
+    );
+  }
+
+  return true;
+}
+
+
+async function syncDirectInboxForNewMessage(
+  env,
+  adminToken,
+  chatId,
+  chat,
+  message,
+  messageId,
+) {
+  const participantA = chat.participantA;
+  const participantB = chat.participantB;
+  const senderId = message.senderId;
+
+  if (
+    typeof participantA !== "string" ||
+    typeof participantB !== "string" ||
+    participantA === "" ||
+    participantB === "" ||
+    participantA === participantB ||
+    (senderId !== participantA && senderId !== participantB)
+  ) {
+    throw new Error("Cannot update inbox for an invalid direct chat.");
+  }
+
+  const recipientId = senderId === participantA ? participantB : participantA;
+  const inboxAlreadySynced = await adminDatabaseRequest(
+    env,
+    adminToken,
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
+  );
+  const [
+    senderProfile,
+    recipientProfile,
+    senderInbox,
+    recipientInbox,
+    recipientReadTimestamp,
+  ] = await Promise.all([
+    adminDatabaseRequest(env, adminToken, "users/" + senderId),
+    adminDatabaseRequest(env, adminToken, "users/" + recipientId),
+    adminDatabaseRequest(env, adminToken, "userChats/" + senderId + "/" + chatId),
+    adminDatabaseRequest(env, adminToken, "userChats/" + recipientId + "/" + chatId),
+    adminDatabaseRequest(
+      env,
+      adminToken,
+      "chatReadState/" + recipientId + "/" + chatId,
+    ),
+  ]);
+
+  const senderNickname =
+    typeof senderProfile?.username === "string" &&
+    senderProfile.username.trim() !== "" ?
+      senderProfile.username.trim().slice(0, 20) :
+      (typeof message.senderNickname === "string" ?
+        message.senderNickname.trim().slice(0, 20) :
+        "User");
+
+  const recipientNickname =
+    typeof recipientProfile?.username === "string" &&
+    recipientProfile.username.trim() !== "" ?
+      recipientProfile.username.trim().slice(0, 20) :
+      "User";
+
+  const lastMessage =
+    typeof message.text === "string" && message.text.trim() !== "" ?
+      message.text.slice(0, 5000) :
+      "Sent an attachment";
+  const lastTimestamp =
+    typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ?
+      message.timestamp :
+      Date.now();
+
+  const updates = {};
+  const senderBase = "userChats/" + senderId + "/" + chatId + "/";
+  const recipientBase = "userChats/" + recipientId + "/" + chatId + "/";
+
+  for (const [base, otherUserId, otherUsername, existingInbox] of [
+    [senderBase, recipientId, recipientNickname, senderInbox],
+    [recipientBase, senderId, senderNickname, recipientInbox],
+  ]) {
+    updates[base + "chatId"] = chatId;
+    updates[base + "otherUserId"] = otherUserId;
+    updates[base + "otherUsername"] = otherUsername || "User";
+
+    // A delayed retry for an older message must not roll back a newer preview.
+    if (
+      !existingInbox ||
+      lastTimestamp >= Number(existingInbox.lastTimestamp || 0)
+    ) {
+      updates[base + "lastMessage"] = lastMessage;
+      updates[base + "lastTimestamp"] = lastTimestamp;
+      updates[base + "lastSenderId"] = senderId;
+    }
+  }
+
+  // Preserve an existing sender unread count; create new senders' entries at zero.
+  if (!senderInbox || typeof senderInbox.unreadCount !== "number") {
+    updates[senderBase + "unreadCount"] = 0;
+  }
+
+  // The private read cursor is separate from both the inbox row and public
+  // read receipts, so a first-message read and hidden receipts work correctly.
+  const recipientLastReadTimestamp = Number(recipientReadTimestamp || 0);
+  const recipientAlreadyReadMessage =
+    Number.isFinite(recipientLastReadTimestamp) &&
+    recipientLastReadTimestamp >= lastTimestamp;
+
+  // The marker is included in the same atomic PATCH as the unread update.
+  // If FCM later fails, a retry will refresh previews without incrementing again.
+  if (!inboxAlreadySynced && !recipientAlreadyReadMessage) {
+    if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
+      updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
+    } else {
+      updates[recipientBase + "unreadCount"] = 1;
+    }
+  } else if (!recipientInbox || typeof recipientInbox.unreadCount !== "number") {
+    updates[recipientBase + "unreadCount"] = 0;
+  }
+
+  updates[
+    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
+  ] = true;
+
+  await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
+
+  // Close the narrow race where the chat is marked read after the initial
+  // inbox snapshot but before this message's increment is committed. ETag
+  // prevents this repair from clearing a newer message that arrived later.
+  await clearDirectUnreadIfAlreadyRead(
+    env,
+    adminToken,
+    recipientId,
+    chatId,
+  );
+}
+
+async function processPreviewEvent(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+
+  if (!chat) return json({ error: "Chat not found." }, 404);
+
+  if (chat.type === "group") {
+    if (!chat.members || !chat.members[uid]) {
+      return json({ error: "You are not a group member." }, 403);
+    }
+  } else if (
+    chat.participantA !== uid &&
+    chat.participantB !== uid
+  ) {
+    return json({ error: "You are not a chat participant." }, 403);
+  }
+
+  await rebuildConversationPreview(
+    env,
+    adminAuth.token,
+    chatId,
+    chat,
+  );
+
+  return json({
+    success: true,
+    chatId: chatId,
+  });
+}
+
+async function processMessageEvent(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const chatId = cleanSegment(body.chatId, "chatId");
+  const messageId = cleanSegment(body.messageId, "messageId");
+
+  const chat = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId,
+  );
+  const message = await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "chats/" + chatId + "/messages/" + messageId,
+  );
+
+  if (!chat || !message || message.senderId !== uid) {
+    return json({ error: "Message or chat not found for this sender." }, 403);
+  }
+
+  const isGroup = chat.type === "group";
+  const systemEvent = typeof message.systemEvent === "string" ?
+    message.systemEvent.trim() :
+    "";
+
+  if (isGroup) {
+    const isMember = Boolean(chat.members && chat.members[uid]);
+    if (!isMember && systemEvent !== "member_left") {
+      return json({ error: "Sender is not a current group member." }, 403);
+    }
+    if (systemEvent && !isMember && systemEvent !== "member_left") {
+      return json({ error: "Invalid group activity sender." }, 403);
+    }
+  } else {
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (participantA !== uid && participantB !== uid) {
+      return json({ error: "Sender is not a chat participant." }, 403);
+    }
+  }
+
+  const claimId = await claimMessageEvent(
+    env,
+    adminAuth.token,
+    chatId,
+    messageId,
+    uid,
+  );
+
+  if (claimId === null) {
+    return json({
+      success: true,
+      alreadyProcessed: true,
+      notificationSent: false,
+    });
+  }
+
+  if (typeof claimId !== "string") {
+    return json({
+      success: false,
+      retryable: true,
+      error: "This message notification is already being processed.",
+    }, 503);
+  }
+
+  try {
+  if (isGroup) {
+    await syncGroupConversationPreview(
+      env,
+      adminAuth.token,
+      chatId,
+      chat,
+      message,
+      messageId,
+    );
+
+    if (systemEvent) {
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "Group activity messages are not push-notified.",
+        },
+      );
+    }
+  } else {
+    await syncDirectInboxForNewMessage(
+      env,
+      adminAuth.token,
+      chatId,
+      chat,
+      message,
+      messageId,
+    );
+  }
+
+  const messageText = notificationText(
+    typeof message.text === "string" && message.text.trim() !== "" ?
+      message.text :
+      "Sent an attachment",
+  );
+  const senderNickname =
+    typeof message.senderNickname === "string" &&
+    message.senderNickname.trim() !== "" ?
+      message.senderNickname.trim() :
+      "InChat user";
+
+  if (!isGroup) {
+    const receiverId =
+      chat.participantA === uid ?
+        chat.participantB :
+        chat.participantA;
+
+    const senderBlockedReceiver = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "blockedUsers/" + uid + "/" + receiverId,
+    );
+    const receiverBlockedSender = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "blockedUsers/" + receiverId + "/" + uid,
+    );
+
+    if (senderBlockedReceiver || receiverBlockedSender) {
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "Notifications are disabled for blocked users.",
+        },
+      );
+    }
+
+    const receiverToken = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "privateUsers/" + receiverId + "/fcmToken",
+    );
+    if (
+      typeof receiverToken !== "string" ||
+      receiverToken.trim() === ""
+    ) {
+      return await completeClaimedMessageEvent(
+        env, adminAuth.token, chatId, messageId, claimId,
+        {
+          success: true,
+          notificationSent: false,
+          reason: "The receiver has no registered FCM token.",
+        },
+      );
+    }
+
+    const notification = {
+      message: {
+        token: receiverToken,
+        data: {
+          type: "chat_message",
+          chatId: chatId,
+          messageId: messageId,
+          senderId: uid,
+          senderName: senderNickname,
+          message: messageText,
+        },
+        android: {
+          priority: "high",
+        },
+      },
+    };
+
+    const result = await fcmRequest(
+      adminAuth.token,
+      "https://fcm.googleapis.com/v1/projects/" +
+        encodeURIComponent(adminAuth.projectId) +
+        "/messages:send",
+      "POST",
+      notification,
+      [404],
+    );
+
+    if (
+      result.status === 404 ||
+      JSON.stringify(result.body).includes("UNREGISTERED")
+    ) {
+      await adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        "privateUsers/" + receiverId + "/fcmToken",
+        "DELETE",
+      );
+    }
+
+    return await completeClaimedMessageEvent(
+      env, adminAuth.token, chatId, messageId, claimId,
+      {
+        success: true,
+        notificationSent: result.ok,
+        chatId: chatId,
+        messageId: messageId,
+      },
+    );
+  }
+
+  const groupName =
+    typeof chat.name === "string" && chat.name.trim() !== "" ?
+      chat.name.trim() :
+      "Group";
+
+  const result = await fcmRequest(
+    adminAuth.token,
+    "https://fcm.googleapis.com/v1/projects/" +
+      encodeURIComponent(adminAuth.projectId) +
+      "/messages:send",
+    "POST",
+    {
+      message: {
+        condition:
+          "'" + await groupTopicName(env, chatId) +
+          "' in topics && !('" +
+          await userTopicName(env, uid) + "' in topics)",
+        data: {
+          type: "group_message",
+          chatId: chatId,
+          messageId: messageId,
+          senderId: uid,
+          senderName: senderNickname,
+          groupName: groupName,
+          message: messageText,
+        },
+        android: {
+          priority: "high",
+        },
+      },
+    },
+  );
+
+  return await completeClaimedMessageEvent(
+    env, adminAuth.token, chatId, messageId, claimId,
+    {
+      success: true,
+      notificationSent: result.ok,
+      chatId: chatId,
+      messageId: messageId,
+    },
+  );
+  } catch (eventError) {
+    try {
+      await updateMessageEventReceipt(
+        env,
+        adminAuth.token,
+        chatId,
+        messageId,
+        claimId,
+        "failed",
+        String(eventError),
+      );
+    } catch (receiptError) {
+      console.error("Could not release failed notification claim", {
+        chatId: chatId,
+        messageId: messageId,
+        error: String(receiptError),
+      });
+    }
+    throw eventError;
+  }
+}
+
+
+/*
+ * =========================================================
+ * PASSWORD RECOVERY (legacy InChat recovery-code flow)
+ * =========================================================
+ *
+ * This endpoint intentionally does not require a signed-in Firebase user.
+ * A one-time recovery code is consumed with an ETag-guarded whole-record PUT
+ * so two concurrent requests cannot both use the same code.
+ */
+function normalizeRecoveryCode(code) {
+  return code.trim().toUpperCase().replace(/-/g, "").replace(/^INCH/, "");
+}
+
+function hexToBytes(hex) {
+  if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) {
+    throw new Error("Invalid recovery-code salt.");
+  }
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function hashRecoveryCode(saltHex, recoveryCode) {
+  const salt = hexToBytes(saltHex);
+  const codeBytes = new TextEncoder().encode(normalizeRecoveryCode(recoveryCode));
+  const combined = new Uint8Array(salt.length + codeBytes.length);
+  combined.set(salt, 0);
+  combined.set(codeBytes, salt.length);
+
+  const digest = await crypto.subtle.digest("SHA-256", combined);
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function constantTimeEquals(first, second) {
+  if (typeof first !== "string" || typeof second !== "string") return false;
+  if (first.length !== second.length) return false;
+
+  let difference = 0;
+  for (let index = 0; index < first.length; index += 1) {
+    difference |=
+      first.toLowerCase().charCodeAt(index) ^
+      second.toLowerCase().charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function consumeRecoveryCode(
+  env,
+  adminToken,
+  uid,
+  index,
+  expectedHash,
+) {
+  const url =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/recoveryCodes/" +
+    encodeURIComponent(uid) +
+    ".json";
+
+  const readResponse = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error("Could not read recovery-code state.");
+  }
+
+  const currentData = await readResponse.json();
+  const currentHash = currentData?.codes?.[String(index)];
+  if (!constantTimeEquals(currentHash, expectedHash)) return false;
+
+  const etag = readResponse.headers.get("ETag");
+  if (!etag) throw new Error("Firebase did not return a recovery-code ETag.");
+
+  const nextData = {
+    ...currentData,
+    codes: {
+      ...currentData.codes,
+      [String(index)]: null,
+    },
+  };
+
+  const writeResponse = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextData),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error("Could not atomically consume the recovery code.");
+  }
+
+  return true;
+}
+
+async function updateFirebasePassword(
+  projectId,
+  uid,
+  newPassword,
+  adminToken,
+) {
+  const response = await fetch(
+    "https://identitytoolkit.googleapis.com/v1/projects/" +
+      encodeURIComponent(projectId) +
+      "/accounts:update",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        localId: uid,
+        password: newPassword,
+        returnSecureToken: false,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const details = await response.text();
+    console.error("Firebase password update failed", {
+      status: response.status,
+      response: details.slice(0, 300),
+    });
+    throw new Error("Firebase Authentication could not update the password.");
+  }
+}
+
+async function recoverPassword(request, env, adminAuth) {
+  try {
+    let body;
+    try {
+      body = await request.json();
+    } catch (_) {
+      return json({ error: "Invalid JSON body." }, 400);
+    }
+
+    const username =
+      typeof body.username === "string" ? body.username.trim() : "";
+    const recoveryCode =
+      typeof body.recoveryCode === "string" ? body.recoveryCode.trim() : "";
+    const newPassword =
+      typeof body.newPassword === "string" ? body.newPassword : "";
+
+    if (!username || !recoveryCode || !newPassword) {
+      return json({
+        error: "Username, recovery code and new password are required.",
+      }, 400);
+    }
+
+    if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    if (newPassword.length < 6 || newPassword.length > 4096) {
+      return json({ error: "Password must be between 6 and 4096 characters." }, 400);
+    }
+
+    const uid = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "usernames/" + username.toLowerCase(),
+    );
+
+    // Keep the response identical for unknown usernames and invalid codes.
+    if (typeof uid !== "string" || !uid.trim()) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const cleanUid = uid.trim();
+    const recoveryData = await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "recoveryCodes/" + cleanUid,
+    );
+
+    if (
+      !recoveryData ||
+      typeof recoveryData.salt !== "string" ||
+      !/^[0-9a-fA-F]{32}$/.test(recoveryData.salt) ||
+      !recoveryData.codes ||
+      typeof recoveryData.codes !== "object"
+    ) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const suppliedHash = await hashRecoveryCode(
+      recoveryData.salt,
+      recoveryCode,
+    );
+
+    let matchedIndex = -1;
+    let matchedHash = "";
+    for (let index = 0; index < 5; index += 1) {
+      const storedHash = recoveryData.codes[String(index)];
+      if (
+        typeof storedHash === "string" &&
+        constantTimeEquals(suppliedHash, storedHash)
+      ) {
+        matchedIndex = index;
+        matchedHash = storedHash;
+        break;
+      }
+    }
+
+    if (matchedIndex < 0) {
+      return json({ error: "Invalid username or recovery code." }, 401);
+    }
+
+    const consumed = await consumeRecoveryCode(
+      env,
+      adminAuth.token,
+      cleanUid,
+      matchedIndex,
+      matchedHash,
+    );
+
+    if (!consumed) {
+      return json({
+        error: "This recovery code has already been used. Try another code.",
+      }, 401);
+    }
+
+    try {
+      await updateFirebasePassword(
+        adminAuth.projectId,
+        cleanUid,
+        newPassword,
+        adminAuth.token,
+      );
+    } catch (error) {
+      // The one-time code stays consumed; do not silently make it reusable.
+      console.error("Password recovery could not finish after code consumption", {
+        uid: cleanUid,
+        error: String(error),
+      });
+      return json({
+        error:
+          "The recovery code was consumed, but the password could not be changed. " +
+          "Contact support before trying another code.",
+      }, 500);
+    }
+
+    console.log("Password recovery completed", { uid: cleanUid });
+    return json({
+      success: true,
+      message: "Password changed successfully.",
+    });
+  } catch (error) {
+    console.error("Password recovery failed", String(error));
+    return json({ error: "Could not complete password recovery." }, 500);
+  }
+}
+
+function attachmentKey(chatId, messageId) {
+  return "attachments/" + chatId + "/" + messageId;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function upload(request, env, uid, chatId, messageId, message, adminToken) {
+  const contentLengthHeader = request.headers.get("Content-Length") || "";
+  const contentType =
+    request.headers.get("Content-Type") || "application/octet-stream";
+  const attachmentType =
+    request.headers.get("X-InChat-Attachment-Type") || "file";
+  const fileName = cleanFileName(
+    request.headers.get("X-InChat-File-Name"),
+  );
+
+  if (attachmentType !== "voice" && attachmentType !== "view_once_photo") {
+    return json({ error: "Unsupported attachment type." }, 400);
+  }
+
+  const key = attachmentKey(chatId, messageId);
+  if (
+    message.attachment?.storageKey !== key ||
+    message.attachment?.type !== attachmentType
+  ) {
+    return json({ error: "Attachment metadata does not match this message." }, 409);
+  }
+
+  const maxBytes =
+    attachmentType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
+
+  if (!/^\d+$/.test(contentLengthHeader)) {
+    return json({ error: "A valid Content-Length is required." }, 400);
+  }
+
+  const contentLength = Number(contentLengthHeader);
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) {
+    return json({ error: "A valid Content-Length is required." }, 400);
+  }
+
+  if (contentLength > maxBytes) {
+    return json({ error: "Attachment is too large." }, 413);
+  }
+
+  const normalizedContentType = contentType.toLowerCase();
+  if (attachmentType === "voice" && !normalizedContentType.startsWith("audio/")) {
+    return json({ error: "Voice attachments must be audio files." }, 400);
+  }
+
+  if (
+    attachmentType === "view_once_photo" &&
+    !normalizedContentType.startsWith("image/")
+  ) {
+    return json({ error: "View-once attachments must be images." }, 400);
+  }
+
+  if (!request.body) {
+    return json({ error: "Empty upload." }, 400);
+  }
+
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const attachmentUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" +
+    attachmentPath.split("/").map(encodeURIComponent).join("/") +
+    ".json";
+
+  // Read an ETag before uploading, then use it for a create-only conditional
+  // write. This prevents simultaneous PUT requests from replacing one another.
+  const existingResponse = await fetch(attachmentUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+      Accept: "application/json",
+    },
+  });
+
+  if (!existingResponse.ok) {
+    throw new Error("Could not check whether the attachment already exists.");
+  }
+
+  const existingRecord = await existingResponse.json();
+  if (existingRecord !== null) {
+    return json({ error: "Attachment already exists." }, 409);
+  }
+
+  const etag = existingResponse.headers.get("ETag");
+  if (!etag) {
+    throw new Error("Firebase did not return an attachment ETag.");
+  }
+
+  // Enforce the limit while streaming too; Content-Length alone is not trusted.
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      if (!result.value) continue;
+
+      totalBytes += result.value.byteLength;
+      if (totalBytes > maxBytes || totalBytes > contentLength) {
+        await reader.cancel().catch(() => {});
+        return json({ error: "Attachment is too large." }, 413);
+      }
+
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes !== contentLength) {
+    return json({ error: "Upload size did not match Content-Length." }, 400);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const writeResponse = await fetch(attachmentUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify({
+      data: bytesToBase64(bytes),
+      contentType: contentType,
+      fileName: fileName,
+      attachmentType: attachmentType,
+      sizeBytes: bytes.byteLength,
+      senderId: uid,
+      chatId: chatId,
+      messageId: messageId,
+      createdAt: { ".sv": "timestamp" },
+    }),
+  });
+
+  if (writeResponse.status === 412) {
+    return json({ error: "Attachment already exists." }, 409);
+  }
+  if (!writeResponse.ok) {
+    const details = await writeResponse.text();
+    throw new Error(
+      "Could not save attachment (" +
+      writeResponse.status +
+      "): " +
+      details.slice(0, 240),
+    );
+  }
+
+  return json({
+    success: true,
+    key: key,
+    size: bytes.byteLength,
+    contentType: contentType,
+    fileName: fileName,
+    attachmentType: attachmentType,
+  }, 201);
+}
+
+async function download(env, chatId, messageId, uid, adminToken, message) {
+  const expectedType = message?.attachment?.type;
+  if (
+    message?.attachment?.storageKey !== attachmentKey(chatId, messageId) ||
+    (expectedType !== "voice" && expectedType !== "view_once_photo") ||
+    typeof message.senderId !== "string" ||
+    !message.senderId
+  ) {
+    return new Response("Attachment is not linked to a valid message.", {
+      status: 404,
+    });
+  }
+
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const url =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" + attachmentPath.split("/").map(encodeURIComponent).join("/") +
+    ".json";
+  const response = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (response.status === 404) {
+    return new Response("Attachment not found", { status: 404 });
+  }
+  if (!response.ok) {
+    throw new Error("Could not read attachment from Realtime Database.");
+  }
+
+  const record = await response.json();
+  if (
+    !record ||
+    typeof record.data !== "string" ||
+    record.chatId !== chatId ||
+    record.messageId !== messageId ||
+    record.senderId !== message.senderId ||
+    record.attachmentType !== expectedType
+  ) {
+    return new Response("Attachment metadata does not match its message.", {
+      status: 404,
+    });
+  }
+
+  const maxBytes =
+    expectedType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
+  const expectedMimePrefix =
+    expectedType === "voice" ? "audio/" : "image/";
+  if (
+    typeof record.contentType !== "string" ||
+    !record.contentType.toLowerCase().startsWith(expectedMimePrefix) ||
+    record.data.length === 0 ||
+    record.data.length > 4 * Math.ceil(maxBytes / 3)
+  ) {
+    return new Response("Invalid attachment data.", { status: 404 });
+  }
+
+  // Decode and validate before consuming a view-once record, so corrupt data
+  // cannot burn the one allowed open.
+  let bytes;
+  try {
+    bytes = base64ToBytes(record.data);
+  } catch (_) {
+    return new Response("Invalid attachment data.", { status: 404 });
+  }
+
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > maxBytes ||
+    (record.sizeBytes !== undefined &&
+      (!Number.isSafeInteger(record.sizeBytes) ||
+        record.sizeBytes !== bytes.byteLength))
+  ) {
+    return new Response("Invalid attachment size.", { status: 404 });
+  }
+
+  if (expectedType === "view_once_photo" && record.senderId === uid) {
+    return new Response("Sender cannot consume a view-once photo", { status: 403 });
+  }
+
+  if (expectedType === "view_once_photo") {
+    const etag = response.headers.get("ETag");
+    if (!etag) throw new Error("Firebase did not return an attachment ETag.");
+    const consumeResponse = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "If-Match": etag,
+      },
+    });
+    if (consumeResponse.status === 412) {
+      return new Response("This view-once photo has already been opened.", {
+        status: 410,
+      });
+    }
+    if (!consumeResponse.ok) {
+      throw new Error("Could not consume the view-once attachment.");
+    }
+  }
+
+  const safeFileName = cleanFileName(record.fileName);
+  const headers = new Headers();
+  headers.set("Content-Type", record.contentType);
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("Content-Disposition", 'attachment; filename="' +
+    safeFileName + '"');
+  headers.set("X-InChat-File-Name", safeFileName);
+  headers.set("X-InChat-Attachment-Type", expectedType);
+
+  if (expectedType === "view_once_photo") {
+    headers.set("X-InChat-View-Once", "true");
+  }
+
+  return new Response(bytes, { status: 200, headers });
+}
+async function remove(env, chatId, messageId, uid, adminToken) {
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const record = await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+  );
+
+  if (!record) {
+    return json({ success: true, deleted: false });
+  }
+
+  if (
+    record.senderId !== uid ||
+    record.chatId !== chatId ||
+    record.messageId !== messageId
+  ) {
+    return new Response("Only the attachment sender can delete this file.", {
+      status: 403,
+    });
+  }
+
+  await adminDatabaseRequest(
+    env,
+    adminToken,
+    attachmentPath,
+    "DELETE",
+  );
+  return json({ success: true, deleted: true });
+}
+export default {
+  async fetch(request, env) {
+    try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers":
+              "Authorization, Content-Type, X-InChat-Attachment-Type, X-InChat-File-Name",
+            "Access-Control-Allow-Methods": "GET, PUT, DELETE, POST, OPTIONS",
+          },
+        });
+      }
+
+      const url = new URL(request.url);
+
+      if (
+        request.method === "POST" &&
+        (url.pathname === "/recover" || url.pathname === "/v1/recover")
+      ) {
+        // Recovery is intentionally unauthenticated. Apply both per-IP and
+        // per-account throttles before performing privileged Firebase work.
+        const recoveryBody = await request.clone().json().catch(() => ({}));
+        const recoveryUsername =
+          typeof recoveryBody.username === "string" ?
+            recoveryBody.username.trim().toLowerCase() :
+            "";
+        const sourceIp = request.headers.get("CF-Connecting-IP") || "unknown";
+
+        const [ipLimit, usernameLimit] = await Promise.all([
+          env.RECOVERY_IP_LIMITER.limit({ key: sourceIp }),
+          recoveryUsername ?
+            env.RECOVERY_USERNAME_LIMITER.limit({ key: recoveryUsername }) :
+            Promise.resolve({ success: true }),
+        ]);
+
+        if (!ipLimit.success || !usernameLimit.success) {
+          return json({
+            error: "Too many password recovery attempts. Please wait and try again.",
+          }, 429);
+        }
+
+        const adminAuth = await getFirebaseAdminToken(env);
+        return recoverPassword(request, env, adminAuth);
+      }
+
+      const user = await authenticate(getBearer(request), env);
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/events/message"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processMessageEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/groups/manage-members"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return manageGroupMembership(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/groups/topic"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return updateGroupTopic(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/account/group-cleanup"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return cleanupAccountGroupsForDeletion(env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/events/preview"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processPreviewEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/notifications/personal-topic"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return clearPersonalNotificationTopic(
+          env,
+          user.uid,
+          adminAuth,
+        );
+      }
+
+      const match = url.pathname.match(
+        /^\/v1\/attachments\/([^/]+)\/([^/]+)$/,
+      );
+
+      if (!match) return json({ error: "Not found" }, 404);
+
+      const chatId = cleanSegment(match[1], "chatId");
+      const messageId = cleanSegment(match[2], "messageId");
+
+      await authorizeChat(chatId, user.uid, user.token, env);
+
+      if (request.method === "PUT") {
+        const message = await authorizeMessageSender(
+          chatId,
+          messageId,
+          user.uid,
+          user.token,
+          env,
+        );
+        const adminAuth = await getFirebaseAdminToken(env);
+        return upload(
+          request,
+          env,
+          user.uid,
+          chatId,
+          messageId,
+          message,
+          adminAuth.token,
+        );
+      }
+
+      if (request.method === "GET") {
+        const message = await loadMessage(
+          chatId,
+          messageId,
+          user.token,
+          env,
+        );
+
+        if (
+          !message ||
+          message.attachment?.storageKey !== attachmentKey(chatId, messageId)
+        ) {
+          return new Response("Attachment is not linked to an existing message.", {
+            status: 404,
+          });
+        }
+
+        const adminAuth = await getFirebaseAdminToken(env);
+        return download(env, chatId, messageId, user.uid, adminAuth.token, message);
+      }
+
+      if (request.method === "DELETE") {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return remove(env, chatId, messageId, user.uid, adminAuth.token);
+      }
+
+      return json({ error: "Method not allowed" }, 405);
+    } catch (error) {
+      if (error instanceof Response) return error;
+      console.error("InChat attachment worker error", error);
+      return json({ error: "Attachment service error." }, 500);
+    }
+  },
+};
