@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 enum class BlockState {
@@ -615,6 +616,7 @@ class ChatViewModel : ViewModel() {
                         .getMessagesFlow(
                             chatId
                         )
+                        .distinctUntilChanged()
                         .collect { messageList ->
 
                             _messages.value =
