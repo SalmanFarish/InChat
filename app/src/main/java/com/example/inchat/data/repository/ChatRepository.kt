@@ -5,6 +5,7 @@ import com.example.inchat.InChatApplication
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.local.toCachedEntity
 import com.example.inchat.data.local.toMessage
+import com.example.inchat.data.worker.MessageNotificationWorker
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -1449,15 +1450,22 @@ class ChatRepository {
             onQueued()
             messageWrite.await()
 
-            CloudflareNotificationRepository()
-                .notifyMessage(chatId, messageId)
-                .onFailure { notificationError ->
-                    Log.w(
-                        TAG,
-                        "Message was saved, but Cloudflare notification dispatch failed.",
-                        notificationError
-                    )
-                }
+            try {
+                MessageNotificationWorker.enqueue(
+                    context = InChatApplication.instance,
+                    senderId = senderId,
+                    chatId = chatId,
+                    messageId = messageId
+                )
+            } catch (queueError: Exception) {
+                // The Firebase message is already saved. Do not turn a queue
+                // scheduling issue into a failed send; log it for diagnosis.
+                Log.e(
+                    TAG,
+                    "Message was saved, but its background event could not be queued.",
+                    queueError
+                )
+            }
 
             // The Cloudflare Worker creates and updates both direct-chat inbox
             // records after verifying the persisted message. Clients never write
