@@ -48,11 +48,13 @@ class MessageNotificationWorker(
             return Result.failure()
         }
 
+        Log.i(TAG, "Processing message event in background for chat=$chatId message=$messageId")
         val notifications = CloudflareNotificationRepository()
         val result = notifications.notifyMessage(chatId, messageId)
 
         return result.fold(
             onSuccess = {
+                Log.i(TAG, "Message event endpoint completed for chat=$chatId message=$messageId")
                 Result.success()
             },
             onFailure = { error ->
