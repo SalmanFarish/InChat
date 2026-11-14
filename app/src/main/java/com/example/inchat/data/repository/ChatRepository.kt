@@ -18,6 +18,7 @@ import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -691,6 +692,27 @@ class ChatRepository {
 
             val key = cacheKey(chatId, ownerUserId)
 
+            // Firebase can emit snapshots in quick succession. Persist them
+            // through one conflated worker so slow Room writes cannot finish
+            // out of order and overwrite a newer snapshot with stale data.
+            val snapshotPersistenceChannel =
+                Channel<List<Message>>(Channel.CONFLATED)
+            val snapshotPersistenceJob = launch(Dispatchers.IO) {
+                for (snapshotMessages in snapshotPersistenceChannel) {
+                    try {
+                        localMessageDao.replaceLatestSnapshot(
+                            ownerUserId = ownerUserId,
+                            chatId = chatId,
+                            messages = snapshotMessages.map {
+                                it.toCachedEntity(ownerUserId, chatId)
+                            }
+                        )
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
+                    }
+                }
+            }
+
             // Room is the first source for the UI. It survives process death.
             val localMessagesJob = launch(Dispatchers.IO) {
                 localMessageDao.observeMessages(ownerUserId, chatId).collect { entities ->
@@ -740,21 +762,10 @@ class ChatRepository {
                     messageCache[key] = combinedMessages
                     trySend(combinedMessages)
 
-                    // Replace only the range represented by Firebase's latest-200 query.
-                    // Previously loaded older pages remain in Room.
-                    producerScope.launch(Dispatchers.IO) {
-                        try {
-                            localMessageDao.replaceLatestSnapshot(
-                                ownerUserId = ownerUserId,
-                                chatId = chatId,
-                                messages = immutableLatestMessages.map {
-                                    it.toCachedEntity(ownerUserId, chatId)
-                                }
-                            )
-                        } catch (error: Exception) {
-                            Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
-                        }
-                    }
+                    // Queue only the newest pending snapshot for Room. The
+                    // conflated worker serializes writes and skips obsolete
+                    // intermediate snapshots when Firebase emits rapidly.
+                    snapshotPersistenceChannel.trySend(immutableLatestMessages)
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -771,6 +782,8 @@ class ChatRepository {
             awaitClose {
                 localMessagesJob.cancel()
                 messagesRef.removeEventListener(listener)
+                snapshotPersistenceChannel.close()
+                snapshotPersistenceJob.cancel()
             }
         }
 
