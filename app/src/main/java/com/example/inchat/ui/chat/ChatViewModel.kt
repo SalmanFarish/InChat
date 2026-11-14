@@ -253,6 +253,10 @@ class ChatViewModel : ViewModel() {
     private var lastMarkedReadTimestamp =
         0L
 
+    // Avoid writing the same delivered cursor on every Room/Firebase emission.
+    private var lastMarkedDeliveredTimestamp =
+        0L
+
     init {
         startConnectionListener()
     }
@@ -410,6 +414,7 @@ class ChatViewModel : ViewModel() {
         _chatInitializationError.value = null
 
         lastMarkedReadTimestamp = 0L
+        lastMarkedDeliveredTimestamp = 0L
 
         // Populate from the last in-memory snapshot before waiting for
         // chat initialization or the next Firebase listener callback.
@@ -621,44 +626,33 @@ class ChatViewModel : ViewModel() {
                                 _hasOlderMessages.value = messageList.size >= 200
                             }
 
-                            val newestOtherMessage =
-                                messageList
-                                    .asSequence()
-                                    .filter { it.senderId != currentUserId && it.timestamp > 0L }
-                                    .maxOfOrNull { it.timestamp }
-                                    ?: 0L
+                            // One pass finds the newest incoming message for both
+                            // delivery and read cursors. The old code scanned the
+                            // same list twice and wrote the delivery cursor on every
+                            // local-cache and Firebase snapshot emission.
+                            val newestOtherMessage = messageList
+                                .asSequence()
+                                .filter {
+                                    it.senderId != currentUserId &&
+                                        it.timestamp > 0L
+                                }
+                                .maxOfOrNull { it.timestamp }
+                                ?: 0L
 
-                            if (newestOtherMessage > 0L) {
+                            if (newestOtherMessage > lastMarkedDeliveredTimestamp) {
+                                lastMarkedDeliveredTimestamp = newestOtherMessage
                                 markDelivered(
                                     currentUserId = currentUserId,
                                     timestamp = newestOtherMessage
                                 )
                             }
 
-                            val newestOtherMessageForRead =
-                                messageList
-                                    .asSequence()
-                                    .filter {
-                                        it.senderId !=
-                                                currentUserId
-                                    }
-                                    .maxOfOrNull {
-                                        it.timestamp
-                                    }
-                                    ?: 0L
-
                             if (
                                 isChatVisible &&
-                                newestOtherMessageForRead > 0L &&
-                                newestOtherMessageForRead > lastMarkedReadTimestamp
+                                newestOtherMessage > lastMarkedReadTimestamp
                             ) {
-
-                                lastMarkedReadTimestamp =
-                                    newestOtherMessageForRead
-
-                                markConversationRead(
-                                    currentUserId
-                                )
+                                lastMarkedReadTimestamp = newestOtherMessage
+                                markConversationRead(currentUserId)
                             }
 
                             val currentEditingId =
@@ -732,13 +726,26 @@ class ChatViewModel : ViewModel() {
         currentUserId: String,
         timestamp: Long
     ) {
-        if (currentChatId.isBlank()) return
+        val chatId = currentChatId
+        if (chatId.isBlank()) return
         viewModelScope.launch {
-            chatRepository.markConversationDelivered(
+            val result = chatRepository.markConversationDelivered(
                 currentUserId = currentUserId,
-                chatId = currentChatId,
+                chatId = chatId,
                 timestamp = timestamp
             )
+            if (result.isFailure && currentChatId == chatId) {
+                // Permit a later listener emission to retry a rejected write.
+                lastMarkedDeliveredTimestamp = minOf(
+                    lastMarkedDeliveredTimestamp,
+                    timestamp - 1L
+                )
+                Log.w(
+                    "ChatViewModel",
+                    "Could not update delivery cursor for $chatId",
+                    result.exceptionOrNull()
+                )
+            }
         }
     }
 
