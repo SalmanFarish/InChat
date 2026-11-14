@@ -271,6 +271,44 @@ class GroupChatRepository {
             awaitClose { ref.removeEventListener(listener) }
         }.distinctUntilChanged()
 
+    fun observeGroupReadTimestampForMember(
+        groupId: String,
+        memberId: String
+    ): Flow<Long> =
+        callbackFlow {
+            if (groupId.isBlank() || memberId.isBlank()) {
+                trySend(0L)
+                close()
+                return@callbackFlow
+            }
+
+            // Group read receipts are stored separately from group metadata
+            // and messages, so observe only this member's read cursor.
+            val ref = database.getReference("groupReads")
+                .child(memberId)
+                .child(groupId)
+
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    trySend(
+                        (snapshot.getValue(Long::class.java) ?: 0L).coerceAtLeast(0L)
+                    )
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group read receipt listener cancelled for $memberId in $groupId: ${error.message}"
+                    )
+                    trySend(0L)
+                    close()
+                }
+            }
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }.distinctUntilChanged()
+
     suspend fun markGroupRead(
         currentUserId: String,
         groupId: String,
