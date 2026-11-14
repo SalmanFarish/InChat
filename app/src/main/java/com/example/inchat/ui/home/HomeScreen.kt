@@ -429,7 +429,13 @@ fun HomeScreen(
                     items(
                         items = visibleFilteredConversations,
                         key = { it.chatId },
-                        contentType = { "conversation" }
+                        contentType = {
+                            if (it.chatType == "group") {
+                                "group_conversation"
+                            } else {
+                                "direct_conversation"
+                            }
+                        }
                     ) { conversation ->
                         ConversationItem(
                             conversation = conversation,
@@ -510,7 +516,13 @@ fun HomeScreen(
                             items(
                                 items = hiddenFilteredConversations,
                                 key = { "hidden_${it.chatId}" },
-                                contentType = { "conversation" }
+                                contentType = {
+                            if (it.chatType == "group") {
+                                "group_conversation"
+                            } else {
+                                "direct_conversation"
+                            }
+                        }
                             ) { conversation ->
                                 ConversationItem(
                                     conversation = conversation,
