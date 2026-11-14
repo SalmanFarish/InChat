@@ -1437,15 +1437,10 @@ private fun ConversationItem(
 ) {
     var otherUserProfilePhoto by remember(conversation.otherUserId) {
         mutableStateOf(
-            userRepository
-                .getCachedUser(conversation.otherUserId)
-                ?.profilePhotoData
-                ?.ifBlank {
-                    userRepository
-                        .getCachedUser(conversation.otherUserId)
-                        ?.profilePhotoUrl
-                }
-                .orEmpty()
+            userRepository.getCachedUser(conversation.otherUserId)?.let { cachedUser ->
+                cachedUser.profilePhotoData
+                    .ifBlank { cachedUser.profilePhotoUrl }
+            }.orEmpty()
         )
     }
 
