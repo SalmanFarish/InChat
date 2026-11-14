@@ -734,12 +734,7 @@ class ChatViewModel : ViewModel() {
                 chatId = chatId,
                 timestamp = timestamp
             )
-            if (result.isFailure && currentChatId == chatId) {
-                // Permit a later listener emission to retry a rejected write.
-                lastMarkedDeliveredTimestamp = minOf(
-                    lastMarkedDeliveredTimestamp,
-                    timestamp - 1L
-                )
+            if (result.isFailure) {
                 Log.w(
                     "ChatViewModel",
                     "Could not update delivery cursor for $chatId",
