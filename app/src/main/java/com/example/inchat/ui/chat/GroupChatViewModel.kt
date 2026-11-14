@@ -16,6 +16,10 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,62 +173,71 @@ class GroupChatViewModel : ViewModel() {
                 }
 
                 val pendingMessages = chatRepository.getPendingMessages(groupId)
-                for (localMessage in pendingMessages) {
-                    try {
-                        val remoteMessage = chatRepository.getRemoteMessage(
-                            chatId = groupId,
-                            messageId = localMessage.id
-                        )
-
-                        when {
-                            remoteMessage != null &&
-                                remoteMessage.id == localMessage.id &&
-                                remoteMessage.senderId == currentUserId -> {
-                                chatRepository.markOutgoingMessageSent(
-                                    chatId = groupId,
-                                    messageId = localMessage.id
-                                )
-                            }
-
-                            remoteMessage == null -> {
-                                groupRepository.sendMessage(
-                                    groupId = groupId,
-                                    messageId = localMessage.id,
-                                    text = localMessage.text,
-                                    senderId = currentUserId,
-                                    senderNickname = localMessage.senderNickname,
-                                    replyTo = localMessage.replyTo,
-                                    attachment = localMessage.attachment
-                                ).onSuccess {
-                                    chatRepository.markOutgoingMessageSent(
+                // A bounded fan-out reconciles queued messages quickly after
+                // reconnect while keeping the Firebase request rate controlled.
+                val semaphore = Semaphore(4)
+                coroutineScope {
+                    pendingMessages.map { localMessage ->
+                        async {
+                            semaphore.withPermit {
+                                try {
+                                    val remoteMessage = chatRepository.getRemoteMessage(
                                         chatId = groupId,
                                         messageId = localMessage.id
                                     )
-                                }.onFailure { error ->
+
+                                    when {
+                                        remoteMessage != null &&
+                                            remoteMessage.id == localMessage.id &&
+                                            remoteMessage.senderId == currentUserId -> {
+                                            chatRepository.markOutgoingMessageSent(
+                                                chatId = groupId,
+                                                messageId = localMessage.id
+                                            )
+                                        }
+
+                                        remoteMessage == null -> {
+                                            groupRepository.sendMessage(
+                                                groupId = groupId,
+                                                messageId = localMessage.id,
+                                                text = localMessage.text,
+                                                senderId = currentUserId,
+                                                senderNickname = localMessage.senderNickname,
+                                                replyTo = localMessage.replyTo,
+                                                attachment = localMessage.attachment
+                                            ).onSuccess {
+                                                chatRepository.markOutgoingMessageSent(
+                                                    chatId = groupId,
+                                                    messageId = localMessage.id
+                                                )
+                                            }.onFailure { error ->
+                                                Log.w(
+                                                    "GroupChatViewModel",
+                                                    "Pending group message retry failed: " + localMessage.id,
+                                                    error
+                                                )
+                                            }
+                                        }
+
+                                        else -> {
+                                            Log.w(
+                                                "GroupChatViewModel",
+                                                "Pending group message ID exists remotely with unexpected sender: " + localMessage.id
+                                            )
+                                        }
+                                    }
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
                                     Log.w(
                                         "GroupChatViewModel",
-                                        "Pending group message retry failed: " + localMessage.id,
-                                        error
+                                        "Could not reconcile pending group message " + localMessage.id,
+                                        e
                                     )
                                 }
                             }
-
-                            else -> {
-                                Log.w(
-                                    "GroupChatViewModel",
-                                    "Pending group message ID exists remotely with unexpected sender: " + localMessage.id
-                                )
-                            }
                         }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(
-                            "GroupChatViewModel",
-                            "Could not reconcile pending group message " + localMessage.id,
-                            e
-                        )
-                    }
+                    }.awaitAll()
                 }
             }
         }
