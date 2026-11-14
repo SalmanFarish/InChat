@@ -143,9 +143,16 @@ References:
 
 ## Current decision
 
-No cryptographic dependency or message schema has been changed yet. The next implementation commit depends on the repository owner's licensing choice:
+The selected implementation route is **vodozemac 0.11.2** (Apache-2.0), subject to a small isolated Android native-bridge prototype and interoperability/security tests.
 
-- Choose Signal libsignal and accept the AGPL-3.0 obligations; or
-- Choose the Apache-2.0 vodozemac route and accept the additional Rust/Android bridge work.
+- Use Olm for one-to-one device sessions.
+- Use Megolm for group messages, with each group's outbound session distributed to member devices over authenticated Olm sessions.
+- Rotate group sessions on membership changes and define additional rotation limits before production use.
+- Keep protocol state local and persist it only in an encrypted form protected by Android Keystore-backed key wrapping.
+- Build a narrow Rust-to-Kotlin bridge; do not expose raw private keys or ratchet internals to application UI code.
+- Keep legacy plaintext message reading. Do not silently send plaintext if encryption is unavailable.
+- Do not add Signal's AGPL-3.0 dependency or change InChat's own project licence as part of this decision.
 
-Until this decision is made, keep the current working messaging path unchanged.
+Megolm has a documented trade-off: compromise of a current group session can expose subsequent messages until rotation, so the group-rotation design and removal behavior must be tested carefully. This choice is not a claim that group encryption is complete or enabled.
+
+The library integration prototype must pass two-independent-device tests before encrypted messaging is enabled. Until then, keep the current messaging path unchanged. See [ADR-001](ADR-001-E2EE-CRYPTOGRAPHY.md) for the rationale and implementation gates.
