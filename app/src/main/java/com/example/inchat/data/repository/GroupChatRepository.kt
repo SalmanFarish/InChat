@@ -510,14 +510,11 @@ class GroupChatRepository {
                 object : com.google.firebase.database.ValueEventListener {
 
                     override fun onDataChange(snapshot: DataSnapshot) {
-                        val latest =
-                            snapshot.children
-                                .mapNotNull {
-                                    it.getValue(Message::class.java)
-                                }
-                                .maxByOrNull {
-                                    it.timestamp
-                                }
+                        // orderByChild(timestamp).limitToLast(1) already returns
+                        // only the latest message, so no list allocation or max scan
+                        // is needed here.
+                        val latest = snapshot.children.firstOrNull()
+                            ?.getValue(Message::class.java)
 
                         trySend(latest)
                     }
