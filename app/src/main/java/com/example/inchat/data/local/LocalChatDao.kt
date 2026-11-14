@@ -44,6 +44,15 @@ interface LocalChatDao {
     suspend fun getPendingMessages(ownerUserId: String, chatId: String): List<CachedMessageEntity>
 
     @Query(
+        "SELECT messageId FROM cached_messages " +
+            "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND isPending = 1"
+    )
+    suspend fun getPendingMessageIdsForChat(
+        ownerUserId: String,
+        chatId: String
+    ): List<String>
+
+    @Query(
         "UPDATE cached_messages SET isPending = 0 " +
             "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND messageId = :messageId"
     )
@@ -108,15 +117,19 @@ interface LocalChatDao {
         // An empty listener snapshot can occur before offline data is available.
         // Never interpret it as proof that the server deleted all saved history.
         if (messages.isNotEmpty()) {
-            // Read pending flags before replacing this timestamp range.
-            // Otherwise the delete would erase the local flag before merge.
+            // Read all pending IDs in one query before replacing this range.
+            // Otherwise the delete would erase local flags before the merge.
+            // A single query avoids one SQLite lookup for every message in the
+            // latest Firebase snapshot (up to 200 individual lookups before).
+            val pendingMessageIds = getPendingMessageIdsForChat(
+                ownerUserId = ownerUserId,
+                chatId = chatId
+            ).toHashSet()
+
             val mergedMessages = messages.map { incoming ->
-                val wasPending = getMessage(
-                    ownerUserId = ownerUserId,
-                    chatId = chatId,
-                    messageId = incoming.messageId
-                )?.isPending ?: false
-                incoming.copy(isPending = wasPending)
+                incoming.copy(
+                    isPending = incoming.messageId in pendingMessageIds
+                )
             }
             deleteMessagesFromTimestamp(
                 ownerUserId = ownerUserId,
