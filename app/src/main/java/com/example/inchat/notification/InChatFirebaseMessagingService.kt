@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -62,6 +63,12 @@ class InChatFirebaseMessagingService :
     ) {
         val data =
             remoteMessage.data
+
+        Log.i(
+            "InChatFCM",
+            "Push received: type=" + (data["type"] ?: "unknown") +
+                ", chatId=" + data["chatId"].orEmpty()
+        )
 
         val senderName =
             data["senderName"]
@@ -124,6 +131,7 @@ class InChatFirebaseMessagingService :
             }
 
         if (ActiveConversationTracker.shouldSuppressNotification(chatId)) {
+            Log.i("InChatFCM", "Suppressed push because this chat is currently open.")
             return
         }
 
@@ -192,6 +200,7 @@ class InChatFirebaseMessagingService :
                 Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+            Log.w("InChatFCM", "Push arrived, but POST_NOTIFICATIONS permission is not granted.")
             return
         }
 
@@ -322,13 +331,11 @@ class InChatFirebaseMessagingService :
                     notification
                 )
 
+            Log.i("InChatFCM", "Notification posted: id=$notificationId type=$notificationType")
         } catch (
             e: SecurityException
         ) {
-            /*
-             * Permission may have changed between the permission
-             * check and the actual notify() call.
-             */
+            Log.e("InChatFCM", "Android rejected the notification post.", e)
         }
     }
 
