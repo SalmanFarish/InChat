@@ -124,10 +124,14 @@ credential.
 
 ## Notification flow
 
-- Android writes a message to Realtime Database first.
-- After the database confirms the write, Android calls
-  `POST /v1/events/message` with the chat and message IDs.
-- The Worker verifies the Firebase ID token and the persisted message.
+- Android queues the message write in Realtime Database and immediately
+  schedules a unique WorkManager event containing the chat and message IDs.
+  This keeps the event durable if Android is closed while an offline write is
+  waiting to sync.
+- WorkManager sends `POST /v1/events/message` when network access is available.
+- The Worker verifies the Firebase ID token and persisted message. If the
+  message has not reached the server yet, it returns a retryable response so
+  WorkManager can try again instead of losing the notification event.
 - Direct messages are sent to the recipient's saved FCM token. Blocked
   conversations are not notified.
 - Group messages are sent to an opaque, secret-derived FCM topic. The Worker
