@@ -1978,8 +1978,23 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     ),
   ]);
 
-  if (!chat || !message || message.senderId !== uid) {
-    return json({ error: "Message or chat not found for this sender." }, 403);
+  if (!chat) {
+    return json({ error: "Chat not found for this sender." }, 404);
+  }
+
+  // The Android client queues durable WorkManager work as soon as the RTDB
+  // write enters its local offline queue. That event can arrive here before
+  // Firebase has committed the message, so ask WorkManager to retry instead
+  // of permanently rejecting an event that is still waiting to sync.
+  if (!message) {
+    return json({
+      error: "Message has not reached Realtime Database yet.",
+      retryable: true,
+    }, 503);
+  }
+
+  if (message.senderId !== uid) {
+    return json({ error: "Message was not created by this sender." }, 403);
   }
 
   const isGroup = chat.type === "group";
