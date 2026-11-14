@@ -16,7 +16,13 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.Query
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -880,44 +886,61 @@ class ChatRepository {
             maxChats !in 1..12
         ) return
 
-        for (conversation in conversations
+        val candidates = conversations
+            .asSequence()
             .sortedByDescending { it.lastTimestamp }
             .take(maxChats)
-        ) {
-            val chatId = conversation.chatId
-            if (chatId.isBlank()) continue
+            .filter { it.chatId.isNotBlank() }
+            .filter { prefetchedChatIds.add(cacheKey(it.chatId, ownerUserId)) }
+            .toList()
 
-            val key = cacheKey(chatId, ownerUserId)
-            if (!prefetchedChatIds.add(key)) continue
+        // Warm a few chats at once instead of serially waiting for each
+        // Firebase round trip. Keep the limit small to avoid a request burst.
+        val semaphore = Semaphore(4)
+        coroutineScope {
+            candidates.map { conversation ->
+                async {
+                    val chatId = conversation.chatId
+                    val key = cacheKey(chatId, ownerUserId)
 
-            try {
-                // If this chat is already cached locally, there is nothing to warm.
-                if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
-                    continue
+                    semaphore.withPermit {
+                        try {
+                            // If this chat is already cached locally, there is nothing to warm.
+                            if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
+                                return@withPermit
+                            }
+
+                            val snapshot = database.getReference("chats")
+                                .child(chatId)
+                                .child("messages")
+                                .orderByChild("timestamp")
+                                .limitToLast(30)
+                                .get()
+                                .await()
+
+                            val latestMessages = snapshot.children.mapNotNull { child ->
+                                child.getValue(Message::class.java)
+                                    ?.takeIf { it.id.isNotBlank() }
+                            }
+
+                            if (latestMessages.isNotEmpty()) {
+                                localMessageDao.upsertMessages(
+                                    latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
+                                )
+                            }
+                        } catch (error: CancellationException) {
+                            prefetchedChatIds.remove(key)
+                            throw error
+                        } catch (error: Exception) {
+                            prefetchedChatIds.remove(key)
+                            Log.d(
+                                TAG,
+                                "Background message warm-up skipped for $chatId: ${error.message}"
+                            )
+                        }
+                    }
                 }
-
-                val snapshot = database.getReference("chats")
-                    .child(chatId)
-                    .child("messages")
-                    .orderByChild("timestamp")
-                    .limitToLast(30)
-                    .get()
-                    .await()
-
-                val latestMessages = snapshot.children.mapNotNull { child ->
-                    child.getValue(Message::class.java)
-                        ?.takeIf { it.id.isNotBlank() }
-                }
-
-                if (latestMessages.isNotEmpty()) {
-                    localMessageDao.upsertMessages(
-                        latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
-                    )
-                }
-            } catch (error: Exception) {
-                prefetchedChatIds.remove(key)
-                Log.d(TAG, "Background message warm-up skipped for $chatId: ${error.message}")
-            }
+            }.awaitAll()
         }
     }
     /*
