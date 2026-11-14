@@ -1517,11 +1517,9 @@ class ChatRepository {
                 .child(messageId)
                 .setValue(messageData)
 
-            // Realtime Database publishes the write to local listeners
-            // immediately. The composer can clear before server acknowledgement.
-            onQueued()
-            messageWrite.await()
-
+            // Queue the event immediately after the RTDB write enters its
+            // local queue. This preserves notification delivery if Android is
+            // killed while an offline message is waiting to reach Firebase.
             try {
                 MessageNotificationWorker.enqueue(
                     context = InChatApplication.instance,
@@ -1530,14 +1528,19 @@ class ChatRepository {
                     messageId = messageId
                 )
             } catch (queueError: Exception) {
-                // The Firebase message is already saved. Do not turn a queue
-                // scheduling issue into a failed send; log it for diagnosis.
+                // The message itself can still be sent. Log the scheduling
+                // failure rather than turning it into a failed message send.
                 Log.e(
                     TAG,
-                    "Message was saved, but its background event could not be queued.",
+                    "Message was queued, but its background event could not be scheduled.",
                     queueError
                 )
             }
+
+            // Realtime Database publishes the write to local listeners
+            // immediately. The composer can clear before server acknowledgement.
+            onQueued()
+            messageWrite.await()
 
             // The Cloudflare Worker creates and updates both direct-chat inbox
             // records after verifying the persisted message. Clients never write
@@ -1545,6 +1548,14 @@ class ChatRepository {
 
             Result.success(messageId)
         } catch (e: Exception) {
+            // A rejected RTDB write must not leave a retrying notification
+            // event behind for a message that was never saved.
+            MessageNotificationWorker.cancel(
+                context = InChatApplication.instance,
+                senderId = senderId,
+                chatId = chatId,
+                messageId = messageId
+            )
             Log.e(TAG, "Message write failed for chat $chatId", e)
             Result.failure(e)
         }
