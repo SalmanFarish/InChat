@@ -1,0 +1,10 @@
+[package]
+name = "inchat-crypto-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+description = "Experimental cryptographic core for the InChat Android client"
+
+[dependencies]
+vodozemac = "=0.11.2"
