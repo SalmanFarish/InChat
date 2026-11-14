@@ -26,16 +26,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.tasks.await
 
 class GroupChatRepository {
-
-    private data class GroupInboxMetadata(
-        val name: String,
-        val memberCount: Long,
-        val createdAt: Long
-    )
 
 
     private val database =
@@ -158,7 +151,7 @@ class GroupChatRepository {
             awaitClose {
                 ref.removeEventListener(listener)
             }
-        }
+        }.distinctUntilChanged()
 
     fun observeGroupConversations(
         currentUserId: String
@@ -234,99 +227,42 @@ class GroupChatRepository {
         groupId: String,
         currentUserId: String = ""
     ): Flow<Conversation?> =
-        combine(
-            observeGroupInboxMetadata(groupId),
-            observeLatestMessage(groupId),
-            observeGroupUnreadCount(
-                currentUserId = currentUserId,
-                groupId = groupId
-            ).onStart {
-                /*
-                 * Emit zero immediately, then replace it with the persisted
-                 * unread counter when its listener receives the first value.
-                 */
-                emit(0L)
-            }
-        ) { group, latestMessage, unreadCount ->
-
-            if (group == null) {
-                null
-            } else {
-                Conversation(
-                    chatId = groupId,
-                    chatType = "group",
-                    groupName = group.name,
-                    memberCount = group.memberCount,
-                    lastMessage = latestMessage?.text.orEmpty(),
-                    lastTimestamp =
-                        latestMessage?.timestamp
-                            ?: group.createdAt,
-                    lastSenderId =
-                        latestMessage?.senderId.orEmpty(),
-                    lastSenderNickname =
-                        latestMessage?.senderNickname.orEmpty(),
-                    unreadCount = unreadCount
-                )
-            }
-        }
-
-    private fun observeGroupInboxMetadata(
-        groupId: String
-    ): Flow<GroupInboxMetadata?> =
-        combine(
-            observeGroupString(groupId, "type"),
-            observeGroupString(groupId, "name"),
-            observeGroupLong(groupId, "createdAt"),
-            observeGroupMembers(groupId)
-        ) { type, name, createdAt, members ->
-            if (type != "group") {
-                null
-            } else {
-                GroupInboxMetadata(
-                    name = name,
-                    memberCount = members.size.toLong(),
-                    createdAt = createdAt
-                )
-            }
-        }.distinctUntilChanged()
-
-    private fun observeGroupUnreadCount(
-        currentUserId: String,
-        groupId: String
-    ): Flow<Long> =
         callbackFlow {
             if (
-                currentUserId.isBlank() ||
                 groupId.isBlank() ||
+                currentUserId.isBlank() ||
                 auth.currentUser?.uid != currentUserId
             ) {
-                trySend(0L)
+                trySend(null)
                 close()
                 return@callbackFlow
             }
 
-            // The notification Worker increments this counter atomically for
-            // each incoming group message; markGroupRead resets it to zero.
-            // Observe the maintained value instead of downloading and
-            // recounting the entire unread message history after each update.
+            // The Worker already maintains the complete per-user group inbox
+            // entry (preview, member count, and unread count). One listener on
+            // that summary replaces separate group metadata, latest-message,
+            // and unread-counter listeners.
             val ref = database.getReference("userChats")
                 .child(currentUserId)
                 .child(groupId)
-                .child("unreadCount")
 
             val listener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    trySend(
-                        (snapshot.getValue(Long::class.java) ?: 0L).coerceAtLeast(0L)
-                    )
+                    val conversation = snapshot.getValue(Conversation::class.java)
+                        ?.takeIf {
+                            it.chatId == groupId &&
+                                it.chatType == "group" &&
+                                it.groupName.isNotBlank()
+                        }
+                    trySend(conversation)
                 }
 
                 override fun onCancelled(error: DatabaseError) {
                     Log.e(
                         "GroupChatRepository",
-                        "Group unread counter listener cancelled for $groupId: ${error.message}"
+                        "Group inbox summary listener cancelled for $groupId: ${error.message}"
                     )
-                    trySend(0L)
+                    trySend(null)
                     close()
                 }
             }
@@ -334,6 +270,7 @@ class GroupChatRepository {
             ref.addValueEventListener(listener)
             awaitClose { ref.removeEventListener(listener) }
         }.distinctUntilChanged()
+
     suspend fun markGroupRead(
         currentUserId: String,
         groupId: String,
@@ -389,51 +326,6 @@ class GroupChatRepository {
             Result.failure(e)
         }
     }
-
-    private fun observeLatestMessage(
-        groupId: String
-    ): Flow<Message?> =
-        callbackFlow {
-
-            val messagesRef =
-                database
-                    .getReference("chats")
-                    .child(groupId)
-                    .child("messages")
-                    .orderByChild("timestamp")
-                    .limitToLast(1)
-
-            val listener =
-                object : com.google.firebase.database.ValueEventListener {
-
-                    override fun onDataChange(snapshot: DataSnapshot) {
-                        // orderByChild(timestamp).limitToLast(1) already returns
-                        // only the latest message, so no list allocation or max scan
-                        // is needed here.
-                        val latest = snapshot.children.firstOrNull()
-                            ?.getValue(Message::class.java)
-
-                        trySend(latest)
-                    }
-
-                    override fun onCancelled(
-                        error: com.google.firebase.database.DatabaseError
-                    ) {
-                        Log.e(
-                            "GroupChatRepository",
-                            "Latest group message listener cancelled for $groupId: ${error.message}"
-                        )
-                        trySend(null)
-                        close()
-                    }
-                }
-
-            messagesRef.addValueEventListener(listener)
-
-            awaitClose {
-                messagesRef.removeEventListener(listener)
-            }
-        }
 
     fun observeGroup(groupId: String): Flow<Group?> {
         if (groupId.isBlank()) return flowOf(null)
