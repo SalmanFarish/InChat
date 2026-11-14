@@ -21,6 +21,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -274,20 +275,23 @@ class GroupChatRepository {
         currentUserId: String,
         groupId: String
     ): Flow<Long> =
-        combine(
-            observeGroupReadTimestamp(
-                currentUserId = currentUserId,
-                groupId = groupId
-            ),
-            observeGroupMessagesSince(
-                groupId = groupId
-            )
-        ) { lastReadTimestamp, messages ->
-            messages.count { message ->
-                message.timestamp > lastReadTimestamp &&
-                        message.senderId != currentUserId
-            }.toLong()
-        }
+        observeGroupReadTimestamp(
+            currentUserId = currentUserId,
+            groupId = groupId
+        )
+            .distinctUntilChanged()
+            .flatMapLatest { lastReadTimestamp ->
+                observeGroupMessagesSince(
+                    groupId = groupId,
+                    lastReadTimestamp = lastReadTimestamp
+                ).map { messages ->
+                    messages.count { message ->
+                        message.timestamp > lastReadTimestamp &&
+                                message.senderId != currentUserId
+                    }.toLong()
+                }
+            }
+            .distinctUntilChanged()
 
     private fun observeGroupReadTimestamp(
         currentUserId: String,
@@ -381,7 +385,8 @@ class GroupChatRepository {
         }
 
     private fun observeGroupMessagesSince(
-        groupId: String
+        groupId: String,
+        lastReadTimestamp: Long
     ): Flow<List<Message>> =
         callbackFlow {
             if (groupId.isBlank()) {
@@ -396,18 +401,20 @@ class GroupChatRepository {
                     .child(groupId)
                     .child("messages")
                     .orderByChild("timestamp")
+                    // The timestamp index is declared in database.rules.json.
+                    // Fetch only unread-era messages, not the group's full history.
+                    .startAt(lastReadTimestamp.toDouble())
 
             val listener =
                 object : com.google.firebase.database.ValueEventListener {
                     override fun onDataChange(
                         snapshot: DataSnapshot
                     ) {
+                        // Firebase already returns query results in timestamp order.
                         trySend(
-                            snapshot.children
-                                .mapNotNull {
-                                    it.getValue(Message::class.java)
-                                }
-                                .sortedBy { it.timestamp }
+                            snapshot.children.mapNotNull {
+                                it.getValue(Message::class.java)
+                            }
                         )
                     }
 
