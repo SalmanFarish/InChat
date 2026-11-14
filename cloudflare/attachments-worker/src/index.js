@@ -2450,7 +2450,7 @@ function base64ToBytes(value) {
 }
 
 async function upload(request, env, uid, chatId, messageId, message, adminToken) {
-  const contentLength = Number(request.headers.get("Content-Length") || "0");
+  const contentLengthHeader = request.headers.get("Content-Length") || "";
   const contentType =
     request.headers.get("Content-Type") || "application/octet-stream";
   const attachmentType =
@@ -2474,69 +2474,156 @@ async function upload(request, env, uid, chatId, messageId, message, adminToken)
   const maxBytes =
     attachmentType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
 
-  if (!Number.isFinite(contentLength) || contentLength <= 0) {
-    return json({ error: "Content-Length is required." }, 400);
+  if (!/^\d+$/.test(contentLengthHeader)) {
+    return json({ error: "A valid Content-Length is required." }, 400);
+  }
+
+  const contentLength = Number(contentLengthHeader);
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) {
+    return json({ error: "A valid Content-Length is required." }, 400);
   }
 
   if (contentLength > maxBytes) {
     return json({ error: "Attachment is too large." }, 413);
   }
 
-  if (attachmentType === "voice" && !contentType.startsWith("audio/")) {
+  const normalizedContentType = contentType.toLowerCase();
+  if (attachmentType === "voice" && !normalizedContentType.startsWith("audio/")) {
     return json({ error: "Voice attachments must be audio files." }, 400);
   }
 
-  if (attachmentType === "view_once_photo" && !contentType.startsWith("image/")) {
+  if (
+    attachmentType === "view_once_photo" &&
+    !normalizedContentType.startsWith("image/")
+  ) {
     return json({ error: "View-once attachments must be images." }, 400);
-  }
-
-  const attachmentPath = "attachments/" + chatId + "/" + messageId;
-  const existing = await adminDatabaseRequest(
-    env,
-    adminToken,
-    attachmentPath,
-  );
-  if (existing !== null) {
-    return json({ error: "Attachment already exists." }, 409);
   }
 
   if (!request.body) {
     return json({ error: "Empty upload." }, 400);
   }
 
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength !== contentLength) {
+  const attachmentPath = "attachments/" + chatId + "/" + messageId;
+  const attachmentUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
+    "/" +
+    attachmentPath.split("/").map(encodeURIComponent).join("/") +
+    ".json";
+
+  // Read an ETag before uploading, then use it for a create-only conditional
+  // write. This prevents simultaneous PUT requests from replacing one another.
+  const existingResponse = await fetch(attachmentUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+      Accept: "application/json",
+    },
+  });
+
+  if (!existingResponse.ok) {
+    throw new Error("Could not check whether the attachment already exists.");
+  }
+
+  const existingRecord = await existingResponse.json();
+  if (existingRecord !== null) {
+    return json({ error: "Attachment already exists." }, 409);
+  }
+
+  const etag = existingResponse.headers.get("ETag");
+  if (!etag) {
+    throw new Error("Firebase did not return an attachment ETag.");
+  }
+
+  // Enforce the limit while streaming too; Content-Length alone is not trusted.
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      if (!result.value) continue;
+
+      totalBytes += result.value.byteLength;
+      if (totalBytes > maxBytes || totalBytes > contentLength) {
+        await reader.cancel().catch(() => {});
+        return json({ error: "Attachment is too large." }, 413);
+      }
+
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes !== contentLength) {
     return json({ error: "Upload size did not match Content-Length." }, 400);
   }
 
-  await adminDatabaseRequest(
-    env,
-    adminToken,
-    attachmentPath,
-    "PUT",
-    {
-      data: bytesToBase64(bytes),
-      contentType,
-      fileName,
-      attachmentType,
-      senderId: uid,
-      chatId,
-      messageId,
-      createdAt: { ".sv": "timestamp" },
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const writeResponse = await fetch(attachmentUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
     },
-  );
+    body: JSON.stringify({
+      data: bytesToBase64(bytes),
+      contentType: contentType,
+      fileName: fileName,
+      attachmentType: attachmentType,
+      sizeBytes: bytes.byteLength,
+      senderId: uid,
+      chatId: chatId,
+      messageId: messageId,
+      createdAt: { ".sv": "timestamp" },
+    }),
+  });
+
+  if (writeResponse.status === 412) {
+    return json({ error: "Attachment already exists." }, 409);
+  }
+  if (!writeResponse.ok) {
+    const details = await writeResponse.text();
+    throw new Error(
+      "Could not save attachment (" +
+      writeResponse.status +
+      "): " +
+      details.slice(0, 240),
+    );
+  }
 
   return json({
     success: true,
-    key,
+    key: key,
     size: bytes.byteLength,
-    contentType,
-    fileName,
-    attachmentType,
+    contentType: contentType,
+    fileName: fileName,
+    attachmentType: attachmentType,
   }, 201);
 }
 
-async function download(env, chatId, messageId, uid, adminToken) {
+async function download(env, chatId, messageId, uid, adminToken, message) {
+  const expectedType = message?.attachment?.type;
+  if (
+    message?.attachment?.storageKey !== attachmentKey(chatId, messageId) ||
+    (expectedType !== "voice" && expectedType !== "view_once_photo") ||
+    typeof message.senderId !== "string" ||
+    !message.senderId
+  ) {
+    return new Response("Attachment is not linked to a valid message.", {
+      status: 404,
+    });
+  }
+
   const attachmentPath = "attachments/" + chatId + "/" + messageId;
   const url =
     env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
@@ -2557,15 +2644,56 @@ async function download(env, chatId, messageId, uid, adminToken) {
   }
 
   const record = await response.json();
-  if (!record || typeof record.data !== "string") {
-    return new Response("Attachment not found", { status: 404 });
+  if (
+    !record ||
+    typeof record.data !== "string" ||
+    record.chatId !== chatId ||
+    record.messageId !== messageId ||
+    record.senderId !== message.senderId ||
+    record.attachmentType !== expectedType
+  ) {
+    return new Response("Attachment metadata does not match its message.", {
+      status: 404,
+    });
   }
 
-  if (record.attachmentType === "view_once_photo" && record.senderId === uid) {
+  const maxBytes =
+    expectedType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
+  const expectedMimePrefix =
+    expectedType === "voice" ? "audio/" : "image/";
+  if (
+    typeof record.contentType !== "string" ||
+    !record.contentType.toLowerCase().startsWith(expectedMimePrefix) ||
+    record.data.length === 0 ||
+    record.data.length > 4 * Math.ceil(maxBytes / 3)
+  ) {
+    return new Response("Invalid attachment data.", { status: 404 });
+  }
+
+  // Decode and validate before consuming a view-once record, so corrupt data
+  // cannot burn the one allowed open.
+  let bytes;
+  try {
+    bytes = base64ToBytes(record.data);
+  } catch (_) {
+    return new Response("Invalid attachment data.", { status: 404 });
+  }
+
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > maxBytes ||
+    (record.sizeBytes !== undefined &&
+      (!Number.isSafeInteger(record.sizeBytes) ||
+        record.sizeBytes !== bytes.byteLength))
+  ) {
+    return new Response("Invalid attachment size.", { status: 404 });
+  }
+
+  if (expectedType === "view_once_photo" && record.senderId === uid) {
     return new Response("Sender cannot consume a view-once photo", { status: 403 });
   }
 
-  if (record.attachmentType === "view_once_photo") {
+  if (expectedType === "view_once_photo") {
     const etag = response.headers.get("ETag");
     if (!etag) throw new Error("Firebase did not return an attachment ETag.");
     const consumeResponse = await fetch(url, {
@@ -2585,21 +2713,21 @@ async function download(env, chatId, messageId, uid, adminToken) {
     }
   }
 
+  const safeFileName = cleanFileName(record.fileName);
   const headers = new Headers();
-  headers.set("Content-Type", record.contentType || "application/octet-stream");
+  headers.set("Content-Type", record.contentType);
   headers.set("Cache-Control", "private, no-store");
   headers.set("Content-Disposition", 'attachment; filename="' +
-    cleanFileName(record.fileName) + '"');
-  headers.set("X-InChat-File-Name", record.fileName || "attachment");
-  headers.set("X-InChat-Attachment-Type", record.attachmentType || "voice");
+    safeFileName + '"');
+  headers.set("X-InChat-File-Name", safeFileName);
+  headers.set("X-InChat-Attachment-Type", expectedType);
 
-  if (record.attachmentType === "view_once_photo") {
+  if (expectedType === "view_once_photo") {
     headers.set("X-InChat-View-Once", "true");
   }
 
-  return new Response(base64ToBytes(record.data), { status: 200, headers });
+  return new Response(bytes, { status: 200, headers });
 }
-
 async function remove(env, chatId, messageId, uid, adminToken) {
   const attachmentPath = "attachments/" + chatId + "/" + messageId;
   const record = await adminDatabaseRequest(
@@ -2780,7 +2908,7 @@ export default {
         }
 
         const adminAuth = await getFirebaseAdminToken(env);
-        return download(env, chatId, messageId, user.uid, adminAuth.token);
+        return download(env, chatId, messageId, user.uid, adminAuth.token, message);
       }
 
       if (request.method === "DELETE") {
