@@ -2,6 +2,9 @@ package com.example.inchat.data.repository
 
 import android.util.Log
 
+import com.example.inchat.InChatApplication
+import com.example.inchat.data.worker.MessageNotificationWorker
+
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
@@ -659,15 +662,24 @@ class GroupChatRepository {
                 .setValue(messageData)
                 .await()
 
-            CloudflareNotificationRepository()
-                .notifyMessage(groupId, messageId)
-                .onFailure { notificationError ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Group message was saved, but Cloudflare dispatch failed.",
-                        notificationError
-                    )
-                }
+            // Notification and group inbox synchronization run in durable
+            // background work. Do not make the sender wait for HTTP retries.
+            try {
+                MessageNotificationWorker.enqueue(
+                    context = InChatApplication.instance,
+                    senderId = senderId,
+                    chatId = groupId,
+                    messageId = messageId
+                )
+            } catch (queueError: Exception) {
+                // The group message is already saved. A scheduling problem
+                // must not turn a successful message write into a failed send.
+                Log.e(
+                    "GroupChatRepository",
+                    "Group message was saved, but its background event could not be queued.",
+                    queueError
+                )
+            }
 
             Result.success(messageId)
 
