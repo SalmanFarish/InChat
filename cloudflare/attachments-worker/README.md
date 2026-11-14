@@ -134,10 +134,18 @@ credential.
   WorkManager can try again instead of losing the notification event.
 - Direct messages are sent to the recipient's saved FCM token. Blocked
   conversations are not notified.
-- Group messages are sent to an opaque, secret-derived FCM topic. The Worker
-  manages topic membership from verified group membership and excludes the
-  sender from their own group notifications. The topic name is never returned
-  to the Android app.
+- Group messages in groups of up to 20 members are sent to each member's
+  registered FCM token after the Worker has synchronized the group's private
+  device index. Sends are concurrency-limited and successful recipients are
+  recorded individually so a retry does not resend to members already reached.
+- Larger groups, and groups whose device index is still being synchronized,
+  use an opaque, secret-derived FCM topic. Topics remain the fallback for larger
+  fanout because Cloudflare Workers Free allows at most 50 external subrequests
+  per invocation. Topic names are never returned to the Android app.
+- The Worker maintains `groupNotificationDevices/{groupId}/{uid}` from
+  authenticated membership and FCM-token synchronization. The index is private
+  Worker data; Android clients do not read or write it. Reopening InChat after
+  this Worker update lets signed-in accounts refresh their group registrations.
 - Group inbox previews and unread counts are updated by the Worker. Group
   activity entries update previews but do not send push notifications.
 - Direct-chat unread increments are compared with the recipient's private
