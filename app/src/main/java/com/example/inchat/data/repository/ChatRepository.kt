@@ -1507,9 +1507,10 @@ class ChatRepository {
             }
 
             /*
-             * Persist the message first. The trusted Cloudflare Worker verifies
-             * the saved message and updates both inbox records. This client
-             * deliberately does not write either user's inbox metadata.
+             * Start the message write first, then persist its trusted Worker
+             * event before waiting for server acknowledgement. The Worker
+             * verifies the saved message and updates both inbox records. This
+             * client deliberately does not write either user's inbox metadata.
              */
             val messageWrite = database.getReference("chats")
                 .child(chatId)
