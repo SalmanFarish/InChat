@@ -310,25 +310,39 @@ async function adminDatabaseRequest(
     "/" + path.split("/").map(encodeURIComponent).join("/") :
     "";
   const queryString = query ? "?" + query : "";
-  const response = await fetch(
+  const requestUrl = new URL(
     env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
       cleanPath +
       ".json" +
       queryString,
-    {
-      method: method,
-      headers: {
-        Authorization: "Bearer " + accessToken,
-        ...(body === undefined ?
-          {} :
-          { "Content-Type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    },
   );
+
+  const response = await fetch(requestUrl.toString(), {
+    method: method,
+    headers: {
+      Authorization: "Bearer " + accessToken,
+      ...(body === undefined ?
+        {} :
+        { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 
   if (!response.ok) {
     const details = await response.text();
+
+    console.error("Firebase RTDB diagnostic", {
+      hostname: requestUrl.hostname,
+      path: requestUrl.pathname,
+      status: response.status,
+      responseUrl: response.url,
+      redirected: response.redirected,
+      server: response.headers.get("server"),
+      cfRay: response.headers.get("cf-ray"),
+      contentType: response.headers.get("content-type"),
+      details: details.slice(0, 300),
+    });
+
     throw new Error(
       "Realtime Database request failed (" +
       response.status +
@@ -341,7 +355,6 @@ async function adminDatabaseRequest(
   const responseText = await response.text();
   return responseText ? JSON.parse(responseText) : null;
 }
-
 async function claimMessageEvent(
   env,
   adminToken,
