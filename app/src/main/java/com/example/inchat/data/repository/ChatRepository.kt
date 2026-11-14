@@ -711,10 +711,13 @@ class ChatRepository {
 
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
+                    // Firebase's orderByChild("timestamp") query already returns
+                    // children in timestamp order, so an additional local sort is
+                    // unnecessary here.
                     val latestMessages = snapshot.children.mapNotNull { child ->
                         child.getValue(Message::class.java)
                             ?.takeIf { it.id.isNotBlank() }
-                    }.sortedBy { it.timestamp }
+                    }
 
                     val immutableLatestMessages = latestMessages.toList()
                     latestMessageCache[key] = immutableLatestMessages
@@ -728,9 +731,11 @@ class ChatRepository {
                             .filter { it.timestamp < firstLatestTimestamp }
                     }
 
+                    // Older pages are already sorted and are strictly earlier
+                    // than the first latest-page timestamp. Concatenation therefore
+                    // preserves chronological order without sorting the full history.
                     val combinedMessages = (cachedOlderMessages + immutableLatestMessages)
                         .distinctBy { it.id }
-                        .sortedBy { it.timestamp }
 
                     messageCache[key] = combinedMessages
                     trySend(combinedMessages)
