@@ -155,6 +155,12 @@ topics. The Worker checks membership before changing topic subscriptions.
 - Voice attachments are limited to 1 MiB; view-once photos are limited to 5 MiB.
 - View-once photos are consumed with a Firebase ETag-conditional delete so
   concurrent downloads cannot both successfully consume the same record.
+- Upload size limits are enforced while reading the request stream, not only
+  from the client-supplied Content-Length header. Upload creation is also
+  ETag-conditional so concurrent requests cannot replace an existing file.
+- Downloads verify that the stored attachment's chat, message, sender, and
+  type still match the linked message before returning bytes. Corrupt or
+  inconsistent records are rejected before a view-once photo is consumed.
 - Only the message sender can upload or delete its remote attachment.
 - A Firebase ID token and group/chat membership are required for attachment
   access.
