@@ -441,13 +441,16 @@ fun ChatMessageList(
 
             } else {
 
-                val latestOwnMessageId =
-                    messages
-                        .lastOrNull {
-                            it.senderId == currentUserId &&
-                                    it.systemEvent.isBlank()
-                        }
-                        ?.id
+                val latestOwnMessageId = remember(
+                    messages.size,
+                    messages.lastOrNull()?.id,
+                    currentUserId
+                ) {
+                    messages.lastOrNull {
+                        it.senderId == currentUserId &&
+                            it.systemEvent.isBlank()
+                    }?.id
+                }
 
                 /*
                  * Read the clock so Compose tracks it.
@@ -537,7 +540,10 @@ fun ChatMessageList(
                 ) {
 
                     if (hasOlderMessages) {
-                        item(key = "load_earlier_messages") {
+                        item(
+                            key = "load_earlier_messages",
+                            contentType = "load_earlier_messages"
+                        ) {
                             androidx.compose.foundation.layout.Box(
                                 modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center
@@ -604,9 +610,8 @@ fun ChatMessageList(
                         ) {
 
                             item(
-
-                                key =
-                                    "day_${getDayKey(message.timestamp)}"
+                                key = "day_${getDayKey(message.timestamp)}",
+                                contentType = "day_separator"
                             ) {
 
                                 DaySeparator(
@@ -618,9 +623,12 @@ fun ChatMessageList(
                         }
 
                         item(
-
-                            key =
-                                message.id
+                            key = message.id,
+                            contentType = if (message.systemEvent.isNotBlank()) {
+                                "system_event"
+                            } else {
+                                "message_bubble"
+                            }
                         ) {
                             if (message.systemEvent.isNotBlank()) {
                                 Box(
