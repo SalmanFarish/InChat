@@ -14,6 +14,8 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -64,6 +66,11 @@ class UserRepository {
 
         private val userCache =
             ConcurrentHashMap<String, CachedUser>()
+
+        // Home preloading and visible rows can request the same profile at
+        // nearly the same time. Share one in-flight Firebase read per UID.
+        private val inFlightUserLookups =
+            ConcurrentHashMap<String, CompletableDeferred<User?>>()
     }
 
     private val database =
@@ -2084,26 +2091,29 @@ class UserRepository {
             return cached
         }
 
-        val userRef =
-            database
-                .getReference(
-                    "users"
-                )
-                .child(
-                    uid
-                )
+        val lookup = CompletableDeferred<User?>()
+        val existingLookup = inFlightUserLookups.putIfAbsent(uid, lookup)
+        if (existingLookup != null) {
+            return existingLookup.await()
+        }
 
-        /*
-         * A single-value listener is used instead of get().await().
-         *
-         * Realtime Database can satisfy this listener from the local
-         * persisted snapshot when available, while the Firebase
-         * persistence layer continues to refresh the value in the
-         * background. This keeps Home/Profile reads from waiting on a
-         * server round trip when the device already knows the user.
-         */
-        return try {
+        try {
+            val userRef =
+                database
+                    .getReference(
+                        "users"
+                    )
+                    .child(
+                        uid
+                    )
 
+            /*
+             * A single-value listener is used instead of get().await().
+             *
+             * Realtime Database can satisfy this listener from the local
+             * persisted snapshot when available, while Firebase refreshes
+             * it in the background.
+             */
             val user =
                 suspendCancellableCoroutine<DataSnapshot> {
                         continuation ->
@@ -2116,13 +2126,8 @@ class UserRepository {
                             snapshot:
                             DataSnapshot
                         ) {
-
-                            if (
-                                continuation.isActive
-                            ) {
-                                continuation.resume(
-                                    snapshot
-                                )
+                            if (continuation.isActive) {
+                                continuation.resume(snapshot)
                             }
                         }
 
@@ -2130,10 +2135,7 @@ class UserRepository {
                             error:
                             DatabaseError
                         ) {
-
-                            if (
-                                continuation.isActive
-                            ) {
+                            if (continuation.isActive) {
                                 continuation.resumeWithException(
                                     error.toException()
                                 )
@@ -2141,41 +2143,31 @@ class UserRepository {
                         }
                     }
 
-                    userRef
-                        .addListenerForSingleValueEvent(
-                            listener
-                        )
+                    userRef.addListenerForSingleValueEvent(listener)
 
                     continuation.invokeOnCancellation {
-                        userRef
-                            .removeEventListener(
-                                listener
-                            )
+                        userRef.removeEventListener(listener)
                     }
-                }
-                    .getValue(
-                        User::class.java
-                    )
+                }.getValue(User::class.java)
 
-            if (
-                user != null
-            ) {
-
-                userCache[uid] =
-                    CachedUser(
-                        user = user,
-                        cachedAt =
-                            System.currentTimeMillis()
-                    )
+            if (user != null) {
+                userCache[uid] = CachedUser(
+                    user = user,
+                    cachedAt = System.currentTimeMillis()
+                )
             }
 
+            lookup.complete(user)
             user
-
-        } catch (
-            _: Exception
-        ) {
-
+        } catch (error: CancellationException) {
+            // Wake waiting callers, but let the canceled owner stop normally.
+            lookup.complete(null)
+            throw error
+        } catch (_: Exception) {
+            lookup.complete(null)
             null
+        } finally {
+            inFlightUserLookups.remove(uid, lookup)
         }
     }
 
