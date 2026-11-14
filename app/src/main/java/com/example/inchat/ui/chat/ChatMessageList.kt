@@ -574,12 +574,18 @@ fun ChatMessageList(
                                     index - 1
                                 )
 
-                        val showDaySeparator =
-                            previousMessage == null ||
-                                    !isSameCalendarDay(
+                        // Calculate each adjacent day comparison once. The
+                        // previous-day result is shared by the separator and
+                        // message-group checks below.
+                        val sameDayAsPrevious =
+                            previousMessage != null &&
+                                    isSameCalendarDay(
                                         previousMessage.timestamp,
                                         message.timestamp
                                     )
+
+                        val showDaySeparator =
+                            previousMessage == null || !sameDayAsPrevious
 
                         val isSystemEvent = message.systemEvent.isNotBlank()
                         val isFirstInGroup =
@@ -587,22 +593,22 @@ fun ChatMessageList(
                                     previousMessage == null ||
                                     previousMessage.systemEvent.isNotBlank() ||
                                     previousMessage.senderId != message.senderId ||
-                                    !isSameCalendarDay(
-                                        previousMessage.timestamp,
-                                        message.timestamp
-                                    )
+                                    !sameDayAsPrevious
 
                         val nextMessage = messages.getOrNull(index + 1)
+                        val sameDayAsNext =
+                            nextMessage != null &&
+                                    isSameCalendarDay(
+                                        message.timestamp,
+                                        nextMessage.timestamp
+                                    )
 
                         val isLastInGroup =
                             isSystemEvent ||
                                     nextMessage == null ||
                                     nextMessage.systemEvent.isNotBlank() ||
                                     nextMessage.senderId != message.senderId ||
-                                    !isSameCalendarDay(
-                                        message.timestamp,
-                                        nextMessage.timestamp
-                                    )
+                                    !sameDayAsNext
 
                         if (
                             showDaySeparator &&
