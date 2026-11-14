@@ -14,7 +14,10 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -2034,46 +2037,45 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
 
             try {
-                try {
-                    chatRepository.cacheOutgoingMessage(
+                // Start the Firebase write first and run it until its first
+                // suspension. This queues the message with RTDB immediately,
+                // instead of making the network write wait for a Room disk write.
+                val sendJob = async(start = CoroutineStart.UNDISPATCHED) {
+                    chatRepository.sendMessage(
                         chatId = chatId,
-                        message = outgoingMessage
+                        messageId = messageId,
+                        text = cleanText,
+                        senderId = currentUserId,
+                        senderNickname = senderNickname,
+                        receiverId = otherUserId,
+                        receiverNickname = otherUserNickname,
+                        replyTo = replyTo,
+                        onQueued = onQueued
                     )
-                } catch (cacheError: Exception) {
-                    // A Room cache failure must not prevent Firebase delivery.
-                    Log.e("ChatViewModel", "Could not cache outgoing message locally", cacheError)
                 }
 
-                chatRepository
-                    .sendMessage(
+                // Persist the pending copy concurrently. Await it before clearing
+                // the pending marker so a fast network response cannot race Room.
+                val cacheJob = async(Dispatchers.IO) {
+                    try {
+                        chatRepository.cacheOutgoingMessage(
+                            chatId = chatId,
+                            message = outgoingMessage
+                        )
+                    } catch (cacheError: Exception) {
+                        // A Room cache failure must not prevent Firebase delivery.
+                        Log.e(
+                            "ChatViewModel",
+                            "Could not cache outgoing message locally",
+                            cacheError
+                        )
+                    }
+                }
 
-                        chatId =
-                            chatId,
+                val sendResult = sendJob.await()
+                cacheJob.await()
 
-                        messageId =
-                            messageId,
-
-                        text =
-                            cleanText,
-
-                        senderId =
-                            currentUserId,
-
-                        senderNickname =
-                            senderNickname,
-
-                        receiverId =
-                            otherUserId,
-
-                        receiverNickname =
-                            otherUserNickname,
-
-                        replyTo =
-                            replyTo,
-
-                        onQueued =
-                            onQueued
-                    )
+                sendResult
                     .onSuccess {
 
                         // The Firebase task completed successfully; clear Room's
