@@ -31,6 +31,13 @@ import kotlinx.coroutines.tasks.await
 
 class GroupChatRepository {
 
+    private data class GroupInboxMetadata(
+        val name: String,
+        val memberCount: Long,
+        val createdAt: Long
+    )
+
+
     private val database =
         FirebaseDatabase.getInstance()
 
@@ -228,17 +235,15 @@ class GroupChatRepository {
         currentUserId: String = ""
     ): Flow<Conversation?> =
         combine(
-            observeGroup(groupId),
+            observeGroupInboxMetadata(groupId),
             observeLatestMessage(groupId),
             observeGroupUnreadCount(
                 currentUserId = currentUserId,
                 groupId = groupId
             ).onStart {
                 /*
-                 * The unread calculation may need to inspect message
-                 * history. Never make the Home row wait for that work.
-                 * Emit zero immediately, then replace it with the real
-                 * unread count when the listener finishes its first load.
+                 * Emit zero immediately, then replace it with the persisted
+                 * unread counter when its listener receives the first value.
                  */
                 emit(0L)
             }
@@ -251,7 +256,7 @@ class GroupChatRepository {
                     chatId = group.chatId,
                     chatType = "group",
                     groupName = group.name,
-                    memberCount = group.members.size.toLong(),
+                    memberCount = group.memberCount,
                     lastMessage = latestMessage?.text.orEmpty(),
                     lastTimestamp =
                         latestMessage?.timestamp
@@ -264,6 +269,26 @@ class GroupChatRepository {
                 )
             }
         }
+
+    private fun observeGroupInboxMetadata(
+        groupId: String
+    ): Flow<GroupInboxMetadata?> =
+        combine(
+            observeGroupString(groupId, "type"),
+            observeGroupString(groupId, "name"),
+            observeGroupLong(groupId, "createdAt"),
+            observeGroupMembers(groupId)
+        ) { type, name, createdAt, members ->
+            if (type != "group") {
+                null
+            } else {
+                GroupInboxMetadata(
+                    name = name,
+                    memberCount = members.size.toLong(),
+                    createdAt = createdAt
+                )
+            }
+        }.distinctUntilChanged()
 
     private fun observeGroupUnreadCount(
         currentUserId: String,
