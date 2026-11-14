@@ -14,7 +14,10 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 enum class BlockState {
@@ -250,6 +254,10 @@ class ChatViewModel : ViewModel() {
     private var lastMarkedReadTimestamp =
         0L
 
+    // Avoid writing the same delivered cursor on every Room/Firebase emission.
+    private var lastMarkedDeliveredTimestamp =
+        0L
+
     init {
         startConnectionListener()
     }
@@ -407,6 +415,7 @@ class ChatViewModel : ViewModel() {
         _chatInitializationError.value = null
 
         lastMarkedReadTimestamp = 0L
+        lastMarkedDeliveredTimestamp = 0L
 
         // Populate from the last in-memory snapshot before waiting for
         // chat initialization or the next Firebase listener callback.
@@ -607,6 +616,7 @@ class ChatViewModel : ViewModel() {
                         .getMessagesFlow(
                             chatId
                         )
+                        .distinctUntilChanged()
                         .collect { messageList ->
 
                             _messages.value =
@@ -618,44 +628,33 @@ class ChatViewModel : ViewModel() {
                                 _hasOlderMessages.value = messageList.size >= 200
                             }
 
-                            val newestOtherMessage =
-                                messageList
-                                    .asSequence()
-                                    .filter { it.senderId != currentUserId && it.timestamp > 0L }
-                                    .maxOfOrNull { it.timestamp }
-                                    ?: 0L
+                            // One pass finds the newest incoming message for both
+                            // delivery and read cursors. The old code scanned the
+                            // same list twice and wrote the delivery cursor on every
+                            // local-cache and Firebase snapshot emission.
+                            val newestOtherMessage = messageList
+                                .asSequence()
+                                .filter {
+                                    it.senderId != currentUserId &&
+                                        it.timestamp > 0L
+                                }
+                                .maxOfOrNull { it.timestamp }
+                                ?: 0L
 
-                            if (newestOtherMessage > 0L) {
+                            if (newestOtherMessage > lastMarkedDeliveredTimestamp) {
+                                lastMarkedDeliveredTimestamp = newestOtherMessage
                                 markDelivered(
                                     currentUserId = currentUserId,
                                     timestamp = newestOtherMessage
                                 )
                             }
 
-                            val newestOtherMessageForRead =
-                                messageList
-                                    .asSequence()
-                                    .filter {
-                                        it.senderId !=
-                                                currentUserId
-                                    }
-                                    .maxOfOrNull {
-                                        it.timestamp
-                                    }
-                                    ?: 0L
-
                             if (
                                 isChatVisible &&
-                                newestOtherMessageForRead > 0L &&
-                                newestOtherMessageForRead > lastMarkedReadTimestamp
+                                newestOtherMessage > lastMarkedReadTimestamp
                             ) {
-
-                                lastMarkedReadTimestamp =
-                                    newestOtherMessageForRead
-
-                                markConversationRead(
-                                    currentUserId
-                                )
+                                lastMarkedReadTimestamp = newestOtherMessage
+                                markConversationRead(currentUserId)
                             }
 
                             val currentEditingId =
@@ -729,13 +728,21 @@ class ChatViewModel : ViewModel() {
         currentUserId: String,
         timestamp: Long
     ) {
-        if (currentChatId.isBlank()) return
+        val chatId = currentChatId
+        if (chatId.isBlank()) return
         viewModelScope.launch {
-            chatRepository.markConversationDelivered(
+            val result = chatRepository.markConversationDelivered(
                 currentUserId = currentUserId,
-                chatId = currentChatId,
+                chatId = chatId,
                 timestamp = timestamp
             )
+            if (result.isFailure) {
+                Log.w(
+                    "ChatViewModel",
+                    "Could not update delivery cursor for $chatId",
+                    result.exceptionOrNull()
+                )
+            }
         }
     }
 
@@ -2034,46 +2041,45 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
 
             try {
-                try {
-                    chatRepository.cacheOutgoingMessage(
+                // Start the Firebase write first and run it until its first
+                // suspension. This queues the message with RTDB immediately,
+                // instead of making the network write wait for a Room disk write.
+                val sendJob = async(start = CoroutineStart.UNDISPATCHED) {
+                    chatRepository.sendMessage(
                         chatId = chatId,
-                        message = outgoingMessage
+                        messageId = messageId,
+                        text = cleanText,
+                        senderId = currentUserId,
+                        senderNickname = senderNickname,
+                        receiverId = otherUserId,
+                        receiverNickname = otherUserNickname,
+                        replyTo = replyTo,
+                        onQueued = onQueued
                     )
-                } catch (cacheError: Exception) {
-                    // A Room cache failure must not prevent Firebase delivery.
-                    Log.e("ChatViewModel", "Could not cache outgoing message locally", cacheError)
                 }
 
-                chatRepository
-                    .sendMessage(
+                // Persist the pending copy concurrently. Await it before clearing
+                // the pending marker so a fast network response cannot race Room.
+                val cacheJob = async(Dispatchers.IO) {
+                    try {
+                        chatRepository.cacheOutgoingMessage(
+                            chatId = chatId,
+                            message = outgoingMessage
+                        )
+                    } catch (cacheError: Exception) {
+                        // A Room cache failure must not prevent Firebase delivery.
+                        Log.e(
+                            "ChatViewModel",
+                            "Could not cache outgoing message locally",
+                            cacheError
+                        )
+                    }
+                }
 
-                        chatId =
-                            chatId,
+                val sendResult = sendJob.await()
+                cacheJob.await()
 
-                        messageId =
-                            messageId,
-
-                        text =
-                            cleanText,
-
-                        senderId =
-                            currentUserId,
-
-                        senderNickname =
-                            senderNickname,
-
-                        receiverId =
-                            otherUserId,
-
-                        receiverNickname =
-                            otherUserNickname,
-
-                        replyTo =
-                            replyTo,
-
-                        onQueued =
-                            onQueued
-                    )
+                sendResult
                     .onSuccess {
 
                         // The Firebase task completed successfully; clear Room's
@@ -2155,6 +2161,72 @@ class ChatViewModel : ViewModel() {
                     e.localizedMessage ?: "Message could not be sent. Your text has been kept."
                 )
             }
+        }
+    }
+
+    fun deleteMessagesForMe(
+        messageIds: Set<String>,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val chatId = currentChatId
+        if (chatId.isBlank() || messageIds.isEmpty()) {
+            onResult(false, "No messages selected.")
+            return
+        }
+
+        viewModelScope.launch {
+            for (messageId in messageIds) {
+                val result = chatRepository.deleteMessageForMe(chatId, messageId)
+                if (result.isFailure) {
+                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
+                    return@launch
+                }
+            }
+            onResult(true, null)
+        }
+    }
+
+    fun deleteMessagesForEveryone(
+        messageIds: Set<String>,
+        currentUserId: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val chatId = currentChatId
+        if (chatId.isBlank() || messageIds.isEmpty()) {
+            onResult(false, "No messages selected.")
+            return
+        }
+        val selectedMessages = _messages.value.filter { it.id in messageIds }
+        if (
+            selectedMessages.size != messageIds.size ||
+            selectedMessages.any { it.senderId != currentUserId }
+        ) {
+            onResult(false, "You can only delete your own messages for everyone.")
+            return
+        }
+
+        viewModelScope.launch {
+            for (messageId in messageIds) {
+                val result = chatRepository.deleteMessage(chatId, messageId)
+                if (result.isFailure) {
+                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for everyone.")
+                    return@launch
+                }
+            }
+            onResult(true, null)
+        }
+    }
+
+    fun clearChatForMe(onResult: (Boolean, String?) -> Unit) {
+        val chatId = currentChatId
+        if (chatId.isBlank()) {
+            onResult(false, "No chat is open.")
+            return
+        }
+        val pendingIds = _pendingMessageIds.value
+        viewModelScope.launch {
+            val result = chatRepository.clearChatForMe(chatId, pendingIds)
+            onResult(result.isSuccess, result.exceptionOrNull()?.message)
         }
     }
 
@@ -2292,9 +2364,9 @@ class ChatViewModel : ViewModel() {
                 ).onSuccess { olderMessages ->
                     if (currentChatId == chatId) {
                         _messages.value =
-                            (olderMessages + _messages.value)
-                                .distinctBy { it.id }
-                                .sortedBy { it.timestamp }
+                            // The Firebase page ends strictly before the
+                            // oldest loaded timestamp, so these IDs cannot overlap.
+                            olderMessages + _messages.value
                         _hasOlderMessages.value =
                             olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
                     }

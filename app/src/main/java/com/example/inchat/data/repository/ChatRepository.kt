@@ -5,6 +5,7 @@ import com.example.inchat.InChatApplication
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.local.toCachedEntity
 import com.example.inchat.data.local.toMessage
+import com.example.inchat.data.worker.MessageNotificationWorker
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -15,12 +16,21 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.Query
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -88,6 +98,21 @@ class ChatRepository {
         // Prevent repeated warm-up reads while Home emits inbox metadata updates.
         private val prefetchedChatIds =
             ConcurrentHashMap.newKeySet<String>()
+
+        // Per-account, per-chat view state. This never changes the shared
+        // messages node and is safe to reuse for direct and group chats.
+        private val messageVisibilityCache =
+            ConcurrentHashMap<String, MessageVisibilitySnapshot>()
+
+    }
+
+    private data class MessageVisibilitySnapshot(
+        val clearedAt: Long = 0L,
+        val hiddenMessageIds: Set<String> = emptySet()
+    ) {
+        fun allows(message: Message): Boolean =
+            message.id !in hiddenMessageIds &&
+                (clearedAt <= 0L || message.timestamp > clearedAt)
     }
 
     private fun cacheKey(
@@ -227,8 +252,11 @@ class ChatRepository {
      * Null means this chat has not been loaded yet; an empty list is a
      * valid cached result for a conversation with no messages.
      */
-    fun getCachedMessages(chatId: String): List<Message>? =
-        messageCache[cacheKey(chatId)]
+    fun getCachedMessages(chatId: String): List<Message>? {
+        val key = cacheKey(chatId)
+        val visibility = messageVisibilityCache[key] ?: return null
+        return messageCache[key].orEmpty().filter(visibility::allows)
+    }
 
     fun clearOlderMessagePages(chatId: String) {
         if (chatId.isBlank()) return
@@ -244,120 +272,229 @@ class ChatRepository {
         transform: (Message) -> Message?
     ) {
         val key = cacheKey(chatId)
+        // Cache lists are already chronological, and current transforms only
+        // edit message fields or remove an item without changing its timestamp.
+        // Preserve that order instead of sorting up to three cached lists again.
         messageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
         olderMessageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
         latestMessageCache.computeIfPresent(key) { _, messages ->
-            messages.mapNotNull(transform).sortedBy { it.timestamp }
+            messages.mapNotNull(transform)
         }
     }
 
     private suspend fun refreshDirectConversationPreview(chatId: String) {
-        try {
-            val chatSnapshot = database.getReference("chats")
+        CloudflareNotificationRepository()
+            .syncConversationPreview(chatId)
+            .onFailure { previewError ->
+                Log.w(
+                    TAG,
+                    "Could not refresh conversation preview after a message edit/delete.",
+                    previewError
+                )
+            }
+    }
+
+
+    private suspend fun readMessageVisibility(
+        chatId: String,
+        ownerUserId: String
+    ): MessageVisibilitySnapshot {
+        val snapshot = database.getReference("userMessageVisibility")
+            .child(ownerUserId)
+            .child(chatId)
+            .get()
+            .await()
+        val hiddenIds = snapshot.child("hiddenMessageIds")
+            .children
+            .filter { it.getValue(Boolean::class.java) == true }
+            .mapNotNull { it.key }
+            .toSet()
+        return MessageVisibilitySnapshot(
+            clearedAt = snapshot.child("clearedAt").getValue(Long::class.java) ?: 0L,
+            hiddenMessageIds = hiddenIds
+        ).also { messageVisibilityCache[cacheKey(chatId, ownerUserId)] = it }
+    }
+
+    private fun observeMessageVisibility(chatId: String): Flow<MessageVisibilitySnapshot> {
+        val ownerUserId = auth.currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank() || chatId.isBlank()) {
+            return flowOf(MessageVisibilitySnapshot())
+        }
+
+        return callbackFlow {
+            val key = cacheKey(chatId, ownerUserId)
+            val ref = database.getReference("userMessageVisibility")
+                .child(ownerUserId)
                 .child(chatId)
-                .get()
-                .await()
 
-            if (!chatSnapshot.exists()) {
-                return
-            }
-
-            if (
-                chatSnapshot.child("type").getValue(String::class.java) == "group"
-            ) {
-                CloudflareNotificationRepository()
-                    .syncConversationPreview(chatId)
-                    .onFailure { previewError ->
-                        Log.w(
-                            TAG,
-                            "Group preview could not be refreshed after a message edit/delete.",
-                            previewError
-                        )
-                    }
-                return
-            }
-
-            val participantA = chatSnapshot.child("participantA")
-                .getValue(String::class.java)
-                .orEmpty()
-            val participantB = chatSnapshot.child("participantB")
-                .getValue(String::class.java)
-                .orEmpty()
-
-            if (participantA.isBlank() || participantB.isBlank()) {
-                return
-            }
-
-            val latestSnapshot = database.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .orderByChild("timestamp")
-                .limitToLast(1)
-                .get()
-                .await()
-
-            val latest = latestSnapshot.children
-                .mapNotNull { it.getValue(Message::class.java) }
-                .maxByOrNull { it.timestamp }
-
-            val previewText =
-                latest?.text?.takeIf { it.isNotBlank() } ?: "No messages yet"
-            val previewTimestamp = latest?.timestamp ?: 0L
-            // Existing userChats validation requires lastSenderId to be a participant.
-            val previewSenderId = latest?.senderId ?: participantA
-
-            val previewUpdates = mapOf<String, Any>(
-                "lastMessage" to previewText,
-                "lastTimestamp" to previewTimestamp,
-                "lastSenderId" to previewSenderId
-            )
-
-            for (uid in listOf(participantA, participantB)) {
-                try {
-                    // Partial updates preserve each participant's own unread count
-                    // and do not recreate an inbox entry they removed.
-                    database.getReference("userChats")
-                        .child(uid)
-                        .child(chatId)
-                        .updateChildren(previewUpdates)
-                        .await()
-                } catch (error: Exception) {
-                    Log.w(
-                        TAG,
-                        "Could not refresh inbox preview for $uid/$chatId",
-                        error
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val hiddenIds = snapshot.child("hiddenMessageIds")
+                        .children
+                        .filter { it.getValue(Boolean::class.java) == true }
+                        .mapNotNull { it.key }
+                        .toSet()
+                    val visibility = MessageVisibilitySnapshot(
+                        clearedAt = snapshot.child("clearedAt")
+                            .getValue(Long::class.java) ?: 0L,
+                        hiddenMessageIds = hiddenIds
                     )
+                    messageVisibilityCache[key] = visibility
+                    trySend(visibility)
                 }
 
-                conversationCache.computeIfPresent(uid) { _, conversations ->
-                    conversations.map { conversation ->
-                        if (conversation.chatId == chatId) {
-                            conversation.copy(
-                                lastMessage = previewText,
-                                lastTimestamp = previewTimestamp,
-                                lastSenderId = previewSenderId
-                            )
-                        } else {
-                            conversation
-                        }
-                    }
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(TAG, "Message visibility listener cancelled for $chatId", error.toException())
+                    val cached = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+                    trySend(cached)
                 }
             }
-        } catch (error: Exception) {
-            // The message edit/delete already succeeded. A preview refresh
-            // failure must not make the UI report the message operation failed.
-            Log.w(
-                TAG,
-                "Could not refresh direct conversation preview for $chatId",
-                error
-            )
+
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
         }
     }
 
+    suspend fun deleteMessageForMe(
+        chatId: String,
+        messageId: String
+    ): Result<Unit> {
+        return try {
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            if (chatId.isBlank() || messageId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid message data."))
+            }
+
+            // The message is already present in the chat UI. Do not perform
+            // a preflight read: this per-user marker can be queued offline, and
+            // the database rules independently verify chat membership.
+            database.getReference("userMessageVisibility")
+                .child(ownerUserId)
+                .child(chatId)
+                .child("hiddenMessageIds")
+                .child(messageId)
+                .setValue(true)
+                .await()
+
+            val key = cacheKey(chatId, ownerUserId)
+            val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+            val updatedVisibility = oldVisibility.copy(
+                hiddenMessageIds = oldVisibility.hiddenMessageIds + messageId
+            )
+            messageVisibilityCache[key] = updatedVisibility
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not hide message $messageId for current user", error)
+            Result.failure(error)
+        }
+    }
+
+    suspend fun clearChatForMe(
+        chatId: String,
+        pendingMessageIds: Set<String>
+    ): Result<Unit> {
+        return try {
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            if (chatId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid chat."))
+            }
+
+            val visibilityRef = database.getReference("userMessageVisibility")
+                .child(ownerUserId)
+                .child(chatId)
+            val updates = mutableMapOf<String, Any>(
+                "clearedAt" to ServerValue.TIMESTAMP
+            )
+            // Pending local messages can have timestamp 0 until Firebase assigns
+            // their server timestamp. Store only those IDs; the clearedAt cutoff
+            // hides all persisted history without growing this marker map.
+            pendingMessageIds
+                .filter(String::isNotBlank)
+                .forEach { id ->
+                    updates["hiddenMessageIds/$id"] = true
+                }
+
+            visibilityRef.updateChildren(updates).await()
+            val clearedAt = visibilityRef.child("clearedAt")
+                .get().await().getValue(Long::class.java)
+                ?: FirebaseServerClock.now()
+
+            try {
+                database.getReference("conversationPreferences")
+                    .child(ownerUserId)
+                    .child(chatId)
+                    .child("clearedAt")
+                    .setValue(clearedAt)
+                    .await()
+            } catch (preferenceError: Exception) {
+                Log.w(TAG, "History cleared, but the Home preview preference could not be saved.", preferenceError)
+            }
+
+            val key = cacheKey(chatId, ownerUserId)
+            val oldVisibility = messageVisibilityCache[key] ?: MessageVisibilitySnapshot()
+            val updatedVisibility = oldVisibility.copy(
+                clearedAt = maxOf(oldVisibility.clearedAt, clearedAt),
+                hiddenMessageIds = oldVisibility.hiddenMessageIds + pendingMessageIds
+            )
+            messageVisibilityCache[key] = updatedVisibility
+            // Direct-chat preview metadata is owned by this user. Group preview
+            // fields are maintained by the group sync path, so only unreadCount
+            // is updated there.
+            try {
+                val chatSnapshot = database.getReference("chats")
+                    .child(chatId)
+                    .get()
+                    .await()
+                if (chatSnapshot.child("type").getValue(String::class.java) != "group") {
+                    database.getReference("userChats")
+                        .child(ownerUserId)
+                        .child(chatId)
+                        .updateChildren(
+                            mapOf(
+                                "lastMessage" to "No messages yet",
+                                "lastTimestamp" to clearedAt,
+                                "lastSenderId" to ownerUserId
+                            )
+                        )
+                        .await()
+
+                    // Clearing direct history also clears unread state. Advance
+                    // the private read cursor so delayed Worker events for older
+                    // messages cannot restore an unread badge.
+                    database.getReference("chatReadState")
+                        .child(ownerUserId)
+                        .child(chatId)
+                        .setValue(clearedAt)
+                        .await()
+                }
+            } catch (previewError: Exception) {
+                Log.w(TAG, "Chat history cleared, but the inbox preview could not be refreshed.", previewError)
+            }
+
+            // Clearing a conversation also resets this user's unread badge.
+            database.getReference("userChats")
+                .child(ownerUserId)
+                .child(chatId)
+                .child("unreadCount")
+                .setValue(0L)
+                .await()
+
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not clear chat $chatId for current user", error)
+            Result.failure(error)
+        }
+    }
 
     /*
      * =========================================================
@@ -372,8 +509,13 @@ class ChatRepository {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         if (ownerUserId.isBlank() || chatId.isBlank()) return flowOf(emptyList())
 
-        return localMessageDao.observeMessages(ownerUserId, chatId)
-            .map { entities -> entities.map { it.toMessage() } }
+        return combine(
+            localMessageDao.observeMessages(ownerUserId, chatId)
+                .map { entities -> entities.map { it.toMessage() } },
+            observeMessageVisibility(chatId)
+        ) { messages, visibility ->
+            messages.filter(visibility::allows)
+        }
     }
 
     /**
@@ -475,72 +617,96 @@ class ChatRepository {
         ) return
 
         val pending = localMessageDao.getPendingMessages(ownerUserId, chatId)
-        for (localMessage in pending) {
-            try {
-                val messageRef = database.getReference("chats")
-                    .child(chatId)
-                    .child("messages")
-                    .child(localMessage.messageId)
-                val snapshot = messageRef.get().await()
-                val remoteMessage = snapshot.getValue(Message::class.java)
+        // Reconcile a small number at once: reconnects become faster without
+        // flooding Realtime Database when a chat has many queued messages.
+        val semaphore = Semaphore(4)
+        coroutineScope {
+            pending.map { localMessage ->
+                async {
+                    semaphore.withPermit {
+                        try {
+                            val messageRef = database.getReference("chats")
+                                .child(chatId)
+                                .child("messages")
+                                .child(localMessage.messageId)
+                            val snapshot = messageRef.get().await()
+                            val remoteMessage = snapshot.getValue(Message::class.java)
 
-                when {
-                    remoteMessage != null &&
-                        remoteMessage.id == localMessage.messageId &&
-                        remoteMessage.senderId == ownerUserId -> {
-                        localMessageDao.markMessageSent(
-                            ownerUserId = ownerUserId,
-                            chatId = chatId,
-                            messageId = localMessage.messageId
-                        )
-                    }
+                            when {
+                                remoteMessage != null &&
+                                    remoteMessage.id == localMessage.messageId &&
+                                    remoteMessage.senderId == ownerUserId -> {
+                                    localMessageDao.markMessageSent(
+                                        ownerUserId = ownerUserId,
+                                        chatId = chatId,
+                                        messageId = localMessage.messageId
+                                    )
+                                }
 
-                    !snapshot.exists() -> {
-                        // The process may have stopped after Room saved the
-                        // message but before Firebase received the write.
-                        // Reuse the same ID so this retry cannot create a duplicate.
-                        val localMessageModel = localMessage.toMessage()
-                        val retryResult = sendMessage(
-                            chatId = chatId,
-                            messageId = localMessage.messageId,
-                            text = localMessageModel.text,
-                            senderId = ownerUserId,
-                            senderNickname = localMessageModel.senderNickname,
-                            receiverId = receiverId,
-                            receiverNickname = receiverNickname,
-                            replyTo = localMessageModel.replyTo,
-                            attachment = localMessageModel.attachment
-                        )
-                        retryResult.onSuccess {
-                            localMessageDao.markMessageSent(
-                                ownerUserId = ownerUserId,
-                                chatId = chatId,
-                                messageId = localMessage.messageId
+                                !snapshot.exists() -> {
+                                    // Reuse the original ID so retries cannot create duplicates.
+                                    val localMessageModel = localMessage.toMessage()
+                                    val retryResult = sendMessage(
+                                        chatId = chatId,
+                                        messageId = localMessage.messageId,
+                                        text = localMessageModel.text,
+                                        senderId = ownerUserId,
+                                        senderNickname = localMessageModel.senderNickname,
+                                        receiverId = receiverId,
+                                        receiverNickname = receiverNickname,
+                                        replyTo = localMessageModel.replyTo,
+                                        attachment = localMessageModel.attachment
+                                    )
+                                    retryResult.onSuccess {
+                                        localMessageDao.markMessageSent(
+                                            ownerUserId = ownerUserId,
+                                            chatId = chatId,
+                                            messageId = localMessage.messageId
+                                        )
+                                    }.onFailure { error ->
+                                        Log.w(
+                                            TAG,
+                                            "Pending message retry was not accepted: ${localMessage.messageId}",
+                                            error
+                                        )
+                                    }
+                                }
+
+                                else -> {
+                                    Log.w(
+                                        TAG,
+                                        "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
+                                    )
+                                }
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            Log.w(
+                                TAG,
+                                "Could not reconcile pending message ${localMessage.messageId}",
+                                error
                             )
-                        }.onFailure { error ->
-                            Log.w(TAG, "Pending message retry was not accepted: ${localMessage.messageId}", error)
                         }
                     }
-
-                    else -> {
-                        Log.w(
-                            TAG,
-                            "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
-                        )
-                    }
                 }
-            } catch (error: Exception) {
-                Log.w(TAG, "Could not reconcile pending message ${localMessage.messageId}", error)
-            }
+            }.awaitAll()
         }
     }
-
     /*
      * =========================================================
      * MESSAGE LISTENER
      * =========================================================
      */
     fun getMessagesFlow(chatId: String): Flow<List<Message>> =
+        combine(
+            getRawMessagesFlow(chatId),
+            observeMessageVisibility(chatId)
+        ) { messages, visibility ->
+            messages.filter(visibility::allows)
+        }
+
+    private fun getRawMessagesFlow(chatId: String): Flow<List<Message>> =
         callbackFlow {
             val producerScope = this
             val ownerUserId = auth.currentUser?.uid.orEmpty()
@@ -552,9 +718,35 @@ class ChatRepository {
 
             val key = cacheKey(chatId, ownerUserId)
 
+            // Firebase can emit snapshots in quick succession. Persist them
+            // through one conflated worker so slow Room writes cannot finish
+            // out of order and overwrite a newer snapshot with stale data.
+            val snapshotPersistenceChannel =
+                Channel<List<Message>>(Channel.CONFLATED)
+            val snapshotPersistenceJob = launch(Dispatchers.IO) {
+                for (snapshotMessages in snapshotPersistenceChannel) {
+                    try {
+                        localMessageDao.replaceLatestSnapshot(
+                            ownerUserId = ownerUserId,
+                            chatId = chatId,
+                            messages = snapshotMessages.map {
+                                it.toCachedEntity(ownerUserId, chatId)
+                            }
+                        )
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
+                    }
+                }
+            }
+
             // Room is the first source for the UI. It survives process death.
             val localMessagesJob = launch(Dispatchers.IO) {
-                localMessageDao.observeMessages(ownerUserId, chatId).collect { entities ->
+                // Room can re-run this query after writes to other chats because
+                // all cached messages share one table. Skip identical results
+                // before converting entities and forwarding them to the UI.
+                localMessageDao.observeMessages(ownerUserId, chatId)
+                    .distinctUntilChanged()
+                    .collect { entities ->
                     val localMessages = entities.map { it.toMessage() }
                     messageCache[key] = localMessages
                     trySend(localMessages)
@@ -572,10 +764,13 @@ class ChatRepository {
 
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
+                    // Firebase's orderByChild("timestamp") query already returns
+                    // children in timestamp order, so an additional local sort is
+                    // unnecessary here.
                     val latestMessages = snapshot.children.mapNotNull { child ->
                         child.getValue(Message::class.java)
                             ?.takeIf { it.id.isNotBlank() }
-                    }.sortedBy { it.timestamp }
+                    }
 
                     val immutableLatestMessages = latestMessages.toList()
                     latestMessageCache[key] = immutableLatestMessages
@@ -589,28 +784,19 @@ class ChatRepository {
                             .filter { it.timestamp < firstLatestTimestamp }
                     }
 
+                    // Older pages are already sorted and are strictly earlier
+                    // than the first latest-page timestamp. Concatenation therefore
+                    // preserves chronological order without sorting the full history.
                     val combinedMessages = (cachedOlderMessages + immutableLatestMessages)
                         .distinctBy { it.id }
-                        .sortedBy { it.timestamp }
 
                     messageCache[key] = combinedMessages
                     trySend(combinedMessages)
 
-                    // Replace only the range represented by Firebase's latest-200 query.
-                    // Previously loaded older pages remain in Room.
-                    producerScope.launch(Dispatchers.IO) {
-                        try {
-                            localMessageDao.replaceLatestSnapshot(
-                                ownerUserId = ownerUserId,
-                                chatId = chatId,
-                                messages = immutableLatestMessages.map {
-                                    it.toCachedEntity(ownerUserId, chatId)
-                                }
-                            )
-                        } catch (error: Exception) {
-                            Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
-                        }
-                    }
+                    // Queue only the newest pending snapshot for Room. The
+                    // conflated worker serializes writes and skips obsolete
+                    // intermediate snapshots when Firebase emits rapidly.
+                    snapshotPersistenceChannel.trySend(immutableLatestMessages)
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -627,6 +813,8 @@ class ChatRepository {
             awaitClose {
                 localMessagesJob.cancel()
                 messagesRef.removeEventListener(listener)
+                snapshotPersistenceChannel.close()
+                snapshotPersistenceJob.cancel()
             }
         }
 
@@ -645,29 +833,37 @@ class ChatRepository {
                 .endAt((beforeTimestamp - 1L).toDouble())
                 .limitToLast(pageSize).get().await()
 
-            val page = snapshot.children
+            // orderByChild(timestamp) plus endAt/limitToLast already yields
+            // the page in chronological order.
+            val rawPage = snapshot.children
                 .mapNotNull { it.getValue(Message::class.java) }
                 .filter { it.id.isNotBlank() }
-                .sortedBy { it.timestamp }
 
-            if (page.isNotEmpty()) {
-                val ownerUserId = auth.currentUser?.uid.orEmpty()
-                if (ownerUserId.isBlank()) {
-                    return Result.failure(IllegalStateException("You are not authenticated."))
-                }
+            val ownerUserId = auth.currentUser?.uid.orEmpty()
+            if (ownerUserId.isBlank()) {
+                return Result.failure(IllegalStateException("You are not authenticated."))
+            }
+            val visibility = readMessageVisibility(chatId, ownerUserId)
+            val page = rawPage.filter(visibility::allows)
+
+            if (rawPage.isNotEmpty()) {
                 val key = cacheKey(chatId, ownerUserId)
+                // The requested page is strictly older than beforeTimestamp,
+                // so prepend it to the already chronological cached lists.
                 olderMessageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (rawPage + cached.orEmpty()).distinctBy { it.id }
                 }
                 messageCache.compute(key) { _, cached ->
-                    (cached.orEmpty() + page).distinctBy { it.id }.sortedBy { it.timestamp }
+                    (rawPage + cached.orEmpty()).distinctBy { it.id }
                 }
                 localMessageDao.upsertMessages(
-                    page.map { it.toCachedEntity(ownerUserId, chatId) }
+                    rawPage.map { it.toCachedEntity(ownerUserId, chatId) }
                 )
             }
 
             Result.success(page)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.e(TAG, "Could not load older messages for $chatId", error)
             Result.failure(error)
@@ -720,44 +916,62 @@ class ChatRepository {
             maxChats !in 1..12
         ) return
 
-        for (conversation in conversations
+        val candidates = conversations
+            .asSequence()
             .sortedByDescending { it.lastTimestamp }
             .take(maxChats)
-        ) {
-            val chatId = conversation.chatId
-            if (chatId.isBlank()) continue
+            .filter { it.chatId.isNotBlank() }
+            .distinctBy { it.chatId }
+            .toList()
 
-            val key = cacheKey(chatId, ownerUserId)
-            if (!prefetchedChatIds.add(key)) continue
+        // Warm a few chats at once instead of serially waiting for each
+        // Firebase round trip. Keep the limit small to avoid a request burst.
+        val semaphore = Semaphore(4)
+        coroutineScope {
+            candidates.map { conversation ->
+                async {
+                    val chatId = conversation.chatId
+                    val key = cacheKey(chatId, ownerUserId)
+                    if (!prefetchedChatIds.add(key)) return@async
 
-            try {
-                // If this chat is already cached locally, there is nothing to warm.
-                if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
-                    continue
+                    try {
+                        semaphore.withPermit {
+                            // If this chat is already cached locally, there is nothing to warm.
+                            if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
+                                return@withPermit
+                            }
+
+                            val snapshot = database.getReference("chats")
+                                .child(chatId)
+                                .child("messages")
+                                .orderByChild("timestamp")
+                                .limitToLast(30)
+                                .get()
+                                .await()
+
+                            val latestMessages = snapshot.children.mapNotNull { child ->
+                                child.getValue(Message::class.java)
+                                    ?.takeIf { it.id.isNotBlank() }
+                            }
+
+                            if (latestMessages.isNotEmpty()) {
+                                localMessageDao.upsertMessages(
+                                    latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
+                                )
+                            }
+                        }
+                    } catch (error: CancellationException) {
+                        prefetchedChatIds.remove(key)
+                        throw error
+                    } catch (error: Exception) {
+                        prefetchedChatIds.remove(key)
+                        Log.d(
+                            TAG,
+                            "Background message warm-up skipped for $chatId: ${error.message}"
+                        )
+                    }
                 }
-
-                val snapshot = database.getReference("chats")
-                    .child(chatId)
-                    .child("messages")
-                    .orderByChild("timestamp")
-                    .limitToLast(30)
-                    .get()
-                    .await()
-
-                val latestMessages = snapshot.children.mapNotNull { child ->
-                    child.getValue(Message::class.java)
-                        ?.takeIf { it.id.isNotBlank() }
-                }
-
-                if (latestMessages.isNotEmpty()) {
-                    localMessageDao.upsertMessages(
-                        latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
-                    )
-                }
-            } catch (error: Exception) {
-                prefetchedChatIds.remove(key)
-                Log.d(TAG, "Background message warm-up skipped for $chatId: ${error.message}")
-            }
+            }.awaitAll()
         }
     }
     /*
@@ -1102,7 +1316,8 @@ class ChatRepository {
                 mutableMapOf<String, Any?>(
 
                     "userChats/$currentUserId/$chatId/unreadCount" to
-                            0L
+                            0L,
+
                 )
 
             updates[
@@ -1115,6 +1330,15 @@ class ChatRepository {
                 } else {
                     null
                 }
+
+            // Store read state separately from the inbox entry. A brand-new
+            // direct conversation may not have a complete userChats record yet.
+            // The Worker reads this private cursor before it increments unread.
+            database.getReference("chatReadState")
+                .child(currentUserId)
+                .child(chatId)
+                .setValue(ServerValue.TIMESTAMP)
+                .await()
 
             database.reference
                 .updateChildren(
@@ -1283,10 +1507,9 @@ class ChatRepository {
             }
 
             /*
-             * Persist the message first. Conversation previews are secondary
-             * metadata; they must not be part of the same atomic update because
-             * a denial on either user's userChats node would reject the actual
-             * message as well.
+             * Persist the message first. The trusted Cloudflare Worker verifies
+             * the saved message and updates both inbox records. This client
+             * deliberately does not write either user's inbox metadata.
              */
             val messageWrite = database.getReference("chats")
                 .child(chatId)
@@ -1299,53 +1522,26 @@ class ChatRepository {
             onQueued()
             messageWrite.await()
 
-            CloudflareNotificationRepository()
-                .notifyMessage(chatId, messageId)
-                .onFailure { notificationError ->
-                    Log.w(
-                        TAG,
-                        "Message was saved, but Cloudflare notification dispatch failed.",
-                        notificationError
-                    )
-                }
+            try {
+                MessageNotificationWorker.enqueue(
+                    context = InChatApplication.instance,
+                    senderId = senderId,
+                    chatId = chatId,
+                    messageId = messageId
+                )
+            } catch (queueError: Exception) {
+                // The Firebase message is already saved. Do not turn a queue
+                // scheduling issue into a failed send; log it for diagnosis.
+                Log.e(
+                    TAG,
+                    "Message was saved, but its background event could not be queued.",
+                    queueError
+                )
+            }
 
-            val senderConversation = mapOf(
-                "chatId" to chatId,
-                "otherUserId" to receiverId,
-                "otherUsername" to receiverNickname,
-                "lastMessage" to text,
-                "lastTimestamp" to ServerValue.TIMESTAMP,
-                "lastSenderId" to senderId,
-                "unreadCount" to 0L
-            )
-
-            val receiverConversation = mapOf(
-                "chatId" to chatId,
-                "otherUserId" to senderId,
-                "otherUsername" to senderNickname,
-                "lastMessage" to text,
-                "lastTimestamp" to ServerValue.TIMESTAMP,
-                "lastSenderId" to senderId,
-                "unreadCount" to ServerValue.increment(1)
-            )
-
-            // Conversation previews are secondary metadata. Queue them
-            // without making the composer wait for two more server round trips.
-            database.getReference("userChats")
-                .child(senderId)
-                .child(chatId)
-                .setValue(senderConversation)
-                .addOnFailureListener { metadataError ->
-                    Log.w(TAG, "Message sent, but sender conversation preview was not updated", metadataError)
-                }
-
-            database.getReference("userChats")
-                .child(receiverId)
-                .child(chatId)
-                .setValue(receiverConversation)
-                .addOnFailureListener { metadataError ->
-                    Log.w(TAG, "Message sent, but receiver conversation preview was not updated", metadataError)
-                }
+            // The Cloudflare Worker creates and updates both direct-chat inbox
+            // records after verifying the persisted message. Clients never write
+            // another user's inbox entry.
 
             Result.success(messageId)
         } catch (e: Exception) {

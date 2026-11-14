@@ -74,7 +74,9 @@ fun SwipeableMessageBubble(
     chatSwipeOffsetPx: Float = 0f,
     isFirstInGroup: Boolean = true,
     isLastInGroup: Boolean = true,
-    showSenderName: Boolean = false
+    showSenderName: Boolean = false,
+    onClick: () -> Unit = {},
+    isSelected: Boolean = false
 ) {
     val density =
         LocalDensity.current
@@ -269,7 +271,7 @@ fun SwipeableMessageBubble(
                                     null,
                                 indication =
                                     null,
-                                onClick = {},
+                                onClick = onClick,
                                 onDoubleClick = {
                                     onReactionClick(
                                         "❤️"
@@ -280,15 +282,19 @@ fun SwipeableMessageBubble(
                             )
                             .clip(bubbleShape)
                             .background(
-                                if (isMe) {
+                                if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                                } else if (isMe) {
                                     chatTheme.outgoingBubbleColor
                                 } else {
                                     chatTheme.incomingBubbleColor
                                 }
                             )
                             .border(
-                                width = 0.7.dp,
-                                color = if (isMe) {
+                                width = if (isSelected) 1.6.dp else 0.7.dp,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else if (isMe) {
                                     chatTheme.outgoingBorderColor
                                 } else {
                                     chatTheme.incomingBorderColor

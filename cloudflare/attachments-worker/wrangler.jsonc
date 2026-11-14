@@ -1,15 +1,30 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "inchat-attachments",
+  "name": "icy-base-2bc4",
   "main": "src/index.js",
   "compatibility_date": "2026-09-28",
-  "r2_buckets": [
+  "preview_urls": false,
+  "ratelimits": [
     {
-      "binding": "ATTACHMENTS",
-      "bucket_name": "inchat-attachments"
+      "name": "RECOVERY_IP_LIMITER",
+      "namespace_id": "27112026",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    },
+    {
+      "name": "RECOVERY_USERNAME_LIMITER",
+      "namespace_id": "27112027",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
     }
   ],
   "vars": {
-    "FIREBASE_DATABASE_URL": "https://inchat-24b8b-default-rtdb.firebaseio.com"
+    "FIREBASE_CLIENT_EMAIL": "firebase-adminsdk-fbsvc@inchat-24b8b.iam.gserviceaccount.com",
+    "FIREBASE_DATABASE_URL": "https://inchat-24b8b-default-rtdb.firebaseio.com",
+    "FIREBASE_PROJECT_ID": "inchat-24b8b"
   }
 }

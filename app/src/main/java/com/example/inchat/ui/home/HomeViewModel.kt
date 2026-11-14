@@ -4,11 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.ConversationPreference
+import com.example.inchat.data.repository.ConversationPreferencesRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -19,6 +23,12 @@ class HomeViewModel : ViewModel() {
 
     private val groupChatRepository =
         GroupChatRepository()
+
+    private val conversationPreferencesRepository =
+        ConversationPreferencesRepository()
+
+    private val _conversationPreferences =
+        MutableStateFlow<Map<String, ConversationPreference>>(emptyMap())
 
     private val _conversations =
         MutableStateFlow<List<Conversation>>(
@@ -66,6 +76,10 @@ class HomeViewModel : ViewModel() {
     private var listeningUserId =
         ""
 
+    // Only warm message caches again when the selected chat IDs change.
+    private var lastPreloadedChatIds: List<String> = emptyList()
+    private var preloadingJob: Job? = null
+
     /*
      * =========================================================
      * CONVERSATION LISTENER
@@ -88,6 +102,9 @@ class HomeViewModel : ViewModel() {
             _groupConversations.value =
                 emptyList()
 
+            _conversationPreferences.value =
+                emptyMap()
+
             _directConversationsLoaded.value =
                 false
 
@@ -99,6 +116,10 @@ class HomeViewModel : ViewModel() {
 
             listeningUserId =
                 ""
+
+            preloadingJob?.cancel()
+            preloadingJob = null
+            lastPreloadedChatIds = emptyList()
 
             conversationsJob?.cancel()
 
@@ -119,6 +140,10 @@ class HomeViewModel : ViewModel() {
         listeningUserId =
             currentUserId
 
+        preloadingJob?.cancel()
+        preloadingJob = null
+        lastPreloadedChatIds = emptyList()
+
         conversationsJob?.cancel()
 
         _conversations.value =
@@ -129,6 +154,9 @@ class HomeViewModel : ViewModel() {
 
         _groupConversations.value =
             emptyList()
+
+        _conversationPreferences.value =
+            emptyMap()
 
         _directConversationsLoaded.value =
             false
@@ -160,6 +188,7 @@ class HomeViewModel : ViewModel() {
                                 it.chatType != "group"
                             }
                         }
+                        .distinctUntilChanged()
                         .collect { list ->
 
                             _directConversations.value =
@@ -182,6 +211,7 @@ class HomeViewModel : ViewModel() {
                         .observeGroupConversations(
                             currentUserId
                         )
+                        .distinctUntilChanged()
                         .collect { list ->
 
                             _groupConversations.value =
@@ -190,6 +220,19 @@ class HomeViewModel : ViewModel() {
                             _groupConversationsLoaded.value =
                                 true
 
+                            publishConversations()
+                        }
+                }
+
+                launch {
+                    conversationPreferencesRepository
+                        .observePreferences(currentUserId)
+                        .catch {
+                            emit(emptyMap())
+                        }
+                        .distinctUntilChanged()
+                        .collect { preferences ->
+                            _conversationPreferences.value = preferences
                             publishConversations()
                         }
                 }
@@ -206,21 +249,56 @@ class HomeViewModel : ViewModel() {
                 .distinctBy {
                     it.chatId
                 }
-                .sortedByDescending {
-                    it.lastTimestamp
+                .map { conversation ->
+                    val preference = _conversationPreferences.value[conversation.chatId]
+                    val clearedAt = preference?.clearedAt ?: 0L
+                    val historyWasCleared = clearedAt > 0L &&
+                        clearedAt >= conversation.lastTimestamp
+                    conversation.copy(
+                        lastMessage = if (historyWasCleared) "No messages yet" else conversation.lastMessage,
+                        lastTimestamp = if (historyWasCleared) clearedAt else conversation.lastTimestamp,
+                        lastSenderId = if (historyWasCleared) "" else conversation.lastSenderId,
+                        lastSenderNickname = if (historyWasCleared) "" else conversation.lastSenderNickname,
+                        unreadCount = if (historyWasCleared) 0L else conversation.unreadCount,
+                        isPinned = preference?.isPinned ?: false,
+                        isHidden = preference?.isHidden ?: false
+                    )
                 }
+                .sortedWith(
+                    compareBy<Conversation> { it.isHidden }
+                        .thenByDescending { it.isPinned }
+                        .thenByDescending { it.lastTimestamp }
+                )
                 .take(50)
 
         _conversations.value =
             merged
 
         // Warm recent direct/group message history while Home is visible.
-        viewModelScope.launch {
-            chatRepository.preloadRecentMessages(
-                ownerUserId = listeningUserId,
-                conversations = merged,
-                maxChats = 8
-            )
+        // Unread-count, preview, or preference updates often republish the same
+        // inbox. Do not restart the same eight-chat cache warm-up each time.
+        val preloadConversations = merged.filterNot { it.isHidden }
+        val preloadChatIds = preloadConversations
+            .asSequence()
+            .sortedByDescending { it.lastTimestamp }
+            .take(8)
+            .map { it.chatId }
+            .toList()
+
+        if (preloadChatIds != lastPreloadedChatIds) {
+            lastPreloadedChatIds = preloadChatIds
+            preloadingJob?.cancel()
+            preloadingJob = if (preloadChatIds.isEmpty()) {
+                null
+            } else {
+                viewModelScope.launch {
+                    chatRepository.preloadRecentMessages(
+                        ownerUserId = listeningUserId,
+                        conversations = preloadConversations,
+                        maxChats = 8
+                    )
+                }
+            }
         }
 
         /*
@@ -235,6 +313,63 @@ class HomeViewModel : ViewModel() {
                         _groupConversationsLoaded.value ||
                                 _directConversations.value.isNotEmpty()
                         )
+    }
+
+    /*
+     * =========================================================
+     * PER-USER INBOX ACTIONS
+     * =========================================================
+     */
+    fun setConversationPinned(
+        currentUserId: String,
+        chatId: String,
+        pinned: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            conversationPreferencesRepository
+                .setPinned(currentUserId, chatId, pinned)
+                .onSuccess {
+                    val updated = _conversationPreferences.value.toMutableMap()
+                    val current = updated[chatId] ?: ConversationPreference()
+                    updated[chatId] = current.copy(isPinned = pinned)
+                    _conversationPreferences.value = updated
+                    publishConversations()
+                    onResult(true, null)
+                }
+                .onFailure { error ->
+                    onResult(
+                        false,
+                        error.message ?: "Could not update the pin."
+                    )
+                }
+        }
+    }
+
+    fun setConversationHidden(
+        currentUserId: String,
+        chatId: String,
+        hidden: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            conversationPreferencesRepository
+                .setHidden(currentUserId, chatId, hidden)
+                .onSuccess {
+                    val updated = _conversationPreferences.value.toMutableMap()
+                    val current = updated[chatId] ?: ConversationPreference()
+                    updated[chatId] = current.copy(isHidden = hidden)
+                    _conversationPreferences.value = updated
+                    publishConversations()
+                    onResult(true, null)
+                }
+                .onFailure { error ->
+                    onResult(
+                        false,
+                        error.message ?: "Could not update hidden chats."
+                    )
+                }
+        }
     }
 
     /*

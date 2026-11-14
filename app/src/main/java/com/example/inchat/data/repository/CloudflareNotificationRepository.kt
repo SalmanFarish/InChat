@@ -10,6 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -46,12 +47,109 @@ class CloudflareNotificationRepository {
             return Result.success(Unit)
         }
 
+        val requestBody = JSONObject()
+            .put("chatId", chatId)
+            .put("messageId", messageId)
+
+        // Make one short immediate retry for a transient failure. WorkManager
+        // owns the longer exponential retry schedule so a push is not delayed
+        // by a long chain of sleeps inside this foreground-independent task.
+        val retryDelaysMs = longArrayOf(0L, 1_000L)
+        var lastFailure: Throwable? = null
+
+        for (waitMs in retryDelaysMs) {
+            if (waitMs > 0L) delay(waitMs)
+
+            val attempt = post(
+                path = "/events/message",
+                body = requestBody
+            )
+
+            if (attempt.isSuccess) {
+                val response = attempt.getOrThrow()
+                val notificationSent = response.optBoolean("notificationSent", true)
+                val alreadyProcessed = response.optBoolean("alreadyProcessed", false)
+                val reason = response.optString("reason").takeIf { it.isNotBlank() }
+
+                when {
+                    notificationSent -> Log.i(
+                        TAG,
+                        "FCM event accepted by Worker for chat=$chatId message=$messageId"
+                    )
+                    alreadyProcessed -> Log.i(
+                        TAG,
+                        "Worker had already processed chat=$chatId message=$messageId"
+                    )
+                    else -> Log.w(
+                        TAG,
+                        "Worker accepted event without confirming an FCM push " +
+                            "for chat=$chatId message=$messageId; reason=" + (reason ?: "not supplied")
+                    )
+                }
+                return Result.success(Unit)
+            }
+
+            val failure = attempt.exceptionOrNull()
+                ?: IllegalStateException("Notification dispatch failed.")
+            lastFailure = failure
+
+            if (!isRetryableNotificationFailure(failure)) {
+                return Result.failure(failure)
+            }
+        }
+
+        return Result.failure(
+            lastFailure ?: IllegalStateException("Notification dispatch failed.")
+        )
+    }
+
+    /**
+     * Performs group creation and membership/role changes through the trusted
+     * Worker. Firebase client rules intentionally deny direct writes to
+     * chats/{groupId}/members.
+     */
+    suspend fun manageGroupMembership(
+        action: String,
+        chatId: String,
+        groupName: String? = null,
+        memberIds: List<String> = emptyList(),
+        targetUid: String? = null,
+        role: String? = null
+    ): Result<String?> {
+        if (
+            action !in setOf("create", "add", "set_role", "remove", "leave") ||
+            chatId.isBlank()
+        ) {
+            return Result.failure(
+                IllegalArgumentException("Invalid group membership request.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.failure(
+                IllegalStateException("The group management service is not configured.")
+            )
+        }
+
+        val body = JSONObject()
+            .put("action", action)
+            .put("chatId", chatId)
+
+        groupName?.let { body.put("groupName", it) }
+        if (action == "create" || action == "add") {
+            val ids = org.json.JSONArray()
+            memberIds.forEach { ids.put(it) }
+            body.put("memberIds", ids)
+        }
+        targetUid?.let { body.put("targetUid", it) }
+        role?.let { body.put("role", it) }
+
         return post(
-            path = "/events/message",
-            body = JSONObject()
-                .put("chatId", chatId)
-                .put("messageId", messageId)
-        ).map { Unit }
+            path = "/groups/manage-members",
+            body = body
+        ).map { response ->
+            response.optString("messageId").takeIf { it.isNotBlank() }
+        }
     }
 
     suspend fun setGroupTopicSubscription(
@@ -93,6 +191,32 @@ class CloudflareNotificationRepository {
 
         return post(
             path = "/notifications/personal-topic",
+            body = JSONObject()
+        ).map { Unit }
+    }
+
+    /**
+     * Removes the current account from every group before its Firebase Auth
+     * identity is deleted. The Worker transfers group ownership where needed
+     * and removes server-managed FCM topic subscriptions.
+     */
+    suspend fun cleanupGroupsForAccountDeletion(
+        uid: String
+    ): Result<Unit> {
+        if (uid.isBlank() || auth.currentUser?.uid != uid) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match account owner.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.failure(
+                IllegalStateException("The account cleanup service is not configured.")
+            )
+        }
+
+        return post(
+            path = "/account/group-cleanup",
             body = JSONObject()
         ).map { Unit }
     }
@@ -184,6 +308,22 @@ class CloudflareNotificationRepository {
             Log.w(TAG, "Could not synchronize group notification topics.", error)
             Result.failure(error)
         }
+    }
+
+    internal fun isRetryableNotificationFailure(error: Throwable): Boolean {
+        val statusCode = Regex("""failed \((\d{3})\)""")
+            .find(error.message.orEmpty())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+        // Authentication, validation and permission errors need user/code
+        // fixes, not repeated requests. Retry rate limits, server failures,
+        // request timeouts and transport failures.
+        return statusCode == null ||
+            statusCode == 408 ||
+            statusCode == 429 ||
+            statusCode >= 500
     }
 
     private suspend fun post(

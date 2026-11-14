@@ -2,6 +2,7 @@ package com.example.inchat.ui.navigation
 
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -10,11 +11,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -65,7 +68,6 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.chat.ChatInfoScreen
 import com.example.inchat.ui.chat.ChatScreen
-import com.example.inchat.ui.chat.ChatThemeScreen
 import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.chat.CreateGroupScreen
 import com.example.inchat.ui.chat.GroupChatScreen
@@ -939,24 +941,6 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() },
-                    onChatThemeClick = {
-                        navController.navigate("chat_theme/" + infoUserId)
-                    }
-                )
-            }
-
-            composable(
-                route = "chat_theme/{otherUserId}",
-                arguments = listOf(
-                    navArgument("otherUserId") {
-                        type = NavType.StringType
-                    }
-                )
-            ) { entry ->
-                ChatThemeScreen(
-                    currentUserId = uid,
-                    otherUserId = entry.arguments?.getString("otherUserId").orEmpty(),
                     onBackClick = { navController.popBackStack() }
                 )
             }
@@ -1093,9 +1077,6 @@ private fun MainTabPager(
         Int
 ) {
 
-    val pagerScope =
-        rememberCoroutineScope()
-
     val searchViewModel:
         SearchViewModel =
         viewModel()
@@ -1168,16 +1149,6 @@ private fun MainTabPager(
                         )
                     },
 
-                    onProfileClick = {
-
-                        pagerScope.launch {
-
-                            pagerState
-                                .animateScrollToPage(
-                                    2
-                                )
-                        }
-                    }
                 )
             }
 
@@ -1286,7 +1257,7 @@ private fun InChatBottomBar(
             .padding(horizontal = 18.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth(0.86f)
                 .height(60.dp)
@@ -1297,28 +1268,45 @@ private fun InChatBottomBar(
                     color = MaterialTheme.colorScheme.outlineVariant,
                     shape = RoundedCornerShape(50.dp)
                 )
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(4.dp)
         ) {
-            bottomNavItems.forEachIndexed { index, item ->
-                val selected = pagerState.currentPage == index
-                val animatedWeight by animateFloatAsState(
-                    targetValue = if (selected) 1.75f else 1f,
-                    animationSpec = spring(
-                        dampingRatio = 0.88f,
-                        stiffness = 320f
-                    ),
-                    label = "bottomNavItemWeight"
-                )
+            // Every destination keeps one fixed-width slot. Only the
+            // selection pill moves, so the other icons never get pushed.
+            val slotWidth = maxWidth / bottomNavItems.size
+            val indicatorOffset by animateDpAsState(
+                targetValue = slotWidth * pagerState.currentPage,
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = 440f
+                ),
+                label = "bottomNavIndicatorOffset"
+            )
 
-                BottomNavigationItem(
-                    item = item,
-                    selected = selected,
-                    modifier = Modifier
-                        .weight(animatedWeight)
-                        .fillMaxSize(),
-                    onClick = { onPageSelected(index) }
-                )
+            Box(
+                modifier = Modifier
+                    .offset(x = indicatorOffset)
+                    .size(
+                        width = slotWidth,
+                        height = maxHeight
+                    )
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                bottomNavItems.forEachIndexed { index, item ->
+                    BottomNavigationItem(
+                        item = item,
+                        selected = pagerState.currentPage == index,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxSize(),
+                        onClick = { onPageSelected(index) }
+                    )
+                }
             }
         }
     }
@@ -1331,19 +1319,6 @@ private fun BottomNavigationItem(
     modifier: Modifier,
     onClick: () -> Unit
 ) {
-    val selectedBackground by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            androidx.compose.ui.graphics.Color.Transparent
-        },
-        animationSpec = spring(
-            dampingRatio = 0.9f,
-            stiffness = 360f
-        ),
-        label = "bottomNavBackground"
-    )
-
     val contentColor by animateColorAsState(
         targetValue = if (selected) {
             MaterialTheme.colorScheme.primary
@@ -1357,36 +1332,10 @@ private fun BottomNavigationItem(
         label = "bottomNavContent"
     )
 
-    val circleBackground by animateColorAsState(
-        targetValue = if (selected) {
-            androidx.compose.ui.graphics.Color.Transparent
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        animationSpec = spring(
-            dampingRatio = 0.9f,
-            stiffness = 360f
-        ),
-        label = "bottomNavCircleBackground"
-    )
-
-    val circleBorder by animateColorAsState(
-        targetValue = if (selected) {
-            androidx.compose.ui.graphics.Color.Transparent
-        } else {
-            MaterialTheme.colorScheme.outlineVariant
-        },
-        animationSpec = spring(
-            dampingRatio = 0.9f,
-            stiffness = 360f
-        ),
-        label = "bottomNavCircleBorder"
-    )
-
     val iconSize by animateFloatAsState(
         targetValue = if (selected) 25f else 23f,
         animationSpec = spring(
-            dampingRatio = 0.9f,
+            dampingRatio = 0.86f,
             stiffness = 420f
         ),
         label = "bottomNavIconSize"
@@ -1395,22 +1344,13 @@ private fun BottomNavigationItem(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(40.dp))
-            .background(selectedBackground)
             .clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 4.dp),
+            .padding(horizontal = 3.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(circleBackground)
-                .border(
-                    width = 0.8.dp,
-                    color = circleBorder,
-                    shape = androidx.compose.foundation.shape.CircleShape
-                ),
+            modifier = Modifier.size(34.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -1426,37 +1366,37 @@ private fun BottomNavigationItem(
             enter = androidx.compose.animation.fadeIn(
                 animationSpec = spring(
                     dampingRatio = 0.92f,
-                    stiffness = 400f
+                    stiffness = 420f
                 )
-            ) + androidx.compose.animation.slideInHorizontally(
+            ) + androidx.compose.animation.expandHorizontally(
+                expandFrom = Alignment.Start,
                 animationSpec = spring(
-                    dampingRatio = 0.9f,
-                    stiffness = 360f
-                ),
-                initialOffsetX = { fullWidth -> fullWidth / 3 }
+                    dampingRatio = 0.88f,
+                    stiffness = 420f
+                )
             ),
             exit = androidx.compose.animation.fadeOut(
                 animationSpec = spring(
                     dampingRatio = 0.92f,
-                    stiffness = 400f
+                    stiffness = 420f
                 )
-            ) + androidx.compose.animation.slideOutHorizontally(
+            ) + androidx.compose.animation.shrinkHorizontally(
+                shrinkTowards = Alignment.Start,
                 animationSpec = spring(
-                    dampingRatio = 0.9f,
-                    stiffness = 360f
-                ),
-                targetOffsetX = { fullWidth -> -fullWidth / 3 }
+                    dampingRatio = 0.88f,
+                    stiffness = 420f
+                )
             )
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(Modifier.size(7.dp))
+                Spacer(Modifier.size(5.dp))
                 Text(
                     text = item.label,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = JetBrainsMono,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.1.sp
                     ),

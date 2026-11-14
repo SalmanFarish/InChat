@@ -2,8 +2,6 @@ package com.example.inchat.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -15,17 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,13 +26,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.Spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -203,21 +192,17 @@ fun GroupChatComposer(
                 )
 
                 val sendEnabled = messageText.isNotBlank() && !savingEdit
-                val sendScale by animateFloatAsState(
-                    targetValue = if (sendEnabled) 1f else 0.88f,
-                    animationSpec = spring(),
-                    label = "groupSendButtonScale"
-                )
-
-                IconButton(
+                ComposerSendButton(
+                    enabled = sendEnabled,
+                    isEditing = editingMessage != null,
                     onClick = {
                         val text = messageText.trim()
-                        if (text.isBlank()) return@IconButton
+                        if (text.isBlank()) return@ComposerSendButton
 
                         val editing = editingMessage
 
                         if (editing != null) {
-                            if (savingEdit) return@IconButton
+                            if (savingEdit) return@ComposerSendButton
                             savingEdit = true
                             groupViewModel.editMessage(
                                 messageId = editing.id,
@@ -257,35 +242,7 @@ fun GroupChatComposer(
                             keyboardController?.hide()
                         }
                     },
-                    enabled = sendEnabled,
-                    modifier = Modifier
-                        .size(50.dp)
-                        .graphicsLayer {
-                            scaleX = sendScale
-                            scaleY = sendScale
-                        },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor =
-                            MaterialTheme.colorScheme.surfaceVariant,
-                        disabledContentColor =
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (editingMessage != null) {
-                            Icons.Default.Check
-                        } else {
-                            Icons.AutoMirrored.Filled.Send
-                        },
-                        contentDescription = if (editingMessage != null) {
-                            "Save edited message"
-                        } else {
-                            "Send message"
-                        }
-                    )
-                }
+                )
             }
         }
     }
