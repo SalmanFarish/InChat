@@ -1549,6 +1549,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     if (!chat || chat.type !== "group") {
       updates["typing/" + chatId + "/" + uid] = null;
+      updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
       continue;
     }
 
@@ -1574,6 +1575,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     if (!wasMember) {
       updates["typing/" + chatId + "/" + uid] = null;
+      updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
       continue;
     }
 
@@ -1587,6 +1589,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       updates["chats/" + chatId] = null;
       updates["attachments/" + chatId] = null;
       updates["typing/" + chatId] = null;
+      updates["groupNotificationDevices/" + chatId] = null;
 
       for (const [memberId] of remainingMembers) {
         updates["groupMemberships/" + memberId + "/" + chatId] = null;
@@ -1617,6 +1620,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     updates["chats/" + chatId + "/members/" + uid] = null;
     updates["typing/" + chatId + "/" + uid] = null;
+    updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
 
     const remainingAdmins = remainingMembers
       .filter(([, role]) => role === "admin");
