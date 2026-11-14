@@ -2121,8 +2121,8 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         return result.ok;
       })();
 
-      const [_, pushResult] = await Promise.all([previewSync, push]);
-      notificationSent = pushResult;
+      const pushResults = await Promise.all([previewSync, push]);
+      notificationSent = pushResults[1];
     } else {
       const participantA = chat.participantA;
       const participantB = chat.participantB;
@@ -2227,8 +2227,8 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         return result.ok;
       })();
 
-      const [_, pushResult] = await Promise.all([inboxSync, push]);
-      notificationSent = pushResult;
+      const pushResults = await Promise.all([inboxSync, push]);
+      notificationSent = pushResults[1];
     }
 
     return await completeClaimedMessageEvent(
