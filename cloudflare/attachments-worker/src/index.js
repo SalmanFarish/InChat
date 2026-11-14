@@ -435,7 +435,10 @@ async function claimMessageEvent(
     );
   }
 
-  return claimId;
+  return {
+    claimId: claimId,
+    notificationSent: existing?.notificationSent === true,
+  };
 }
 
 async function updateMessageEventReceipt(
@@ -507,6 +510,70 @@ async function updateMessageEventReceipt(
       "Could not update notification receipt (" +
       writeResponse.status +
       ").",
+    );
+  }
+
+  return true;
+}
+
+async function markMessageNotificationSent(
+  env,
+  adminToken,
+  chatId,
+  messageId,
+  claimId,
+) {
+  const receiptPath =
+    "/chats/" +
+    encodeURIComponent(chatId) +
+    "/messages/" +
+    encodeURIComponent(messageId) +
+    "/workerProcessed.json";
+  const receiptUrl =
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
+
+  const readResponse = await fetch(receiptUrl, {
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "X-Firebase-ETag": "true",
+    },
+  });
+
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not read notification receipt after FCM accepted the push (" +
+      readResponse.status + ").",
+    );
+  }
+
+  const current = await readResponse.json();
+  if (!current || current.claimId !== claimId) return false;
+
+  const etag = readResponse.headers.get("ETag");
+  if (!etag) throw new Error("Firebase did not return a notification receipt ETag.");
+
+  const nextState = {
+    ...current,
+    notificationSent: true,
+    notificationSentAt: { ".sv": "timestamp" },
+    updatedAt: { ".sv": "timestamp" },
+  };
+
+  const writeResponse = await fetch(receiptUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextState),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    throw new Error(
+      "Could not record accepted FCM notification (" +
+      writeResponse.status + ").",
     );
   }
 
@@ -1902,16 +1969,14 @@ async function processMessageEvent(request, env, uid, adminAuth) {
   const chatId = cleanSegment(body.chatId, "chatId");
   const messageId = cleanSegment(body.messageId, "messageId");
 
-  const chat = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "chats/" + chatId,
-  );
-  const message = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "chats/" + chatId + "/messages/" + messageId,
-  );
+  const [chat, message] = await Promise.all([
+    adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
+    adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "chats/" + chatId + "/messages/" + messageId,
+    ),
+  ]);
 
   if (!chat || !message || message.senderId !== uid) {
     return json({ error: "Message or chat not found for this sender." }, 403);
@@ -1938,7 +2003,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     }
   }
 
-  const claimId = await claimMessageEvent(
+  const claim = await claimMessageEvent(
     env,
     adminAuth.token,
     chatId,
@@ -1946,7 +2011,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     uid,
   );
 
-  if (claimId === null) {
+  if (claim === null) {
     return json({
       success: true,
       alreadyProcessed: true,
@@ -1954,7 +2019,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     });
   }
 
-  if (typeof claimId !== "string") {
+  if (claim.busy === true || typeof claim.claimId !== "string") {
     return json({
       success: false,
       retryable: true,
@@ -1962,188 +2027,223 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     }, 503);
   }
 
+  const claimId = claim.claimId;
+  const notificationAlreadySent = claim.notificationSent === true;
+
   try {
-  if (isGroup) {
-    await syncGroupConversationPreview(
-      env,
-      adminAuth.token,
-      chatId,
-      chat,
-      message,
-      messageId,
+    const messageText = notificationText(
+      typeof message.text === "string" && message.text.trim() !== "" ?
+        message.text :
+        "Sent an attachment",
     );
+    const senderNickname =
+      typeof message.senderNickname === "string" &&
+      message.senderNickname.trim() !== "" ?
+        message.senderNickname.trim() :
+        "InChat user";
 
-    if (systemEvent) {
-      return await completeClaimedMessageEvent(
-        env, adminAuth.token, chatId, messageId, claimId,
-        {
-          success: true,
-          notificationSent: false,
-          reason: "Group activity messages are not push-notified.",
-        },
-      );
-    }
-  } else {
-    await syncDirectInboxForNewMessage(
-      env,
-      adminAuth.token,
-      chatId,
-      chat,
-      message,
-      messageId,
-    );
-  }
+    let notificationSent = notificationAlreadySent;
 
-  const messageText = notificationText(
-    typeof message.text === "string" && message.text.trim() !== "" ?
-      message.text :
-      "Sent an attachment",
-  );
-  const senderNickname =
-    typeof message.senderNickname === "string" &&
-    message.senderNickname.trim() !== "" ?
-      message.senderNickname.trim() :
-      "InChat user";
-
-  if (!isGroup) {
-    const receiverId =
-      chat.participantA === uid ?
-        chat.participantB :
-        chat.participantA;
-
-    const senderBlockedReceiver = await adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "blockedUsers/" + uid + "/" + receiverId,
-    );
-    const receiverBlockedSender = await adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "blockedUsers/" + receiverId + "/" + uid,
-    );
-
-    if (senderBlockedReceiver || receiverBlockedSender) {
-      return await completeClaimedMessageEvent(
-        env, adminAuth.token, chatId, messageId, claimId,
-        {
-          success: true,
-          notificationSent: false,
-          reason: "Notifications are disabled for blocked users.",
-        },
-      );
-    }
-
-    const receiverToken = await adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "privateUsers/" + receiverId + "/fcmToken",
-    );
-    if (
-      typeof receiverToken !== "string" ||
-      receiverToken.trim() === ""
-    ) {
-      return await completeClaimedMessageEvent(
-        env, adminAuth.token, chatId, messageId, claimId,
-        {
-          success: true,
-          notificationSent: false,
-          reason: "The receiver has no registered FCM token.",
-        },
-      );
-    }
-
-    const notification = {
-      message: {
-        token: receiverToken,
-        data: {
-          type: "chat_message",
-          chatId: chatId,
-          messageId: messageId,
-          senderId: uid,
-          senderName: senderNickname,
-          message: messageText,
-        },
-        android: {
-          priority: "high",
-        },
-      },
-    };
-
-    const result = await fcmRequest(
-      adminAuth.token,
-      "https://fcm.googleapis.com/v1/projects/" +
-        encodeURIComponent(adminAuth.projectId) +
-        "/messages:send",
-      "POST",
-      notification,
-      [404],
-    );
-
-    if (
-      result.status === 404 ||
-      JSON.stringify(result.body).includes("UNREGISTERED")
-    ) {
-      await adminDatabaseRequest(
+    if (isGroup) {
+      // Keep inbox/unread synchronization independent from the push path.
+      // A slow preview update must not hold up an FCM delivery.
+      const previewSync = syncGroupConversationPreview(
         env,
         adminAuth.token,
-        "privateUsers/" + receiverId + "/fcmToken",
-        "DELETE",
+        chatId,
+        chat,
+        message,
+        messageId,
       );
+
+      if (systemEvent) {
+        await previewSync;
+        return await completeClaimedMessageEvent(
+          env,
+          adminAuth.token,
+          chatId,
+          messageId,
+          claimId,
+          {
+            success: true,
+            notificationSent: false,
+            reason: "Group activity messages are not push-notified.",
+          },
+        );
+      }
+
+      const push = (async () => {
+        if (notificationAlreadySent) return true;
+
+        const groupName =
+          typeof chat.name === "string" && chat.name.trim() !== "" ?
+            chat.name.trim() :
+            "Group";
+
+        const result = await fcmRequest(
+          adminAuth.token,
+          "https://fcm.googleapis.com/v1/projects/" +
+            encodeURIComponent(adminAuth.projectId) +
+            "/messages:send",
+          "POST",
+          {
+            message: {
+              condition:
+                "'" + await groupTopicName(env, chatId) +
+                "' in topics && !('" +
+                await userTopicName(env, uid) + "' in topics)",
+              data: {
+                type: "group_message",
+                chatId: chatId,
+                messageId: messageId,
+                senderId: uid,
+                senderName: senderNickname,
+                groupName: groupName,
+                message: messageText,
+              },
+              android: {
+                priority: "high",
+              },
+            },
+          },
+        );
+
+        const recorded = await markMessageNotificationSent(
+          env,
+          adminAuth.token,
+          chatId,
+          messageId,
+          claimId,
+        );
+        if (!recorded) {
+          throw new Error("Notification claim expired before the FCM delivery could be recorded.");
+        }
+        return result.ok;
+      })();
+
+      const [_, pushResult] = await Promise.all([previewSync, push]);
+      notificationSent = pushResult;
+    } else {
+      const participantA = chat.participantA;
+      const participantB = chat.participantB;
+      const receiverId = participantA === uid ? participantB : participantA;
+
+      // Start inbox maintenance and push preparation together. The inbox path
+      // performs several RTDB operations; it should not serialize notification
+      // delivery behind those operations.
+      const inboxSync = syncDirectInboxForNewMessage(
+        env,
+        adminAuth.token,
+        chatId,
+        chat,
+        message,
+        messageId,
+      );
+
+      const push = (async () => {
+        if (notificationAlreadySent) return true;
+
+        const [
+          senderBlockedReceiver,
+          receiverBlockedSender,
+          receiverToken,
+        ] = await Promise.all([
+          adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "blockedUsers/" + uid + "/" + receiverId,
+          ),
+          adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "blockedUsers/" + receiverId + "/" + uid,
+          ),
+          adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "privateUsers/" + receiverId + "/fcmToken",
+          ),
+        ]);
+
+        if (senderBlockedReceiver || receiverBlockedSender) {
+          return false;
+        }
+
+        if (
+          typeof receiverToken !== "string" ||
+          receiverToken.trim() === ""
+        ) {
+          return false;
+        }
+
+        const result = await fcmRequest(
+          adminAuth.token,
+          "https://fcm.googleapis.com/v1/projects/" +
+            encodeURIComponent(adminAuth.projectId) +
+            "/messages:send",
+          "POST",
+          {
+            message: {
+              token: receiverToken,
+              data: {
+                type: "chat_message",
+                chatId: chatId,
+                messageId: messageId,
+                senderId: uid,
+                senderName: senderNickname,
+                message: messageText,
+              },
+              android: {
+                priority: "high",
+              },
+            },
+          },
+          [404],
+        );
+
+        if (
+          result.status === 404 ||
+          JSON.stringify(result.body).includes("UNREGISTERED")
+        ) {
+          await adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "privateUsers/" + receiverId + "/fcmToken",
+            "DELETE",
+          );
+          return false;
+        }
+
+        const recorded = await markMessageNotificationSent(
+          env,
+          adminAuth.token,
+          chatId,
+          messageId,
+          claimId,
+        );
+        if (!recorded) {
+          throw new Error("Notification claim expired before the FCM delivery could be recorded.");
+        }
+        return result.ok;
+      })();
+
+      const [_, pushResult] = await Promise.all([inboxSync, push]);
+      notificationSent = pushResult;
     }
 
     return await completeClaimedMessageEvent(
-      env, adminAuth.token, chatId, messageId, claimId,
+      env,
+      adminAuth.token,
+      chatId,
+      messageId,
+      claimId,
       {
         success: true,
-        notificationSent: result.ok,
+        notificationSent: notificationSent,
         chatId: chatId,
         messageId: messageId,
       },
     );
-  }
-
-  const groupName =
-    typeof chat.name === "string" && chat.name.trim() !== "" ?
-      chat.name.trim() :
-      "Group";
-
-  const result = await fcmRequest(
-    adminAuth.token,
-    "https://fcm.googleapis.com/v1/projects/" +
-      encodeURIComponent(adminAuth.projectId) +
-      "/messages:send",
-    "POST",
-    {
-      message: {
-        condition:
-          "'" + await groupTopicName(env, chatId) +
-          "' in topics && !('" +
-          await userTopicName(env, uid) + "' in topics)",
-        data: {
-          type: "group_message",
-          chatId: chatId,
-          messageId: messageId,
-          senderId: uid,
-          senderName: senderNickname,
-          groupName: groupName,
-          message: messageText,
-        },
-        android: {
-          priority: "high",
-        },
-      },
-    },
-  );
-
-  return await completeClaimedMessageEvent(
-    env, adminAuth.token, chatId, messageId, claimId,
-    {
-      success: true,
-      notificationSent: result.ok,
-      chatId: chatId,
-      messageId: messageId,
-    },
-  );
   } catch (eventError) {
     try {
       await updateMessageEventReceipt(
@@ -2165,7 +2265,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
     throw eventError;
   }
 }
-
 
 /*
  * =========================================================
