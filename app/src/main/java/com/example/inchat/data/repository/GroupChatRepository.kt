@@ -302,24 +302,15 @@ class GroupChatRepository {
                 )
             }
 
-            database
-                .getReference("groupReads")
-                .child(currentUserId)
-                .child(groupId)
-                .setValue(timestamp)
-                .await()
-
-            runCatching {
-                database
-                    .getReference("userChats")
-                    .child(currentUserId)
-                    .child(groupId)
-                    .child("unreadCount")
-                    .setValue(0L)
-                    .await()
-            }.onFailure {
-                Log.w("GroupChatRepository", "Could not clear the group unread badge.", it)
-            }
+            // Advance the read cursor and clear the inbox badge in one
+            // multi-location update. This avoids a second network round trip
+            // and prevents the two pieces of read state diverging.
+            database.reference.updateChildren(
+                mapOf(
+                    "groupReads/$currentUserId/$groupId" to timestamp,
+                    "userChats/$currentUserId/$groupId/unreadCount" to 0L
+                )
+            ).await()
 
             Result.success(Unit)
         } catch (e: Exception) {
