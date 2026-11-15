@@ -65,8 +65,8 @@ class OlmInboundHandoffCoordinatorTest {
             val receipt = requireNotNull(db.olmInboundReceiptDao().getByReceiptId(receiptId))
             val repository = OlmSessionRepository(context)
 
-            // Simulate process death after native prepare and Room commit, but
-            // before native finalize. The next coordinator pass must only finalize.
+            // Simulate process recreation after native prepare and Room commit,
+            // but before native finalize. The next coordinator pass must only finalize.
             val staged = repository.prepareInboundSessionFromEnvelope(
                 receiptId, senderBundle, receipt.envelope
             )
@@ -82,10 +82,11 @@ class OlmInboundHandoffCoordinatorTest {
                     .commit(receiptId, message, 200L)
             )
 
+            val reopenedRepository = OlmSessionRepository(context)
             val coordinator = OlmInboundHandoffCoordinator(
                 database = db,
                 receiptDao = db.olmInboundReceiptDao(),
-                sessionRepository = repository,
+                sessionRepository = reopenedRepository,
                 messageDao = db.messageDao(),
             )
             assertEquals(
