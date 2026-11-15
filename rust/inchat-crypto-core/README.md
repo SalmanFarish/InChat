@@ -28,7 +28,7 @@ The app's minSdk is 26. The native bridge is loaded only by the instrumentation 
 
 ### Windows development setup
 
-1. Install Rust using the official installer at https://rustup.rs. Use the stable toolchain (Rust 1.89 or newer).
+1. Install Rust using the official installer at https://rustup.rs. Use the stable toolchain (Rust 1.89 or newer). On Windows, Rust's default MSVC toolchain also needs the Visual Studio C++ build tools; the installer can guide you if they are missing.
 2. In Android Studio, open **Tools > SDK Manager > SDK Tools** and install **NDK (Side by side)**.
 3. Open a new PowerShell window and install the Android Rust targets:
 
