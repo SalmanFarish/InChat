@@ -2,12 +2,9 @@ package com.example.inchat.crypto
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
 import android.content.Context
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -42,8 +39,11 @@ class NativeCryptoBridgeTest {
         assertEquals(first.ed25519IdentityKey, repeated.ed25519IdentityKey)
         assertEquals(first.curve25519IdentityKey, repeated.curve25519IdentityKey)
         assertEquals(20, first.oneTimeKeys.size)
-        assertEquals(first.oneTimeKeys.map { it.keyId }.toSet(), repeated.oneTimeKeys.map { it.keyId }.toSet())
-        assertNotEquals(null, first.fallbackKey)
+        assertEquals(
+            first.oneTimeKeys.map { it.keyId }.toSet(),
+            repeated.oneTimeKeys.map { it.keyId }.toSet()
+        )
+        assertTrue(first.fallbackKey != null)
 
         repository.markPublicKeyBundlePublished()
 
@@ -57,9 +57,9 @@ class NativeCryptoBridgeTest {
             first.oneTimeKeys.map { it.keyId }.toSet()
                 .intersect(replenished.oneTimeKeys.map { it.keyId }.toSet()).isEmpty()
         )
-        assertNotEquals(
-            first.fallbackKey?.keyId,
-            replenished.fallbackKey?.keyId
+        assertTrue(
+            "The fallback key should rotate after publication",
+            first.fallbackKey?.keyId != replenished.fallbackKey?.keyId
         )
     }
 }
