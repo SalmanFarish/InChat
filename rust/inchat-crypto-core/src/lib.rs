@@ -8,10 +8,10 @@
 //! serialized ratchet state to Kotlin.
 
 use jni::objects::{JByteArray, JObject, JString, JValue};
-use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use vodozemac::olm::{Account, AccountPickle, OlmMessage, SessionConfig};
+use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
 use zeroize::Zeroize;
 
 /// The exact upstream cryptography engine version used by this prototype.
@@ -190,45 +190,54 @@ fn persist_test_account<'local>(
     Ok(expected_identity)
 }
 
-fn restore_test_account<'local>(
+fn read_native_state_blob<'local>(
     env: &mut JNIEnv<'local>,
     store: &JObject<'local>,
-) -> Result<String, &'static str> {
+    expected_header: &[u8],
+) -> Result<Vec<u8>, &'static str> {
     let stored_value = env
         .call_method(store, "readForNative", "()[B", &[])
-        .map_err(|_| "Android Keystore could not read the Olm account")?;
+        .map_err(|_| "Android Keystore could not read crypto state")?;
     let stored_object = stored_value
         .l()
         .map_err(|_| "Crypto state store returned an invalid value")?;
     if stored_object.is_null() {
-        return Err("No saved Olm account state exists");
+        return Err("No saved crypto state exists");
     }
 
     let stored_array = JByteArray::from(stored_object);
     let length = env
         .get_array_length(&stored_array)
-        .map_err(|_| "Could not inspect saved Olm account state")? as usize;
-    if length < ACCOUNT_STATE_HEADER.len() || length > MAX_ACCOUNT_STATE_BYTES {
-        return Err("Saved Olm account state has an invalid size");
+        .map_err(|_| "Could not inspect saved crypto state")? as usize;
+    if length < expected_header.len() || length > MAX_ACCOUNT_STATE_BYTES {
+        return Err("Saved crypto state has an invalid size");
     }
 
     let mut java_copy = vec![0_i8; length];
     let copy_result = env.get_byte_array_region(&stored_array, 0, &mut java_copy);
 
-    // Clear the Java-side decrypted buffer as soon as the copy was attempted.
+    // Clear the Java-side decrypted buffer immediately after the copy attempt.
     let java_zeros = vec![0_i8; length];
     let clear_result = env.set_byte_array_region(&stored_array, 0, &java_zeros);
-    copy_result.map_err(|_| "Could not copy saved Olm account state")?;
+    copy_result.map_err(|_| "Could not copy saved crypto state")?;
     clear_result.map_err(|_| "Could not clear temporary Java state buffer")?;
 
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
 
-    if &state_blob[..ACCOUNT_STATE_HEADER.len()] != ACCOUNT_STATE_HEADER {
+    if !state_blob.starts_with(expected_header) {
         state_blob.zeroize();
-        return Err("Saved Olm account state uses an unsupported format");
+        return Err("Saved crypto state uses an unsupported format");
     }
 
+    Ok(state_blob)
+}
+
+fn restore_test_account<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+) -> Result<String, &'static str> {
+    let mut state_blob = read_native_state_blob(env, store, ACCOUNT_STATE_HEADER)?;
     let pickle_result =
         serde_json::from_slice::<AccountPickle>(&state_blob[ACCOUNT_STATE_HEADER.len()..]);
     state_blob.zeroize();
@@ -236,6 +245,136 @@ fn restore_test_account<'local>(
     let pickle = pickle_result.map_err(|_| "Saved Olm account state could not be decoded")?;
     let account = Account::from(pickle);
     Ok(account_identity_fingerprint(&account))
+}
+
+// A fixed test-only reply lets the Android instrumentation test prove that a
+// restored Alice session can continue its receive ratchet after store recreation.
+const SESSION_STATE_HEADER: &[u8; 6] = b"ICOLS\\x01";
+const SESSION_REPLY: &[u8] = b"Reply received after restoring the Olm session";
+
+fn create_test_session_fixture() -> Result<(Session, Vec<u8>), &'static str> {
+    let alice = Account::new();
+    let mut bob = Account::new();
+    bob.generate_one_time_keys(1);
+    let bob_one_time_key = bob
+        .one_time_keys()
+        .values()
+        .next()
+        .copied()
+        .ok_or("Bob did not generate a one-time key")?;
+
+    let mut alice_session = alice
+        .create_outbound_session(
+            SessionConfig::version_1(),
+            bob.curve25519_key(),
+            bob_one_time_key,
+        )
+        .map_err(|_| "Alice could not create the test session")?;
+
+    let initial_message = alice_session
+        .encrypt("Initial message to establish the test session")
+        .map_err(|_| "Alice could not encrypt the initial test message")?;
+    let initial_pre_key = match initial_message {
+        OlmMessage::PreKey(message) => message,
+        OlmMessage::Normal(_) => return Err("Initial test message was not a pre-key message"),
+    };
+
+    bob.mark_keys_as_published();
+    let inbound = bob
+        .create_inbound_session(
+            SessionConfig::version_1(),
+            alice.curve25519_key(),
+            &initial_pre_key,
+        )
+        .map_err(|_| "Bob could not establish the test session")?;
+    if inbound.plaintext.as_slice() != b"Initial message to establish the test session" {
+        return Err("Bob decrypted different initial test plaintext");
+    }
+
+    let mut bob_session = inbound.session;
+    let reply = bob_session
+        .encrypt(SESSION_REPLY)
+        .map_err(|_| "Bob could not encrypt the test reply")?;
+    let (message_type, ciphertext) = reply.to_parts();
+    let message_type =
+        u8::try_from(message_type).map_err(|_| "Olm message type is out of range")?;
+
+    let mut wire_message = Vec::with_capacity(1 + ciphertext.len());
+    wire_message.push(message_type);
+    wire_message.extend_from_slice(&ciphertext);
+
+    Ok((alice_session, wire_message))
+}
+
+fn decrypt_test_session_reply(
+    session: &mut Session,
+    wire_message: &[u8],
+) -> Result<(), &'static str> {
+    if wire_message.len() < 2 {
+        return Err("Encrypted test reply is truncated");
+    }
+
+    let message = OlmMessage::from_parts(wire_message[0] as usize, &wire_message[1..])
+        .map_err(|_| "Encrypted test reply has an invalid Olm message type")?;
+    let plaintext = session
+        .decrypt(&message)
+        .map_err(|_| "Restored Olm session could not decrypt the reply")?;
+
+    if plaintext.as_slice() != SESSION_REPLY {
+        return Err("Restored Olm session decrypted unexpected plaintext");
+    }
+
+    Ok(())
+}
+
+fn persist_test_session<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+) -> Result<Vec<u8>, &'static str> {
+    let (session, wire_message) = create_test_session_fixture()?;
+    let mut serialized =
+        serde_json::to_vec(&session.pickle()).map_err(|_| "Olm session serialization failed")?;
+
+    let mut state_blob =
+        Vec::with_capacity(SESSION_STATE_HEADER.len() + serialized.len());
+    state_blob.extend_from_slice(SESSION_STATE_HEADER);
+    state_blob.extend_from_slice(&serialized);
+    serialized.zeroize();
+
+    if state_blob.len() > MAX_ACCOUNT_STATE_BYTES {
+        state_blob.zeroize();
+        return Err("Olm session state exceeds the storage limit");
+    }
+
+    let java_state_result = env.byte_array_from_slice(&state_blob);
+    state_blob.zeroize();
+    let java_state =
+        java_state_result.map_err(|_| "Could not create temporary Java session buffer")?;
+
+    env.call_method(
+        store,
+        "writeForNative",
+        "([B)V",
+        &[JValue::Object(java_state.as_ref())],
+    )
+    .map_err(|_| "Android Keystore could not persist the Olm session")?;
+
+    Ok(wire_message)
+}
+
+fn restore_test_session<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    wire_message: &[u8],
+) -> Result<(), &'static str> {
+    let mut state_blob = read_native_state_blob(env, store, SESSION_STATE_HEADER)?;
+    let pickle_result =
+        serde_json::from_slice::<SessionPickle>(&state_blob[SESSION_STATE_HEADER.len()..]);
+    state_blob.zeroize();
+
+    let pickle = pickle_result.map_err(|_| "Saved Olm session state could not be decoded")?;
+    let mut session = Session::from_pickle(pickle);
+    decrypt_test_session_reply(&mut session, wire_message)
 }
 
 // This symbol is intentionally narrow: it verifies that the native library
@@ -268,8 +407,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeO
 
 #[cfg(test)]
 mod tests {
-    use super::{run_olm_self_test, OlmMessageParts};
-    use vodozemac::olm::{Account, AccountPickle, OlmMessage};
+    use super::{
+        create_test_session_fixture, decrypt_test_session_reply, run_olm_self_test,
+        OlmMessageParts,
+    };
+    use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionPickle};
 
     #[test]
     fn two_independent_devices_establish_and_exchange_olm_messages() {
@@ -290,6 +432,20 @@ mod tests {
         let restored = Account::from(pickle);
 
         assert_eq!(identity_keys, restored.identity_keys());
+    }
+
+    #[test]
+    fn session_pickle_restores_ratchet_and_decrypts_next_message() {
+        let (session, encrypted_reply) =
+            create_test_session_fixture().expect("test session should be established");
+        let serialized =
+            serde_json::to_vec(&session.pickle()).expect("session pickle should serialize");
+        let pickle: SessionPickle =
+            serde_json::from_slice(&serialized).expect("session pickle should deserialize");
+        let mut restored = Session::from_pickle(pickle);
+
+        decrypt_test_session_reply(&mut restored, &encrypted_reply)
+            .expect("restored session should decrypt the next reply");
     }
 
     #[test]
@@ -342,5 +498,64 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeR
     match catch_unwind(AssertUnwindSafe(|| restore_test_account(&mut env, &store))) {
         Ok(Ok(restored_identity)) if restored_identity == expected => JNI_TRUE,
         Ok(Ok(_)) | Ok(Err(_)) | Err(_) => JNI_FALSE,
+    }
+}
+
+
+// Persist an Olm session and return only the peer's encrypted test reply.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePersistOlmSessionState<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+) -> jbyteArray {
+    match catch_unwind(AssertUnwindSafe(|| persist_test_session(&mut env, &store))) {
+        Ok(Ok(wire_message)) => env
+            .byte_array_from_slice(&wire_message)
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(_)) | Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// Restore the session from Keystore-backed state and decrypt the supplied
+// ciphertext. No decrypted message plaintext crosses the JNI boundary.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeRestoreOlmSessionState<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    encrypted_reply: JByteArray<'local>,
+) -> jboolean {
+    let length = match env.get_array_length(&encrypted_reply) {
+        Ok(length) if length >= 2 => length as usize,
+        _ => return JNI_FALSE,
+    };
+    if length > MAX_ACCOUNT_STATE_BYTES {
+        return JNI_FALSE;
+    }
+
+    let mut java_copy = vec![0_i8; length];
+    if env
+        .get_byte_array_region(&encrypted_reply, 0, &mut java_copy)
+        .is_err()
+    {
+        return JNI_FALSE;
+    }
+    let mut wire_message: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
+    java_copy.zeroize();
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        restore_test_session(&mut env, &store, &wire_message)
+    }));
+    wire_message.zeroize();
+
+    match result {
+        Ok(Ok(())) => JNI_TRUE,
+        Ok(Err(_)) | Err(_) => JNI_FALSE,
     }
 }
