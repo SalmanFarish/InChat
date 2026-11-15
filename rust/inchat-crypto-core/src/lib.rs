@@ -151,9 +151,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeV
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeOlmSelfTest(
-    _env: JNIEnv,
-    _this: JObject,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeOlmSelfTest<'local>(
+    _env: JNIEnv<'local>,
+    _this: JObject<'local>,
 ) -> jboolean {
     match catch_unwind(AssertUnwindSafe(run_olm_self_test)) {
         Ok(Ok(())) => JNI_TRUE,
