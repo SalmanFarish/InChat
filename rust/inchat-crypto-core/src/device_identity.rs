@@ -1,5 +1,5 @@
 use jni::objects::{JByteArray, JObject, JString, JValue};
-use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -470,6 +470,232 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeM
     })) {
         Ok(Ok(())) => JNI_TRUE,
         Ok(Err(_)) | Err(_) => JNI_FALSE,
+    }
+}
+
+const MAX_OLM_PLAINTEXT_BYTES: usize = 64 * 1024;
+const MAX_OLM_WIRE_BYTES: usize = 1024 * 1024;
+
+fn read_olm_wire_message<'local>(
+    env: &mut JNIEnv<'local>,
+    bytes: &JByteArray<'local>,
+) -> Result<Vec<u8>, &'static str> {
+    let length = env.get_array_length(bytes)
+        .map_err(|_| "Could not inspect encrypted Olm message")? as usize;
+    if length < 2 || length > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm message has an invalid size");
+    }
+    let mut java_copy = vec![0_i8; length];
+    let copy_result = env.get_byte_array_region(bytes, 0, &mut java_copy);
+    let zeros = vec![0_i8; length];
+    let clear_result = env.set_byte_array_region(bytes, 0, &zeros);
+    copy_result.map_err(|_| "Could not copy encrypted Olm message")?;
+    clear_result.map_err(|_| "Could not clear temporary encrypted message buffer")?;
+    let result = java_copy.iter().map(|byte| *byte as u8).collect();
+    java_copy.zeroize();
+    Ok(result)
+}
+
+fn load_device_crypto_state<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+) -> Result<DeviceCryptoState, &'static str> {
+    let blob = read_optional_device_state(env, store)?
+        .ok_or("No saved Olm device identity exists")?;
+    decode_device_crypto_state(blob, device_id)
+}
+
+fn create_outbound_olm_session<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    remote_identity_key: &str,
+    remote_one_time_key: &str,
+) -> Result<String, &'static str> {
+    let remote_identity = Curve25519PublicKey::from_base64(remote_identity_key)
+        .map_err(|_| "Remote Olm identity key is invalid")?;
+    let remote_one_time = Curve25519PublicKey::from_base64(remote_one_time_key)
+        .map_err(|_| "Remote Olm one-time key is invalid")?;
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    let session = state.account.create_outbound_session(
+        vodozemac::olm::SessionConfig::version_1(),
+        remote_identity,
+        remote_one_time,
+    ).map_err(|_| "Could not create outbound Olm session")?;
+    let session_id = session.session_id();
+    if state.sessions.contains_key(&session_id) {
+        return Err("An Olm session with this ID already exists");
+    }
+    state.sessions.insert(session_id.clone(), session);
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    Ok(session_id)
+}
+
+fn encrypt_olm_message<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    session_id: &str,
+    plaintext: &str,
+) -> Result<Vec<u8>, &'static str> {
+    if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+        return Err("Olm plaintext exceeds the message size limit");
+    }
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    let session = state.sessions.get_mut(session_id)
+        .ok_or("Olm session was not found")?;
+    let message = session.encrypt(plaintext)
+        .map_err(|_| "Could not encrypt Olm message")?;
+    let (message_type, ciphertext) = message.to_parts();
+    let message_type = u8::try_from(message_type)
+        .map_err(|_| "Olm message type is out of range")?;
+    if ciphertext.len() + 1 > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm message exceeds the size limit");
+    }
+    let mut wire = Vec::with_capacity(ciphertext.len() + 1);
+    wire.push(message_type);
+    wire.extend_from_slice(&ciphertext);
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    Ok(wire)
+}
+
+fn create_inbound_olm_session<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    remote_identity_key: &str,
+    wire: &[u8],
+) -> Result<String, &'static str> {
+    if wire.len() < 2 || wire.len() > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm pre-key message has an invalid size");
+    }
+    let remote_identity = Curve25519PublicKey::from_base64(remote_identity_key)
+        .map_err(|_| "Remote Olm identity key is invalid")?;
+    let message = OlmMessage::from_parts(wire[0] as usize, &wire[1..])
+        .map_err(|_| "Encrypted Olm message has an invalid type or encoding")?;
+    let pre_key = match message {
+        OlmMessage::PreKey(message) => message,
+        OlmMessage::Normal(_) => return Err("Initial Olm message must be a pre-key message"),
+    };
+
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    // Account one-time-prekey consumption and new-session persistence share this
+    // single encrypted AtomicFile write. No intermediate account-only save occurs.
+    let inbound = state.account.create_inbound_session(
+        vodozemac::olm::SessionConfig::version_1(),
+        remote_identity,
+        &pre_key,
+    ).map_err(|_| "Could not establish inbound Olm session")?;
+    let plaintext = String::from_utf8(inbound.plaintext)
+        .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
+    if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+        return Err("Decrypted Olm plaintext exceeds the message size limit");
+    }
+    let session_id = inbound.session.session_id();
+    if state.sessions.contains_key(&session_id) {
+        return Err("Inbound Olm session already exists");
+    }
+    state.sessions.insert(session_id.clone(), inbound.session);
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    // Return only session ID and application plaintext; never private state.
+    serde_json::to_string(&json!({"sessionId": session_id, "plaintext": plaintext}))
+        .map_err(|_| "Could not encode decrypted Olm message")
+}
+
+fn decrypt_olm_message<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    session_id: &str,
+    wire: &[u8],
+) -> Result<String, &'static str> {
+    if wire.len() < 2 || wire.len() > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm message has an invalid size");
+    }
+    let message = OlmMessage::from_parts(wire[0] as usize, &wire[1..])
+        .map_err(|_| "Encrypted Olm message has an invalid type or encoding")?;
+    if matches!(message, OlmMessage::PreKey(_)) {
+        return Err("A pre-key message requires inbound-session creation");
+    }
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    let session = state.sessions.get_mut(session_id)
+        .ok_or("Olm session was not found")?;
+    let plaintext = session.decrypt(&message)
+        .map_err(|_| "Could not decrypt Olm message")?;
+    let plaintext = String::from_utf8(plaintext)
+        .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
+    if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+        return Err("Decrypted Olm plaintext exceeds the message size limit");
+    }
+    // Persist the advanced receive ratchet before returning plaintext to Kotlin.
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    Ok(plaintext)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeCreateOutboundOlmSession<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    device_id: JString<'local>, remote_identity_key: JString<'local>,
+    remote_one_time_key: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let identity: String = match env.get_string(&remote_identity_key) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let one_time: String = match env.get_string(&remote_one_time_key) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| create_outbound_olm_session(&mut env, &store, &device_id, &identity, &one_time))) {
+        Ok(Ok(id)) => env.new_string(id).map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut()),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeEncryptOlmMessage<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    device_id: JString<'local>, session_id: JString<'local>, plaintext: JString<'local>,
+) -> jbyteArray {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let session_id: String = match env.get_string(&session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let plaintext: String = match env.get_string(&plaintext) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| encrypt_olm_message(&mut env, &store, &device_id, &session_id, &plaintext))) {
+        Ok(Ok(wire)) => env.byte_array_from_slice(&wire).map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut()),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeCreateInboundOlmSession<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    device_id: JString<'local>, remote_identity_key: JString<'local>,
+    wire_message: JByteArray<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let identity: String = match env.get_string(&remote_identity_key) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut wire = match read_olm_wire_message(&mut env, &wire_message) { Ok(v) => v, Err(_) => return std::ptr::null_mut() };
+    let result = catch_unwind(AssertUnwindSafe(|| create_inbound_olm_session(&mut env, &store, &device_id, &identity, &wire)));
+    wire.zeroize();
+    match result {
+        Ok(Ok(value)) => env.new_string(value).map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut()),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeDecryptOlmMessage<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    device_id: JString<'local>, session_id: JString<'local>, wire_message: JByteArray<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let session_id: String = match env.get_string(&session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut wire = match read_olm_wire_message(&mut env, &wire_message) { Ok(v) => v, Err(_) => return std::ptr::null_mut() };
+    let result = catch_unwind(AssertUnwindSafe(|| decrypt_olm_message(&mut env, &store, &device_id, &session_id, &wire)));
+    wire.zeroize();
+    match result {
+        Ok(Ok(value)) => env.new_string(value).map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut()),
+        _ => std::ptr::null_mut(),
     }
 }
 
