@@ -144,10 +144,7 @@ impl SasVerification {
         Ok(&self.local_public_key)
     }
 
-    pub fn accept_peer_commitment(
-        &mut self,
-        peer_commitment: &str,
-    ) -> Result<(), &'static str> {
+    pub fn accept_peer_commitment(&mut self, peer_commitment: &str) -> Result<(), &'static str> {
         if self.peer_commitment_accepted || self.established.is_some() {
             return Err("Peer commitment was already supplied");
         }
@@ -161,10 +158,7 @@ impl SasVerification {
         Ok(())
     }
 
-    pub fn accept_peer_public_key(
-        &mut self,
-        peer_public_key: &str,
-    ) -> Result<(), &'static str> {
+    pub fn accept_peer_public_key(&mut self, peer_public_key: &str) -> Result<(), &'static str> {
         if !self.peer_commitment_accepted || !self.local_public_key_revealed {
             return Err("SAS commitments must be exchanged before public keys");
         }
@@ -188,9 +182,7 @@ impl SasVerification {
     fn peer_commitment(&self) -> &str {
         // The commitment is supplied by the transport caller and stored in
         // the dedicated field in the protocol object (see setter below).
-        self.peer_commitment
-            .as_deref()
-            .unwrap_or_default()
+        self.peer_commitment.as_deref().unwrap_or_default()
     }
 
     pub fn display_codes(&self) -> Result<(Vec<u8>, (u16, u16, u16)), &'static str> {
@@ -261,7 +253,6 @@ impl SasVerification {
     fn mac_info(&self) -> String {
         format!("{SAS_MAC_CONTEXT}\n{}", self.binding.transcript())
     }
-
 }
 
 #[cfg(test)]
