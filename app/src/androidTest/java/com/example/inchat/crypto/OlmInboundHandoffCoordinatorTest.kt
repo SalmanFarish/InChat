@@ -184,6 +184,25 @@ class OlmInboundHandoffCoordinatorTest {
                 mappingFailed = true
             }
             assertTrue("Message mapping failure should propagate", mappingFailed)
+            var routingFailed = false
+            try {
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.PRE_KEY,
+                ) { plaintext ->
+                    cachedMessage(
+                        "local-user",
+                        "alice",
+                        messageId,
+                        plaintext,
+                        chatId = "wrong-chat",
+                    )
+                }
+            } catch (_: IllegalArgumentException) {
+                routingFailed = true
+            }
+            assertTrue("A mismatched chat route must be rejected", routingFailed)
             assertEquals(
                 OlmInboundReceiptStatus.PENDING.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
@@ -256,6 +275,59 @@ class OlmInboundHandoffCoordinatorTest {
                 "normal handoff plaintext",
                 db.messageDao().getMessage("local-user", "alice", normalMessageId)?.text,
             )
+
+            // A normal-message mapping failure must also retain the staged
+            // plaintext so the same receipt can be retried safely.
+            val retryNormalMessageId = "handoff-normal-retry-$suffix"
+            val retryNormalWire = requireNotNull(
+                NativeCryptoBridge.nativeEncryptOlmMessage(
+                    senderStore, senderDeviceId, sessionId, "normal retry plaintext"
+                )
+            )
+            val retryNormalEnvelope = EncryptedOlmEnvelopeCodec.encode(
+                EncryptedOlmEnvelope(
+                    senderDeviceId = senderDeviceId,
+                    recipientDeviceId = localBundle.deviceId,
+                    sessionId = sessionId,
+                    ciphertext = retryNormalWire,
+                )
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", retryNormalMessageId, retryNormalEnvelope, 600L),
+            )
+            val retryNormalReceiptId = sha256(
+                "alice\\u0000$senderDeviceId\\u0000$retryNormalMessageId\\u0000${localBundle.deviceId}"
+            )
+            var normalMappingFailed = false
+            try {
+                coordinator.process(
+                    retryNormalReceiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.NORMAL,
+                ) { error("Simulated normal-message metadata failure") }
+            } catch (_: IllegalStateException) {
+                normalMappingFailed = true
+            }
+            assertTrue("Normal-message mapping failure should propagate", normalMappingFailed)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(retryNormalReceiptId)?.status,
+            )
+            assertEquals(
+                OlmInboundHandoffResult.COMMITTED,
+                coordinator.process(
+                    retryNormalReceiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.NORMAL,
+                ) { plaintext ->
+                    cachedMessage("local-user", "alice", retryNormalMessageId, plaintext)
+                },
+            )
+            assertEquals(
+                "normal retry plaintext",
+                db.messageDao().getMessage("local-user", "alice", retryNormalMessageId)?.text,
+            )
         } finally {
             db.close()
             context.deleteDatabase(databaseName)
@@ -286,9 +358,10 @@ class OlmInboundHandoffCoordinatorTest {
         senderUserId: String,
         messageId: String,
         plaintext: String,
+        chatId: String = senderUserId,
     ) = CachedMessageEntity(
         ownerUserId = localUserId,
-        chatId = senderUserId,
+        chatId = chatId,
         messageId = messageId,
         senderId = senderUserId,
         senderNickname = "Alice",
