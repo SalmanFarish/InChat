@@ -23,6 +23,12 @@ internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
 ) {
+    /** Current Firebase account used as the owner of this device directory. */
+    val authenticatedUserId: String
+        get() = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before using the device key directory"
+        }
+
     /**
      * Publish this installation's public bundle under the authenticated account.
      * Private identity material and serialized Olm state are never included.
