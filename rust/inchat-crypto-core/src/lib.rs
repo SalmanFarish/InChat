@@ -7,11 +7,12 @@
 //! two-device Olm self-test. It does not export account private keys or
 //! serialized ratchet state to Kotlin.
 
-use jni::objects::JObject;
+use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use vodozemac::olm::{Account, OlmMessage, SessionConfig};
+use zeroize::Zeroize;
+use vodozemac::olm::{Account, AccountPickle, OlmMessage, SessionConfig};
 
 /// The exact upstream cryptography engine version used by this prototype.
 pub const VODOZEMAC_VERSION: &str = "0.11.2";
@@ -137,6 +138,108 @@ pub fn run_olm_self_test() -> Result<(), &'static str> {
     Ok(())
 }
 
+// The state blob has its own version independent of the Android Keystore
+// envelope. vodozemac's Serde pickle format is not a stable wire format.
+const ACCOUNT_STATE_HEADER: &[u8; 6] = b"ICACC\x01";
+const MAX_ACCOUNT_STATE_BYTES: usize = 8 * 1024 * 1024;
+
+fn account_identity_fingerprint(account: &Account) -> String {
+    let identity = account.identity_keys();
+    format!(
+        "{}:{}",
+        identity.ed25519.to_base64(),
+        identity.curve25519.to_base64()
+    )
+}
+
+fn persist_test_account<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+) -> Result<String, &'static str> {
+    let mut account = Account::new();
+    account.generate_one_time_keys(5);
+    account.generate_fallback_key();
+
+    let expected_identity = account_identity_fingerprint(&account);
+    let mut serialized =
+        serde_json::to_vec(&account.pickle()).map_err(|_| "Olm account serialization failed")?;
+
+    let mut state_blob = Vec::with_capacity(ACCOUNT_STATE_HEADER.len() + serialized.len());
+    state_blob.extend_from_slice(ACCOUNT_STATE_HEADER);
+    state_blob.extend_from_slice(&serialized);
+    serialized.zeroize();
+
+    if state_blob.len() > MAX_ACCOUNT_STATE_BYTES {
+        state_blob.zeroize();
+        return Err("Olm account state exceeds the storage limit");
+    }
+
+    // The byte array is passed directly to the store's native-only method.
+    // CryptoStateStore encrypts it with Android Keystore and zeroes the array.
+    let java_state = env
+        .byte_array_from_slice(&state_blob)
+        .map_err(|_| "Could not create temporary Java state buffer")?;
+    state_blob.zeroize();
+
+    env.call_method(
+        store,
+        "writeForNative",
+        "([B)V",
+        &[JValue::Object(java_state.as_ref())],
+    )
+    .map_err(|_| "Android Keystore could not persist the Olm account")?;
+
+    Ok(expected_identity)
+}
+
+fn restore_test_account<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+) -> Result<String, &'static str> {
+    let stored_value = env
+        .call_method(store, "readForNative", "()[B", &[])
+        .map_err(|_| "Android Keystore could not read the Olm account")?;
+    let stored_object = stored_value
+        .l()
+        .map_err(|_| "Crypto state store returned an invalid value")?;
+    if stored_object.is_null() {
+        return Err("No saved Olm account state exists");
+    }
+
+    let stored_array = JByteArray::from(stored_object);
+    let length = env
+        .get_array_length(&stored_array)
+        .map_err(|_| "Could not inspect saved Olm account state")? as usize;
+    if length < ACCOUNT_STATE_HEADER.len() || length > MAX_ACCOUNT_STATE_BYTES {
+        return Err("Saved Olm account state has an invalid size");
+    }
+
+    let mut java_copy = vec![0_i8; length];
+    env.get_byte_array_region(&stored_array, 0, &mut java_copy)
+        .map_err(|_| "Could not copy saved Olm account state")?;
+
+    // Clear the Java-side decrypted buffer as soon as it has been copied.
+    let java_zeros = vec![0_i8; length];
+    env.set_byte_array_region(&stored_array, 0, &java_zeros)
+        .map_err(|_| "Could not clear temporary Java state buffer")?;
+
+    let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
+    java_copy.zeroize();
+
+    if &state_blob[..ACCOUNT_STATE_HEADER.len()] != ACCOUNT_STATE_HEADER {
+        state_blob.zeroize();
+        return Err("Saved Olm account state uses an unsupported format");
+    }
+
+    let pickle_result =
+        serde_json::from_slice::<AccountPickle>(&state_blob[ACCOUNT_STATE_HEADER.len()..]);
+    state_blob.zeroize();
+
+    let pickle = pickle_result.map_err(|_| "Saved Olm account state could not be decoded")?;
+    let account = Account::from(pickle);
+    Ok(account_identity_fingerprint(&account))
+}
+
 // This symbol is intentionally narrow: it verifies that the native library
 // can invoke the real vodozemac implementation without exposing key material.
 #[unsafe(no_mangle)]
@@ -179,5 +282,44 @@ mod tests {
         };
 
         assert!(OlmMessage::try_from(invalid).is_err());
+    }
+}
+
+
+// Persist a temporary Olm account through the Android Keystore-backed store.
+// The public identity fingerprint is returned for the restoration test; no
+// private key or serialized state is returned to Kotlin.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePersistAccountState<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+) -> jstring {
+    match catch_unwind(AssertUnwindSafe(|| persist_test_account(&mut env, &store))) {
+        Ok(Ok(identity)) => env
+            .new_string(identity)
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(_)) | Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// Restore a serialized Olm account from the Keystore-backed store and compare
+// its public identity keys against the test's expected fingerprint.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeRestoreAccountState<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    expected_identity: JString<'local>,
+) -> jboolean {
+    let expected = match env.get_string(&expected_identity) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+
+    match catch_unwind(AssertUnwindSafe(|| restore_test_account(&mut env, &store))) {
+        Ok(Ok(restored_identity)) if restored_identity == expected => JNI_TRUE,
+        Ok(Ok(_)) | Ok(Err(_)) | Err(_) => JNI_FALSE,
     }
 }
