@@ -16,6 +16,16 @@ internal object NativeCryptoBridge {
 
     external fun nativeVodozemacVersion(): String
 
+    /**
+     * Create or restore this installation's Olm identity and return only its public
+     * identity/prekey bundle. Private account state remains in Rust and is saved
+     * through the Android Keystore-backed store.
+     */
+    external fun nativeEnsureDeviceIdentity(
+        store: CryptoStateStore,
+        deviceId: String,
+    ): String?
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
