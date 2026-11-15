@@ -65,6 +65,73 @@ internal class OlmSessionRepository(context: Context) {
         }
     }
 
+    /**
+     * Encrypt and wrap an Olm wire message for a specific recipient device.
+     * The envelope is transport metadata plus ciphertext; it is not a signature.
+     */
+    fun encryptEnvelope(
+        sessionId: String,
+        recipientDeviceId: String,
+        plaintext: String,
+    ): String {
+        require(recipientDeviceId.isNotBlank() && recipientDeviceId.length <= 64) {
+            "Recipient device ID has an invalid format"
+        }
+        val wireMessage = encrypt(sessionId, plaintext)
+        return EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = localBundle.deviceId,
+                recipientDeviceId = recipientDeviceId,
+                sessionId = sessionId,
+                ciphertext = wireMessage,
+            )
+        )
+    }
+
+    /**
+     * Establish an inbound session from an encoded version 1 envelope.
+     * The remote bundle identity and both routing device IDs must agree.
+     */
+    fun createInboundSessionFromEnvelope(
+        remoteDevice: PublicDeviceKeyBundle,
+        encodedEnvelope: String,
+    ): InboundOlmMessage {
+        verifyRemoteDevice(remoteDevice)
+        require(remoteDevice.deviceId != localBundle.deviceId) {
+            "Cannot create an Olm session with this same device"
+        }
+        val envelope = EncryptedOlmEnvelopeCodec.decode(encodedEnvelope)
+        require(envelope.senderDeviceId == remoteDevice.deviceId) {
+            "Envelope sender does not match the verified remote device"
+        }
+        require(envelope.recipientDeviceId == localBundle.deviceId) {
+            "Envelope is addressed to a different device"
+        }
+        val inbound = createInboundSession(remoteDevice, envelope.ciphertext)
+        require(inbound.sessionId == envelope.sessionId) {
+            "Envelope session ID does not match the established Olm session"
+        }
+        return inbound
+    }
+
+    /** Decrypt an encoded envelope only when it is addressed to this device. */
+    fun decryptEnvelope(
+        expectedSenderDeviceId: String,
+        encodedEnvelope: String,
+    ): String {
+        require(expectedSenderDeviceId.isNotBlank() && expectedSenderDeviceId.length <= 64) {
+            "Expected sender device ID has an invalid format"
+        }
+        val envelope = EncryptedOlmEnvelopeCodec.decode(encodedEnvelope)
+        require(envelope.senderDeviceId == expectedSenderDeviceId) {
+            "Envelope sender does not match the expected device"
+        }
+        require(envelope.recipientDeviceId == localBundle.deviceId) {
+            "Envelope is addressed to a different device"
+        }
+        return decrypt(envelope.sessionId, envelope.ciphertext)
+    }
+
     /** Encrypt a message and persist the advanced sending ratchet before returning. */
     fun encrypt(sessionId: String, plaintext: String): ByteArray {
         validateSessionId(sessionId)
