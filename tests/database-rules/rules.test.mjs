@@ -89,6 +89,10 @@ beforeEach(async () => {
           messages: {},
         },
       },
+      deviceKeys: {
+        alice: { "device-alice-1": publicDeviceBundle("device-alice-1") },
+        bob: { "device-bob-1": publicDeviceBundle("device-bob-1") },
+      },
       userChats: {
         alice: {
           dm: {
@@ -361,4 +365,77 @@ test("a claimed one-time prekey cannot be overwritten or deleted", async () => {
   await assertSucceeds(set(ref(bobDb, path), true));
   await assertFails(set(ref(aliceDb, path), false));
   await assertFails(set(ref(bobDb, path), null));
+});
+
+
+const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alice-1") => ({
+  senderUid,
+  senderDeviceId,
+  messageId: "message-encrypted-1",
+  envelope: JSON.stringify({
+    encryptionVersion: 1,
+    algorithm: "olm",
+    senderDeviceId,
+    recipientDeviceId: "device-bob-1",
+    sessionId: "session-1",
+    ciphertext: "AQID",
+  }),
+  createdAt: 1700000000000,
+});
+
+test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertSucceeds(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "a".repeat(64)),
+    encryptedInboxRecord(),
+  ));
+});
+
+test("only the recipient can read and remove an encrypted device inbox item", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const path = "olmInbox/bob/device-bob-1/" + "b".repeat(64);
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), path), encryptedInboxRecord());
+  });
+  await assertFails(get(ref(aliceDb, path)));
+  await assertFails(get(ref(malloryDb, path)));
+  await assertSucceeds(get(ref(bobDb, path)));
+  await assertSucceeds(set(ref(bobDb, path), null));
+});
+
+test("encrypted inbox records are immutable after creation", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const path = "olmInbox/bob/device-bob-1/" + "c".repeat(64);
+  await assertSucceeds(set(ref(aliceDb, path), encryptedInboxRecord()));
+  await assertFails(set(ref(aliceDb, path), {
+    ...encryptedInboxRecord(),
+    envelope: "tampered",
+  }));
+});
+
+test("encrypted delivery cannot be sent from an unregistered device or to an unregistered device", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "d".repeat(64)),
+    encryptedInboxRecord("alice", "not-registered"),
+  ));
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/not-registered/" + "e".repeat(64)),
+    encryptedInboxRecord(),
+  ));
+});
+
+test("blocked users cannot send encrypted inbox deliveries in either direction", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "blockedUsers/alice/bob"), {
+      uid: "bob", username: "bob", blockedAt: 1000,
+    });
+  });
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "f".repeat(64)),
+    encryptedInboxRecord(),
+  ));
 });
