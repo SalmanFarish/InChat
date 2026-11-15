@@ -10,6 +10,13 @@ internal data class InboundOlmMessage(
     val plaintext: String,
 )
 
+/** Plaintext staged in encrypted native state until the Room receipt commit succeeds. */
+internal data class StagedInboundOlmMessage(
+    val receiptId: String,
+    val sessionId: String,
+    val plaintext: String,
+)
+
 /**
  * App-facing wrapper for the native, encrypted-at-rest Olm session prototype.
  *
@@ -115,6 +122,109 @@ internal class OlmSessionRepository(context: Context) {
             "Envelope session ID does not match the established Olm session"
         }
         return inbound
+    }
+
+    /**
+     * Stage the first pre-key message for a durable receipt. Native state saves
+     * OTK consumption, the new session, and plaintext atomically.
+     */
+    fun prepareInboundSessionFromEnvelope(
+        receiptId: String,
+        remoteDevice: PublicDeviceKeyBundle,
+        encodedEnvelope: String,
+    ): StagedInboundOlmMessage {
+        validateReceiptId(receiptId)
+        verifyRemoteDevice(remoteDevice)
+        require(remoteDevice.deviceId != localBundle.deviceId) {
+            "Cannot create an Olm session with this same device"
+        }
+        val envelope = EncryptedOlmEnvelopeCodec.decode(encodedEnvelope)
+        require(envelope.senderDeviceId == remoteDevice.deviceId) {
+            "Envelope sender does not match the verified remote device"
+        }
+        require(envelope.recipientDeviceId == localBundle.deviceId) {
+            "Envelope is addressed to a different device"
+        }
+        val encodedResult = requireNotNull(
+            NativeCryptoBridge.nativePrepareInboundOlmSession(
+                localStore(),
+                localBundle.deviceId,
+                receiptId,
+                remoteDevice.curve25519IdentityKey,
+                envelope.ciphertext,
+            )
+        ) {
+            "Could not stage the inbound pre-key message"
+        }
+        return parseStagedResult(encodedResult, receiptId, envelope.sessionId)
+    }
+
+    /** Stage or recover a normal message without advancing its receive ratchet twice. */
+    fun prepareDecryption(
+        receiptId: String,
+        expectedSenderDeviceId: String,
+        encodedEnvelope: String,
+    ): StagedInboundOlmMessage {
+        validateReceiptId(receiptId)
+        require(DEVICE_ID_REGEX.matches(expectedSenderDeviceId)) {
+            "Expected sender device ID has an invalid format"
+        }
+        val envelope = EncryptedOlmEnvelopeCodec.decode(encodedEnvelope)
+        require(envelope.senderDeviceId == expectedSenderDeviceId) {
+            "Envelope sender does not match the expected device"
+        }
+        require(envelope.recipientDeviceId == localBundle.deviceId) {
+            "Envelope is addressed to a different device"
+        }
+        val encodedResult = requireNotNull(
+            NativeCryptoBridge.nativePrepareOlmMessage(
+                localStore(),
+                localBundle.deviceId,
+                receiptId,
+                envelope.sessionId,
+                envelope.ciphertext,
+            )
+        ) {
+            "Could not stage or recover the inbound Olm message"
+        }
+        return parseStagedResult(encodedResult, receiptId, envelope.sessionId)
+    }
+
+    /** Call only after OlmInboundMessageCommitter has committed message + receipt. */
+    fun finalizeInboundDecryption(receiptId: String): Boolean {
+        validateReceiptId(receiptId)
+        return NativeCryptoBridge.nativeFinalizeInboundDecryption(
+            localStore(),
+            localBundle.deviceId,
+            receiptId,
+        )
+    }
+
+    private fun parseStagedResult(
+        encodedResult: String,
+        expectedReceiptId: String,
+        expectedSessionId: String,
+    ): StagedInboundOlmMessage {
+        val result = JSONObject(encodedResult)
+        val receiptId = result.getString("receiptId")
+        val sessionId = result.getString("sessionId")
+        require(receiptId == expectedReceiptId) {
+            "Native staged receipt ID does not match the requested receipt"
+        }
+        require(sessionId == expectedSessionId) {
+            "Native staged session ID does not match the envelope"
+        }
+        return StagedInboundOlmMessage(
+            receiptId = receiptId,
+            sessionId = sessionId,
+            plaintext = result.getString("plaintext"),
+        )
+    }
+
+    private fun validateReceiptId(receiptId: String) {
+        require(RECEIPT_ID_REGEX.matches(receiptId)) {
+            "Inbound receipt ID must be a SHA-256 hex digest"
+        }
     }
 
     /** Decrypt an encoded envelope only when it is addressed to this device. */
@@ -256,5 +366,6 @@ internal class OlmSessionRepository(context: Context) {
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_ONE_TIME_KEYS = 20
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
+        val RECEIPT_ID_REGEX = Regex("[A-Fa-f0-9]{64}")
     }
 }
