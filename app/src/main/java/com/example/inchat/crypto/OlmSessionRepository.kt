@@ -248,6 +248,36 @@ internal class OlmSessionRepository(context: Context) {
         return decrypt(envelope.sessionId, envelope.ciphertext)
     }
 
+    /** Installation-scoped sender device ID used inside authenticated payloads. */
+    val localDeviceId: String
+        get() = localBundle.deviceId
+
+    /** Encrypt a typed message whose application metadata is inside the Olm ciphertext. */
+    fun encryptAuthenticatedMessage(
+        sessionId: String,
+        payload: OlmAuthenticatedMessagePayload,
+    ): ByteArray {
+        require(payload.senderDeviceId == localBundle.deviceId) {
+            "Authenticated payload sender device does not match this installation"
+        }
+        return encrypt(sessionId, OlmAuthenticatedMessagePayloadCodec.encode(payload))
+    }
+
+    /** Encrypt and wrap a typed first message for its declared recipient device. */
+    fun encryptAuthenticatedEnvelope(
+        sessionId: String,
+        payload: OlmAuthenticatedMessagePayload,
+    ): String {
+        require(payload.senderDeviceId == localBundle.deviceId) {
+            "Authenticated payload sender device does not match this installation"
+        }
+        return encryptEnvelope(
+            sessionId = sessionId,
+            recipientDeviceId = payload.recipientDeviceId,
+            plaintext = OlmAuthenticatedMessagePayloadCodec.encode(payload),
+        )
+    }
+
     /** Encrypt a message and persist the advanced sending ratchet before returning. */
     fun encrypt(sessionId: String, plaintext: String): ByteArray {
         validateSessionId(sessionId)
