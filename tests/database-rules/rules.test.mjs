@@ -439,3 +439,103 @@ test("blocked users cannot send encrypted inbox deliveries in either direction",
     encryptedInboxRecord(),
   ));
 });
+
+
+const sasVerificationRecord = (overrides = {}) => {
+  const createdAtMillis = Date.now();
+  const message = {
+    schemaVersion: 1,
+    transactionId: "sas-transaction-1",
+    senderUserId: "alice",
+    senderDeviceId: "device-alice-1",
+    recipientUserId: "bob",
+    recipientDeviceId: "device-bob-1",
+    type: "commitment",
+    payload: "a".repeat(64),
+    createdAtMillis,
+    expiresAtMillis: createdAtMillis + 5 * 60 * 1000,
+    ...overrides,
+  };
+  return {
+    senderUid: message.senderUserId,
+    senderDeviceId: message.senderDeviceId,
+    transactionId: message.transactionId,
+    type: message.type,
+    payload: message.payload,
+    createdAtMillis: message.createdAtMillis,
+    expiresAtMillis: message.expiresAtMillis,
+    canonicalMessage: JSON.stringify(message),
+  };
+};
+
+test("a registered device can create a short-lived SAS verification message", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertSucceeds(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "1".repeat(64)),
+    sasVerificationRecord(),
+  ));
+});
+
+test("only the recipient can read and acknowledge a SAS verification message", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const path = "sasVerificationInbox/bob/device-bob-1/" + "2".repeat(64);
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), path), sasVerificationRecord());
+  });
+  await assertFails(get(ref(aliceDb, path)));
+  await assertFails(get(ref(malloryDb, path)));
+  await assertSucceeds(get(ref(bobDb, path)));
+  await assertSucceeds(set(ref(bobDb, path), null));
+});
+
+test("SAS verification messages are immutable and exact retries are idempotent", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const path = "sasVerificationInbox/bob/device-bob-1/" + "3".repeat(64);
+  const record = sasVerificationRecord();
+  await assertSucceeds(set(ref(aliceDb, path), record));
+  await assertSucceeds(set(ref(aliceDb, path), record));
+  await assertFails(set(ref(aliceDb, path), {
+    ...record,
+    payload: "b".repeat(64),
+  }));
+});
+
+test("SAS messages require registered sender and recipient devices", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "4".repeat(64)),
+    sasVerificationRecord({ senderDeviceId: "unregistered-device" }),
+  ));
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/unregistered-device/" + "5".repeat(64)),
+    sasVerificationRecord({ recipientDeviceId: "unregistered-device" }),
+  ));
+});
+
+test("expired and malformed SAS verification messages are rejected", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const now = Date.now();
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "6".repeat(64)),
+    sasVerificationRecord({ createdAtMillis: now - 700000, expiresAtMillis: now - 1000 }),
+  ));
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "7".repeat(64)),
+    sasVerificationRecord({ type: "unknown" }),
+  ));
+});
+
+test("blocked users cannot start SAS verification in either direction", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "blockedUsers/alice/bob"), {
+      uid: "bob", username: "bob", blockedAt: 1000,
+    });
+  });
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "8".repeat(64)),
+    sasVerificationRecord(),
+  ));
+});
