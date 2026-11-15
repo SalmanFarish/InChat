@@ -7,7 +7,10 @@ import androidx.room.PrimaryKey
 /** Durable replay ledger for short-lived SAS exchange messages. */
 @Entity(
     tableName = "sas_verification_messages",
-    indices = [Index(value = ["transactionId", "senderUserId", "senderDeviceId", "type"], unique = true)],
+    indices = [
+        Index(value = ["transactionId", "senderUserId", "senderDeviceId", "type"], unique = true),
+        Index(value = ["expiresAtMillis"]),
+    ],
 )
 data class SasVerificationMessageEntity(
     @PrimaryKey val deliveryId: String,
