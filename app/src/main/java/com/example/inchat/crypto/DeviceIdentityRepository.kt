@@ -50,6 +50,18 @@ internal class DeviceIdentityRepository(context: Context) {
         return parsePublicBundle(encodedBundle, deviceId)
     }
 
+    /**
+     * Acknowledge publication only after Firebase confirms the public bundle upload.
+     * If this fails, the same unpublished keys are returned on the next attempt.
+     */
+    fun markPublicKeyBundlePublished() {
+        val deviceId = getOrCreateDeviceId()
+        val stateStore = CryptoStateStore(appContext, "device-$deviceId")
+        check(NativeCryptoBridge.nativeMarkDeviceKeysPublished(stateStore, deviceId)) {
+            "Native Olm device keys could not be marked as published"
+        }
+    }
+
     private fun getOrCreateDeviceId(): String = synchronized(DEVICE_ID_LOCK) {
         if (!identityDirectory.exists() && !identityDirectory.mkdirs()) {
             throw IOException("Could not create the InChat crypto directory")
