@@ -269,3 +269,4 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         JNI_FALSE
     }
 }
+
