@@ -42,6 +42,21 @@ internal class DeviceKeyDirectoryRepository(
             .await()
     }
 
+    /**
+     * Generate/replenish this installation's unpublished prekeys, upload the
+     * verified public bundle, and only then mark those keys as published in the
+     * encrypted native account state. A failed upload leaves keys unpublished
+     * so a retry can safely publish the same material.
+     *
+     * This remains an explicit E2EE setup operation; it is not wired into live
+     * messaging or app startup.
+     */
+    suspend fun replenishAndPublishMyDevice(identityRepository: DeviceIdentityRepository) {
+        val bundle = identityRepository.ensurePublicKeyBundle()
+        publishMyDevice(bundle)
+        identityRepository.markPublicKeyBundlePublished()
+    }
+
     /** Read the public device directory for a user. Requires Firebase auth. */
     suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
         requireNotNull(auth.currentUser) { "Sign in before reading device identities" }
