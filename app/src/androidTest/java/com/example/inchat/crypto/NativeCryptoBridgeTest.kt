@@ -208,24 +208,31 @@ class NativeCryptoBridgeTest {
             remoteDeviceId,
             "repository handshake",
         )
-        val inbound = repository.createInboundSessionFromEnvelope(
-            remoteBundle = remoteBundle,
-            encodedEnvelope = firstMessage,
+        val outboundEnvelope = EncryptedOlmEnvelopeCodec.decode(firstMessage)
+        assertEquals(localBundle.deviceId, outboundEnvelope.senderDeviceId)
+        assertEquals(remoteDeviceId, outboundEnvelope.recipientDeviceId)
+        val inbound = JSONObject(
+            NativeCryptoBridge.nativeCreateInboundOlmSession(
+                remoteStore,
+                remoteDeviceId,
+                localBundle.curve25519IdentityKey,
+                outboundEnvelope.ciphertext,
+            ) ?: error("Remote device should accept the repository pre-key message")
         )
-        assertEquals("repository handshake", inbound.plaintext)
-        assertEquals(sessionId, inbound.sessionId)
+        assertEquals("repository handshake", inbound.getString("plaintext"))
+        assertEquals(sessionId, inbound.getString("sessionId"))
 
         val replyWire = NativeCryptoBridge.nativeEncryptOlmMessage(
             remoteStore,
             remoteDeviceId,
-            inbound.sessionId,
+            inbound.getString("sessionId"),
             "repository reply",
         ) ?: error("Remote device should encrypt its reply")
         val replyEnvelope = EncryptedOlmEnvelopeCodec.encode(
             EncryptedOlmEnvelope(
                 senderDeviceId = remoteDeviceId,
                 recipientDeviceId = localBundle.deviceId,
-                sessionId = inbound.sessionId,
+                sessionId = inbound.getString("sessionId"),
                 ciphertext = replyWire,
             )
         )
