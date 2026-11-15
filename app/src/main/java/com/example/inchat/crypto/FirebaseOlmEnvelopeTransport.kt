@@ -13,6 +13,11 @@ internal data class FirebaseOlmInboxItem(
     val envelope: String,
 )
 
+internal interface OlmInboxTransport {
+    suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem>
+    suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String)
+}
+
 internal enum class FirebaseOlmUploadResult {
     STORED,
 }
@@ -28,7 +33,7 @@ internal enum class FirebaseOlmUploadResult {
 internal class FirebaseOlmEnvelopeTransport(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-) {
+) : OlmInboxTransport {
     suspend fun upload(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
@@ -64,7 +69,7 @@ internal class FirebaseOlmEnvelopeTransport(
     }
 
     /** One-shot inbox read. A later worker can poll; no live listener is attached here. */
-    suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
+    override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
         val uid = requireNotNull(auth.currentUser?.uid) {
             "Sign in before reading encrypted deliveries"
         }
@@ -77,7 +82,7 @@ internal class FirebaseOlmEnvelopeTransport(
     }
 
     /** Delete only a delivery in the currently authenticated user's own device inbox. */
-    suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
+    override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
         val uid = requireNotNull(auth.currentUser?.uid) {
             "Sign in before acknowledging an encrypted delivery"
         }
