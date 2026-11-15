@@ -391,6 +391,41 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     }
 }
 
+fn mark_device_identity_published<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+) -> Result<(), &'static str> {
+    let state_blob = read_optional_device_state(env, store)?
+        .ok_or("No saved Olm device identity exists")?;
+    let mut account = decode_device_account_state(state_blob, device_id)?;
+    account.mark_keys_as_published();
+    let updated_state = encode_device_account_state(device_id, &account)?;
+    write_device_state(env, store, updated_state)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeMarkDeviceKeysPublished<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+) -> jboolean {
+    let device_id: String = match env.get_string(&device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+
+    match catch_unwind(AssertUnwindSafe(|| {
+        mark_device_identity_published(&mut env, &store, &device_id)
+    })) {
+        Ok(Ok(())) => JNI_TRUE,
+        Ok(Err(_)) | Err(_) => JNI_FALSE,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
