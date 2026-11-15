@@ -37,12 +37,16 @@ fn encode_device_crypto_state(
         .map_err(|_| "Olm device account serialization failed")?;
     let mut sessions = serde_json::Map::new();
     for (id, session) in &state.sessions {
-        sessions.insert(id.clone(), serde_json::to_value(session.pickle())
-            .map_err(|_| "Olm session serialization failed")?);
+        sessions.insert(
+            id.clone(),
+            serde_json::to_value(session.pickle())
+                .map_err(|_| "Olm session serialization failed")?,
+        );
     }
     let mut serialized = serde_json::to_vec(&json!({"account": account, "sessions": sessions}))
         .map_err(|_| "Olm device crypto state serialization failed")?;
-    let mut blob = Vec::with_capacity(DEVICE_STATE_HEADER_V2.len() + 1 + device_id.len() + serialized.len());
+    let mut blob =
+        Vec::with_capacity(DEVICE_STATE_HEADER_V2.len() + 1 + device_id.len() + serialized.len());
     blob.extend_from_slice(DEVICE_STATE_HEADER_V2);
     blob.push(device_id.len() as u8);
     blob.extend_from_slice(device_id.as_bytes());
@@ -90,14 +94,23 @@ fn decode_device_crypto_state(
         if header == DEVICE_STATE_HEADER_V1 {
             let pickle = serde_json::from_slice::<AccountPickle>(&blob[pickle_start..])
                 .map_err(|_| "Saved legacy Olm account could not be decoded")?;
-            return Ok(DeviceCryptoState { account: Account::from(pickle), sessions: std::collections::BTreeMap::new() });
+            return Ok(DeviceCryptoState {
+                account: Account::from(pickle),
+                sessions: std::collections::BTreeMap::new(),
+            });
         }
         let envelope: Value = serde_json::from_slice(&blob[pickle_start..])
             .map_err(|_| "Saved Olm device crypto state could not be decoded")?;
         let account_pickle = serde_json::from_value::<AccountPickle>(
-            envelope.get("account").cloned().ok_or("Saved Olm state has no account")?
-        ).map_err(|_| "Saved Olm device account could not be decoded")?;
-        let values = envelope.get("sessions").and_then(Value::as_object)
+            envelope
+                .get("account")
+                .cloned()
+                .ok_or("Saved Olm state has no account")?,
+        )
+        .map_err(|_| "Saved Olm device account could not be decoded")?;
+        let values = envelope
+            .get("sessions")
+            .and_then(Value::as_object)
             .ok_or("Saved Olm device state has invalid sessions")?;
         if values.len() > 10_000 {
             return Err("Saved Olm device state contains too many sessions");
@@ -115,7 +128,10 @@ fn decode_device_crypto_state(
             }
             sessions.insert(id.clone(), session);
         }
-        Ok(DeviceCryptoState { account: Account::from(account_pickle), sessions })
+        Ok(DeviceCryptoState {
+            account: Account::from(account_pickle),
+            sessions,
+        })
     })();
     blob.zeroize();
     result
@@ -125,15 +141,22 @@ fn decode_device_account_state(blob: Vec<u8>, device_id: &str) -> Result<Account
     Ok(decode_device_crypto_state(blob, device_id)?.account)
 }
 
-fn encode_device_account_state(device_id: &str, account: &Account) -> Result<Vec<u8>, &'static str> {
+fn encode_device_account_state(
+    device_id: &str,
+    account: &Account,
+) -> Result<Vec<u8>, &'static str> {
     let pickle = serde_json::to_value(account.pickle())
         .map_err(|_| "Olm device account serialization failed")?;
-    let restored = Account::from(serde_json::from_value(pickle)
-        .map_err(|_| "Olm device account serialization failed")?);
-    encode_device_crypto_state(device_id, &DeviceCryptoState {
-        account: restored,
-        sessions: std::collections::BTreeMap::new(),
-    })
+    let restored = Account::from(
+        serde_json::from_value(pickle).map_err(|_| "Olm device account serialization failed")?,
+    );
+    encode_device_crypto_state(
+        device_id,
+        &DeviceCryptoState {
+            account: restored,
+            sessions: std::collections::BTreeMap::new(),
+        },
+    )
 }
 
 fn signed_key_payload(device_id: &str, key_kind: &str, key_id: &str, public_key: &str) -> String {
@@ -334,7 +357,9 @@ fn read_optional_device_state<'local>(
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
 
-    if state_blob.len() < DEVICE_STATE_HEADER_V1.len() || !(state_blob.starts_with(DEVICE_STATE_HEADER_V1) || state_blob.starts_with(DEVICE_STATE_HEADER_V2))
+    if state_blob.len() < DEVICE_STATE_HEADER_V1.len()
+        || !(state_blob.starts_with(DEVICE_STATE_HEADER_V1)
+            || state_blob.starts_with(DEVICE_STATE_HEADER_V2))
     {
         state_blob.zeroize();
         return Err("Saved device identity state uses an unsupported format");
@@ -395,7 +420,13 @@ fn ensure_device_identity<'local>(
     let existing_state = read_optional_device_state(env, store)?;
     let (mut state, is_new) = match existing_state {
         Some(state_blob) => (decode_device_crypto_state(state_blob, device_id)?, false),
-        None => (DeviceCryptoState { account: Account::new(), sessions: std::collections::BTreeMap::new() }, true),
+        None => (
+            DeviceCryptoState {
+                account: Account::new(),
+                sessions: std::collections::BTreeMap::new(),
+            },
+            true,
+        ),
     };
 
     // Replenish only unpublished keys. Published private keys remain in the
@@ -480,7 +511,8 @@ fn read_olm_wire_message<'local>(
     env: &mut JNIEnv<'local>,
     bytes: &JByteArray<'local>,
 ) -> Result<Vec<u8>, &'static str> {
-    let length = env.get_array_length(bytes)
+    let length = env
+        .get_array_length(bytes)
         .map_err(|_| "Could not inspect encrypted Olm message")? as usize;
     if length < 2 || length > MAX_OLM_WIRE_BYTES {
         return Err("Encrypted Olm message has an invalid size");
@@ -501,8 +533,8 @@ fn load_device_crypto_state<'local>(
     store: &JObject<'local>,
     device_id: &str,
 ) -> Result<DeviceCryptoState, &'static str> {
-    let blob = read_optional_device_state(env, store)?
-        .ok_or("No saved Olm device identity exists")?;
+    let blob =
+        read_optional_device_state(env, store)?.ok_or("No saved Olm device identity exists")?;
     decode_device_crypto_state(blob, device_id)
 }
 
@@ -518,11 +550,14 @@ fn create_outbound_olm_session<'local>(
     let remote_one_time = Curve25519PublicKey::from_base64(remote_one_time_key)
         .map_err(|_| "Remote Olm one-time key is invalid")?;
     let mut state = load_device_crypto_state(env, store, device_id)?;
-    let session = state.account.create_outbound_session(
-        vodozemac::olm::SessionConfig::version_1(),
-        remote_identity,
-        remote_one_time,
-    ).map_err(|_| "Could not create outbound Olm session")?;
+    let session = state
+        .account
+        .create_outbound_session(
+            vodozemac::olm::SessionConfig::version_1(),
+            remote_identity,
+            remote_one_time,
+        )
+        .map_err(|_| "Could not create outbound Olm session")?;
     let session_id = session.session_id();
     if state.sessions.contains_key(&session_id) {
         return Err("An Olm session with this ID already exists");
@@ -544,13 +579,16 @@ fn encrypt_olm_message<'local>(
         return Err("Olm plaintext exceeds the message size limit");
     }
     let mut state = load_device_crypto_state(env, store, device_id)?;
-    let session = state.sessions.get_mut(session_id)
+    let session = state
+        .sessions
+        .get_mut(session_id)
         .ok_or("Olm session was not found")?;
-    let message = session.encrypt(plaintext)
+    let message = session
+        .encrypt(plaintext)
         .map_err(|_| "Could not encrypt Olm message")?;
     let (message_type, ciphertext) = message.to_parts();
-    let message_type = u8::try_from(message_type)
-        .map_err(|_| "Olm message type is out of range")?;
+    let message_type =
+        u8::try_from(message_type).map_err(|_| "Olm message type is out of range")?;
     if ciphertext.len() + 1 > MAX_OLM_WIRE_BYTES {
         return Err("Encrypted Olm message exceeds the size limit");
     }
@@ -584,11 +622,14 @@ fn create_inbound_olm_session<'local>(
     let mut state = load_device_crypto_state(env, store, device_id)?;
     // Account one-time-prekey consumption and new-session persistence share this
     // single encrypted AtomicFile write. No intermediate account-only save occurs.
-    let inbound = state.account.create_inbound_session(
-        vodozemac::olm::SessionConfig::version_1(),
-        remote_identity,
-        &pre_key,
-    ).map_err(|_| "Could not establish inbound Olm session")?;
+    let inbound = state
+        .account
+        .create_inbound_session(
+            vodozemac::olm::SessionConfig::version_1(),
+            remote_identity,
+            &pre_key,
+        )
+        .map_err(|_| "Could not establish inbound Olm session")?;
     let plaintext = String::from_utf8(inbound.plaintext)
         .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
     if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
@@ -622,12 +663,15 @@ fn decrypt_olm_message<'local>(
         return Err("A pre-key message requires inbound-session creation");
     }
     let mut state = load_device_crypto_state(env, store, device_id)?;
-    let session = state.sessions.get_mut(session_id)
+    let session = state
+        .sessions
+        .get_mut(session_id)
         .ok_or("Olm session was not found")?;
-    let plaintext = session.decrypt(&message)
+    let plaintext = session
+        .decrypt(&message)
         .map_err(|_| "Could not decrypt Olm message")?;
-    let plaintext = String::from_utf8(plaintext)
-        .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
+    let plaintext =
+        String::from_utf8(plaintext).map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
     if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
         return Err("Decrypted Olm plaintext exceeds the message size limit");
     }
