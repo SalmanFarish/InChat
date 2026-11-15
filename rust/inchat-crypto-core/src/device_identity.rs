@@ -231,6 +231,7 @@ fn decode_device_account_state(blob: Vec<u8>, device_id: &str) -> Result<Account
     Ok(decode_device_crypto_state(blob, device_id)?.account)
 }
 
+#[cfg(test)]
 fn encode_device_account_state(
     device_id: &str,
     account: &Account,
