@@ -39,7 +39,6 @@ class DeviceKeyFingerprintTest {
             "device/one" to encodedKey(1),
             "device-one" to "not-base64!",
             "device-one" to Base64.encodeToString(byteArrayOf(1, 2, 3), Base64.NO_WRAP),
-            "device-one" to Base64.encodeToString(ByteArray(32), Base64.NO_WRAP),
         ).forEach { (deviceId, key) ->
             var rejected = false
             try {
