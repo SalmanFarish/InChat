@@ -102,6 +102,9 @@ internal class OlmInboundHandoffCoordinator(
             require(message.senderId == receipt.senderUserId) {
                 "Cached message sender does not match its inbound receipt"
             }
+            require(message.chatId == receipt.senderUserId) {
+                "Cached message chat does not match its inbound receipt sender"
+            }
             require(!message.isPending) {
                 "Decrypted inbound messages cannot be pending sends"
             }
