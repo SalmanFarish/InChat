@@ -165,6 +165,9 @@ fn read_optional_device_state<'local>(
         .get_array_length(&stored_array)
         .map_err(|_| "Could not inspect saved device identity state")? as usize;
     if length > MAX_DEVICE_STATE_BYTES {
+        let java_zeros = vec![0_i8; length];
+        env.set_byte_array_region(&stored_array, 0, &java_zeros)
+            .map_err(|_| "Could not clear oversized device identity state buffer")?;
         return Err("Saved device identity state exceeds the storage limit");
     }
 
