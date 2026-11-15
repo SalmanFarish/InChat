@@ -1,10 +1,10 @@
 use jni::objects::{JByteArray, JObject, JString, JValue};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle};
-use vodozemac::{Curve25519PublicKey, KeyId};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
 use zeroize::Zeroize;
 
 const DEVICE_STATE_HEADER: &[u8; 6] = b"ICDEV\x01";
@@ -145,6 +145,87 @@ fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
         "fallbackKey": fallback_key,
         "oneTimeKeys": one_time_keys
     })
+}
+
+
+/// Verify the identity binding and every signed prekey in an untrusted public bundle.
+fn verify_public_device_key_bundle(encoded: &str) -> bool {
+    let Ok(bundle) = serde_json::from_str::<Value>(encoded) else {
+        return false;
+    };
+    let Some(device_id) = bundle.get("deviceId").and_then(Value::as_str) else {
+        return false;
+    };
+    if !valid_device_id(device_id) || bundle.get("schemaVersion").and_then(Value::as_u64) != Some(1) {
+        return false;
+    }
+
+    let Some(identity) = bundle.get("identityKeys") else {
+        return false;
+    };
+    let Some(ed25519) = identity.get("ed25519").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(curve25519) = identity.get("curve25519").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(identity_signature) = identity.get("curve25519Signature").and_then(Value::as_str) else {
+        return false;
+    };
+    let Ok(identity_key) = Ed25519PublicKey::from_base64(ed25519) else {
+        return false;
+    };
+    let Ok(identity_signature) = Ed25519Signature::from_base64(identity_signature) else {
+        return false;
+    };
+    let identity_payload =
+        format!("{SIGNATURE_CONTEXT}\\n{device_id}\\nidentity_curve25519\\n{curve25519}");
+    if identity_key.verify(identity_payload.as_bytes(), &identity_signature).is_err() {
+        return false;
+    }
+
+    let Some(fallback) = bundle.get("fallbackKey").filter(|value| !value.is_null()) else {
+        return false;
+    };
+    let Some(one_time_keys) = bundle.get("oneTimeKeys").and_then(Value::as_array) else {
+        return false;
+    };
+    if one_time_keys.len() > INITIAL_ONE_TIME_KEY_COUNT {
+        return false;
+    }
+
+    let verify_prekey = |entry: &Value, expected_kind: &str| -> bool {
+        let Some(kind) = entry.get("keyKind").and_then(Value::as_str) else { return false; };
+        let Some(key_id) = entry.get("keyId").and_then(Value::as_str) else { return false; };
+        let Some(public_key) = entry.get("key").and_then(Value::as_str) else { return false; };
+        let Some(signature) = entry.get("signature").and_then(Value::as_str) else { return false; };
+        if kind != expected_kind || key_id.is_empty() || public_key.is_empty() {
+            return false;
+        }
+        let Ok(_) = Curve25519PublicKey::from_base64(public_key) else { return false; };
+        let Ok(signature) = Ed25519Signature::from_base64(signature) else { return false; };
+        let payload = signed_key_payload(device_id, kind, key_id, public_key);
+        identity_key.verify(payload.as_bytes(), &signature).is_ok()
+    };
+
+    verify_prekey(fallback, "fallback")
+        && one_time_keys.iter().all(|entry| verify_prekey(entry, "one_time"))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVerifyDeviceKeyBundle<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    encoded_bundle: JString<'local>,
+) -> jboolean {
+    let encoded: String = match env.get_string(&encoded_bundle) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    match catch_unwind(AssertUnwindSafe(|| verify_public_device_key_bundle(&encoded))) {
+        Ok(true) => JNI_TRUE,
+        Ok(false) | Err(_) => JNI_FALSE,
+    }
 }
 
 fn read_optional_device_state<'local>(
