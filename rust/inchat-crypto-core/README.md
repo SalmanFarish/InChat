@@ -16,6 +16,8 @@ This is an isolated Rust prototype for InChat's end-to-end encryption work.
 - An isolated per-installation device identity repository stores a random stable device ID in `noBackupFilesDir` and stores the matching Olm account pickle only as Android Keystore-encrypted native state.
 - The Rust bridge can create or restore a device-bound Olm identity and return a versioned **public-only** bundle containing Ed25519/Curve25519 identity keys, one-time keys, and a fallback key. The Curve25519 identity key and each prekey are signed by the device's Ed25519 identity over context- and device-bound canonical payloads.
 - Android instrumentation tests verify that a device identity survives store/repository recreation, rejects a different device ID for the same stored account, and that separate device stores generate distinct identity keys.
+- An isolated Kotlin directory repository publishes only public identity material to `deviceKeys/{uid}/{deviceId}` in the existing Firebase Realtime Database. Authenticated users can read public bundles; only the owning Firebase UID can publish, replace, or remove its device entries. Rules constrain the schema and cap one-time prekeys at 20.
+- The directory repository is not called by app startup or live chat code. It does not consume one-time keys or establish sessions; callers must verify the Ed25519 signatures before trusting returned keys.
 - The serialized account blob has a separate version marker. The underlying vodozemac Serde pickle format is not treated as a stable cross-version format; a future app update must add explicit migration handling before changing the pinned crypto version.
 - Tests a two-device Olm handshake and bidirectional encrypted message exchange.
 - Tests rejection of an invalid message-type discriminator.
@@ -71,11 +73,11 @@ The GitHub Actions workflow runs these host-side formatting and test checks.
 
 ## Not implemented yet
 
-- The local device-identity repository is still an isolated prototype and is not connected to login/account creation, key-bundle publication, or a device directory API.
+- The local device-identity repository and public device-key directory are isolated prototypes and are not connected to login/account creation or live conversation setup.
 - Account, Olm session, and device-identity persistence are still isolated prototype/test flows; normal app startup and live conversations do not create, restore, or use these native states.
 - No JNI or Android API returns private account keys or plaintext ratchet state to Kotlin.
 - The Android Keystore-backed account/session persistence path is still test-only; the device-identity repository can be instantiated by isolated tests but is not wired into app startup, account lifecycle, or live Olm sessions.
-- Public key bundles are not published anywhere yet. No production InChat message envelope or versioned Firebase schema.
+- Public key bundles can be published to the new versioned Realtime Database directory, but no production InChat message envelope or live-session schema exists yet.
 - No Megolm group-session distribution or membership-epoch rotation.
 - No Worker, Firebase rules, FCM, Room, attachment, or UI changes.
 
