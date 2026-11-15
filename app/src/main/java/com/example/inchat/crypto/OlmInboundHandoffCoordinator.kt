@@ -21,9 +21,9 @@ internal enum class OlmInboundHandoffResult {
  * Coordinates the isolated two-phase inbound handoff.
  *
  * This class is intentionally not wired to Firebase listeners, chat UI, message
- * previews, notifications, or the existing plaintext messaging path. The caller
- * supplies a message factory because sender-visible metadata must be validated
- * and mapped by the eventual protocol layer, not guessed from transport fields.
+ * previews, notifications, or the existing plaintext messaging path. The
+ * authenticated version-1 payload is validated before the caller maps it into
+ * the local cache entity; transport metadata is never used as a substitute.
  */
 internal class OlmInboundHandoffCoordinator(
     database: RoomDatabase,
