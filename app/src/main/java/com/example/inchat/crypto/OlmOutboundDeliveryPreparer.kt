@@ -24,13 +24,18 @@ internal class OlmOutboundDeliveryPreparer(
 ) {
     /** Prepare an initial prekey envelope for exactly one remote device. */
     suspend fun prepareFirstMessage(
-        recipientUserId: String,
-        recipientDeviceId: String,
-        plaintext: String,
+        payload: OlmAuthenticatedMessagePayload,
     ): PreparedOlmDelivery {
-        require(USER_ID_PATTERN.matches(recipientUserId)) { "Recipient user ID has an invalid format" }
-        require(DEVICE_ID_PATTERN.matches(recipientDeviceId)) { "Recipient device ID has an invalid format" }
+        require(USER_ID_PATTERN.matches(payload.recipientUserId)) { "Recipient user ID has an invalid format" }
+        require(DEVICE_ID_PATTERN.matches(payload.recipientDeviceId)) { "Recipient device ID has an invalid format" }
+        require(payload.senderDeviceId == sessions.localDeviceId) {
+            "Authenticated payload sender device does not match this installation"
+        }
+        // Validate the complete versioned payload before claiming a one-time key.
+        OlmAuthenticatedMessagePayloadCodec.encode(payload)
 
+        val recipientUserId = payload.recipientUserId
+        val recipientDeviceId = payload.recipientDeviceId
         val remoteDevice = directory.getUserDevices(recipientUserId)
             .firstOrNull { it.deviceId == recipientDeviceId }
             ?: throw IllegalStateException("Recipient device is not present in the public key directory")
@@ -50,10 +55,12 @@ internal class OlmOutboundDeliveryPreparer(
         }
 
         val sessionId = sessions.createOutboundSession(remoteDevice, selectedPreKey)
-        val envelope = sessions.encryptEnvelope(
+        require(payload.recipientDeviceId == remoteDevice.deviceId) {
+            "Authenticated payload recipient device does not match the selected device"
+        }
+        val envelope = sessions.encryptAuthenticatedEnvelope(
             sessionId = sessionId,
-            recipientDeviceId = remoteDevice.deviceId,
-            plaintext = plaintext,
+            payload = payload,
         )
         return PreparedOlmDelivery(
             recipientUserId = recipientUserId,
