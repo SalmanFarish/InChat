@@ -450,4 +450,90 @@ class NativeCryptoBridgeTest {
             first.fallbackKey?.keyId != replenished.fallbackKey?.keyId
         )
     }
+
+    @Test
+    fun nativeSasVerificationAuthenticatesBothDeviceIdentities() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val aliceDeviceId = "sas-alice-$suffix"
+        val bobDeviceId = "sas-bob-$suffix"
+        val aliceStore = CryptoStateStore(context, "sas-alice-store-$suffix")
+        val bobStore = CryptoStateStore(context, "sas-bob-store-$suffix")
+
+        val aliceBundle = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(aliceStore, aliceDeviceId)
+            )
+        )
+        val bobBundle = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(bobStore, bobDeviceId)
+            )
+        )
+        val aliceEd25519 = aliceBundle.getJSONObject("identityKeys").getString("ed25519")
+        val bobEd25519 = bobBundle.getJSONObject("identityKeys").getString("ed25519")
+        val transactionId = "sas-transaction-$suffix"
+
+        val alice = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeSasCreate(
+                    "alice-user", aliceDeviceId, aliceEd25519,
+                    "bob-user", bobDeviceId, bobEd25519,
+                    transactionId, true,
+                )
+            )
+        )
+        val bob = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeSasCreate(
+                    "alice-user", aliceDeviceId, aliceEd25519,
+                    "bob-user", bobDeviceId, bobEd25519,
+                    transactionId, false,
+                )
+            )
+        )
+        val aliceHandle = alice.getString("handle")
+        val bobHandle = bob.getString("handle")
+
+        assertTrue(
+            NativeCryptoBridge.nativeSasAcceptPeerCommitment(
+                aliceHandle, bob.getString("commitment")
+            )
+        )
+        assertTrue(
+            NativeCryptoBridge.nativeSasAcceptPeerCommitment(
+                bobHandle, alice.getString("commitment")
+            )
+        )
+        val alicePublicKey = requireNotNull(
+            NativeCryptoBridge.nativeSasRevealPublicKey(aliceHandle)
+        )
+        val bobPublicKey = requireNotNull(
+            NativeCryptoBridge.nativeSasRevealPublicKey(bobHandle)
+        )
+        assertTrue(
+            NativeCryptoBridge.nativeSasAcceptPeerPublicKey(aliceHandle, bobPublicKey)
+        )
+        assertTrue(
+            NativeCryptoBridge.nativeSasAcceptPeerPublicKey(bobHandle, alicePublicKey)
+        )
+        assertEquals(
+            NativeCryptoBridge.nativeSasDisplayCodes(aliceHandle),
+            NativeCryptoBridge.nativeSasDisplayCodes(bobHandle),
+        )
+
+        assertTrue(NativeCryptoBridge.nativeSasConfirmMatch(aliceHandle, true))
+        assertTrue(NativeCryptoBridge.nativeSasConfirmMatch(bobHandle, true))
+        val aliceMac = requireNotNull(NativeCryptoBridge.nativeSasCreateLocalMac(aliceHandle))
+        val bobMac = requireNotNull(NativeCryptoBridge.nativeSasCreateLocalMac(bobHandle))
+        assertTrue(NativeCryptoBridge.nativeSasVerifyPeerMac(aliceHandle, bobMac))
+        assertTrue(NativeCryptoBridge.nativeSasVerifyPeerMac(bobHandle, aliceMac))
+        assertTrue(NativeCryptoBridge.nativeSasIsComplete(aliceHandle))
+        assertTrue(NativeCryptoBridge.nativeSasIsComplete(bobHandle))
+
+        assertTrue(NativeCryptoBridge.nativeSasCancel(aliceHandle))
+        assertTrue(NativeCryptoBridge.nativeSasCancel(bobHandle))
+        assertTrue(!NativeCryptoBridge.nativeSasIsComplete(aliceHandle))
+    }
+
 }
