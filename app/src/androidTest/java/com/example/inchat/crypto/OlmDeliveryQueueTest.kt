@@ -114,7 +114,7 @@ class OlmDeliveryQueueTest {
             return inserted
         }
 
-        override fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long): QueuedOlmDeviceDelivery? {
+        override fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery? {
             val candidate = rows.values
                 .filter {
                     (it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
