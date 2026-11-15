@@ -202,25 +202,37 @@ class NativeCryptoBridgeTest {
             remoteBundle,
             requireNotNull(remoteBundle.oneTimeKeys.firstOrNull()),
         )
-        val firstMessage = repository.encrypt(sessionId, "repository handshake")
         val localBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
-        val inbound = JSONObject(
-            NativeCryptoBridge.nativeCreateInboundOlmSession(
-                remoteStore,
-                remoteDeviceId,
-                localBundle.curve25519IdentityKey,
-                firstMessage,
-            ) ?: error("Remote device should accept the repository pre-key message")
+        val firstMessage = repository.encryptEnvelope(
+            sessionId,
+            remoteDeviceId,
+            "repository handshake",
         )
-        assertEquals("repository handshake", inbound.getString("plaintext"))
+        val inbound = repository.createInboundSessionFromEnvelope(
+            remoteBundle = remoteBundle,
+            encodedEnvelope = firstMessage,
+        )
+        assertEquals("repository handshake", inbound.plaintext)
+        assertEquals(sessionId, inbound.sessionId)
 
-        val reply = NativeCryptoBridge.nativeEncryptOlmMessage(
+        val replyWire = NativeCryptoBridge.nativeEncryptOlmMessage(
             remoteStore,
             remoteDeviceId,
-            inbound.getString("sessionId"),
+            inbound.sessionId,
             "repository reply",
         ) ?: error("Remote device should encrypt its reply")
-        assertEquals("repository reply", repository.decrypt(sessionId, reply))
+        val replyEnvelope = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = remoteDeviceId,
+                recipientDeviceId = localBundle.deviceId,
+                sessionId = inbound.sessionId,
+                ciphertext = replyWire,
+            )
+        )
+        assertEquals(
+            "repository reply",
+            repository.decryptEnvelope(remoteDeviceId, replyEnvelope),
+        )
     }
 
     @Test
