@@ -31,6 +31,17 @@ struct PendingDecryption {
     plaintext: String,
 }
 
+impl Drop for PendingDecryption {
+    fn drop(&mut self) {
+        // Pending plaintext is sensitive even though the persisted device-state
+        // file is encrypted. Clear the in-memory copies when a receipt is finalized
+        // or a partially restored state is discarded.
+        self.session_id.zeroize();
+        self.ciphertext.zeroize();
+        self.plaintext.zeroize();
+    }
+}
+
 struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
