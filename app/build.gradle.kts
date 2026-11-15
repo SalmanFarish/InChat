@@ -3,6 +3,22 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     id("com.google.gms.google-services")
+    id("net.mullvad.rust-android") version "0.11.1"
+}
+
+
+cargo {
+    module = "../rust/inchat-crypto-core"
+    libname = "inchat_crypto_core"
+    targets = listOf("arm", "arm64", "x86", "x86_64")
+    profile = "release"
+    apiLevel = 26
+}
+
+val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
+tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach {
+    inputs.dir(rustJniLibsDir)
+    dependsOn("cargoBuild")
 }
 
 android {
