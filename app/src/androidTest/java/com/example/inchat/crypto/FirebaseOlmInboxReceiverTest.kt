@@ -65,12 +65,84 @@ class FirebaseOlmInboxReceiverTest {
         }
     }
 
+
+    @Test
+    fun senderDeviceMetadataMismatchIsNotAcknowledged() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-sender-mismatch-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "c".repeat(64), "alice", "different-device", "message-3", envelope(1),
+            )
+            val transport = FakeTransport(mutableListOf(item))
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device")
+
+            try {
+                receiver.receivePending()
+                throw AssertionError("Expected sender metadata mismatch to be rejected")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("sender device"))
+            }
+
+            assertEquals(1, transport.items.size)
+            assertEquals(null, ledger.find("alice", "message-3"))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun retriesRemoteAcknowledgementAfterLocalReceiptWasStored() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-ack-retry-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem("d".repeat(64), "alice", "sender-device", "message-4", envelope(1))
+            val transport = FakeTransport(mutableListOf(item), failFirstRemoval = true)
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 200L })
+
+            try {
+                receiver.receivePending()
+                throw AssertionError("Expected first remote acknowledgement to fail")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("temporary"))
+            }
+
+            assertEquals(1, transport.items.size)
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", "message-4", envelope(1), 201L),
+            )
+
+            val retry = receiver.receivePending()
+
+            assertEquals(1, retry.alreadyPending)
+            assertTrue(transport.items.isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private class FakeTransport(
         val items: MutableList<FirebaseOlmInboxItem>,
+        private var failFirstRemoval: Boolean = false,
     ) : OlmInboxTransport {
         override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> = items.toList()
 
         override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
+            if (failFirstRemoval) {
+                failFirstRemoval = false
+                throw IllegalStateException("temporary acknowledgement failure")
+            }
             items.removeAll { it.deliveryId == deliveryId }
         }
     }
