@@ -10,6 +10,7 @@ import java.util.UUID
 
 /** One public Olm prekey, signed by the device's Ed25519 identity key. */
 internal data class SignedOlmPreKey(
+    val keyKind: String,
     val keyId: String,
     val publicKey: String,
     val signature: String,
@@ -112,10 +113,14 @@ internal class DeviceIdentityRepository(context: Context) {
 
     private fun parseSignedPreKey(value: JSONObject): SignedOlmPreKey {
         val key = SignedOlmPreKey(
+            keyKind = value.getString("keyKind"),
             keyId = value.getString("keyId"),
             publicKey = value.getString("key"),
             signature = value.getString("signature"),
         )
+        require(key.keyKind == "one_time" || key.keyKind == "fallback") {
+            "Native Olm bundle contains an unknown prekey kind"
+        }
         require(
             key.keyId.isNotBlank() &&
                 key.publicKey.isNotBlank() &&
