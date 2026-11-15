@@ -11,6 +11,8 @@ This is an isolated Rust prototype for InChat's end-to-end encryption work.
 - Exposes only the vodozemac version and a local two-device Olm self-test to Kotlin.
 - Includes an isolated Android `CryptoStateStore` for opaque native-state blobs. It uses a non-exportable AES-256-GCM key in Android Keystore, stores authenticated ciphertext in `noBackupFilesDir`, and writes atomically.
 - Instrumentation tests verify encrypted state survives store recreation and modified ciphertext fails authentication.
+- A native persistence test serializes a vodozemac Olm account inside Rust, passes the temporary state buffer directly to the Keystore-backed store for encryption, then restores it through a new store instance and checks that both public identity keys are unchanged.
+- The serialized account blob has a separate version marker. The underlying vodozemac Serde pickle format is not treated as a stable cross-version format; a future app update must add explicit migration handling before changing the pinned crypto version.
 - Tests a two-device Olm handshake and bidirectional encrypted message exchange.
 - Tests rejection of an invalid message-type discriminator.
 - Keeps private account/session state entirely inside Rust; the current JNI API does not return or persist any keys.
