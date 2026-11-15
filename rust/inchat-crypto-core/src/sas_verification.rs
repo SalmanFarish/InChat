@@ -103,6 +103,7 @@ pub(crate) struct SasVerification {
     established: Option<EstablishedSas>,
     local_match_confirmed: bool,
     peer_mac_verified: bool,
+    peer_commitment: Option<String>,
 }
 
 impl SasVerification {
@@ -126,6 +127,7 @@ impl SasVerification {
             established: None,
             local_match_confirmed: false,
             peer_mac_verified: false,
+            peer_commitment: None,
         })
     }
 
@@ -154,6 +156,7 @@ impl SasVerification {
         {
             return Err("Peer SAS commitment is malformed");
         }
+        self.peer_commitment = Some(peer_commitment.to_owned());
         self.peer_commitment_accepted = true;
         Ok(())
     }
@@ -259,8 +262,6 @@ impl SasVerification {
         format!("{SAS_MAC_CONTEXT}\n{}", self.binding.transcript())
     }
 
-    // The received commitment is retained only for this process-local attempt.
-    peer_commitment: Option<String>,
 }
 
 #[cfg(test)]
