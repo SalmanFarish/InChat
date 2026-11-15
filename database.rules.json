@@ -297,6 +297,28 @@
           }
         }
       }
+    },
+    "sasVerificationInbox": {
+      "$recipientUid": {
+        ".read": "auth != null && auth.uid === $recipientUid",
+        "$recipientDeviceId": {
+          ".read": "auth != null && auth.uid === $recipientUid",
+          "$deliveryId": {
+            ".write": "auth != null && $deliveryId.matches(/^[A-Fa-f0-9]{64}$/) && (( !data.exists() && newData.exists() && newData.child('senderUid').val() === auth.uid && root.child('deviceKeys').child(auth.uid).child(newData.child('senderDeviceId').val()).exists() && root.child('deviceKeys').child($recipientUid).child($recipientDeviceId).exists() && !root.child('blockedUsers').child(auth.uid).child($recipientUid).exists() && !root.child('blockedUsers').child($recipientUid).child(auth.uid).exists() && newData.child('expiresAtMillis').val() > now && newData.child('createdAtMillis').val() <= now + 120000 && newData.child('expiresAtMillis').val() - newData.child('createdAtMillis').val() <= 600000 ) || ( data.exists() && newData.exists() && data.child('senderUid').val() === auth.uid && data.child('senderUid').val() === newData.child('senderUid').val() && data.child('senderDeviceId').val() === newData.child('senderDeviceId').val() && data.child('transactionId').val() === newData.child('transactionId').val() && data.child('type').val() === newData.child('type').val() && data.child('payload').val() === newData.child('payload').val() && data.child('createdAtMillis').val() === newData.child('createdAtMillis').val() && data.child('expiresAtMillis').val() === newData.child('expiresAtMillis').val() && data.child('canonicalMessage').val() === newData.child('canonicalMessage').val() ) || ( data.exists() && !newData.exists() && auth.uid === $recipientUid ))",
+            ".validate": "newData.hasChildren(['senderUid','senderDeviceId','transactionId','type','payload','createdAtMillis','expiresAtMillis','canonicalMessage']) && newData.child('senderUid').isString() && newData.child('senderUid').val().length <= 128 && newData.child('senderDeviceId').isString() && newData.child('senderDeviceId').val().matches(/^[A-Za-z0-9_-]{1,64}$/) && newData.child('transactionId').isString() && newData.child('transactionId').val().matches(/^[A-Za-z0-9_-]{1,128}$/) && newData.child('type').isString() && (newData.child('type').val() === 'commitment' || newData.child('type').val() === 'public_key' || newData.child('type').val() === 'sas_mac' || newData.child('type').val() === 'cancel') && newData.child('payload').isString() && newData.child('payload').val().length <= 256 && ((newData.child('type').val() === 'commitment' && newData.child('payload').val().matches(/^[A-Fa-f0-9]{64}$/)) || ((newData.child('type').val() === 'public_key' || newData.child('type').val() === 'sas_mac') && newData.child('payload').val().matches(/^[A-Za-z0-9_+/=-]{1,256}$/)) || (newData.child('type').val() === 'cancel' && newData.child('payload').val() === '')) && newData.child('createdAtMillis').isNumber() && newData.child('createdAtMillis').val() >= 0 && newData.child('expiresAtMillis').isNumber() && newData.child('expiresAtMillis').val() > newData.child('createdAtMillis').val() && newData.child('expiresAtMillis').val() - newData.child('createdAtMillis').val() <= 600000 && newData.child('canonicalMessage').isString() && newData.child('canonicalMessage').val().length >= 2 && newData.child('canonicalMessage').val().length <= 8192",
+            ".read": "auth != null && auth.uid === $recipientUid",
+            "senderUid": { ".validate": "newData.isString() && newData.val() === auth.uid" },
+            "senderDeviceId": { ".validate": "newData.isString()" },
+            "transactionId": { ".validate": "newData.isString()" },
+            "type": { ".validate": "newData.isString()" },
+            "payload": { ".validate": "newData.isString()" },
+            "createdAtMillis": { ".validate": "newData.isNumber()" },
+            "expiresAtMillis": { ".validate": "newData.isNumber()" },
+            "canonicalMessage": { ".validate": "newData.isString()" },
+            "$other": { ".validate": "false" }
+          }
+        }
+      }
     }
   }
 }
