@@ -239,6 +239,20 @@ class OlmInboundHandoffCoordinatorTest {
                 ) { error("Duplicate processing must not create another message") },
             )
 
+            // Complete the Olm handshake before expecting the sender to emit
+            // a normal message. Until the initiator receives a reply, vodozemac
+            // may continue emitting pre-key messages on that outbound session.
+            val handshakeReply = repository.encrypt(sessionId, "inbound session reply")
+            assertEquals(
+                "inbound session reply",
+                NativeCryptoBridge.nativeDecryptOlmMessage(
+                    senderStore,
+                    senderDeviceId,
+                    sessionId,
+                    handshakeReply,
+                ),
+            )
+
             // The established session now carries a regular Olm message.
             val normalMessageId = "handoff-normal-$suffix"
             val normalWire = requireNotNull(
