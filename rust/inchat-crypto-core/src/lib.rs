@@ -283,10 +283,10 @@ mod tests {
         account.generate_fallback_key();
 
         let identity_keys = account.identity_keys();
-        let serialized = serde_json::to_vec(&account.pickle())
-            .expect("an Olm account pickle should serialize");
-        let pickle: AccountPickle = serde_json::from_slice(&serialized)
-            .expect("an Olm account pickle should deserialize");
+        let serialized =
+            serde_json::to_vec(&account.pickle()).expect("an Olm account pickle should serialize");
+        let pickle: AccountPickle =
+            serde_json::from_slice(&serialized).expect("an Olm account pickle should deserialize");
         let restored = Account::from(pickle);
 
         assert_eq!(identity_keys, restored.identity_keys());
