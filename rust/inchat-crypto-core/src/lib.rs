@@ -3,9 +3,11 @@
 //! Isolated cryptographic prototype for InChat.
 //!
 //! This crate is not connected to message sending, receiving, or Firebase.
-//! The JNI surface exposes a version string, isolated self-tests, and test-only
-//! persistence checks. It never exports account private keys, session secrets,
-//! or serialized ratchet state to Kotlin.
+//! The JNI surface exposes isolated device-identity and Olm-session operations,
+//! alongside self-tests and test-only persistence checks. Private keys and
+//! serialized ratchet state remain in Rust and are stored only through the
+//! Android Keystore-backed encrypted state store. This prototype is not wired
+//! into live message sending, receiving, or Firebase.
 
 use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
