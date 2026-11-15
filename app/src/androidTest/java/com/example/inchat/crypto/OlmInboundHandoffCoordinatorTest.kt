@@ -297,7 +297,7 @@ class OlmInboundHandoffCoordinatorTest {
                 ledger.register("alice", retryNormalMessageId, retryNormalEnvelope, 600L),
             )
             val retryNormalReceiptId = sha256(
-                "alice\\u0000$senderDeviceId\\u0000$retryNormalMessageId\\u0000${localBundle.deviceId}"
+                "alice\u0000$senderDeviceId\u0000$retryNormalMessageId\u0000${localBundle.deviceId}"
             )
             var normalMappingFailed = false
             try {
