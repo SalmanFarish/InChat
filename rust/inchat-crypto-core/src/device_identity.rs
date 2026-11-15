@@ -156,7 +156,9 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
     let Some(device_id) = bundle.get("deviceId").and_then(Value::as_str) else {
         return false;
     };
-    if !valid_device_id(device_id) || bundle.get("schemaVersion").and_then(Value::as_u64) != Some(1) {
+    if !valid_device_id(device_id)
+        || bundle.get("schemaVersion").and_then(Value::as_u64) != Some(1)
+    {
         return false;
     }
 
@@ -195,25 +197,41 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
     }
 
     let verify_prekey = |entry: &Value, expected_kind: &str| -> bool {
-        let Some(kind) = entry.get("keyKind").and_then(Value::as_str) else { return false; };
-        let Some(key_id) = entry.get("keyId").and_then(Value::as_str) else { return false; };
-        let Some(public_key) = entry.get("key").and_then(Value::as_str) else { return false; };
-        let Some(signature) = entry.get("signature").and_then(Value::as_str) else { return false; };
+        let Some(kind) = entry.get("keyKind").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(key_id) = entry.get("keyId").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(public_key) = entry.get("key").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(signature) = entry.get("signature").and_then(Value::as_str) else {
+            return false;
+        };
         if kind != expected_kind || key_id.is_empty() || public_key.is_empty() {
             return false;
         }
-        let Ok(_) = Curve25519PublicKey::from_base64(public_key) else { return false; };
-        let Ok(signature) = Ed25519Signature::from_base64(signature) else { return false; };
+        let Ok(_) = Curve25519PublicKey::from_base64(public_key) else {
+            return false;
+        };
+        let Ok(signature) = Ed25519Signature::from_base64(signature) else {
+            return false;
+        };
         let payload = signed_key_payload(device_id, kind, key_id, public_key);
         identity_key.verify(payload.as_bytes(), &signature).is_ok()
     };
 
     verify_prekey(fallback, "fallback")
-        && one_time_keys.iter().all(|entry| verify_prekey(entry, "one_time"))
+        && one_time_keys
+            .iter()
+            .all(|entry| verify_prekey(entry, "one_time"))
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVerifyDeviceKeyBundle<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVerifyDeviceKeyBundle<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     encoded_bundle: JString<'local>,
@@ -222,7 +240,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeV
         Ok(value) => value.into(),
         Err(_) => return JNI_FALSE,
     };
-    match catch_unwind(AssertUnwindSafe(|| verify_public_device_key_bundle(&encoded))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        verify_public_device_key_bundle(&encoded)
+    })) {
         Ok(true) => JNI_TRUE,
         Ok(false) | Err(_) => JNI_FALSE,
     }
