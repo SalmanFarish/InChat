@@ -24,6 +24,7 @@ tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach 
 android {
     namespace = "com.example.inchat"
     compileSdk = 37
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.example.inchat"
