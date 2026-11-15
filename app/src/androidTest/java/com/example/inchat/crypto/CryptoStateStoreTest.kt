@@ -93,6 +93,31 @@ class CryptoStateStoreTest {
         }
     }
 
+    @Test
+    fun nativeOlmSessionSurvivesKeystoreStoreRecreationAndContinuesRatchet() {
+        val stateId = "native-session-" + UUID.randomUUID().toString()
+        val originalStore = CryptoStateStore(context, stateId)
+
+        try {
+            // Rust establishes an isolated two-device session, persists Alice's
+            // ratchet state, and returns Bob's encrypted reply (never plaintext).
+            val encryptedReply =
+                NativeCryptoBridge.nativePersistOlmSessionState(originalStore)
+
+            // A fresh store instance simulates a process restart.
+            val reopenedStore = CryptoStateStore(context, stateId)
+            assertTrue(
+                "The restored Olm session should decrypt the next peer message",
+                NativeCryptoBridge.nativeRestoreOlmSessionState(
+                    reopenedStore,
+                    encryptedReply,
+                ),
+            )
+        } finally {
+            originalStore.delete()
+        }
+    }
+
     private fun stateFile(stateId: String): File =
         File(File(context.noBackupFilesDir, "inchat-crypto"), "$stateId.bin")
 }
