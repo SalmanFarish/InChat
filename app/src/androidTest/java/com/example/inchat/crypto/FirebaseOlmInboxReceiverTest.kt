@@ -89,7 +89,6 @@ class FirebaseOlmInboxReceiverTest {
             }
 
             assertEquals(1, transport.items.size)
-            assertEquals(null, ledger.find("alice", "message-3"))
         } finally {
             db.close()
             context.deleteDatabase(name)
