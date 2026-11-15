@@ -39,3 +39,6 @@ This is an isolated E2EE prototype requirement. Do not connect it to existing pl
 `OlmInboundHandoffCoordinator` accepts a verified remote device bundle, the expected ciphertext kind, and a message factory. It validates the stored envelope's sender/recipient against the durable receipt, stages or recovers plaintext through the native repository, checks that the resulting cached message has the receipt's sender/message IDs and exact plaintext, commits message plus receipt atomically, then finalizes native staging.
 
 The message factory is deliberately caller-supplied: the current envelope does not define an authenticated message-metadata schema for nickname, timestamp, replies, reactions, or attachments. The coordinator does not invent those values. It remains isolated and must not be connected to live chat until the encrypted payload schema and metadata validation are specified and tested.
+
+
+Coordinator instrumentation coverage now exercises both PRE_KEY and NORMAL inbound ciphertext. It also verifies that a message-mapping failure leaves the receipt PENDING and staged plaintext recoverable, a retry commits exactly once, duplicate processing does not rebuild the message, and a process-recreation simulation finalizes already-committed native staging.
