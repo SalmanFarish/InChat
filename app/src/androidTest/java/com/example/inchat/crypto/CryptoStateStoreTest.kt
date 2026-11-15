@@ -68,6 +68,31 @@ class CryptoStateStoreTest {
         }
     }
 
+    @Test
+    fun nativeOlmAccountSurvivesKeystoreStoreRecreation() {
+        val stateId = "native-" + UUID.randomUUID().toString()
+        val originalStore = CryptoStateStore(context, stateId)
+
+        try {
+            // Rust creates the account and passes its serialized pickle directly
+            // to the store's Keystore-encrypted write entry point.
+            val expectedIdentityKeys =
+                NativeCryptoBridge.nativePersistAccountState(originalStore)
+
+            // A new store instance simulates reopening the app after process death.
+            val reopenedStore = CryptoStateStore(context, stateId)
+            assertTrue(
+                "The Rust account should restore with the same public identity keys",
+                NativeCryptoBridge.nativeRestoreAccountState(
+                    reopenedStore,
+                    expectedIdentityKeys,
+                ),
+            )
+        } finally {
+            originalStore.delete()
+        }
+    }
+
     private fun stateFile(stateId: String): File =
         File(File(context.noBackupFilesDir, "inchat-crypto"), "$stateId.bin")
 }
