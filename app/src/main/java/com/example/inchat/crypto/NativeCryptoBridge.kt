@@ -3,8 +3,10 @@ package com.example.inchat.crypto
 /**
  * Narrow Android boundary for the experimental native crypto core.
  *
- * This bridge is currently used only by instrumentation tests. It does not
- * expose private keys, session state, Firebase access, or message operations.
+ * This bridge is currently used only by instrumentation tests. Private protocol
+ * state is serialized in Rust and passed only as a transient byte array to the
+ * Keystore-backed store for encryption/decryption. No private key or plaintext
+ * serialized state is returned to Kotlin callers.
  */
 internal object NativeCryptoBridge {
 
