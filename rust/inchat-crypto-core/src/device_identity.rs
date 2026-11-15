@@ -180,7 +180,7 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
         return false;
     };
     let identity_payload =
-        format!("{SIGNATURE_CONTEXT}\\n{device_id}\\nidentity_curve25519\\n{curve25519}");
+        format!("{SIGNATURE_CONTEXT}\n{device_id}\nidentity_curve25519\n{curve25519}");
     if identity_key
         .verify(identity_payload.as_bytes(), &identity_signature)
         .is_err()
