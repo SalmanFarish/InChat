@@ -186,6 +186,27 @@ class OlmInboundHandoffCoordinatorTest {
                 clock = { 400L },
             )
 
+            val wrongLocalAccountCoordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = { "different-local-account" },
+                messageDao = db.messageDao(),
+            )
+            var localAccountMismatchRejected = false
+            try {
+                wrongLocalAccountCoordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> cachedMessage(payload) }
+            } catch (_: IllegalArgumentException) {
+                localAccountMismatchRejected = true
+            }
+            assertTrue("A caller cannot substitute a different authenticated local account", localAccountMismatchRejected)
+
             var senderAccountMismatchRejected = false
             try {
                 coordinator.process(
