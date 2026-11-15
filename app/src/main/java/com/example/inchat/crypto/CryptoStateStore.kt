@@ -85,6 +85,24 @@ internal class CryptoStateStore(
     }
 
     /**
+     * Native-only persistence entry point. The JNI caller's temporary byte array
+     * is wiped after the authenticated write attempt, including failure paths.
+     */
+    fun writeForNative(plaintext: ByteArray) {
+        try {
+            write(plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
+    /**
+     * Native-only read entry point. JNI copies the returned bytes into Rust and
+     * clears this Java array immediately after copying it.
+     */
+    fun readForNative(): ByteArray? = read()
+
+    /**
      * Read and authenticate the state blob.
      *
      * Returns null only when no state file exists. Missing keys, malformed
