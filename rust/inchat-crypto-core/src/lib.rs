@@ -557,5 +557,4 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeR
     }
 }
 
-
 mod device_identity;
