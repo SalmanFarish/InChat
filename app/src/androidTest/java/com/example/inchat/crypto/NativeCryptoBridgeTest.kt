@@ -13,6 +13,70 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class NativeCryptoBridgeTest {
 
+
+    @Test
+    fun encryptedOlmEnvelopeRoundTripsAndRejectsUnsupportedVersions() {
+        val original = EncryptedOlmEnvelope(
+            senderDeviceId = "sender-device",
+            recipientDeviceId = "recipient-device",
+            sessionId = "olm-session-123",
+            ciphertext = byteArrayOf(1, 2, 3, 4, 5, 6),
+        )
+
+        val encoded = EncryptedOlmEnvelopeCodec.encode(original)
+        val decoded = EncryptedOlmEnvelopeCodec.decode(encoded)
+
+        assertEquals(original.senderDeviceId, decoded.senderDeviceId)
+        assertEquals(original.recipientDeviceId, decoded.recipientDeviceId)
+        assertEquals(original.sessionId, decoded.sessionId)
+        assertTrue(original.ciphertext.contentEquals(decoded.ciphertext))
+
+        val unsupportedVersion = encoded.replace(
+            "\"encryptionVersion\":1",
+            "\"encryptionVersion\":2",
+        )
+        var rejected = false
+        try {
+            EncryptedOlmEnvelopeCodec.decode(unsupportedVersion)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("Unknown envelope versions must be rejected", rejected)
+    }
+
+    @Test
+    fun encryptedOlmEnvelopeRejectsInvalidRoutingAndCiphertext() {
+        var invalidDeviceRejected = false
+        try {
+            EncryptedOlmEnvelopeCodec.encode(
+                EncryptedOlmEnvelope(
+                    senderDeviceId = "sender",
+                    recipientDeviceId = "bad/device",
+                    sessionId = "session",
+                    ciphertext = byteArrayOf(1, 2),
+                )
+            )
+        } catch (_: IllegalArgumentException) {
+            invalidDeviceRejected = true
+        }
+        assertTrue("Invalid device IDs must be rejected", invalidDeviceRejected)
+
+        var shortCiphertextRejected = false
+        try {
+            EncryptedOlmEnvelopeCodec.encode(
+                EncryptedOlmEnvelope(
+                    senderDeviceId = "sender",
+                    recipientDeviceId = "recipient",
+                    sessionId = "session",
+                    ciphertext = byteArrayOf(1),
+                )
+            )
+        } catch (_: IllegalArgumentException) {
+            shortCiphertextRejected = true
+        }
+        assertTrue("Truncated ciphertext must be rejected", shortCiphertextRejected)
+    }
+
     @Test
     fun nativeLibraryLoadsAndReportsPinnedVersion() {
         assertEquals(
