@@ -714,6 +714,170 @@ fn create_inbound_olm_session<'local>(
         .map_err(|_| "Could not encode decrypted Olm message")
 }
 
+fn pending_decryption_result(
+    pending: &PendingDecryption,
+    receipt_id: &str,
+    wire: &[u8],
+    expected_session_id: Option<&str>,
+) -> Result<String, &'static str> {
+    if pending.ciphertext != wire
+        || expected_session_id.is_some_and(|expected| expected != pending.session_id)
+    {
+        return Err("Receipt ID is already bound to different ciphertext or session metadata");
+    }
+    serde_json::to_string(&json!({
+        "receiptId": receipt_id,
+        "sessionId": pending.session_id,
+        "plaintext": pending.plaintext
+    }))
+    .map_err(|_| "Could not encode recovered Olm plaintext")
+}
+
+fn prepare_inbound_prekey_decryption<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    receipt_id: &str,
+    remote_identity_key: &str,
+    wire: &[u8],
+) -> Result<String, &'static str> {
+    if !valid_receipt_id(receipt_id) {
+        return Err("Inbound receipt ID must be a SHA-256 hex digest");
+    }
+    if wire.len() < 2 || wire.len() > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm pre-key message has an invalid size");
+    }
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    if let Some(pending) = state.pending_decryptions.get(receipt_id) {
+        return pending_decryption_result(pending, receipt_id, wire, None);
+    }
+    if state.pending_decryptions.len() >= 256 {
+        return Err("Too many pending Olm decryptions; finalize committed receipts first");
+    }
+
+    let remote_identity = Curve25519PublicKey::from_base64(remote_identity_key)
+        .map_err(|_| "Remote Olm identity key is invalid")?;
+    let message = OlmMessage::from_parts(wire[0] as usize, &wire[1..])
+        .map_err(|_| "Encrypted Olm message has an invalid type or encoding")?;
+    let pre_key = match message {
+        OlmMessage::PreKey(message) => message,
+        OlmMessage::Normal(_) => return Err("Initial Olm message must be a pre-key message"),
+    };
+    // OTK consumption, new session, receive ratchet, and staged plaintext are
+    // committed in one Keystore-encrypted AtomicFile write.
+    let inbound = state.account.create_inbound_session(
+        vodozemac::olm::SessionConfig::version_1(),
+        remote_identity,
+        &pre_key,
+    ).map_err(|_| "Could not establish inbound Olm session")?;
+    let mut plaintext = String::from_utf8(inbound.plaintext)
+        .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
+    if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+        plaintext.zeroize();
+        return Err("Decrypted Olm plaintext exceeds the message size limit");
+    }
+    let session_id = inbound.session.session_id();
+    if state.sessions.contains_key(&session_id) {
+        plaintext.zeroize();
+        return Err("Inbound Olm session already exists");
+    }
+    state.sessions.insert(session_id.clone(), inbound.session);
+    state.pending_decryptions.insert(receipt_id.to_owned(), PendingDecryption {
+        session_id: session_id.clone(),
+        ciphertext: wire.to_vec(),
+        plaintext: plaintext.clone(),
+    });
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    let result = serde_json::to_string(&json!({
+        "receiptId": receipt_id,
+        "sessionId": session_id,
+        "plaintext": plaintext
+    })).map_err(|_| "Could not encode staged Olm plaintext");
+    plaintext.zeroize();
+    result
+}
+
+fn prepare_existing_session_decryption<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    receipt_id: &str,
+    session_id: &str,
+    wire: &[u8],
+) -> Result<String, &'static str> {
+    if !valid_receipt_id(receipt_id) {
+        return Err("Inbound receipt ID must be a SHA-256 hex digest");
+    }
+    if session_id.is_empty() || session_id.len() > 128 {
+        return Err("Olm session ID has an invalid format");
+    }
+    if wire.len() < 2 || wire.len() > MAX_OLM_WIRE_BYTES {
+        return Err("Encrypted Olm message has an invalid size");
+    }
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    if let Some(pending) = state.pending_decryptions.get(receipt_id) {
+        return pending_decryption_result(pending, receipt_id, wire, Some(session_id));
+    }
+    if state.pending_decryptions.len() >= 256 {
+        return Err("Too many pending Olm decryptions; finalize committed receipts first");
+    }
+    let message = OlmMessage::from_parts(wire[0] as usize, &wire[1..])
+        .map_err(|_| "Encrypted Olm message has an invalid type or encoding")?;
+    if matches!(&message, OlmMessage::PreKey(_)) {
+        return Err("A pre-key message requires inbound-session creation");
+    }
+    let session = state.sessions.get_mut(session_id)
+        .ok_or("Olm session was not found")?;
+    let mut plaintext_bytes = session.decrypt(&message)
+        .map_err(|_| "Could not decrypt Olm message")?;
+    let mut plaintext = match String::from_utf8(plaintext_bytes.clone()) {
+        Ok(value) => value,
+        Err(_) => {
+            plaintext_bytes.zeroize();
+            return Err("Decrypted Olm message is not valid UTF-8");
+        }
+    };
+    plaintext_bytes.zeroize();
+    if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+        plaintext.zeroize();
+        return Err("Decrypted Olm plaintext exceeds the message size limit");
+    }
+    state.pending_decryptions.insert(receipt_id.to_owned(), PendingDecryption {
+        session_id: session_id.to_owned(),
+        ciphertext: wire.to_vec(),
+        plaintext: plaintext.clone(),
+    });
+    // Ratchet advancement and pending plaintext are persisted atomically.
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    let result = serde_json::to_string(&json!({
+        "receiptId": receipt_id,
+        "sessionId": session_id,
+        "plaintext": plaintext
+    })).map_err(|_| "Could not encode staged Olm plaintext");
+    plaintext.zeroize();
+    result
+}
+
+fn finalize_pending_decryption<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    receipt_id: &str,
+) -> Result<bool, &'static str> {
+    if !valid_receipt_id(receipt_id) {
+        return Err("Inbound receipt ID must be a SHA-256 hex digest");
+    }
+    let mut state = load_device_crypto_state(env, store, device_id)?;
+    if state.pending_decryptions.remove(receipt_id).is_none() {
+        return Ok(true);
+    }
+    let blob = encode_device_crypto_state(device_id, &state)?;
+    write_device_state(env, store, blob)?;
+    Ok(true)
+}
+
 fn decrypt_olm_message<'local>(
     env: &mut JNIEnv<'local>,
     store: &JObject<'local>,
