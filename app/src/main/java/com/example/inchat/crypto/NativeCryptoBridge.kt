@@ -26,6 +26,9 @@ internal object NativeCryptoBridge {
         deviceId: String,
     ): String?
 
+    /** Verify a remote public device bundle and all its Ed25519 signatures in Rust. */
+    external fun nativeVerifyDeviceKeyBundle(encodedBundle: String): Boolean
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
