@@ -58,7 +58,7 @@ The server-side directory must support:
 - Authenticated key-bundle publication.
 - Atomic one-time-prekey claim/consumption to avoid two senders using the same prekey.
 
-A multi-device account must publish and receive keys for each active device. Logout, device removal, reinstall, account recovery, and key changes need explicit lifecycle behavior. Public key changes should be visible and verifiable; a QR/fingerprint verification flow is a later requirement. The prototype now includes a pure fan-out planner that deterministically selects every listed recipient device plus the sender's other devices, excludes the currently sending device, deduplicates entries, validates bundle shape, and enforces bounded device counts. It does not create sessions, claim prekeys, encrypt, or enqueue network deliveries; those operations remain separate gates.
+A multi-device account must publish and receive keys for each active device. Logout, device removal, reinstall, account recovery, and key changes need explicit lifecycle behavior. Public key changes should be visible and verifiable; a QR/fingerprint verification flow is a later requirement. The prototype now includes a pure fan-out planner that deterministically selects every listed recipient device plus the sender's other devices, excludes the currently sending device, deduplicates entries, validates bundle shape, and enforces bounded device counts. It does not create sessions, claim prekeys, encrypt, or enqueue network deliveries. A separate outbound preparer creates one encrypted envelope per device without transmitting it.
 
 ## Direct-message protocol requirements
 
@@ -163,3 +163,12 @@ The selected implementation route is **vodozemac 0.11.2** (Apache-2.0), subject 
 Megolm has a documented trade-off: compromise of a current group session can expose subsequent messages until rotation, so the group-rotation design and removal behavior must be tested carefully. This choice is not a claim that group encryption is complete or enabled.
 
 The library integration prototype must pass two-independent-device tests before encrypted messaging is enabled. Until then, keep the current messaging path unchanged. See [ADR-001](ADR-001-E2EE-CRYPTOGRAPHY.md) for the rationale and implementation gates.
+
+
+## Encrypted outbox prototype
+
+The isolated queue coordinator now models one outbox row per target device. Enqueue is idempotent using a deterministic SHA-256 delivery ID derived from the message ID, recipient user ID, and recipient device ID. It validates that each supplied ciphertext envelope is addressed to the expected device and uses the expected Olm session.
+
+The queue state machine supports QUEUED, IN_FLIGHT, ACKNOWLEDGED, and terminal FAILED states. Claims use leases so an expired in-flight row can be retried after process interruption. Retry attempts use bounded exponential backoff and a configurable attempt limit. Acknowledgements are conditional on both delivery ID and message ID, and duplicate acknowledgements do not mutate terminal state.
+
+This milestone defines an atomic storage interface and exercises it with an in-memory test store. It does **not** yet provide a durable Room adapter or a network sender. A production adapter must implement insertion, lease claims, and state transitions transactionally across threads and process restarts before this queue can be used. Transport is at-least-once: if the app dies after the remote side accepts a message but before local acknowledgement, the sender may retry. The receiver must therefore deduplicate using the stable message ID. No plaintext message body, preview, or attachment key belongs in the outbox.
