@@ -365,8 +365,21 @@ mod tests {
         let mut attacker_context = SasVerification::new(changed, false).unwrap();
         // A MAC from the original transcript cannot authenticate a changed binding.
         let mut peer = SasVerification::new(alice_binding, true).unwrap();
-        establish_pair(&mut peer, &mut attacker_context);
+        peer.accept_peer_commitment(attacker_context.commitment()).unwrap();
+        attacker_context
+            .accept_peer_commitment(peer.commitment())
+            .unwrap();
+        let peer_public = peer.reveal_public_key().unwrap().to_owned();
+        let attacker_public = attacker_context.reveal_public_key().unwrap().to_owned();
+        peer.accept_peer_public_key(&attacker_public).unwrap();
+        attacker_context
+            .accept_peer_public_key(&peer_public)
+            .unwrap();
         attacker_context.confirm_sas_match(true).unwrap();
+        assert_ne!(
+            peer.display_codes().unwrap(),
+            attacker_context.display_codes().unwrap()
+        );
         assert!(attacker_context.verify_peer_mac(&alice_mac).is_err());
     }
 
@@ -384,6 +397,7 @@ mod tests {
     #[test]
     fn verification_metadata_rejects_same_device_and_malformed_keys() {
         let (mut binding, _) = fixture();
+        binding.responder.user_id = binding.initiator.user_id.clone();
         binding.responder.device_id = binding.initiator.device_id.clone();
         assert!(SasVerification::new(binding, true).is_err());
 
