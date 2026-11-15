@@ -1,5 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod device_identity;
+
 //! Isolated cryptographic prototype for InChat.
 //!
 //! This crate is not connected to message sending, receiving, or Firebase.
