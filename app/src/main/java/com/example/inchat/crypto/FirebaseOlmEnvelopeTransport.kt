@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 
@@ -13,7 +12,6 @@ internal data class FirebaseOlmInboxItem(
     val senderDeviceId: String,
     val messageId: String,
     val envelope: String,
-    val createdAtMillis: Long,
 )
 
 internal enum class FirebaseOlmUploadResult {
@@ -60,7 +58,6 @@ internal class FirebaseOlmEnvelopeTransport(
             "senderDeviceId" to senderDeviceId,
             "messageId" to delivery.messageId,
             "envelope" to delivery.envelope,
-            "createdAt" to ServerValue.TIMESTAMP,
         )
         return try {
             reference.setValue(payload).await()
@@ -93,7 +90,7 @@ internal class FirebaseOlmEnvelopeTransport(
 
         return database.reference.child(INBOX_NODE).child(uid).child(deviceId).get().await()
             .children.mapNotNull(::parseInboxItem)
-            .sortedWith(compareBy<FirebaseOlmInboxItem> { it.createdAtMillis }.thenBy { it.deliveryId })
+            .sortedBy { it.deliveryId }
     }
 
     /** Delete only a delivery in the currently authenticated user's own device inbox. */
@@ -129,7 +126,6 @@ internal class FirebaseOlmEnvelopeTransport(
         val senderDeviceId = snapshot.child("senderDeviceId").getValue(String::class.java) ?: return null
         val messageId = snapshot.child("messageId").getValue(String::class.java) ?: return null
         val envelope = snapshot.child("envelope").getValue(String::class.java) ?: return null
-        val createdAt = snapshot.child("createdAt").getValue(Long::class.java) ?: return null
         if (!DELIVERY_PATTERN.matches(deliveryId) ||
             !UID_PATTERN.matches(senderUid) ||
             !DEVICE_PATTERN.matches(senderDeviceId) ||
@@ -140,7 +136,7 @@ internal class FirebaseOlmEnvelopeTransport(
             val decoded = EncryptedOlmEnvelopeCodec.decode(envelope)
             require(decoded.senderDeviceId == senderDeviceId)
             require(decoded.recipientDeviceId.isNotBlank())
-            FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope, createdAt)
+            FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope)
         }.getOrNull()
     }
 
