@@ -380,7 +380,6 @@ const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alic
     sessionId: "session-1",
     ciphertext: "AQID",
   }),
-  createdAt: 1700000000000,
 });
 
 test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {
@@ -408,6 +407,7 @@ test("only the recipient can read and remove an encrypted device inbox item", as
 test("encrypted inbox records are immutable after creation", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const path = "olmInbox/bob/device-bob-1/" + "c".repeat(64);
+  await assertSucceeds(set(ref(aliceDb, path), encryptedInboxRecord()));
   await assertSucceeds(set(ref(aliceDb, path), encryptedInboxRecord()));
   await assertFails(set(ref(aliceDb, path), {
     ...encryptedInboxRecord(),
