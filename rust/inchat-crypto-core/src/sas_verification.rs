@@ -365,7 +365,8 @@ mod tests {
         let mut attacker_context = SasVerification::new(changed, false).unwrap();
         // A MAC from the original transcript cannot authenticate a changed binding.
         let mut peer = SasVerification::new(alice_binding, true).unwrap();
-        peer.accept_peer_commitment(attacker_context.commitment()).unwrap();
+        peer.accept_peer_commitment(attacker_context.commitment())
+            .unwrap();
         attacker_context
             .accept_peer_commitment(peer.commitment())
             .unwrap();
