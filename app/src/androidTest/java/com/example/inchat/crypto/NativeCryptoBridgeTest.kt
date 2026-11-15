@@ -161,6 +161,131 @@ class NativeCryptoBridgeTest {
     }
 
     @Test
+    fun nativePendingDecryptionRecoversExactlyAndFinalizesAfterCommit() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val aliceDeviceId = "recover-alice-$suffix"
+        val bobDeviceId = "recover-bob-$suffix"
+        val aliceStoreId = "device-recover-a-$suffix"
+        val bobStoreId = "device-recover-b-$suffix"
+        val aliceStore = CryptoStateStore(context, aliceStoreId)
+        val bobStore = CryptoStateStore(context, bobStoreId)
+        val aliceBundle = JSONObject(
+            NativeCryptoBridge.nativeEnsureDeviceIdentity(aliceStore, aliceDeviceId)
+                ?: error("Alice identity should be created")
+        )
+        val bobBundle = JSONObject(
+            NativeCryptoBridge.nativeEnsureDeviceIdentity(bobStore, bobDeviceId)
+                ?: error("Bob identity should be created")
+        )
+        assertTrue(NativeCryptoBridge.nativeMarkDeviceKeysPublished(bobStore, bobDeviceId))
+
+        fun receiptId(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+        val aliceSessionId = requireNotNull(
+            NativeCryptoBridge.nativeCreateOutboundOlmSession(
+                aliceStore,
+                aliceDeviceId,
+                bobBundle.getJSONObject("identityKeys").getString("curve25519"),
+                bobBundle.getJSONArray("oneTimeKeys").getJSONObject(0).getString("key"),
+            )
+        )
+        val firstWire = requireNotNull(
+            NativeCryptoBridge.nativeEncryptOlmMessage(
+                aliceStore, aliceDeviceId, aliceSessionId, "initial crash-safe message"
+            )
+        )
+        val firstWireRetry = firstWire.clone()
+        val firstReceipt = receiptId("initial-$suffix")
+        val firstResult = JSONObject(
+            NativeCryptoBridge.nativePrepareInboundOlmSession(
+                bobStore,
+                bobDeviceId,
+                firstReceipt,
+                aliceBundle.getJSONObject("identityKeys").getString("curve25519"),
+                firstWire,
+            ) ?: error("Initial message should be staged")
+        )
+        assertEquals("initial crash-safe message", firstResult.getString("plaintext"))
+        assertEquals(firstReceipt, firstResult.getString("receiptId"))
+
+        val recoveredFirst = JSONObject(
+            NativeCryptoBridge.nativePrepareInboundOlmSession(
+                CryptoStateStore(context, bobStoreId),
+                bobDeviceId,
+                firstReceipt,
+                aliceBundle.getJSONObject("identityKeys").getString("curve25519"),
+                firstWireRetry,
+            ) ?: error("Retry should recover staged plaintext without consuming the OTK again")
+        )
+        assertEquals(firstResult.getString("sessionId"), recoveredFirst.getString("sessionId"))
+        assertEquals(firstResult.getString("plaintext"), recoveredFirst.getString("plaintext"))
+
+        val conflictingWire = firstWireRetry.clone().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        assertEquals(
+            null,
+            NativeCryptoBridge.nativePrepareInboundOlmSession(
+                CryptoStateStore(context, bobStoreId),
+                bobDeviceId,
+                firstReceipt,
+                aliceBundle.getJSONObject("identityKeys").getString("curve25519"),
+                conflictingWire,
+            ),
+        )
+
+        assertTrue(
+            NativeCryptoBridge.nativeFinalizeInboundDecryption(
+                CryptoStateStore(context, bobStoreId), bobDeviceId, firstReceipt
+            )
+        )
+        assertTrue(
+            "Finalize must be safe to repeat after a crash",
+            NativeCryptoBridge.nativeFinalizeInboundDecryption(
+                CryptoStateStore(context, bobStoreId), bobDeviceId, firstReceipt
+            )
+        )
+
+        val replyWire = requireNotNull(
+            NativeCryptoBridge.nativeEncryptOlmMessage(
+                CryptoStateStore(context, bobStoreId),
+                bobDeviceId,
+                firstResult.getString("sessionId"),
+                "normal-message crash recovery",
+            )
+        )
+        val replyRetry = replyWire.clone()
+        val normalReceipt = receiptId("normal-$suffix")
+        val normalResult = JSONObject(
+            NativeCryptoBridge.nativePrepareOlmMessage(
+                CryptoStateStore(context, aliceStoreId),
+                aliceDeviceId,
+                normalReceipt,
+                aliceSessionId,
+                replyWire,
+            ) ?: error("Normal message should be staged")
+        )
+        assertEquals("normal-message crash recovery", normalResult.getString("plaintext"))
+
+        val recoveredNormal = JSONObject(
+            NativeCryptoBridge.nativePrepareOlmMessage(
+                CryptoStateStore(context, aliceStoreId),
+                aliceDeviceId,
+                normalReceipt,
+                aliceSessionId,
+                replyRetry,
+            ) ?: error("Normal message retry should recover exact staged plaintext")
+        )
+        assertEquals(normalResult.getString("plaintext"), recoveredNormal.getString("plaintext"))
+        assertTrue(
+            NativeCryptoBridge.nativeFinalizeInboundDecryption(
+                CryptoStateStore(context, aliceStoreId), aliceDeviceId, normalReceipt
+            )
+        )
+    }
+
+    @Test
     fun olmSessionRepositoryUsesVerifiedDeviceBundleAndPersistsRatchets() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val suffix = UUID.randomUUID().toString().replace("-", "")
