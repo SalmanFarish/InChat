@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 
 internal data class FirebaseOlmInboxItem(
@@ -15,15 +14,15 @@ internal data class FirebaseOlmInboxItem(
 )
 
 internal enum class FirebaseOlmUploadResult {
-    CREATED,
-    ALREADY_PRESENT,
+    STORED,
 }
 
 /**
  * Isolated ciphertext-only transport over Firebase Realtime Database.
  *
  * It never reads or writes the existing chats/{chatId}/messages tree. Upload
- * is create-only and recipient/device scoped by database.rules.json. Firebase
+ * is immutable and recipient/device scoped by database.rules.json. Exact retries
+ * are accepted idempotently; changed payloads are rejected. Firebase
  * is an untrusted relay: the receiver must still authenticate the Olm envelope.
  */
 internal class FirebaseOlmEnvelopeTransport(
@@ -59,25 +58,8 @@ internal class FirebaseOlmEnvelopeTransport(
             "messageId" to delivery.messageId,
             "envelope" to delivery.envelope,
         )
-        return try {
-            reference.setValue(payload).await()
-            FirebaseOlmUploadResult.CREATED
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            // A retry after an uncertain network result is safe only if the
-            // exact same immutable payload is already present at this ID.
-            val existing = try {
-                reference.get().await()
-            } catch (readError: Exception) {
-                if (readError is CancellationException) throw readError
-                throw error
-            }
-            if (existing.matches(senderUid, senderDeviceId, delivery.messageId, delivery.envelope)) {
-                FirebaseOlmUploadResult.ALREADY_PRESENT
-            } else {
-                throw error
-            }
-        }
+        reference.setValue(payload).await()
+        return FirebaseOlmUploadResult.STORED
     }
 
     /** One-shot inbox read. A later worker can poll; no live listener is attached here. */
@@ -89,7 +71,7 @@ internal class FirebaseOlmEnvelopeTransport(
         require(DEVICE_PATTERN.matches(deviceId)) { "Device ID has an invalid format" }
 
         return database.reference.child(INBOX_NODE).child(uid).child(deviceId).get().await()
-            .children.mapNotNull(::parseInboxItem)
+            .children.mapNotNull { parseInboxItem(it, deviceId) }
             .sortedBy { it.deliveryId }
     }
 
@@ -120,7 +102,7 @@ internal class FirebaseOlmEnvelopeTransport(
             child("messageId").getValue(String::class.java) == messageId &&
             child("envelope").getValue(String::class.java) == envelope
 
-    private fun parseInboxItem(snapshot: DataSnapshot): FirebaseOlmInboxItem? {
+    private fun parseInboxItem(snapshot: DataSnapshot, expectedRecipientDeviceId: String): FirebaseOlmInboxItem? {
         val deliveryId = snapshot.key ?: return null
         val senderUid = snapshot.child("senderUid").getValue(String::class.java) ?: return null
         val senderDeviceId = snapshot.child("senderDeviceId").getValue(String::class.java) ?: return null
@@ -135,7 +117,7 @@ internal class FirebaseOlmEnvelopeTransport(
         return runCatching {
             val decoded = EncryptedOlmEnvelopeCodec.decode(envelope)
             require(decoded.senderDeviceId == senderDeviceId)
-            require(decoded.recipientDeviceId.isNotBlank())
+            require(decoded.recipientDeviceId == expectedRecipientDeviceId)
             FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope)
         }.getOrNull()
     }
