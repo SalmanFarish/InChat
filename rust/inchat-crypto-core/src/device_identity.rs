@@ -181,7 +181,8 @@ fn read_optional_device_state<'local>(
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
 
-    if state_blob.len() < DEVICE_STATE_HEADER.len() || !state_blob.starts_with(DEVICE_STATE_HEADER) {
+    if state_blob.len() < DEVICE_STATE_HEADER.len() || !state_blob.starts_with(DEVICE_STATE_HEADER)
+    {
         state_blob.zeroize();
         return Err("Saved device identity state uses an unsupported format");
     }
