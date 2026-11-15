@@ -13,7 +13,7 @@ import androidx.room.PrimaryKey
         Index(value = ["messageId", "recipientUserId", "recipientDeviceId"], unique = true),
     ],
 )
-internal data class OlmDeviceDeliveryEntity(
+data class OlmDeviceDeliveryEntity(
     @PrimaryKey val deliveryId: String,
     val messageId: String,
     val recipientUserId: String,
