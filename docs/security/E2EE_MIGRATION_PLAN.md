@@ -56,7 +56,7 @@ The server-side directory must support:
 - Authenticated key-bundle publication.
 - Atomic one-time-prekey claim/consumption to avoid two senders using the same prekey.
 
-A multi-device account must publish and receive keys for each active device. Logout, device removal, reinstall, account recovery, and key changes need explicit lifecycle behavior. Public key changes should be visible and verifiable; a QR/fingerprint verification flow is a later requirement.
+A multi-device account must publish and receive keys for each active device. Logout, device removal, reinstall, account recovery, and key changes need explicit lifecycle behavior. Public key changes should be visible and verifiable; a QR/fingerprint verification flow is a later requirement. The prototype now includes a pure fan-out planner that deterministically selects every listed recipient device plus the sender's other devices, excludes the currently sending device, deduplicates entries, validates bundle shape, and enforces bounded device counts. It does not create sessions, claim prekeys, encrypt, or enqueue network deliveries; those operations remain separate gates.
 
 ## Direct-message protocol requirements
 
