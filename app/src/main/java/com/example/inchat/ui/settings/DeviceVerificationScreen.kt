@@ -311,7 +311,7 @@ private fun DeviceVerificationAttemptCard(
                     OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("They do not match") }
                 }
                 SasVerificationPhase.COMPLETE -> {
-                    Text("Verified on both devices. Identity authentication is complete.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Verification completed for this session. A persistent trusted-device record is not stored yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
