@@ -250,7 +250,7 @@ fn restore_test_account<'local>(
 // A fixed test-only reply lets the Android instrumentation test prove that a
 // restored Alice session can continue its receive ratchet after store recreation.
 const SESSION_STATE_HEADER: &[u8; 6] = b"ICOLS\\x01";
-const SESSION_REPLY: &[u8] = b"Reply received after restoring the Olm session";
+const SESSION_REPLY: &str = "Reply received after restoring the Olm session";
 
 fn create_test_session_fixture() -> Result<(Session, Vec<u8>), &'static str> {
     let alice = Account::new();
@@ -320,7 +320,7 @@ fn decrypt_test_session_reply(
         .decrypt(&message)
         .map_err(|_| "Restored Olm session could not decrypt the reply")?;
 
-    if plaintext.as_slice() != SESSION_REPLY {
+    if plaintext.as_slice() != SESSION_REPLY.as_bytes() {
         return Err("Restored Olm session decrypted unexpected plaintext");
     }
 
