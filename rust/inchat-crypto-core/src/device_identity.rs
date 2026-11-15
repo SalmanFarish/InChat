@@ -322,6 +322,20 @@ fn write_device_state<'local>(
     Ok(())
 }
 
+fn ensure_unpublished_prekeys(account: &mut Account) -> bool {
+    let mut changed = false;
+    let unpublished_count = account.one_time_keys().len();
+    if unpublished_count < INITIAL_ONE_TIME_KEY_COUNT {
+        account.generate_one_time_keys(INITIAL_ONE_TIME_KEY_COUNT - unpublished_count);
+        changed = true;
+    }
+    if account.fallback_key().is_empty() {
+        account.generate_fallback_key();
+        changed = true;
+    }
+    changed
+}
+
 fn ensure_device_identity<'local>(
     env: &mut JNIEnv<'local>,
     store: &JObject<'local>,
@@ -332,19 +346,16 @@ fn ensure_device_identity<'local>(
     }
 
     let existing_state = read_optional_device_state(env, store)?;
-    let (account, is_new) = match existing_state {
+    let (mut account, is_new) = match existing_state {
         Some(state_blob) => (decode_device_account_state(state_blob, device_id)?, false),
-        None => {
-            let mut account = Account::new();
-            account.generate_one_time_keys(INITIAL_ONE_TIME_KEY_COUNT);
-            account.generate_fallback_key();
-            (account, true)
-        }
+        None => (Account::new(), true),
     };
 
-    // Save before returning the public bundle. Repeated calls then return the
-    // same identity and unpublished prekeys until publication is acknowledged.
-    if is_new {
+    // Replenish only unpublished keys. Published private keys remain in the
+    // account until vodozemac consumes them while creating an inbound session.
+    // A fresh batch is persisted before its public parts can be uploaded.
+    let replenished = ensure_unpublished_prekeys(&mut account);
+    if is_new || replenished {
         let state_blob = encode_device_account_state(device_id, &account)?;
         write_device_state(env, store, state_blob)?;
     }
@@ -506,6 +517,42 @@ mod tests {
         let tampered_identity =
             serde_json::to_string(&bundle).expect("tampered identity should encode");
         assert!(!super::verify_public_device_key_bundle(&tampered_identity));
+    }
+
+    #[test]
+    fn unpublished_prekeys_replenish_after_previous_batch_is_published() {
+        let mut account = Account::new();
+        assert!(super::ensure_unpublished_prekeys(&mut account));
+        let first_ids: std::collections::HashSet<_> =
+            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        assert_eq!(first_ids.len(), 20);
+        assert_eq!(account.fallback_key().len(), 1);
+
+        account.mark_keys_as_published();
+        assert!(account.one_time_keys().is_empty());
+        assert!(account.fallback_key().is_empty());
+
+        assert!(super::ensure_unpublished_prekeys(&mut account));
+        let next_ids: std::collections::HashSet<_> =
+            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        assert_eq!(next_ids.len(), 20);
+        assert!(first_ids.is_disjoint(&next_ids));
+        assert_eq!(account.fallback_key().len(), 1);
+    }
+
+    #[test]
+    fn existing_unpublished_prekeys_are_not_regenerated() {
+        let mut account = Account::new();
+        account.generate_one_time_keys(7);
+        account.generate_fallback_key();
+        let before: std::collections::HashSet<_> =
+            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+
+        assert!(super::ensure_unpublished_prekeys(&mut account));
+        let after: std::collections::HashSet<_> =
+            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        assert!(before.is_subset(&after));
+        assert_eq!(after.len(), 20);
     }
 
     #[test]
