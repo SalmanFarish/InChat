@@ -3,10 +3,11 @@ package com.example.inchat.crypto
 /**
  * Narrow Android boundary for the experimental native crypto core.
  *
- * This bridge is currently used only by instrumentation tests. Private protocol
- * state is serialized in Rust and passed only as a transient byte array to the
- * Keystore-backed store for encryption/decryption. No private key or plaintext
- * serialized state is returned to Kotlin callers.
+ * This bridge is used by the isolated E2EE prototype. Private protocol state is
+ * serialized in Rust and passed only as a transient byte array to the
+ * Keystore-backed store. Plaintext is returned only to the calling app layer
+ * after successful decryption; private keys and serialized ratchet state are
+ * never returned to Kotlin.
  */
 internal object NativeCryptoBridge {
 
