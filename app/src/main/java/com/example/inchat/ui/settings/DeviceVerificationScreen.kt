@@ -51,6 +51,7 @@ import com.example.inchat.crypto.SasVerificationCoordinator
 import com.example.inchat.crypto.SasVerificationPhase
 import com.example.inchat.crypto.SasVerificationUiState
 import com.example.inchat.crypto.SasVerificationMessageLedger
+import com.example.inchat.crypto.TrustedDeviceRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -66,6 +67,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     val scope = rememberCoroutineScope()
     val identityRepository = remember(context) { DeviceIdentityRepository(context) }
     val directoryRepository = remember { DeviceKeyDirectoryRepository() }
+    val trustedDeviceRepository = remember(context) { TrustedDeviceRepository(context) }
+    var trustedAtByDevice by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
     var localDeviceId by remember { mutableStateOf<String?>(null) }
     var devices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
     var coordinator by remember { mutableStateOf<SasVerificationCoordinator?>(null) }
@@ -74,6 +77,16 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     var isRefreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(uid, devices, states) {
+        trustedAtByDevice = withContext(Dispatchers.IO) {
+            devices.associate { device ->
+                device.deviceId to trustedDeviceRepository.verifiedAtMillis(
+                    uid, device.deviceId, device.ed25519IdentityKey
+                )
+            }
+        }
+    }
 
     val activeCoordinator = coordinator
     LaunchedEffect(activeCoordinator) {
@@ -137,7 +150,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         identityRepository = identityRepository,
                         directoryRepository = directoryRepository,
                         transport = transport,
-                        ledger = ledger
+                        ledger = ledger,
+                        trustedDeviceRepository = trustedDeviceRepository,
                     )
                     val registeredDevices = directoryRepository.getUserDevices(uid)
                     bundle.deviceId to (newCoordinator to registeredDevices)
@@ -226,6 +240,20 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     DeviceVerificationAttemptCard(
                         device = device,
                         state = state,
+                        trustedAtMillis = trustedAtByDevice[device.deviceId],
+                        onRevoke = {
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        trustedDeviceRepository.revoke(uid, device.deviceId)
+                                    }
+                                    trustedAtByDevice = trustedAtByDevice + (device.deviceId to null)
+                                    notice = "Trust revoked on this device."
+                                } catch (failure: Exception) {
+                                    error = failure.message ?: "Could not revoke device trust."
+                                }
+                            }
+                        },
                         onStart = {
                             scope.launch {
                                 error = null
@@ -274,6 +302,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
 private fun DeviceVerificationAttemptCard(
     device: PublicDeviceKeyBundle,
     state: SasVerificationUiState?,
+    trustedAtMillis: Long?,
+    onRevoke: () -> Unit,
     onStart: () -> Unit,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
@@ -293,8 +323,20 @@ private fun DeviceVerificationAttemptCard(
             )
             when (state?.phase) {
                 null, SasVerificationPhase.CANCELLED, SasVerificationPhase.EXPIRED, SasVerificationPhase.FAILED -> {
-                    Text(state?.error ?: "Not verified", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Verify this device") }
+                    Text(
+                        if (trustedAtMillis != null) "Trusted on this device"
+                        else state?.error ?: "Not verified",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (trustedAtMillis != null) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (trustedAtMillis != null) {
+                        OutlinedButton(onClick = onRevoke, modifier = Modifier.fillMaxWidth()) {
+                            Text("Revoke trust")
+                        }
+                    } else {
+                        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Verify this device") }
+                    }
                 }
                 SasVerificationPhase.WAITING_FOR_PEER -> {
                     Text("Waiting for the other device to respond…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -311,7 +353,17 @@ private fun DeviceVerificationAttemptCard(
                     OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("They do not match") }
                 }
                 SasVerificationPhase.COMPLETE -> {
-                    Text("Verification completed for this session. A persistent trusted-device record is not stored yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        if (trustedAtMillis != null) "Verified and trusted on this device"
+                        else "Verification completed. Checking the local trust record…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (trustedAtMillis != null) {
+                        OutlinedButton(onClick = onRevoke, modifier = Modifier.fillMaxWidth()) {
+                            Text("Revoke trust")
+                        }
+                    }
                 }
             }
         }

@@ -31,8 +31,9 @@ internal data class SasVerificationUiState(
 )
 
 /**
- * Orchestrates the isolated two-device SAS protocol. It does not write trusted
- * device records and is deliberately not connected to normal chat delivery.
+ * Orchestrates the isolated two-device SAS protocol. Successful verification
+ * writes only a device-local, Keystore-encrypted trust record; it is not
+ * connected to normal chat delivery.
  *
  * The native handle owns the ephemeral DH secret. If Android kills the process,
  * the attempt cannot be resumed; the user must start a fresh verification.
@@ -43,6 +44,7 @@ internal class SasVerificationCoordinator(
     private val directoryRepository: DeviceKeyDirectoryRepository,
     private val transport: SasVerificationTransport,
     ledger: SasVerificationMessageLedger,
+    private val trustedDeviceRepository: TrustedDeviceRepository,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private data class Attempt(
@@ -52,6 +54,7 @@ internal class SasVerificationCoordinator(
         val peerDeviceId: String,
         val expiresAtMillis: Long,
         val localIsInitiator: Boolean,
+        val peerEd25519IdentityKey: String,
         val received: MutableMap<SasVerificationMessageType, String> = mutableMapOf(),
         var pendingPeerMac: String? = null,
         var localConfirmed: Boolean = false,
@@ -118,7 +121,7 @@ internal class SasVerificationCoordinator(
         )
         val attempt = Attempt(
             transactionId, created.getString("handle"), peerUserId, peerDeviceId,
-            expiresAt, true,
+            expiresAt, true, remote.ed25519IdentityKey,
         )
         attempts[transactionId] = attempt
         commitments[transactionId] = created.getString("commitment")
@@ -276,6 +279,7 @@ internal class SasVerificationCoordinator(
             message.senderDeviceId,
             message.expiresAtMillis,
             false,
+            peer.ed25519IdentityKey,
         )
         attempts[message.transactionId] = attempt
         commitments[message.transactionId] = created.getString("commitment")
@@ -321,8 +325,14 @@ internal class SasVerificationCoordinator(
         attempt.pendingPeerMac = null
     }
 
-    private fun updateCompletion(attempt: Attempt) {
+    private suspend fun updateCompletion(attempt: Attempt) {
         if (NativeCryptoBridge.nativeSasIsComplete(attempt.handle)) {
+            trustedDeviceRepository.markVerified(
+                peerUserId = attempt.peerUserId,
+                peerDeviceId = attempt.peerDeviceId,
+                peerEd25519IdentityKey = attempt.peerEd25519IdentityKey,
+                verifiedAtMillis = clock().coerceAtLeast(0L),
+            )
             mutableStates.value = mutableStates.value + (attempt.transactionId to
                 stateFor(attempt).copy(phase = SasVerificationPhase.COMPLETE))
         }
