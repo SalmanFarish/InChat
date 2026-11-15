@@ -1124,7 +1124,12 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
     };
     let mut wire = match read_olm_wire_message(&mut env, &wire_message) {
         Ok(v) => v,
-        Err(_) => return std::ptr::null_mut(),
+        Err(error) => {
+            return env
+                .new_string(format!("INCHAT_CRYPTO_ERROR:{error}"))
+                .map(|value| value.into_raw())
+                .unwrap_or(std::ptr::null_mut());
+        }
     };
     let result = catch_unwind(AssertUnwindSafe(|| {
         prepare_existing_session_decryption(
@@ -1143,7 +1148,14 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
             value.zeroize();
             output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
         }
-        _ => std::ptr::null_mut(),
+        Ok(Err(error)) => env
+            .new_string(format!("INCHAT_CRYPTO_ERROR:{error}"))
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Err(_) => env
+            .new_string("INCHAT_CRYPTO_ERROR:native panic while preparing normal Olm message")
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
     }
 }
 
