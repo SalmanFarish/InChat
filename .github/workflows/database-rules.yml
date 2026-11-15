@@ -1,0 +1,43 @@
+name: Realtime Database Rules
+
+on:
+  push:
+    branches:
+      - chore/spark-free-worker-migration
+    paths:
+      - "database.rules.json"
+      - "firebase.json"
+      - "tests/database-rules/**"
+      - ".github/workflows/database-rules.yml"
+  pull_request:
+    paths:
+      - "database.rules.json"
+      - "firebase.json"
+      - "tests/database-rules/**"
+      - ".github/workflows/database-rules.yml"
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up Java for Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install test dependencies
+        working-directory: tests/database-rules
+        run: npm install
+
+      - name: Run Realtime Database security-rule tests
+        working-directory: tests/database-rules
+        run: npm test
