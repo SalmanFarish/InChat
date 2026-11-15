@@ -13,6 +13,9 @@ This is an isolated Rust prototype for InChat's end-to-end encryption work.
 - Instrumentation tests verify encrypted state survives store recreation and modified ciphertext fails authentication.
 - A native persistence test serializes a vodozemac Olm account inside Rust, passes the temporary state buffer directly to the Keystore-backed store for encryption, then restores it through a new store instance and checks that both public identity keys are unchanged.
 - A second native persistence test saves an established Olm session's ratchet state through the same Keystore-backed store, recreates the store, restores the session in Rust, and decrypts the next peer message to prove the ratchet continues. Only the encrypted test reply crosses JNI; test plaintext stays in Rust.
+- An isolated per-installation device identity repository stores a random stable device ID in `noBackupFilesDir` and stores the matching Olm account pickle only as Android Keystore-encrypted native state.
+- The Rust bridge can create or restore a device-bound Olm identity and return a versioned **public-only** bundle containing Ed25519/Curve25519 identity keys, one-time keys, and a fallback key. Each prekey is signed by the device's Ed25519 identity over a context- and device-bound canonical payload.
+- Android instrumentation tests verify that a device identity survives store/repository recreation, rejects a different device ID for the same stored account, and that separate device stores generate distinct identity keys.
 - The serialized account blob has a separate version marker. The underlying vodozemac Serde pickle format is not treated as a stable cross-version format; a future app update must add explicit migration handling before changing the pinned crypto version.
 - Tests a two-device Olm handshake and bidirectional encrypted message exchange.
 - Tests rejection of an invalid message-type discriminator.
@@ -68,11 +71,11 @@ The GitHub Actions workflow runs these host-side formatting and test checks.
 
 ## Not implemented yet
 
-- No production account-creation flow, key-bundle publication, or device directory API is connected to login/account management.
-- Account and Olm session persistence are still isolated instrumentation-test flows; normal app startup and live conversations do not create, restore, or use these native states.
+- The local device-identity repository is still an isolated prototype and is not connected to login/account creation, key-bundle publication, or a device directory API.
+- Account, Olm session, and device-identity persistence are still isolated prototype/test flows; normal app startup and live conversations do not create, restore, or use these native states.
 - No JNI or Android API returns private account keys or plaintext ratchet state to Kotlin.
-- The Android Keystore-backed account persistence path is still test-only; app startup, account lifecycle, and live Olm sessions do not use it yet.
-- No production InChat message envelope or versioned Firebase schema.
+- The Android Keystore-backed account/session persistence path is still test-only; the device-identity repository can be instantiated by isolated tests but is not wired into app startup, account lifecycle, or live Olm sessions.
+- Public key bundles are not published anywhere yet. No production InChat message envelope or versioned Firebase schema.
 - No Megolm group-session distribution or membership-epoch rotation.
 - No Worker, Firebase rules, FCM, Room, attachment, or UI changes.
 
