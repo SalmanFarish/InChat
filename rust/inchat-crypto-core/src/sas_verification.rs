@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn mac_is_bound_to_transaction_and_both_device_identities() {
         let (alice_binding, bob_binding) = fixture();
-        let mut alice = SasVerification::new(alice_binding, true).unwrap();
+        let mut alice = SasVerification::new(alice_binding.clone(), true).unwrap();
         let mut bob = SasVerification::new(bob_binding.clone(), false).unwrap();
         establish_pair(&mut alice, &mut bob);
         alice.confirm_sas_match(true).unwrap();
@@ -373,7 +373,7 @@ mod tests {
         changed.responder.device_id = "different-device".into();
         let mut attacker_context = SasVerification::new(changed, false).unwrap();
         // A MAC from the original transcript cannot authenticate a changed binding.
-        let mut peer = SasVerification::new(fixture().0, true).unwrap();
+        let mut peer = SasVerification::new(alice_binding, true).unwrap();
         establish_pair(&mut peer, &mut attacker_context);
         attacker_context.confirm_sas_match(true).unwrap();
         assert!(attacker_context.verify_peer_mac(&alice_mac).is_err());
