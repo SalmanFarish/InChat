@@ -187,6 +187,9 @@ internal class OlmSessionRepository(context: Context) {
         ) {
             "Could not stage or recover the inbound Olm message"
         }
+        if (encodedResult.startsWith("INCHAT_CRYPTO_ERROR:")) {
+            throw IllegalStateException(encodedResult.removePrefix("INCHAT_CRYPTO_ERROR:"))
+        }
         return parseStagedResult(encodedResult, receiptId, envelope.sessionId)
     }
 
