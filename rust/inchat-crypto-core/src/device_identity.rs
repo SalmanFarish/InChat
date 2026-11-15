@@ -28,8 +28,8 @@ fn encode_device_account_state(
         return Err("Device ID has an invalid format");
     }
 
-    let mut serialized_pickle =
-        serde_json::to_vec(&account.pickle()).map_err(|_| "Olm device account serialization failed")?;
+    let mut serialized_pickle = serde_json::to_vec(&account.pickle())
+        .map_err(|_| "Olm device account serialization failed")?;
 
     let mut state_blob = Vec::with_capacity(
         DEVICE_STATE_HEADER.len() + 1 + device_id.len() + serialized_pickle.len(),
@@ -89,15 +89,8 @@ fn decode_device_account_state(
     result
 }
 
-fn signed_key_payload(
-    device_id: &str,
-    key_kind: &str,
-    key_id: &str,
-    public_key: &str,
-) -> String {
-    format!(
-        "{SIGNATURE_CONTEXT}\n{device_id}\n{key_kind}\n{key_id}\n{public_key}"
-    )
+fn signed_key_payload(device_id: &str, key_kind: &str, key_id: &str, public_key: &str) -> String {
+    format!("{SIGNATURE_CONTEXT}\n{device_id}\n{key_kind}\n{key_id}\n{public_key}")
 }
 
 fn signed_public_key(
@@ -126,16 +119,15 @@ fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
     one_time_keys.sort_by_key(|(key_id, _)| key_id.to_base64());
     let one_time_keys: Vec<Value> = one_time_keys
         .into_iter()
-        .map(|(key_id, key)| {
-            signed_public_key(account, device_id, "one_time", key_id, key)
-        })
+        .map(|(key_id, key)| signed_public_key(account, device_id, "one_time", key_id, key))
         .collect();
 
     let mut fallback_keys: Vec<_> = account.fallback_key().into_iter().collect();
     fallback_keys.sort_by_key(|(key_id, _)| key_id.to_base64());
-    let fallback_key = fallback_keys.into_iter().next().map(|(key_id, key)| {
-        signed_public_key(account, device_id, "fallback", key_id, key)
-    });
+    let fallback_key = fallback_keys
+        .into_iter()
+        .next()
+        .map(|(key_id, key)| signed_public_key(account, device_id, "fallback", key_id, key));
 
     json!({
         "schemaVersion": 1,
@@ -183,9 +175,7 @@ fn read_optional_device_state<'local>(
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
 
-    if state_blob.len() < DEVICE_STATE_HEADER.len()
-        || !state_blob.starts_with(DEVICE_STATE_HEADER)
-    {
+    if state_blob.len() < DEVICE_STATE_HEADER.len() || !state_blob.starts_with(DEVICE_STATE_HEADER) {
         state_blob.zeroize();
         return Err("Saved device identity state uses an unsupported format");
     }
@@ -342,9 +332,7 @@ mod tests {
 
         assert_eq!(entries.len(), 4);
         for entry in entries {
-            let key_id = entry["keyId"]
-                .as_str()
-                .expect("key ID should be a string");
+            let key_id = entry["keyId"].as_str().expect("key ID should be a string");
             let public_key = entry["key"]
                 .as_str()
                 .expect("public prekey should be a string");
