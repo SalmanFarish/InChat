@@ -77,7 +77,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         let commitment = verification.commitment().to_owned();
         let counter = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
         let handle = format!("sas-{counter:016x}-{commitment}");
-        let mut guard = sessions().lock().map_err(|_| "SAS registry is unavailable")?;
+        let mut guard = sessions()
+            .lock()
+            .map_err(|_| "SAS registry is unavailable")?;
         guard.insert(handle.clone(), verification);
         serde_json::to_string(&serde_json::json!({
             "handle": handle,
@@ -140,11 +142,13 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
         let public_key = read_string(&mut env, &public_key)?;
-        with_session(&handle, |session| {
-            session.accept_peer_public_key(&public_key)
-        })
+        with_session(&handle, |session| session.accept_peer_public_key(&public_key))
     })();
-    if matches!(result, Ok(Ok(()))) { JNI_TRUE } else { JNI_FALSE }
+    if matches!(result, Ok(Ok(()))) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -214,9 +218,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
         let mac = read_string(&mut env, &mac)?;
-        with_session(&handle, |session| {
-            session.verify_peer_mac(&mac)
-        })
+        with_session(&handle, |session| session.verify_peer_mac(&mac))
     })();
     if matches!(result, Ok(Ok(()))) { JNI_TRUE } else { JNI_FALSE }
 }
