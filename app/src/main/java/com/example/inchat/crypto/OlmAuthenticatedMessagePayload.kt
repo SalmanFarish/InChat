@@ -72,22 +72,39 @@ internal object OlmAuthenticatedMessagePayloadCodec {
         }
         val actualFields = json.keys().asSequence().toSet()
         require(actualFields == FIELDS) { "Authenticated message payload has missing or unknown fields" }
-        require(json.getInt("schemaVersion") == SCHEMA_VERSION) {
+        val version = json.opt("schemaVersion")
+        require(version is Number && version.toDouble() == SCHEMA_VERSION.toDouble()) {
             "Unsupported authenticated message payload version"
         }
-        require(json.getString("messageType") == MESSAGE_TYPE) {
+        require(json.opt("messageType") == MESSAGE_TYPE) {
             "Unsupported authenticated message type"
         }
+        fun stringField(name: String): String {
+            val value = json.opt(name)
+            require(value is String) { "Authenticated payload field '$name' must be text" }
+            return value
+        }
+        val rawTimestamp = json.opt("sentAtMillis")
+        require(rawTimestamp is Number && rawTimestamp.toDouble().isFinite()) {
+            "Authenticated message timestamp must be an integer"
+        }
+        val timestamp = rawTimestamp.toLong()
+        require(rawTimestamp.toDouble() == timestamp.toDouble()) {
+            "Authenticated message timestamp must be an integer"
+        }
         val payload = OlmAuthenticatedMessagePayload(
-            messageId = json.getString("messageId"),
-            senderUserId = json.getString("senderUserId"),
-            senderDeviceId = json.getString("senderDeviceId"),
-            recipientUserId = json.getString("recipientUserId"),
-            recipientDeviceId = json.getString("recipientDeviceId"),
-            sentAtMillis = json.getLong("sentAtMillis"),
-            text = json.getString("text"),
+            messageId = stringField("messageId"),
+            senderUserId = stringField("senderUserId"),
+            senderDeviceId = stringField("senderDeviceId"),
+            recipientUserId = stringField("recipientUserId"),
+            recipientDeviceId = stringField("recipientDeviceId"),
+            sentAtMillis = timestamp,
+            text = stringField("text"),
         )
         validate(payload)
+        require(encode(payload) == plaintext) {
+            "Authenticated message payload is not in canonical form"
+        }
         require(payload.messageId == expectedMessageId) { "Authenticated message ID does not match its receipt" }
         require(payload.senderUserId == expectedSenderUserId) { "Authenticated sender account does not match its receipt" }
         require(payload.senderDeviceId == expectedSenderDeviceId) { "Authenticated sender device does not match its receipt" }
