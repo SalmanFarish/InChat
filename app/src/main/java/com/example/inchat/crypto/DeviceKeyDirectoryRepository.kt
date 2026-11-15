@@ -70,7 +70,7 @@ internal class DeviceKeyDirectoryRepository(
     }
 
     private fun parseDirectoryEntry(snapshot: DataSnapshot): PublicDeviceKeyBundle {
-        val schemaVersion = snapshot.child("schemaVersion").getValue(Int::class.java) ?: 0
+        val schemaVersion = snapshot.child("schemaVersion").getValue(Int::class.javaObjectType) ?: 0
         require(schemaVersion == SCHEMA_VERSION) {
             "Unsupported public device-key bundle version"
         }
