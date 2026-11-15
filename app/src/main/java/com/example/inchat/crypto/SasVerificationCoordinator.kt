@@ -3,6 +3,8 @@ package com.example.inchat.crypto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -131,8 +133,9 @@ internal class SasVerificationCoordinator(
     }
 
     /** Poll the dedicated inbox. Each delivery is acknowledged only after this coordinator handles it. */
-    suspend fun receivePending(): SasVerificationInboxReceiveResult =
+    suspend fun receivePending(): SasVerificationInboxReceiveResult = withContext(Dispatchers.IO) {
         receiver.receivePending { message -> handleIncoming(message) }
+    }
 
     /** Call only after the user has visually compared both devices and selected “They match”. */
     suspend fun confirmSasMatch(transactionId: String) = mutex.withLock {

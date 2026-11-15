@@ -84,6 +84,7 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
+import com.example.inchat.ui.settings.DeviceVerificationScreen
 import com.example.inchat.ui.theme.JetBrainsMono
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
@@ -647,7 +648,18 @@ fun InChatApp(
                         navController.navigate(
                             "privacy_settings"
                         )
+                    },
+
+                    onDeviceVerificationClick = {
+                        navController.navigate("device_verification")
                     }
+                )
+            }
+
+            composable("device_verification") {
+                DeviceVerificationScreen(
+                    uid = uid,
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 

@@ -69,7 +69,8 @@ fun SettingsScreen(
     uid: String,
     authViewModel: AuthViewModel,
     onBackClick: () -> Unit,
-    onPrivacyClick: () -> Unit
+    onPrivacyClick: () -> Unit,
+    onDeviceVerificationClick: () -> Unit
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -347,6 +348,34 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(
+                        interactionSource = null,
+                        indication = null,
+                        onClick = onDeviceVerificationClick
+                    ),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SettingsIconTile(icon = Icons.Outlined.Lock, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Device verification", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Compare safety codes with another device on your account.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Icon(imageVector = Icons.Outlined.ChevronRight, contentDescription = "Open device verification", modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
