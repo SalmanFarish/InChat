@@ -210,6 +210,7 @@ class CryptoStateStoreTest {
         assertEquals(firstBundle.curve25519IdentityKey, restoredBundle.curve25519IdentityKey)
         assertTrue(firstBundle.oneTimeKeys.isNotEmpty())
         assertNotNull(firstBundle.fallbackKey)
+        assertTrue(firstBundle.curve25519IdentityKeySignature.isNotBlank())
     }
 
     private fun stateFile(stateId: String): File =
