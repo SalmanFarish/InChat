@@ -68,8 +68,30 @@ only after local confirmation and successful peer-MAC verification.
 
 The attempt deliberately has no serialization support: cancellation or process
 death discards the ephemeral secret and requires a fresh transaction. This is
-safer than persisting an unfinished ephemeral exchange. The current change is a
-Rust protocol primitive with unit tests, not yet a JNI/API or Firebase transport
-integration. It does not write a trusted-device pin and must not be treated as a
-production verification feature until the transport authenticates transaction
-ownership, expiry, replay/cancellation behavior, and both participants' messages.
+safer than persisting an unfinished ephemeral exchange. A narrow JNI bridge now
+exposes the state machine through opaque process-local handles, and an Android
+instrumentation test exercises a complete two-device exchange through native
+code. The bridge still does not persist trust.
+
+The isolated `sasVerificationInbox` Realtime Database transport carries only
+short-lived SAS protocol messages and is separate from both `olmInbox` and the
+live `chats` tree. Messages bind transaction, sender/recipient accounts and
+device IDs, type, payload, creation time, and expiry. The codec enforces a
+canonical schema, ten-minute maximum lifetime, two-minute future-clock
+tolerance, strict message types, and recipient binding. A Room replay ledger
+records message identities before remote acknowledgement, detects changed
+payloads for an existing transaction/type, survives process restarts, and prunes
+expired records. Database rules restrict creation to registered sender devices,
+delivery to registered recipient devices, immutable exact retries, recipient-
+only reads/deletes, expiry, and blocked-account checks. Emulator tests cover
+these rule boundaries.
+
+This is transport and replay groundwork, not yet the complete verification
+orchestration: no UI or transaction coordinator currently enforces the ordered
+commitment/public-key/MAC state transitions across these messages, and no
+durable trusted-device pin is written. The new database rules have passed
+emulator tests but have not been deployed to Firebase. Do not enable a live
+verification or encrypted messaging path until orchestration, account/device
+binding to authenticated local state and signature-verified remote bundles,
+transaction cancellation/timeout handling, and durable trust-pin tests are
+complete.
