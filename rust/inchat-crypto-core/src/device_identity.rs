@@ -432,7 +432,7 @@ mod tests {
         decode_device_account_state, encode_device_account_state, public_device_key_bundle,
         signed_key_payload, valid_device_id, SIGNATURE_CONTEXT,
     };
-    use vodozemac::olm::Account;
+    use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
     use vodozemac::{Ed25519PublicKey, Ed25519Signature};
 
     #[test]
@@ -600,6 +600,87 @@ mod tests {
             .collect();
         assert!(before.is_subset(&after));
         assert_eq!(after.len(), 20);
+    }
+
+    #[test]
+    fn olm_prekey_handshake_consumes_key_and_ratchets_both_directions() {
+        let alice = Account::new();
+        let mut bob = Account::new();
+        bob.generate_one_time_keys(1);
+        bob.generate_fallback_key();
+
+        let bob_one_time_key = *bob
+            .one_time_keys()
+            .values()
+            .next()
+            .expect("Bob should have one unpublished one-time key");
+        assert_eq!(bob.stored_one_time_key_count(), 1);
+
+        let mut alice_session = alice
+            .create_outbound_session(
+                SessionConfig::version_1(),
+                bob.curve25519_key(),
+                bob_one_time_key,
+            )
+            .expect("Alice should create an outbound Olm session");
+
+        bob.mark_keys_as_published();
+        assert!(bob.one_time_keys().is_empty());
+        assert_eq!(bob.stored_one_time_key_count(), 1);
+
+        let first_plaintext = b"InChat native Olm handshake test";
+        let first_message = alice_session
+            .encrypt(first_plaintext)
+            .expect("Alice should encrypt the first message");
+        let pre_key_message = match first_message {
+            OlmMessage::PreKey(message) => message,
+            OlmMessage::Normal(_) => panic!("First Olm message must be a pre-key message"),
+        };
+
+        let inbound = bob
+            .create_inbound_session(
+                SessionConfig::version_1(),
+                alice.curve25519_key(),
+                &pre_key_message,
+            )
+            .expect("Bob should authenticate and decrypt the pre-key message");
+
+        assert_eq!(inbound.plaintext, first_plaintext);
+        assert_eq!(alice_session.session_id(), inbound.session.session_id());
+        assert_eq!(bob.stored_one_time_key_count(), 0);
+
+        let mut bob_session = inbound.session;
+        let bob_reply = b"Olm reply received";
+        let encrypted_reply = bob_session
+            .encrypt(bob_reply)
+            .expect("Bob should encrypt a reply");
+        let decrypted_reply = alice_session
+            .decrypt(&encrypted_reply)
+            .expect("Alice should decrypt Bob's reply");
+        assert_eq!(decrypted_reply, bob_reply);
+
+        let saved_account = serde_json::to_vec(&bob.pickle())
+            .expect("Bob's consumed account state should serialize");
+        let restored_account = Account::from(
+            serde_json::from_slice(&saved_account)
+                .expect("Bob's consumed account state should deserialize"),
+        );
+        assert_eq!(restored_account.stored_one_time_key_count(), 0);
+
+        let saved_session = serde_json::to_vec(&bob_session.pickle())
+            .expect("Bob's ratchet state should serialize");
+        let mut restored_session = Session::from_pickle(
+            serde_json::from_slice(&saved_session)
+                .expect("Bob's ratchet state should deserialize"),
+        );
+        let next_reply = b"Ratchet state survived persistence";
+        let encrypted_next_reply = restored_session
+            .encrypt(next_reply)
+            .expect("Restored session should continue encrypting");
+        let decrypted_next_reply = alice_session
+            .decrypt(&encrypted_next_reply)
+            .expect("Alice should decrypt after Bob's session restore");
+        assert_eq!(decrypted_next_reply, next_reply);
     }
 
     #[test]
