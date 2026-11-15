@@ -1,7 +1,5 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-
-mod device_identity;
-
+ 
 //! Isolated cryptographic prototype for InChat.
 //!
 //! This crate is not connected to message sending, receiving, or Firebase.
@@ -558,3 +556,6 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeR
         Ok(Err(_)) | Err(_) => JNI_FALSE,
     }
 }
+
+
+mod device_identity;
