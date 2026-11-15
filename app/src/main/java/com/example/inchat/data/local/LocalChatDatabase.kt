@@ -15,7 +15,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -88,13 +88,21 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE sas_verification_messages ADD COLUMN processedAtMillis INTEGER"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build().also { INSTANCE = it }
             }
     }

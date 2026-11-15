@@ -110,8 +110,11 @@ internal class FirebaseSasVerificationTransport(
 }
 
 /**
- * Durable receiver: validate, persist replay identity, then acknowledge relay.
- * A conflicting delivery is deliberately left on the relay for investigation.
+ * Durable receiver: validate and register first, let the application coordinator
+ * handle the message, mark it processed, and only then acknowledge the relay.
+ *
+ * If the process stops after registration but before the callback completes,
+ * the next receive retries the callback instead of treating the delivery as done.
  */
 internal class SasVerificationInboxReceiver(
     private val transport: SasVerificationTransport,
@@ -120,7 +123,9 @@ internal class SasVerificationInboxReceiver(
     private val localDeviceId: String,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun receivePending(): SasVerificationInboxReceiveResult {
+    suspend fun receivePending(
+        onMessage: suspend (SasVerificationMessage) -> Unit = {},
+    ): SasVerificationInboxReceiveResult {
         val items = transport.readInbox(localDeviceId)
         var received = 0
         var duplicates = 0
@@ -136,12 +141,20 @@ internal class SasVerificationInboxReceiver(
             )
             when (ledger.register(decoded, now)) {
                 SasMessageRegistration.NEW -> {
+                    onMessage(decoded)
+                    ledger.markProcessed(decoded, clock().coerceAtLeast(0L))
                     transport.acknowledge(localDeviceId, item.deliveryId)
                     received++
                 }
                 SasMessageRegistration.DUPLICATE -> {
+                    if (!ledger.isProcessed(item.deliveryId)) {
+                        onMessage(decoded)
+                        ledger.markProcessed(decoded, clock().coerceAtLeast(0L))
+                        received++
+                    } else {
+                        duplicates++
+                    }
                     transport.acknowledge(localDeviceId, item.deliveryId)
-                    duplicates++
                 }
                 SasMessageRegistration.CONFLICT -> conflicts++
             }

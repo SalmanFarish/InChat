@@ -23,4 +23,6 @@ data class SasVerificationMessageEntity(
     val payloadSha256: String,
     val expiresAtMillis: Long,
     val receivedAtMillis: Long,
+    /** Null until the application-level handler has successfully processed this message. */
+    val processedAtMillis: Long? = null,
 )

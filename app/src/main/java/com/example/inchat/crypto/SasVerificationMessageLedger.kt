@@ -6,7 +6,8 @@ internal enum class SasMessageRegistration { NEW, DUPLICATE, CONFLICT }
 
 /**
  * Persists message identities before a transport acknowledges their removal.
- * Replayed messages remain rejected after process death and database reopen.
+ * A separate processed marker allows a coordinator to retry application-level
+ * handling if the process stops after registration but before handling completes.
  */
 internal class SasVerificationMessageLedger(
     private val dao: SasVerificationMessageDao,
@@ -45,6 +46,19 @@ internal class SasVerificationMessageLedger(
         }
         return if (inserted == -1L) SasMessageRegistration.DUPLICATE else SasMessageRegistration.NEW
     }
+
+    /** Mark a delivery complete only after its coordinator callback succeeds. */
+    fun markProcessed(message: SasVerificationMessage, processedAtMillis: Long) {
+        require(processedAtMillis >= 0)
+        require(message.recipientUserId == localUserId && message.recipientDeviceId == localDeviceId)
+        check(dao.markProcessed(message.deliveryId, processedAtMillis) == 1 ||
+            dao.getByDeliveryId(message.deliveryId)?.processedAtMillis != null) {
+            "SAS message could not be marked as processed"
+        }
+    }
+
+    fun isProcessed(deliveryId: String): Boolean =
+        dao.getByDeliveryId(deliveryId)?.processedAtMillis != null
 
     fun pruneExpired(nowMillis: Long): Int {
         require(nowMillis >= 0)
