@@ -29,6 +29,7 @@ internal class OlmInboundHandoffCoordinator(
     database: RoomDatabase,
     private val receiptDao: OlmInboundReceiptDao,
     private val sessionRepository: OlmSessionRepository,
+    private val authenticatedLocalUserId: () -> String,
     messageDao: LocalChatDao,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -56,6 +57,12 @@ internal class OlmInboundHandoffCoordinator(
             }
             val receipt = requireNotNull(receiptDao.getByReceiptId(receiptId)) {
                 "Inbound receipt does not exist"
+            }
+            require(localUserId == authenticatedLocalUserId()) {
+                "Inbound recipient account does not match the authenticated local account"
+            }
+            require(receipt.recipientDeviceId == sessionRepository.localDeviceId) {
+                "Inbound receipt is addressed to a different local device"
             }
             require(remoteDeviceUserId == receipt.senderUserId) {
                 "Verified remote device account does not match the inbound receipt sender"
