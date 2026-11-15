@@ -1,6 +1,6 @@
 # Inbound Olm decryption recovery design
 
-Status: partially implemented. The Room-side atomic message-and-receipt commit exists with instrumentation coverage. Native receipt-keyed pending-plaintext staging, retry recovery, and finalize APIs are now implemented in the isolated Rust core and exposed through the Kotlin JNI bridge. Device-state serialization has a persistence test. Android end-to-end crash/reopen tests still need to pass. The Firebase inbox receiver remains ciphertext-only and must stay disconnected until the full protocol is verified.
+Status: isolated inbound handoff coordinator implemented. Room-side atomic message-and-receipt commit, native receipt-keyed pending-plaintext staging/recovery/finalize, and a coordinator for the two-phase handoff are covered by instrumentation tests. The coordinator handles the post-Room-commit/pre-native-finalize recovery path. It is not connected to Firebase inbox polling, live chat listeners, UI, notifications, or message previews.
 
 ## Why the current sequence is unsafe
 
@@ -17,7 +17,7 @@ Use the stable 64-character SHA-256 inbound receipt ID already derived by `OlmIn
 1. **Native prepare (implemented, isolated):** `nativePrepareOlmMessage` and `nativePrepareInboundOlmSession` stage a receipt-keyed record containing the stable receipt ID, exact ciphertext bytes, session ID, and plaintext in the Android Keystore-encrypted device state. For a pre-key message, one-time-key consumption, the new session, and pending plaintext share one encrypted AtomicFile write.
 2. **Recover (implemented, isolated):** A repeated prepare with the same receipt ID and exact ciphertext returns the already-staged plaintext without decrypting or advancing the ratchet again. A different ciphertext or mismatched session ID for that receipt is rejected. Native pending records are bounded to 256; finalize committed receipts to free capacity.
 3. **Room commit (implemented, isolated):** `OlmInboundMessageCommitter` uses one Room transaction to insert/upsert the decrypted message into the local message cache and change the matching inbound receipt from PENDING to PROCESSED. Both operations succeed or roll back together. It validates receipt status, message ID, sender ID, and rejects pending-send rows. Instrumentation tests cover success, identity mismatch, and duplicate commit. This class is not wired to the receiver or UI. Do not expose plaintext to the live UI or existing message listeners during this isolated prototype phase.
-4. **Native finalize (implemented, isolated):** `nativeFinalizeInboundDecryption` removes the native pending record and persists the crypto state. It is idempotent when the record is already absent. If the process dies before finalize, the next retry checks Room first; when the receipt is already PROCESSED it calls finalize without inserting the message again.
+4. **Native finalize (implemented, isolated):** `nativeFinalizeInboundDecryption` removes the native pending record and persists the crypto state. It is idempotent when the record is already absent. `OlmInboundHandoffCoordinator` checks Room first; when the receipt is already PROCESSED it calls finalize without rebuilding or inserting the message again. A message factory must map trusted protocol metadata and must preserve the exact staged plaintext.
 5. **Remote acknowledgement:** Delete the Firebase inbox item only after the local durable handoff is complete. A failed acknowledgement remains retryable and must not cause another decrypt.
 
 ## Required validation
@@ -33,3 +33,9 @@ Use the stable 64-character SHA-256 inbound receipt ID already derived by `OlmIn
 ## Scope restrictions
 
 This is an isolated E2EE prototype requirement. Do not connect it to existing plaintext chat listeners, message sending, notifications, previews, background workers, or UI. Keep Firebase Spark and the existing free-only infrastructure constraint. Do not add paid services or card-required storage.
+
+## Coordinator boundary
+
+`OlmInboundHandoffCoordinator` accepts a verified remote device bundle, the expected ciphertext kind, and a message factory. It validates the stored envelope's sender/recipient against the durable receipt, stages or recovers plaintext through the native repository, checks that the resulting cached message has the receipt's sender/message IDs and exact plaintext, commits message plus receipt atomically, then finalizes native staging.
+
+The message factory is deliberately caller-supplied: the current envelope does not define an authenticated message-metadata schema for nickname, timestamp, replies, reactions, or attachments. The coordinator does not invent those values. It remains isolated and must not be connected to live chat until the encrypted payload schema and metadata validation are specified and tested.
