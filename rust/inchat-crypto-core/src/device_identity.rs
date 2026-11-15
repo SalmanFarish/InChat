@@ -114,6 +114,11 @@ fn signed_public_key(
 
 fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
     let identity_keys = account.identity_keys();
+    let curve25519_identity_key = identity_keys.curve25519.to_base64();
+    let identity_payload = format!(
+        "{SIGNATURE_CONTEXT}\n{device_id}\nidentity_curve25519\n{curve25519_identity_key}"
+    );
+    let curve25519_identity_signature = account.sign(identity_payload.as_bytes()).to_base64();
 
     let mut one_time_keys: Vec<_> = account.one_time_keys().into_iter().collect();
     one_time_keys.sort_by_key(|(key_id, _)| key_id.to_base64());
@@ -134,7 +139,8 @@ fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
         "deviceId": device_id,
         "identityKeys": {
             "ed25519": identity_keys.ed25519.to_base64(),
-            "curve25519": identity_keys.curve25519.to_base64()
+            "curve25519": curve25519_identity_key,
+            "curve25519Signature": curve25519_identity_signature
         },
         "fallbackKey": fallback_key,
         "oneTimeKeys": one_time_keys
@@ -318,6 +324,22 @@ mod tests {
                 .expect("Ed25519 identity key should be a string"),
         )
         .expect("Ed25519 identity key should decode");
+
+        let curve25519_identity_key = bundle["identityKeys"]["curve25519"]
+            .as_str()
+            .expect("Curve25519 identity key should be a string");
+        let curve25519_identity_signature = Ed25519Signature::from_base64(
+            bundle["identityKeys"]["curve25519Signature"]
+                .as_str()
+                .expect("Curve25519 identity signature should be a string"),
+        )
+        .expect("Curve25519 identity signature should decode");
+        let identity_payload = format!(
+            "{SIGNATURE_CONTEXT}\n{device_id}\nidentity_curve25519\n{curve25519_identity_key}"
+        );
+        identity_key
+            .verify(identity_payload.as_bytes(), &curve25519_identity_signature)
+            .expect("Curve25519 identity key should be signed by the Ed25519 identity");
 
         let mut entries = bundle["oneTimeKeys"]
             .as_array()
