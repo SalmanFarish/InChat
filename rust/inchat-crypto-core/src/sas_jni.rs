@@ -47,16 +47,16 @@ fn with_session<R>(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreate(
-    mut env: JNIEnv,
-    _this: JObject,
-    initiator_user: JString,
-    initiator_device: JString,
-    initiator_ed25519: JString,
-    responder_user: JString,
-    responder_device: JString,
-    responder_ed25519: JString,
-    transaction_id: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreate<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    initiator_user: JString<'local>,
+    initiator_device: JString<'local>,
+    initiator_ed25519: JString<'local>,
+    responder_user: JString<'local>,
+    responder_device: JString<'local>,
+    responder_ed25519: JString<'local>,
+    transaction_id: JString<'local>,
     local_is_initiator: jboolean,
 ) -> jstring {
     let result = (|| {
@@ -107,7 +107,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
             session.accept_peer_commitment(&commitment)
         })
     })();
-    if matches!(result, Ok(Ok(()))) {
+    if matches!(result, Ok(())) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -127,7 +127,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         })
     })();
     match result {
-        Ok(Ok(value)) => java_string(&mut env, &value),
+        Ok(value) => java_string(&mut env, &value),
         _ => std::ptr::null_mut(),
     }
 }
@@ -146,7 +146,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
             session.accept_peer_public_key(&public_key)
         })
     })();
-    if matches!(result, Ok(Ok(()))) {
+    if matches!(result, Ok(())) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -189,7 +189,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
             session.confirm_sas_match(matched == JNI_TRUE)
         })
     })();
-    if matches!(result, Ok(Ok(()))) {
+    if matches!(result, Ok(())) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -205,7 +205,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
         with_session(&handle, |session| {
-            session.create_local_mac().map(str::to_owned)
+            session.create_local_mac()
         })
     })();
     match result {
@@ -226,7 +226,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         let mac = read_string(&mut env, &mac)?;
         with_session(&handle, |session| session.verify_peer_mac(&mac))
     })();
-    if matches!(result, Ok(Ok(()))) {
+    if matches!(result, Ok(())) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -256,7 +256,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
     _this: JObject,
     handle: JString,
 ) -> jboolean {
-    let result = (|| {
+    let result: Result<bool, &'static str> = (|| {
         let handle = read_string(&mut env, &handle)?;
         let mut guard = sessions()
             .lock()
