@@ -74,8 +74,11 @@ internal class OlmSessionRepository(context: Context) {
         recipientDeviceId: String,
         plaintext: String,
     ): String {
-        require(recipientDeviceId.isNotBlank() && recipientDeviceId.length <= 64) {
+        require(DEVICE_ID_REGEX.matches(recipientDeviceId)) {
             "Recipient device ID has an invalid format"
+        }
+        require(recipientDeviceId != localBundle.deviceId) {
+            "Cannot send an Olm envelope to this same device"
         }
         val wireMessage = encrypt(sessionId, plaintext)
         return EncryptedOlmEnvelopeCodec.encode(
@@ -252,5 +255,6 @@ internal class OlmSessionRepository(context: Context) {
         const val MAX_WIRE_BYTES = 1024 * 1024
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_ONE_TIME_KEYS = 20
+        val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
     }
 }
