@@ -847,6 +847,86 @@ mod tests {
     }
 
     #[test]
+    fn legacy_device_state_migrates_without_changing_identity() {
+        let mut account = Account::new();
+        account.generate_one_time_keys(3);
+        account.generate_fallback_key();
+        let expected_identity = account.identity_keys();
+        let serialized = serde_json::to_vec(&account.pickle()).expect("legacy account should serialize");
+        let device_id = "legacy-device";
+        let mut legacy = Vec::new();
+        legacy.extend_from_slice(super::DEVICE_STATE_HEADER_V1);
+        legacy.push(device_id.len() as u8);
+        legacy.extend_from_slice(device_id.as_bytes());
+        legacy.extend_from_slice(&serialized);
+
+        let restored = super::decode_device_crypto_state(legacy, device_id)
+            .expect("legacy state should remain readable");
+        assert_eq!(restored.account.identity_keys(), expected_identity);
+        assert!(restored.sessions.is_empty());
+
+        let migrated = super::encode_device_crypto_state(device_id, &restored)
+            .expect("legacy state should migrate to the unified format");
+        assert!(migrated.starts_with(super::DEVICE_STATE_HEADER_V2));
+        let round_trip = super::decode_device_crypto_state(migrated, device_id)
+            .expect("migrated state should restore");
+        assert_eq!(round_trip.account.identity_keys(), expected_identity);
+    }
+
+    #[test]
+    fn unified_device_state_restores_sessions_and_receive_ratchet() {
+        let alice = Account::new();
+        let mut bob = Account::new();
+        bob.generate_one_time_keys(1);
+        let bob_key = *bob.one_time_keys().values().next().expect("Bob key exists");
+        let mut alice_session = alice.create_outbound_session(
+            SessionConfig::version_1(),
+            bob.curve25519_key(),
+            bob_key,
+        ).expect("Alice session should be created");
+        let session_id = alice_session.session_id();
+
+        let first = alice_session.encrypt("hello").expect("first message encrypts");
+        let pre_key = match first {
+            OlmMessage::PreKey(message) => message,
+            OlmMessage::Normal(_) => panic!("first message should be a pre-key message"),
+        };
+        bob.mark_keys_as_published();
+        let inbound = bob.create_inbound_session(
+            SessionConfig::version_1(),
+            alice.curve25519_key(),
+            &pre_key,
+        ).expect("Bob should establish the inbound session");
+        assert_eq!(inbound.plaintext.as_slice(), b"hello");
+        let mut bob_session = inbound.session;
+
+        let mut sessions = std::collections::BTreeMap::new();
+        sessions.insert(session_id.clone(), alice_session);
+        let state = super::DeviceCryptoState { account: alice, sessions };
+        let encoded = super::encode_device_crypto_state("session-device", &state)
+            .expect("unified state should serialize");
+        let mut restored = super::decode_device_crypto_state(encoded, "session-device")
+            .expect("unified state should restore");
+        assert_eq!(restored.sessions.len(), 1);
+
+        let reply = bob_session.encrypt("persisted reply").expect("reply encrypts");
+        let session = restored.sessions.get_mut(&session_id).expect("session restored");
+        let plaintext = session.decrypt(&reply).expect("restored ratchet decrypts reply");
+        assert_eq!(plaintext.as_slice(), b"persisted reply");
+
+        let second_save = super::encode_device_crypto_state("session-device", &restored)
+            .expect("advanced ratchet should serialize");
+        let mut restored_again = super::decode_device_crypto_state(second_save, "session-device")
+            .expect("advanced ratchet should restore");
+        let follow_up = bob_session.encrypt("second reply").expect("second reply encrypts");
+        let plaintext = restored_again.sessions.get_mut(&session_id)
+            .expect("session survives second restore")
+            .decrypt(&follow_up)
+            .expect("second restored ratchet decrypts");
+        assert_eq!(plaintext.as_slice(), b"second reply");
+    }
+
+    #[test]
     fn device_ids_reject_delimiters_and_unbounded_values() {
         assert!(valid_device_id("device-123_abc"));
         assert!(!valid_device_id(""));
