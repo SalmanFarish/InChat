@@ -1,5 +1,7 @@
 package com.example.inchat.crypto
 
+import org.json.JSONArray
+import org.json.JSONObject
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
@@ -27,6 +29,7 @@ internal class DeviceKeyDirectoryRepository(
             "Sign in before publishing a device identity"
         }
         validateBundle(bundle)
+        verifyCryptographicSignatures(bundle)
 
         database.reference
             .child(ROOT_NODE)
@@ -93,6 +96,7 @@ internal class DeviceKeyDirectoryRepository(
             oneTimeKeys = snapshot.child("oneTimeKeys").children.map(::parsePrekey),
         )
         validateBundle(bundle)
+        verifyCryptographicSignatures(bundle)
         return bundle
     }
 
@@ -114,6 +118,38 @@ internal class DeviceKeyDirectoryRepository(
                 "Device directory contains an incomplete signed prekey"
             }
         }
+
+    /**
+     * The directory is untrusted. Verify the identity-to-Curve25519 binding and
+     * every signed prekey inside Rust before exposing a bundle to session code.
+     */
+    private fun verifyCryptographicSignatures(bundle: PublicDeviceKeyBundle) {
+        val identityKeys = JSONObject()
+            .put("ed25519", bundle.ed25519IdentityKey)
+            .put("curve25519", bundle.curve25519IdentityKey)
+            .put("curve25519Signature", bundle.curve25519IdentityKeySignature)
+
+        fun SignedOlmPreKey.toNativeJson(): JSONObject = JSONObject()
+            .put("keyKind", keyKind)
+            .put("keyId", keyId)
+            .put("key", publicKey)
+            .put("signature", signature)
+
+        val oneTimeKeys = JSONArray().apply {
+            bundle.oneTimeKeys.forEach { put(it.toNativeJson()) }
+        }
+        val encoded = JSONObject()
+            .put("schemaVersion", SCHEMA_VERSION)
+            .put("deviceId", bundle.deviceId)
+            .put("identityKeys", identityKeys)
+            .put("fallbackKey", requireNotNull(bundle.fallbackKey).toNativeJson())
+            .put("oneTimeKeys", oneTimeKeys)
+            .toString()
+
+        check(NativeCryptoBridge.nativeVerifyDeviceKeyBundle(encoded)) {
+            "Device directory bundle failed cryptographic signature verification"
+        }
+    }
 
     private fun validateBundle(bundle: PublicDeviceKeyBundle) {
         require(DEVICE_ID_REGEX.matches(bundle.deviceId)) {
