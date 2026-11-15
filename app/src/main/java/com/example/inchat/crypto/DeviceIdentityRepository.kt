@@ -20,6 +20,7 @@ internal data class PublicDeviceKeyBundle(
     val deviceId: String,
     val ed25519IdentityKey: String,
     val curve25519IdentityKey: String,
+    val curve25519IdentityKeySignature: String,
     val fallbackKey: SignedOlmPreKey?,
     val oneTimeKeys: List<SignedOlmPreKey>,
 )
@@ -101,6 +102,9 @@ internal class DeviceIdentityRepository(context: Context) {
             deviceId = deviceId,
             ed25519IdentityKey = identityKeys.getString("ed25519"),
             curve25519IdentityKey = identityKeys.getString("curve25519"),
+            curve25519IdentityKeySignature = identityKeys.getString("curve25519Signature").also {
+                require(it.isNotBlank()) { "Native Olm bundle has no identity-key signature" }
+            },
             fallbackKey = fallback,
             oneTimeKeys = oneTimeKeys,
         )
