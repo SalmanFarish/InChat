@@ -42,7 +42,7 @@ internal object DeviceKeyFingerprint {
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(DOMAIN.toByteArray(Charsets.UTF_8))
         digest.update(deviceId.toByteArray(Charsets.UTF_8))
-        digest.update(0)
+        digest.update(0.toByte())
         digest.update(identityKey)
         val hex = digest.digest().joinToString("") { "%02X".format(it) }
         return hex.chunked(4).joinToString(" ")
