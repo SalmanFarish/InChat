@@ -219,6 +219,43 @@ class OlmInboundHandoffCoordinatorTest {
                     OlmInboundCiphertextKind.PRE_KEY,
                 ) { error("Duplicate processing must not create another message") },
             )
+
+            // The established session now carries a regular Olm message.
+            val normalMessageId = "handoff-normal-$suffix"
+            val normalWire = requireNotNull(
+                NativeCryptoBridge.nativeEncryptOlmMessage(
+                    senderStore, senderDeviceId, sessionId, "normal handoff plaintext"
+                )
+            )
+            val normalEnvelope = EncryptedOlmEnvelopeCodec.encode(
+                EncryptedOlmEnvelope(
+                    senderDeviceId = senderDeviceId,
+                    recipientDeviceId = localBundle.deviceId,
+                    sessionId = sessionId,
+                    ciphertext = normalWire,
+                )
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", normalMessageId, normalEnvelope, 500L),
+            )
+            val normalReceiptId = sha256(
+                "alice\u0000$senderDeviceId\u0000$normalMessageId\u0000${localBundle.deviceId}"
+            )
+            assertEquals(
+                OlmInboundHandoffResult.COMMITTED,
+                coordinator.process(
+                    normalReceiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.NORMAL,
+                ) { plaintext ->
+                    cachedMessage("local-user", "alice", normalMessageId, plaintext)
+                },
+            )
+            assertEquals(
+                "normal handoff plaintext",
+                db.messageDao().getMessage("local-user", "alice", normalMessageId)?.text,
+            )
         } finally {
             db.close()
             context.deleteDatabase(databaseName)
