@@ -670,8 +670,7 @@ mod tests {
         let saved_session = serde_json::to_vec(&bob_session.pickle())
             .expect("Bob's ratchet state should serialize");
         let mut restored_session = Session::from_pickle(
-            serde_json::from_slice(&saved_session)
-                .expect("Bob's ratchet state should deserialize"),
+            serde_json::from_slice(&saved_session).expect("Bob's ratchet state should deserialize"),
         );
         let next_reply = b"Ratchet state survived persistence";
         let encrypted_next_reply = restored_session
