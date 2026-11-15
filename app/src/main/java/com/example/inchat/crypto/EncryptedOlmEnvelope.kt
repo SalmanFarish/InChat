@@ -23,6 +23,10 @@ internal object EncryptedOlmEnvelopeCodec {
     private const val ALGORITHM = "olm"
     private const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
     private const val MAX_ENCODED_BYTES = 2 * 1024 * 1024
+    private val FIELDS = setOf(
+        "encryptionVersion", "algorithm", "senderDeviceId",
+        "recipientDeviceId", "sessionId", "ciphertext",
+    )
     private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
 
     fun encode(envelope: EncryptedOlmEnvelope): String {
@@ -53,10 +57,14 @@ internal object EncryptedOlmEnvelopeCodec {
         } catch (error: JSONException) {
             throw IllegalArgumentException("Encrypted Olm envelope is not valid JSON", error)
         }
-        require(json.getInt("encryptionVersion") == ENVELOPE_VERSION) {
+        val fields = json.keys().asSequence().toSet()
+        require(fields == FIELDS) {
+            "Encrypted Olm envelope has missing or unknown fields"
+        }
+        require(json.opt("encryptionVersion") == ENVELOPE_VERSION) {
             "Unsupported encrypted-message version"
         }
-        require(json.getString("algorithm") == ALGORITHM) {
+        require(json.opt("algorithm") == ALGORITHM) {
             "Unsupported encrypted-message algorithm"
         }
         val ciphertext = try {
@@ -64,12 +72,22 @@ internal object EncryptedOlmEnvelopeCodec {
         } catch (error: IllegalArgumentException) {
             throw IllegalArgumentException("Encrypted Olm ciphertext is not valid Base64", error)
         }
-        return EncryptedOlmEnvelope(
-            senderDeviceId = json.getString("senderDeviceId"),
-            recipientDeviceId = json.getString("recipientDeviceId"),
-            sessionId = json.getString("sessionId"),
+        val envelope = EncryptedOlmEnvelope(
+            senderDeviceId = requireString(json, "senderDeviceId"),
+            recipientDeviceId = requireString(json, "recipientDeviceId"),
+            sessionId = requireString(json, "sessionId"),
             ciphertext = ciphertext,
         ).also(::validate)
+        require(encode(envelope) == encoded) {
+            "Encrypted Olm envelope is not in canonical form"
+        }
+        return envelope
+    }
+
+    private fun requireString(json: JSONObject, name: String): String {
+        val value = json.opt(name)
+        require(value is String) { "Encrypted Olm envelope field '$name' must be text" }
+        return value
     }
 
     private fun validate(envelope: EncryptedOlmEnvelope) {
