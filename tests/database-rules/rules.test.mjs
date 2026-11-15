@@ -9,6 +9,7 @@ import {
 import {
   get,
   ref,
+  runTransaction,
   set,
   update,
 } from "firebase/database";
@@ -311,3 +312,54 @@ test("a user cannot publish or replace another user's device bundle", async () =
   );
 });
 
+
+
+test("authenticated clients can claim a one-time prekey exactly once", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+
+  const [aliceResult, bobResult] = await Promise.all([
+    runTransaction(ref(aliceDb, path), (current) =>
+      current === null ? true : undefined,
+    ),
+    runTransaction(ref(bobDb, path), (current) =>
+      current === null ? true : undefined,
+    ),
+  ]);
+
+  assert.equal(
+    Number(aliceResult.committed) + Number(bobResult.committed),
+    1,
+    "only one concurrent claimant should commit",
+  );
+
+  const winnerDb = aliceResult.committed ? aliceDb : bobDb;
+  const loserDb = aliceResult.committed ? bobDb : aliceDb;
+  await assertFails(
+    runTransaction(ref(loserDb, path), (current) =>
+      current === null ? true : undefined,
+    ),
+  );
+  await assertSucceeds(get(ref(winnerDb, path)));
+});
+
+test("unauthenticated clients cannot claim a one-time prekey", async () => {
+  const unauthenticatedDb = testEnv.unauthenticatedContext().database();
+  await assertFails(
+    runTransaction(
+      ref(unauthenticatedDb, "deviceKeyClaims/alice/device-alice-1/one-time-1"),
+      (current) => current === null ? true : undefined,
+    ),
+  );
+});
+
+test("a claimed one-time prekey cannot be overwritten or deleted", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+
+  await assertSucceeds(set(ref(bobDb, path), true));
+  await assertFails(set(ref(aliceDb, path), false));
+  await assertFails(set(ref(bobDb, path), null));
+});
