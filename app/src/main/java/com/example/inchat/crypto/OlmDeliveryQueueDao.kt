@@ -6,7 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 
 @Dao
-internal interface OlmDeliveryQueueDao {
+interface OlmDeliveryQueueDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertIfAbsent(rows: List<OlmDeviceDeliveryEntity>): List<Long>
 
