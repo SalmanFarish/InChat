@@ -144,7 +144,7 @@ internal class DeviceKeyDirectoryRepository(
         "curve25519IdentityKey" to curve25519IdentityKey,
         "curve25519IdentityKeySignature" to curve25519IdentityKeySignature,
         "fallbackKey" to requireNotNull(fallbackKey).toDirectoryMap(),
-        "oneTimeKeys" to oneTimeKeys.map(SignedOlmPreKey::toDirectoryMap),
+        "oneTimeKeys" to oneTimeKeys.map { it.toDirectoryMap() },
         "publishedAt" to ServerValue.TIMESTAMP,
     )
 
