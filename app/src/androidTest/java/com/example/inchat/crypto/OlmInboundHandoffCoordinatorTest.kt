@@ -75,11 +75,11 @@ class OlmInboundHandoffCoordinatorTest {
             val staged = repository.prepareInboundSessionFromEnvelope(
                 receiptId, senderBundle, receipt.envelope
             )
-            assertEquals("handoff plaintext", decodedPayload.text)
             val decodedPayload = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
                 staged.plaintext, receipt.messageId, "alice", senderDeviceId,
                 "local-user", localBundle.deviceId,
             )
+            assertEquals("handoff plaintext", decodedPayload.text)
             val message = cachedMessage(decodedPayload)
             assertTrue(
                 OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
