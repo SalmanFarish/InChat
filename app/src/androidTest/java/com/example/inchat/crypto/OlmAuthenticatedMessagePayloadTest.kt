@@ -79,6 +79,38 @@ class OlmAuthenticatedMessagePayloadTest {
         }
     }
 
+    @Test
+    fun rejectsFractionalTimestampEvenWhenMathematicallyWhole() {
+        val encoded = OlmAuthenticatedMessagePayloadCodec.encode(payload)
+            .replace("\"sentAtMillis\":1800000000000", "\"sentAtMillis\":1800000000000.0")
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
+                encoded, payload.messageId, payload.senderUserId, payload.senderDeviceId,
+                payload.recipientUserId, payload.recipientDeviceId,
+            )
+        }
+    }
+
+    @Test
+    fun rejectsNegativeTimestampAndEmptyTextBeforeEncryption() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(sentAtMillis = -1L))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(text = ""))
+        }
+    }
+
+    @Test
+    fun rejectsInvalidIdentityCharactersAndOversizedText() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(senderUserId = "alice/other"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(text = "x".repeat(65 * 1024)))
+        }
+    }
+
     private fun decode(
         expectedMessageId: String = payload.messageId,
         expectedSenderUserId: String = payload.senderUserId,
