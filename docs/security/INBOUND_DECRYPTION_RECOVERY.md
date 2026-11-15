@@ -1,6 +1,6 @@
 # Inbound Olm decryption recovery design
 
-Status: required design gate; not implemented. The isolated Firebase inbox receiver must remain ciphertext-only until this protocol and its crash tests are implemented.
+Status: partially implemented. The Room-side atomic message-and-receipt commit exists with instrumentation coverage. Native pending-plaintext staging/recovery and the end-to-end crash tests are not implemented. The isolated Firebase inbox receiver must remain ciphertext-only until the remaining protocol is implemented and verified.
 
 ## Why the current sequence is unsafe
 
@@ -16,7 +16,7 @@ Use a stable inbound receipt ID, derived from sender account, sender device, mes
 
 1. **Native prepare:** In one encrypted device-state write, advance/establish the Olm ratchet and save a pending-decryption record containing the stable receipt ID, session ID, and plaintext. For a pre-key message, save one-time-key consumption, the new session, and the pending plaintext in that same write.
 2. **Recover:** If native prepare is called again with the same receipt ID, return the already-staged plaintext without decrypting the ciphertext or advancing the ratchet again. Reject a different ciphertext digest for an existing pending receipt.
-3. **Room commit:** In one Room transaction, insert/upsert the decrypted message into the local message cache and change the matching inbound receipt from PENDING to PROCESSED. Both operations must succeed or roll back together. Do not expose plaintext to the live UI or existing message listeners during this isolated prototype phase.
+3. **Room commit (implemented, isolated):** `OlmInboundMessageCommitter` uses one Room transaction to insert/upsert the decrypted message into the local message cache and change the matching inbound receipt from PENDING to PROCESSED. Both operations succeed or roll back together. It validates receipt status, message ID, sender ID, and rejects pending-send rows. Instrumentation tests cover success, identity mismatch, and duplicate commit. This class is not wired to the receiver or UI. Do not expose plaintext to the live UI or existing message listeners during this isolated prototype phase.
 4. **Native finalize:** After the Room transaction succeeds, remove the native pending-decryption record and persist the crypto state. If the process dies before finalize, the next retry sees the Room receipt already processed and asks native code to finalize without inserting the message again.
 5. **Remote acknowledgement:** Delete the Firebase inbox item only after the local durable handoff is complete. A failed acknowledgement remains retryable and must not cause another decrypt.
 
