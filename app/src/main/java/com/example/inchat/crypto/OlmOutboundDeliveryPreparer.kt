@@ -31,6 +31,9 @@ internal class OlmOutboundDeliveryPreparer(
         require(payload.senderDeviceId == sessions.localDeviceId) {
             "Authenticated payload sender device does not match this installation"
         }
+        require(payload.senderUserId == directory.authenticatedUserId) {
+            "Authenticated payload sender account does not match the signed-in account"
+        }
         // Validate the complete versioned payload before claiming a one-time key.
         OlmAuthenticatedMessagePayloadCodec.encode(payload)
 
