@@ -3,9 +3,9 @@
 //! Isolated cryptographic prototype for InChat.
 //!
 //! This crate is not connected to message sending, receiving, or Firebase.
-//! The JNI surface intentionally exposes only a version string and a local
-//! two-device Olm self-test. It does not export account private keys or
-//! serialized ratchet state to Kotlin.
+//! The JNI surface exposes a version string, isolated self-tests, and test-only
+//! persistence checks. It never exports account private keys, session secrets,
+//! or serialized ratchet state to Kotlin.
 
 use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
@@ -249,7 +249,7 @@ fn restore_test_account<'local>(
 
 // A fixed test-only reply lets the Android instrumentation test prove that a
 // restored Alice session can continue its receive ratchet after store recreation.
-const SESSION_STATE_HEADER: &[u8; 6] = b"ICOLS\\x01";
+const SESSION_STATE_HEADER: &[u8; 6] = b"ICOLS\x01";
 const SESSION_REPLY: &str = "Reply received after restoring the Olm session";
 
 fn create_test_session_fixture() -> Result<(Session, Vec<u8>), &'static str> {
