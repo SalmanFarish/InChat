@@ -85,13 +85,13 @@ internal object OlmAuthenticatedMessagePayloadCodec {
             return value
         }
         val rawTimestamp = json.opt("sentAtMillis")
-        require(rawTimestamp is Number && rawTimestamp.toDouble().isFinite()) {
+        // Accept only integral JSON number representations. Converting a Double
+        // through toLong() can silently round large attacker-controlled values.
+        require(rawTimestamp is Byte || rawTimestamp is Short ||
+            rawTimestamp is Int || rawTimestamp is Long) {
             "Authenticated message timestamp must be an integer"
         }
-        val timestamp = rawTimestamp.toLong()
-        require(rawTimestamp.toDouble() == timestamp.toDouble()) {
-            "Authenticated message timestamp must be an integer"
-        }
+        val timestamp = (rawTimestamp as Number).toLong()
         val payload = OlmAuthenticatedMessagePayload(
             messageId = stringField("messageId"),
             senderUserId = stringField("senderUserId"),
