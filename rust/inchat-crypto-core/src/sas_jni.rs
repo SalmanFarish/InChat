@@ -94,11 +94,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerCommitment(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
-    commitment: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerCommitment<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
+    commitment: JString<'local>,
 ) -> jboolean {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -115,10 +115,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasRevealPublicKey(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasRevealPublicKey<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
 ) -> jstring {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -133,11 +133,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerPublicKey(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
-    public_key: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerPublicKey<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
+    public_key: JString<'local>,
 ) -> jboolean {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -154,10 +154,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasDisplayCodes(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasDisplayCodes<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
 ) -> jstring {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -171,16 +171,16 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         })
     })();
     match result {
-        Ok(Ok(value)) => java_string(&mut env, &value),
+        Ok(value) => java_string(&mut env, &value),
         _ => std::ptr::null_mut(),
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasConfirmMatch(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasConfirmMatch<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
     matched: jboolean,
 ) -> jboolean {
     let result = (|| {
@@ -197,10 +197,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreateLocalMac(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreateLocalMac<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
 ) -> jstring {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -213,11 +213,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasVerifyPeerMac(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
-    mac: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasVerifyPeerMac<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
+    mac: JString<'local>,
 ) -> jboolean {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
@@ -232,16 +232,16 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasIsComplete(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasIsComplete<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
 ) -> jboolean {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
         with_session(&handle, |session| Ok(session.is_complete()))
     })();
-    if matches!(result, Ok(Ok(true))) {
+    if matches!(result, Ok(true)) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -249,10 +249,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel(
-    mut env: JNIEnv,
-    _this: JObject,
-    handle: JString,
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: JString<'local>,
 ) -> jboolean {
     let result: Result<bool, &'static str> = (|| {
         let handle = read_string(&mut env, &handle)?;
