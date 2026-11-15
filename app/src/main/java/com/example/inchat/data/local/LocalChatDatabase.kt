@@ -10,16 +10,19 @@ import com.example.inchat.crypto.OlmDeliveryQueueDao
 import com.example.inchat.crypto.OlmDeviceDeliveryEntity
 import com.example.inchat.crypto.OlmInboundReceiptDao
 import com.example.inchat.crypto.OlmInboundReceiptEntity
+import com.example.inchat.crypto.SasVerificationMessageDao
+import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
-    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmInboundReceiptEntity::class],
-    version = 5,
+    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
     abstract fun messageDao(): LocalChatDao
     abstract fun olmDeliveryQueueDao(): OlmDeliveryQueueDao
     abstract fun olmInboundReceiptDao(): OlmInboundReceiptDao
+    abstract fun sasVerificationMessageDao(): SasVerificationMessageDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -66,13 +69,32 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sas_verification_messages (
+                        deliveryId TEXT NOT NULL, transactionId TEXT NOT NULL,
+                        senderUserId TEXT NOT NULL, senderDeviceId TEXT NOT NULL,
+                        recipientUserId TEXT NOT NULL, recipientDeviceId TEXT NOT NULL,
+                        type TEXT NOT NULL, payloadSha256 TEXT NOT NULL,
+                        expiresAtMillis INTEGER NOT NULL, receivedAtMillis INTEGER NOT NULL,
+                        PRIMARY KEY(deliveryId)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sas_verification_messages_transactionId_senderUserId_senderDeviceId_type ON sas_verification_messages(transactionId, senderUserId, senderDeviceId, type)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_sas_verification_messages_expiresAtMillis ON sas_verification_messages(expiresAtMillis)")
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build().also { INSTANCE = it }
             }
     }
