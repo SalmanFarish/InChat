@@ -18,7 +18,7 @@ class OlmFanOutPlannerTest {
             senderDevices = listOf(senderTablet, senderCurrent),
         )
         assertEquals(
-            listOf("alice::sender-tablet", "bob::recipient-laptop", "bob::recipient-phone"),
+            listOf("bob::recipient-laptop", "bob::recipient-phone", "alice::sender-tablet"),
             targets.map { it.userId + "::" + it.device.deviceId },
         )
         assertFalse(targets.any { it.userId == "alice" && it.device.deviceId == senderCurrent.deviceId })
