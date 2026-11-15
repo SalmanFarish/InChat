@@ -198,6 +198,9 @@ class NativeCryptoBridgeTest {
             )
         )
         val firstWireRetry = firstWire.clone()
+        val conflictingWire = firstWire.clone().also {
+            it[it.lastIndex] = (it.last().toInt() xor 1).toByte()
+        }
         val firstReceipt = receiptId("initial-$suffix")
         val firstResult = JSONObject(
             NativeCryptoBridge.nativePrepareInboundOlmSession(
@@ -223,7 +226,6 @@ class NativeCryptoBridgeTest {
         assertEquals(firstResult.getString("sessionId"), recoveredFirst.getString("sessionId"))
         assertEquals(firstResult.getString("plaintext"), recoveredFirst.getString("plaintext"))
 
-        val conflictingWire = firstWireRetry.clone().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
         assertEquals(
             null,
             NativeCryptoBridge.nativePrepareInboundOlmSession(
