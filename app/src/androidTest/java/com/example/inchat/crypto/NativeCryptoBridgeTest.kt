@@ -45,6 +45,52 @@ class NativeCryptoBridgeTest {
     }
 
     @Test
+    fun encryptedOlmEnvelopeRejectsUnknownFieldsAndNonCanonicalEncoding() {
+        val encoded = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = "sender-device",
+                recipientDeviceId = "recipient-device",
+                sessionId = "olm-session-123",
+                ciphertext = byteArrayOf(1, 2, 3, 4),
+            )
+        )
+        val withUnknownField = encoded.dropLast(1) + ",\"extra\":true}"
+        val reordered = "{\"algorithm\":\"olm\"," + encoded.removePrefix("{")
+        listOf(withUnknownField, reordered).forEach { invalid ->
+            var rejected = false
+            try {
+                EncryptedOlmEnvelopeCodec.decode(invalid)
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue("Unknown or non-canonical envelope JSON must be rejected", rejected)
+        }
+    }
+
+    @Test
+    fun encryptedOlmEnvelopeRejectsFractionalVersionAndWrongFieldTypes() {
+        val encoded = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = "sender-device",
+                recipientDeviceId = "recipient-device",
+                sessionId = "olm-session-123",
+                ciphertext = byteArrayOf(1, 2, 3, 4),
+            )
+        )
+        val fractionalVersion = encoded.replace("\"encryptionVersion\":1", "\"encryptionVersion\":1.0")
+        val numericSender = encoded.replace("\"senderDeviceId\":\"sender-device\"", "\"senderDeviceId\":123")
+        for (invalid in listOf(fractionalVersion, numericSender)) {
+            var rejected = false
+            try {
+                EncryptedOlmEnvelopeCodec.decode(invalid)
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue("Malformed envelope fields must be rejected", rejected)
+        }
+    }
+
+    @Test
     fun encryptedOlmEnvelopeRejectsInvalidRoutingAndCiphertext() {
         var invalidDeviceRejected = false
         try {
