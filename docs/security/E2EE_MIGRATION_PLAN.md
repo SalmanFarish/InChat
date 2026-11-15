@@ -48,3 +48,28 @@ trusted channel. The next required work is an authenticated SAS verification
 exchange and durable local identity-pin state; until those exist, directory
 bundles must not be treated as verified people and no encrypted send path may
 be enabled.
+
+
+## Authenticated SAS verification protocol groundwork
+
+The Rust crypto core now contains an isolated, process-local SAS verification state
+machine built on vodozemac 0.11.2. It binds the exchange transcript to a caller-
+supplied transaction ID and the ordered initiator/responder user IDs, device IDs,
+and Ed25519 identity public keys.
+
+Each side first publishes a SHA-256 commitment to its ephemeral Curve25519 public
+key. The local public key cannot be revealed until the peer commitment is accepted;
+the peer key is accepted only when it opens that commitment. vodozemac then derives
+the SAS emoji indices and decimal code from the shared secret and the same bound
+transcript. After an explicit local "codes match" confirmation, each side creates
+a MAC over its own expected Ed25519 identity key; the other side must verify that
+MAC against the expected peer identity key. The state machine reports completion
+only after local confirmation and successful peer-MAC verification.
+
+The attempt deliberately has no serialization support: cancellation or process
+death discards the ephemeral secret and requires a fresh transaction. This is
+safer than persisting an unfinished ephemeral exchange. The current change is a
+Rust protocol primitive with unit tests, not yet a JNI/API or Firebase transport
+integration. It does not write a trusted-device pin and must not be treated as a
+production verification feature until the transport authenticates transaction
+ownership, expiry, replay/cancellation behavior, and both participants' messages.
