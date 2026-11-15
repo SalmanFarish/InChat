@@ -22,8 +22,7 @@ fn valid_device_id(device_id: &str) -> bool {
 }
 
 fn valid_receipt_id(receipt_id: &str) -> bool {
-    receipt_id.len() == 64
-        && receipt_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+    receipt_id.len() == 64 && receipt_id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 struct PendingDecryption {
@@ -157,7 +156,10 @@ fn decode_device_crypto_state(
             sessions.insert(id.clone(), session);
         }
         let mut pending_decryptions = std::collections::BTreeMap::new();
-        if let Some(pending_values) = envelope.get("pendingDecryptions").and_then(Value::as_object) {
+        if let Some(pending_values) = envelope
+            .get("pendingDecryptions")
+            .and_then(Value::as_object)
+        {
             if pending_values.len() > 256 {
                 return Err("Saved Olm state contains too many pending decryptions");
             }
@@ -165,30 +167,43 @@ fn decode_device_crypto_state(
                 if !valid_receipt_id(receipt_id) {
                     return Err("Saved pending decryption has an invalid receipt ID");
                 }
-                let session_id = value.get("sessionId").and_then(Value::as_str)
+                let session_id = value
+                    .get("sessionId")
+                    .and_then(Value::as_str)
                     .ok_or("Saved pending decryption has no session ID")?;
                 if session_id.is_empty() || session_id.len() > 128 {
                     return Err("Saved pending decryption has an invalid session ID");
                 }
-                let ciphertext = value.get("ciphertext").and_then(Value::as_array)
+                let ciphertext = value
+                    .get("ciphertext")
+                    .and_then(Value::as_array)
                     .ok_or("Saved pending decryption has no ciphertext")?
                     .iter()
-                    .map(|byte| byte.as_u64().and_then(|v| u8::try_from(v).ok())
-                        .ok_or("Saved pending ciphertext is invalid"))
+                    .map(|byte| {
+                        byte.as_u64()
+                            .and_then(|v| u8::try_from(v).ok())
+                            .ok_or("Saved pending ciphertext is invalid")
+                    })
                     .collect::<Result<Vec<u8>, _>>()?;
                 if ciphertext.len() < 2 || ciphertext.len() > MAX_OLM_WIRE_BYTES {
                     return Err("Saved pending ciphertext has an invalid size");
                 }
-                let plaintext = value.get("plaintext").and_then(Value::as_str)
-                    .ok_or("Saved pending decryption has no plaintext")?.to_owned();
+                let plaintext = value
+                    .get("plaintext")
+                    .and_then(Value::as_str)
+                    .ok_or("Saved pending decryption has no plaintext")?
+                    .to_owned();
                 if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
                     return Err("Saved pending plaintext exceeds the message size limit");
                 }
-                pending_decryptions.insert(receipt_id.clone(), PendingDecryption {
-                    session_id: session_id.to_owned(),
-                    ciphertext,
-                    plaintext,
-                });
+                pending_decryptions.insert(
+                    receipt_id.clone(),
+                    PendingDecryption {
+                        session_id: session_id.to_owned(),
+                        ciphertext,
+                        plaintext,
+                    },
+                );
             }
         }
         Ok(DeviceCryptoState {
@@ -765,11 +780,14 @@ fn prepare_inbound_prekey_decryption<'local>(
     };
     // OTK consumption, new session, receive ratchet, and staged plaintext are
     // committed in one Keystore-encrypted AtomicFile write.
-    let inbound = state.account.create_inbound_session(
-        vodozemac::olm::SessionConfig::version_1(),
-        remote_identity,
-        &pre_key,
-    ).map_err(|_| "Could not establish inbound Olm session")?;
+    let inbound = state
+        .account
+        .create_inbound_session(
+            vodozemac::olm::SessionConfig::version_1(),
+            remote_identity,
+            &pre_key,
+        )
+        .map_err(|_| "Could not establish inbound Olm session")?;
     let mut plaintext = String::from_utf8(inbound.plaintext)
         .map_err(|_| "Decrypted Olm message is not valid UTF-8")?;
     if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
@@ -782,18 +800,22 @@ fn prepare_inbound_prekey_decryption<'local>(
         return Err("Inbound Olm session already exists");
     }
     state.sessions.insert(session_id.clone(), inbound.session);
-    state.pending_decryptions.insert(receipt_id.to_owned(), PendingDecryption {
-        session_id: session_id.clone(),
-        ciphertext: wire.to_vec(),
-        plaintext: plaintext.clone(),
-    });
+    state.pending_decryptions.insert(
+        receipt_id.to_owned(),
+        PendingDecryption {
+            session_id: session_id.clone(),
+            ciphertext: wire.to_vec(),
+            plaintext: plaintext.clone(),
+        },
+    );
     let blob = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, blob)?;
     let result = serde_json::to_string(&json!({
         "receiptId": receipt_id,
         "sessionId": session_id,
         "plaintext": plaintext
-    })).map_err(|_| "Could not encode staged Olm plaintext");
+    }))
+    .map_err(|_| "Could not encode staged Olm plaintext");
     plaintext.zeroize();
     result
 }
@@ -827,9 +849,12 @@ fn prepare_existing_session_decryption<'local>(
     if matches!(&message, OlmMessage::PreKey(_)) {
         return Err("A pre-key message requires inbound-session creation");
     }
-    let session = state.sessions.get_mut(session_id)
+    let session = state
+        .sessions
+        .get_mut(session_id)
         .ok_or("Olm session was not found")?;
-    let mut plaintext_bytes = session.decrypt(&message)
+    let mut plaintext_bytes = session
+        .decrypt(&message)
         .map_err(|_| "Could not decrypt Olm message")?;
     let mut plaintext = match String::from_utf8(plaintext_bytes.clone()) {
         Ok(value) => value,
@@ -843,11 +868,14 @@ fn prepare_existing_session_decryption<'local>(
         plaintext.zeroize();
         return Err("Decrypted Olm plaintext exceeds the message size limit");
     }
-    state.pending_decryptions.insert(receipt_id.to_owned(), PendingDecryption {
-        session_id: session_id.to_owned(),
-        ciphertext: wire.to_vec(),
-        plaintext: plaintext.clone(),
-    });
+    state.pending_decryptions.insert(
+        receipt_id.to_owned(),
+        PendingDecryption {
+            session_id: session_id.to_owned(),
+            ciphertext: wire.to_vec(),
+            plaintext: plaintext.clone(),
+        },
+    );
     // Ratchet advancement and pending plaintext are persisted atomically.
     let blob = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, blob)?;
@@ -1184,7 +1212,8 @@ mod tests {
             .expect("pending state should serialize");
         let restored = super::decode_device_crypto_state(encoded, "pending-device")
             .expect("pending state should restore");
-        let pending = restored.pending_decryptions
+        let pending = restored
+            .pending_decryptions
             .get("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
             .expect("pending receipt should survive state restoration");
 
