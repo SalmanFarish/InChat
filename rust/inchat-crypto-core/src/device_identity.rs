@@ -919,6 +919,37 @@ mod tests {
     }
 
     #[test]
+    fn pending_decryption_records_round_trip_in_device_state() {
+        let account = Account::new();
+        let mut pending_decryptions = std::collections::BTreeMap::new();
+        pending_decryptions.insert(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+            super::PendingDecryption {
+                session_id: "session-123".to_owned(),
+                ciphertext: vec![1, 2, 3, 4],
+                plaintext: "recover this exact plaintext".to_owned(),
+            },
+        );
+        let state = super::DeviceCryptoState {
+            account,
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions,
+        };
+
+        let encoded = super::encode_device_crypto_state("pending-device", &state)
+            .expect("pending state should serialize");
+        let restored = super::decode_device_crypto_state(encoded, "pending-device")
+            .expect("pending state should restore");
+        let pending = restored.pending_decryptions
+            .get("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+            .expect("pending receipt should survive state restoration");
+
+        assert_eq!(pending.session_id, "session-123");
+        assert_eq!(pending.ciphertext, vec![1, 2, 3, 4]);
+        assert_eq!(pending.plaintext, "recover this exact plaintext");
+    }
+
+    #[test]
     fn legacy_device_state_migrates_without_changing_identity() {
         let mut account = Account::new();
         account.generate_one_time_keys(3);
