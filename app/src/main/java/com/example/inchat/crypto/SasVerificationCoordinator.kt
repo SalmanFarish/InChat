@@ -277,7 +277,7 @@ internal class SasVerificationCoordinator(
         attempts[message.transactionId] = attempt
         commitments[message.transactionId] = created.getString("commitment")
         publishState(attempt, SasVerificationPhase.WAITING_FOR_PEER)
-        attempt
+        return attempt
     }
 
     private suspend fun send(
