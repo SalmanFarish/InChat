@@ -115,9 +115,8 @@ fn signed_public_key(
 fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
     let identity_keys = account.identity_keys();
     let curve25519_identity_key = identity_keys.curve25519.to_base64();
-    let identity_payload = format!(
-        "{SIGNATURE_CONTEXT}\n{device_id}\nidentity_curve25519\n{curve25519_identity_key}"
-    );
+    let identity_payload =
+        format!("{SIGNATURE_CONTEXT}\n{device_id}\nidentity_curve25519\n{curve25519_identity_key}");
     let curve25519_identity_signature = account.sign(identity_payload.as_bytes()).to_base64();
 
     let mut one_time_keys: Vec<_> = account.one_time_keys().into_iter().collect();
