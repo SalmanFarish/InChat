@@ -11,5 +11,7 @@ data class Conversation(
     val chatType: String = "direct",
     val groupName: String = "",
     val memberCount: Long = 0L,
-    val lastSenderNickname: String = ""
+    val lastSenderNickname: String = "",
+    val isPinned: Boolean = false,
+    val isHidden: Boolean = false
 )

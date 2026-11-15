@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.data.repository.PresenceRepository
 import com.example.inchat.notification.InChatFirebaseMessagingService
+import com.example.inchat.notification.ActiveConversationTracker
 import com.example.inchat.ui.auth.AuthUiState
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.auth.LoginScreen
@@ -52,6 +53,16 @@ class MainActivity :
         MutableStateFlow<NotificationChatTarget?>(
             null
         )
+
+    override fun onStart() {
+        super.onStart()
+        ActiveConversationTracker.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        ActiveConversationTracker.setAppInForeground(false)
+        super.onStop()
+    }
 
     override fun onCreate(
         savedInstanceState: Bundle?

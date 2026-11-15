@@ -2,6 +2,7 @@ package com.example.inchat.data.repository
 
 import com.example.inchat.data.model.AttachmentType
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -126,6 +127,8 @@ class CloudflareAttachmentRepository {
             } finally {
                 connection.disconnect()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -183,6 +186,8 @@ class CloudflareAttachmentRepository {
             } finally {
                 connection.disconnect()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -232,6 +237,8 @@ class CloudflareAttachmentRepository {
             } finally {
                 connection.disconnect()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

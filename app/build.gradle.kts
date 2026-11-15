@@ -3,11 +3,28 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     id("com.google.gms.google-services")
+    id("net.mullvad.rust-android") version "0.11.1"
+}
+
+
+cargo {
+    module = "../rust/inchat-crypto-core"
+    libname = "inchat_crypto_core"
+    targets = listOf("arm", "arm64", "x86", "x86_64")
+    profile = "release"
+    apiLevel = 26
+}
+
+val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
+tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach {
+    inputs.dir(rustJniLibsDir)
+    dependsOn("cargoBuild")
 }
 
 android {
     namespace = "com.example.inchat"
     compileSdk = 37
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.example.inchat"
@@ -59,6 +76,7 @@ dependencies {
     // Local-first message storage
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     ksp(libs.androidx.room.compiler)
 
     // Jetpack Navigation Compose
@@ -149,11 +167,6 @@ dependencies {
     // Firebase Realtime Database
     implementation(
         "com.google.firebase:firebase-database"
-    )
-
-    // Firebase Cloud Storage
-    implementation(
-        "com.google.firebase:firebase-storage"
     )
 
     // Firebase Cloud Messaging

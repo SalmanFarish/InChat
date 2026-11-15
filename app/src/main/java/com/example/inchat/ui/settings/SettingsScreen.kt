@@ -16,9 +16,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -95,7 +102,7 @@ fun SettingsScreen(
                     Text(
                         text = "Settings",
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )
                 },
                 navigationIcon = {
@@ -121,17 +128,17 @@ fun SettingsScreen(
                 .padding(innerPadding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 20.dp,
-                top = 16.dp,
+                top = 14.dp,
                 end = 20.dp,
-                bottom = 32.dp
+                bottom = 36.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp)
+                        .padding(bottom = 3.dp)
                 ) {
                     Text(
                         text = "INCHAT / PREFERENCES",
@@ -143,22 +150,22 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(7.dp))
 
                     Text(
-                        text = "Manage your account",
+                        text = "Settings",
                         style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = 25.sp
+                            fontSize = 26.sp,
+                            lineHeight = 32.sp
                         ),
-                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
 
-                    Spacer(Modifier.height(5.dp))
+                    Spacer(Modifier.height(4.dp))
 
                     Text(
-                        text = "Your account, privacy, and sign-in controls.",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "Manage your account, security and privacy.",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -176,35 +183,70 @@ fun SettingsScreen(
                     )
                 ) {
                     Column {
+                        Row(
+                            modifier = Modifier.padding(
+                                horizontal = 16.dp,
+                                vertical = 14.dp
+                            ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SettingsIconTile(
+                                icon = Icons.Outlined.AccountCircle,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+
+                            Spacer(Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Your InChat account",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                Spacer(Modifier.height(3.dp))
+
+                                Text(
+                                    text = "@${username.trim().ifBlank { "unknown" }}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        androidx.compose.material3.HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 15.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
+
                         if (currentEmail.isNotBlank()) {
                             CopyableSettingRow(
                                 title = "Email address",
                                 value = currentEmail,
                                 onCopy = {
-                                    clipboardManager.setText(
-                                        AnnotatedString(currentEmail)
-                                    )
+                                    clipboardManager.setText(AnnotatedString(currentEmail))
                                 }
                             )
 
                             androidx.compose.material3.HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                                modifier = Modifier.padding(horizontal = 15.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant
                             )
                         }
 
                         CopyableSettingRow(
                             title = "Username",
-                            value = "@" + username.trim(),
+                            value = "@${username.trim()}",
                             onCopy = {
-                                clipboardManager.setText(
-                                    AnnotatedString(username.trim())
-                                )
+                                clipboardManager.setText(AnnotatedString(username.trim()))
                             }
                         )
 
                         androidx.compose.material3.HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
+                            modifier = Modifier.padding(horizontal = 15.dp),
                             color = MaterialTheme.colorScheme.outlineVariant
                         )
 
@@ -212,9 +254,7 @@ fun SettingsScreen(
                             title = "Account ID",
                             value = uid.trim(),
                             onCopy = {
-                                clipboardManager.setText(
-                                    AnnotatedString(uid.trim())
-                                )
+                                clipboardManager.setText(AnnotatedString(uid.trim()))
                             }
                         )
                     }
@@ -234,7 +274,7 @@ fun SettingsScreen(
                 ) {
                     Column(
                         modifier = Modifier.padding(
-                            horizontal = 17.dp,
+                            horizontal = 16.dp,
                             vertical = 15.dp
                         )
                     ) {
@@ -242,6 +282,13 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            SettingsIconTile(
+                                icon = Icons.Outlined.Lock,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+
+                            Spacer(Modifier.width(12.dp))
+
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Password sign-in",
@@ -250,14 +297,14 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(3.dp))
 
                                 Text(
                                     text = when {
                                         hasPasswordSignIn ->
-                                            "Your account can sign in with email and password."
+                                            "Email and password sign-in is available."
                                         isGoogleAccount ->
-                                            "You currently use Google. Add a password as another way to sign in."
+                                            "Add a password as another way to sign in."
                                         else ->
                                             "Password sign-in is not linked to this account."
                                     },
@@ -266,31 +313,20 @@ fun SettingsScreen(
                                 )
                             }
 
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(8.dp))
 
-                            Text(
-                                text = if (hasPasswordSignIn) {
-                                    "ENABLED"
-                                } else if (isGoogleAccount) {
-                                    "NOT SET"
-                                } else {
-                                    "—"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily = JetBrainsMono,
-                                    fontSize = 9.sp,
-                                    letterSpacing = 0.45.sp
-                                ),
-                                color = if (hasPasswordSignIn) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
+                            SettingsStatusPill(
+                                label = if (hasPasswordSignIn) "ON" else if (isGoogleAccount) "NOT SET" else "—",
+                                active = hasPasswordSignIn
                             )
                         }
 
                         if (isGoogleAccount && !hasPasswordSignIn) {
                             Spacer(Modifier.height(10.dp))
+
+                            androidx.compose.material3.HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
 
                             TextButton(
                                 onClick = {
@@ -301,7 +337,9 @@ fun SettingsScreen(
                                     addPasswordError = null
                                     showAddPasswordDialog = true
                                 },
-                                modifier = Modifier.align(Alignment.End)
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .padding(top = 4.dp)
                             ) {
                                 Text(
                                     text = "Add password",
@@ -332,30 +370,17 @@ fun SettingsScreen(
                 ) {
                     Row(
                         modifier = Modifier.padding(
-                            horizontal = 17.dp,
-                            vertical = 17.dp
+                            horizontal = 16.dp,
+                            vertical = 15.dp
                         ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            modifier = Modifier.size(42.dp),
-                            shape = RoundedCornerShape(13.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Visibility,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                        SettingsIconTile(
+                            icon = Icons.Outlined.Visibility,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
 
-                        Spacer(Modifier.width(13.dp))
+                        Spacer(Modifier.width(12.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -368,22 +393,19 @@ fun SettingsScreen(
                             Spacer(Modifier.height(3.dp))
 
                             Text(
-                                text = "Last seen, online status, read receipts, typing, and username discovery.",
+                                text = "Control last seen, online status, read receipts and more.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(8.dp))
 
-                        Text(
-                            text = "OPEN  ›",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = JetBrainsMono,
-                                fontSize = 9.sp,
-                                letterSpacing = 0.4.sp
-                            ),
-                            color = MaterialTheme.colorScheme.primary
+                        Icon(
+                            imageVector = Icons.Outlined.ChevronRight,
+                            contentDescription = "Open privacy settings",
+                            modifier = Modifier.size(19.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -391,8 +413,9 @@ fun SettingsScreen(
 
             item {
                 SettingsSectionLabel("ACCOUNT ACTIONS")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     SettingsActionRow(
+                        icon = Icons.Outlined.Logout,
                         title = "Log out",
                         subtitle = "Sign out of this InChat account.",
                         destructive = false,
@@ -402,8 +425,9 @@ fun SettingsScreen(
                     )
 
                     SettingsActionRow(
+                        icon = Icons.Outlined.DeleteForever,
                         title = "Delete account",
-                        subtitle = "Permanently remove your InChat account and profile data.",
+                        subtitle = "Permanently remove your account and profile data.",
                         destructive = true,
                         onClick = {
                             deletePassword = ""
@@ -418,7 +442,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 18.dp, bottom = 8.dp),
+                        .padding(top = 8.dp, bottom = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -695,14 +719,14 @@ fun SettingsScreen(
             text = {
                 Column {
                     Text(
-                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data.",
+                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
                         style = MaterialTheme.typography.bodyMedium
                     )
 
                     Spacer(Modifier.height(12.dp))
 
                     Text(
-                        text = "Shared conversations are not deleted from other participants' accounts.",
+                        text = "Groups with at least two members remaining stay active, with ownership transferred when needed. A two-person group is removed for everyone. One-to-one conversations remain in other participants' accounts.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -814,6 +838,68 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsIconTile(
+    icon: ImageVector,
+    tint: androidx.compose.ui.graphics.Color
+) {
+    Surface(
+        modifier = Modifier.size(42.dp),
+        shape = RoundedCornerShape(13.dp),
+        color = tint.copy(alpha = 0.12f)
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = tint
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusPill(
+    label: String,
+    active: Boolean
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (active) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        border = BorderStroke(
+            0.7.dp,
+            if (active) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        )
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = JetBrainsMono,
+                fontSize = 8.sp,
+                letterSpacing = 0.45.sp
+            ),
+            color = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
+@Composable
 private fun SettingsSectionLabel(
     title: String
 ) {
@@ -875,11 +961,18 @@ private fun CopyableSettingRow(
 
 @Composable
 private fun SettingsActionRow(
+    icon: ImageVector,
     title: String,
     subtitle: String,
     destructive: Boolean,
     onClick: () -> Unit
 ) {
+    val accent = if (destructive) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -888,7 +981,7 @@ private fun SettingsActionRow(
                 indication = null,
                 onClick = onClick
             ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
             0.8.dp,
@@ -899,26 +992,41 @@ private fun SettingsActionRow(
             }
         )
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 17.dp, vertical = 15.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (destructive) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
+            SettingsIconTile(
+                icon = icon,
+                tint = accent
             )
 
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.width(12.dp))
 
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = accent
+                )
+
+                Spacer(Modifier.height(3.dp))
+
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

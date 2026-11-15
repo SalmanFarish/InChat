@@ -59,7 +59,9 @@ fun ChatMessageList(
     onReply: (Message) -> Unit,
     onLongClick: (Message) -> Unit,
     onReactionClick: (Message, String) -> Unit,
-    innerPadding: androidx.compose.foundation.layout.PaddingValues
+    innerPadding: androidx.compose.foundation.layout.PaddingValues,
+    selectedMessageIds: Set<String> = emptySet(),
+    onToggleMessageSelection: (Message) -> Unit = {}
 ) {
 
     val listState =
@@ -439,13 +441,16 @@ fun ChatMessageList(
 
             } else {
 
-                val latestOwnMessageId =
-                    messages
-                        .lastOrNull {
-                            it.senderId == currentUserId &&
-                                    it.systemEvent.isBlank()
-                        }
-                        ?.id
+                val latestOwnMessageId = remember(
+                    messages.size,
+                    messages.lastOrNull()?.id,
+                    currentUserId
+                ) {
+                    messages.lastOrNull {
+                        it.senderId == currentUserId &&
+                            it.systemEvent.isBlank()
+                    }?.id
+                }
 
                 /*
                  * Read the clock so Compose tracks it.
@@ -535,7 +540,10 @@ fun ChatMessageList(
                 ) {
 
                     if (hasOlderMessages) {
-                        item(key = "load_earlier_messages") {
+                        item(
+                            key = "load_earlier_messages",
+                            contentType = "load_earlier_messages"
+                        ) {
                             androidx.compose.foundation.layout.Box(
                                 modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center
@@ -566,12 +574,18 @@ fun ChatMessageList(
                                     index - 1
                                 )
 
-                        val showDaySeparator =
-                            previousMessage == null ||
-                                    !isSameCalendarDay(
+                        // Calculate each adjacent day comparison once. The
+                        // previous-day result is shared by the separator and
+                        // message-group checks below.
+                        val sameDayAsPrevious =
+                            previousMessage != null &&
+                                    isSameCalendarDay(
                                         previousMessage.timestamp,
                                         message.timestamp
                                     )
+
+                        val showDaySeparator =
+                            previousMessage == null || !sameDayAsPrevious
 
                         val isSystemEvent = message.systemEvent.isNotBlank()
                         val isFirstInGroup =
@@ -579,22 +593,25 @@ fun ChatMessageList(
                                     previousMessage == null ||
                                     previousMessage.systemEvent.isNotBlank() ||
                                     previousMessage.senderId != message.senderId ||
-                                    !isSameCalendarDay(
-                                        previousMessage.timestamp,
-                                        message.timestamp
-                                    )
+                                    !sameDayAsPrevious
 
                         val nextMessage = messages.getOrNull(index + 1)
+                        val sameDayAsNext =
+                            nextMessage != null &&
+                                    !isSystemEvent &&
+                                    nextMessage.systemEvent.isBlank() &&
+                                    nextMessage.senderId == message.senderId &&
+                                    isSameCalendarDay(
+                                        message.timestamp,
+                                        nextMessage.timestamp
+                                    )
 
                         val isLastInGroup =
                             isSystemEvent ||
                                     nextMessage == null ||
                                     nextMessage.systemEvent.isNotBlank() ||
                                     nextMessage.senderId != message.senderId ||
-                                    !isSameCalendarDay(
-                                        message.timestamp,
-                                        nextMessage.timestamp
-                                    )
+                                    !sameDayAsNext
 
                         if (
                             showDaySeparator &&
@@ -602,9 +619,8 @@ fun ChatMessageList(
                         ) {
 
                             item(
-
-                                key =
-                                    "day_${getDayKey(message.timestamp)}"
+                                key = "day_${getDayKey(message.timestamp)}",
+                                contentType = "day_separator"
                             ) {
 
                                 DaySeparator(
@@ -616,9 +632,12 @@ fun ChatMessageList(
                         }
 
                         item(
-
-                            key =
-                                message.id
+                            key = message.id,
+                            contentType = if (message.systemEvent.isNotBlank()) {
+                                "system_event"
+                            } else {
+                                "message_bubble"
+                            }
                         ) {
                             if (message.systemEvent.isNotBlank()) {
                                 Box(
@@ -711,38 +730,38 @@ fun ChatMessageList(
                                 showSenderName =
                                     showSenderNames && !isMe && isFirstInGroup,
 
+                                isSelected = message.id in selectedMessageIds,
+                                onClick = {
+                                    if (selectedMessageIds.isNotEmpty()) {
+                                        onToggleMessageSelection(message)
+                                    }
+                                },
+
                                 onReply = {
                                     if (
-                                        !messagingBlocked
+                                        !messagingBlocked &&
+                                        selectedMessageIds.isEmpty()
                                     ) {
-                                        onReply(
-                                            message
-                                        )
+                                        onReply(message)
                                     }
                                 },
 
                                 onLongClick = {
-
-                                    if (
-                                        !messagingBlocked
-                                    ) {
-
-                                        onLongClick(
-                                            message
-                                        )
+                                    if (!messagingBlocked) {
+                                        if (selectedMessageIds.isNotEmpty()) {
+                                            onToggleMessageSelection(message)
+                                        } else {
+                                            onLongClick(message)
+                                        }
                                     }
                                 },
 
                                 onReactionClick = { reaction ->
-
                                     if (
-                                        !messagingBlocked
+                                        !messagingBlocked &&
+                                        selectedMessageIds.isEmpty()
                                     ) {
-
-                                        onReactionClick(
-                                            message,
-                                            reaction
-                                        )
+                                        onReactionClick(message, reaction)
                                     }
                                 },
 

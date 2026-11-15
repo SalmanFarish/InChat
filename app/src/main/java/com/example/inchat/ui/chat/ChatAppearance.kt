@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.ui.theme.Black
 
 data class ChatThemePalette(
     val background: Color,
@@ -81,9 +82,9 @@ enum class ChatTheme(
             "brackets"
         ),
         colors = ChatThemePalette(
-            background = Color(0xFF000000),
+            background = Black,
             incomingBubble = Color(0xFF030A04),
-            outgoingBubble = Color(0xFF041108),
+            outgoingBubble = Color(0xFF06170A),
             incomingText = Color(0xFF83F28F),
             outgoingText = Color(0xFFA6FFB2),
             secondaryText = Color(0xFF70A77B),
