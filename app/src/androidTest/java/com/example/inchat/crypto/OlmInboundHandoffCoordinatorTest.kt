@@ -91,6 +91,7 @@ class OlmInboundHandoffCoordinatorTest {
                 database = db,
                 receiptDao = db.olmInboundReceiptDao(),
                 sessionRepository = reopenedRepository,
+                authenticatedLocalUserId = { "local-user" },
                 messageDao = db.messageDao(),
             )
             assertEquals(
@@ -180,6 +181,7 @@ class OlmInboundHandoffCoordinatorTest {
                 database = db,
                 receiptDao = db.olmInboundReceiptDao(),
                 sessionRepository = repository,
+                authenticatedLocalUserId = { "local-user" },
                 messageDao = db.messageDao(),
                 clock = { 400L },
             )
