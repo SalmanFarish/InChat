@@ -233,6 +233,21 @@ class OlmInboundHandoffCoordinatorTest {
                 routingFailed = true
             }
             assertTrue("A mismatched chat route must be rejected", routingFailed)
+            var timestampMismatchRejected = false
+            try {
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload ->
+                    cachedMessage(payload, timestamp = payload.sentAtMillis + 1L)
+                }
+            } catch (_: IllegalArgumentException) {
+                timestampMismatchRejected = true
+            }
+            assertTrue("A cache timestamp must match authenticated metadata", timestampMismatchRejected)
             assertEquals(
                 OlmInboundReceiptStatus.PENDING.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
@@ -438,6 +453,7 @@ class OlmInboundHandoffCoordinatorTest {
     private fun cachedMessage(
         payload: OlmAuthenticatedMessagePayload,
         chatId: String = payload.senderUserId,
+        timestamp: Long = payload.sentAtMillis,
     ) = CachedMessageEntity(
         ownerUserId = payload.recipientUserId,
         chatId = chatId,
@@ -445,7 +461,7 @@ class OlmInboundHandoffCoordinatorTest {
         senderId = payload.senderUserId,
         senderNickname = "Alice",
         text = payload.text,
-        timestamp = payload.sentAtMillis,
+        timestamp = timestamp,
         replyMessageId = "",
         replySenderId = "",
         replySenderNickname = "",
