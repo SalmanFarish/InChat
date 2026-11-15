@@ -335,8 +335,7 @@ fn persist_test_session<'local>(
     let mut serialized =
         serde_json::to_vec(&session.pickle()).map_err(|_| "Olm session serialization failed")?;
 
-    let mut state_blob =
-        Vec::with_capacity(SESSION_STATE_HEADER.len() + serialized.len());
+    let mut state_blob = Vec::with_capacity(SESSION_STATE_HEADER.len() + serialized.len());
     state_blob.extend_from_slice(SESSION_STATE_HEADER);
     state_blob.extend_from_slice(&serialized);
     serialized.zeroize();
@@ -408,8 +407,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeO
 #[cfg(test)]
 mod tests {
     use super::{
-        create_test_session_fixture, decrypt_test_session_reply, run_olm_self_test,
-        OlmMessageParts,
+        create_test_session_fixture, decrypt_test_session_reply, run_olm_self_test, OlmMessageParts,
     };
     use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionPickle};
 
@@ -500,7 +498,6 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeR
         Ok(Ok(_)) | Ok(Err(_)) | Err(_) => JNI_FALSE,
     }
 }
-
 
 // Persist an Olm session and return only the peer's encrypted test reply.
 #[unsafe(no_mangle)]
