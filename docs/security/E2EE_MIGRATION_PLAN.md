@@ -25,12 +25,17 @@ Changing only the message transport would not provide E2EE while these other pla
 
 ## Required message-format compatibility
 
-New messages need an explicit versioned envelope. The exact field names must be finalized with the selected protocol library, but the logical fields are:
+New messages need an explicit versioned envelope. The isolated Olm prototype now defines envelope version 1 as JSON with these fields:
 
-- `encryptionVersion`: 0 for existing legacy plaintext records; 1 for the new encrypted format.
-- `ciphertext`: opaque encoded protocol message.
-- `protocolMetadata`: only the minimum routing/session metadata required by the selected protocol.
-- Existing message ID, sender ID, timestamp, and delivery bookkeeping remain separate from message contents.
+- `encryptionVersion`: integer `1` for this format. Existing records remain legacy plaintext and are not rewritten.
+- `algorithm`: `"olm"` for this pairwise protocol.
+- `senderDeviceId` and `recipientDeviceId`: validated device-routing identifiers.
+- `sessionId`: the local Olm session selector.
+- `ciphertext`: URL-safe Base64 of the opaque native Olm wire message.
+
+The codec rejects unsupported versions/algorithms, invalid device IDs, self-addressed envelopes, malformed Base64, and oversized or truncated ciphertext. Device IDs and session IDs are routing metadata, not cryptographic authentication; Olm ciphertext authentication remains authoritative. This codec is not connected to Firebase or live chat records.
+
+Existing message ID, account sender ID, timestamp, and delivery bookkeeping remain separate from message contents. The eventual database adapter must map legacy records to encryption version 0 and must never silently downgrade a version 1 send to plaintext.
 
 Version 0 messages must remain readable for history. Version 1 messages must never silently fall back to plaintext if a key or session is missing. The UI should clearly distinguish older unencrypted history from encrypted messages.
 
