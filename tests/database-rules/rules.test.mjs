@@ -336,11 +336,10 @@ test("authenticated clients can claim a one-time prekey exactly once", async () 
 
   const winnerDb = aliceResult.committed ? aliceDb : bobDb;
   const loserDb = aliceResult.committed ? bobDb : aliceDb;
-  await assertFails(
-    runTransaction(ref(loserDb, path), (current) =>
-      current === null ? true : undefined,
-    ),
+  const retry = await runTransaction(ref(loserDb, path), (current) =>
+    current === null ? true : undefined,
   );
+  assert.equal(retry.committed, false, "a second claimant must not overwrite the claim");
   await assertSucceeds(get(ref(winnerDb, path)));
 });
 
