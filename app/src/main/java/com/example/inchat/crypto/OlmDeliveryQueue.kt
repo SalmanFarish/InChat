@@ -43,7 +43,7 @@ internal interface OlmDeliveryQueueStore {
      * Atomically lease the oldest due QUEUED row or expired IN_FLIGHT row.
      * The returned row must have attemptCount incremented and a new lease.
      */
-    fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long): QueuedOlmDeviceDelivery?
+    fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
     /** Atomically update a matching IN_FLIGHT row; return false if it is no longer leased. */
     fun updateInFlight(
@@ -113,7 +113,7 @@ internal class OlmDeliveryQueue(
     /** Claim one due row. The caller must send the returned ciphertext envelope. */
     fun claimNext(nowMillis: Long): QueuedOlmDeviceDelivery? {
         require(nowMillis >= 0) { "nowMillis must not be negative" }
-        return store.claimNextDue(nowMillis, leaseDurationMillis)
+        return store.claimNextDue(nowMillis, leaseDurationMillis, maxAttempts)
     }
 
     /** Mark a delivery acknowledged; duplicate acknowledgements are harmless. */
