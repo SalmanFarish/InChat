@@ -45,6 +45,7 @@ internal class OlmInboundHandoffCoordinator(
     suspend fun process(
         receiptId: String,
         remoteDevice: PublicDeviceKeyBundle,
+        remoteDeviceUserId: String,
         ciphertextKind: OlmInboundCiphertextKind,
         localUserId: String,
         messageFactory: (payload: OlmAuthenticatedMessagePayload) -> CachedMessageEntity,
@@ -55,6 +56,9 @@ internal class OlmInboundHandoffCoordinator(
             }
             val receipt = requireNotNull(receiptDao.getByReceiptId(receiptId)) {
                 "Inbound receipt does not exist"
+            }
+            require(remoteDeviceUserId == receipt.senderUserId) {
+                "Verified remote device account does not match the inbound receipt sender"
             }
             require(remoteDevice.deviceId == receipt.senderDeviceId) {
                 "Verified remote device does not match the inbound receipt sender"
