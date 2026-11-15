@@ -22,13 +22,21 @@ internal interface SasVerificationTransport {
  * It never touches chats, Olm inboxes, or normal message delivery.
  */
 internal class FirebaseSasVerificationTransport(
+    private val localDeviceId: String,
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : SasVerificationTransport {
+    init {
+        require(DEVICE_PATTERN.matches(localDeviceId)) { "Local device ID has an invalid format" }
+    }
+
     override suspend fun upload(message: SasVerificationMessage) {
         val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before sending a verification message" }
         require(uid == message.senderUserId) { "SAS sender must be the authenticated account" }
+        require(message.senderDeviceId == localDeviceId) {
+            "SAS sender device must be this installation"
+        }
         val now = clock().coerceAtLeast(0L)
         require(message.expiresAtMillis > now) { "SAS verification transaction has expired" }
         val encoded = SasVerificationMessageCodec.encode(message)
@@ -48,7 +56,7 @@ internal class FirebaseSasVerificationTransport(
 
     override suspend fun readInbox(deviceId: String): List<SasVerificationInboxItem> {
         val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before reading verification messages" }
-        require(DEVICE_PATTERN.matches(deviceId))
+        require(deviceId == localDeviceId) { "SAS inbox must be read for this installation" }
         val now = clock().coerceAtLeast(0L)
         return database.reference.child(INBOX_NODE).child(uid).child(deviceId).get().await()
             .children.mapNotNull { parse(it, uid, deviceId, now) }
@@ -57,7 +65,7 @@ internal class FirebaseSasVerificationTransport(
 
     override suspend fun acknowledge(deviceId: String, deliveryId: String) {
         val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before acknowledging verification messages" }
-        require(DEVICE_PATTERN.matches(deviceId))
+        require(deviceId == localDeviceId) { "Only this installation can acknowledge its SAS inbox" }
         require(DELIVERY_PATTERN.matches(deliveryId))
         database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
             .removeValue().await()
@@ -117,6 +125,7 @@ internal class SasVerificationInboxReceiver(
         var received = 0
         var duplicates = 0
         var conflicts = 0
+        val now = clock().coerceAtLeast(0L)
         for (item in items) {
             require(item.senderUid == item.message.senderUserId) {
                 "SAS inbox sender does not match the authenticated message sender"
