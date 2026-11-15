@@ -11,8 +11,8 @@ use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use zeroize::Zeroize;
 use vodozemac::olm::{Account, AccountPickle, OlmMessage, SessionConfig};
+use zeroize::Zeroize;
 
 /// The exact upstream cryptography engine version used by this prototype.
 pub const VODOZEMAC_VERSION: &str = "0.11.2";
@@ -46,9 +46,7 @@ impl TryFrom<OlmMessageParts> for OlmMessage {
     }
 }
 
-fn cross_transport_boundary(
-    message: OlmMessage,
-) -> Result<OlmMessage, &'static str> {
+fn cross_transport_boundary(message: OlmMessage) -> Result<OlmMessage, &'static str> {
     let parts = OlmMessageParts::from(message);
     OlmMessage::try_from(parts).map_err(|_| "Olm message decoding failed")
 }
@@ -176,10 +174,10 @@ fn persist_test_account<'local>(
 
     // The byte array is passed directly to the store's native-only method.
     // CryptoStateStore encrypts it with Android Keystore and zeroes the array.
-    let java_state = env
-        .byte_array_from_slice(&state_blob)
-        .map_err(|_| "Could not create temporary Java state buffer")?;
+    let java_state_result = env.byte_array_from_slice(&state_blob);
     state_blob.zeroize();
+    let java_state = java_state_result
+        .map_err(|_| "Could not create temporary Java state buffer")?;
 
     env.call_method(
         store,
@@ -215,13 +213,13 @@ fn restore_test_account<'local>(
     }
 
     let mut java_copy = vec![0_i8; length];
-    env.get_byte_array_region(&stored_array, 0, &mut java_copy)
-        .map_err(|_| "Could not copy saved Olm account state")?;
+    let copy_result = env.get_byte_array_region(&stored_array, 0, &mut java_copy);
 
-    // Clear the Java-side decrypted buffer as soon as it has been copied.
+    // Clear the Java-side decrypted buffer as soon as the copy was attempted.
     let java_zeros = vec![0_i8; length];
-    env.set_byte_array_region(&stored_array, 0, &java_zeros)
-        .map_err(|_| "Could not clear temporary Java state buffer")?;
+    let clear_result = env.set_byte_array_region(&stored_array, 0, &java_zeros);
+    copy_result.map_err(|_| "Could not copy saved Olm account state")?;
+    clear_result.map_err(|_| "Could not clear temporary Java state buffer")?;
 
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
@@ -243,7 +241,9 @@ fn restore_test_account<'local>(
 // This symbol is intentionally narrow: it verifies that the native library
 // can invoke the real vodozemac implementation without exposing key material.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVodozemacVersion<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVodozemacVersion<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
 ) -> jstring {
@@ -254,7 +254,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeV
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeOlmSelfTest<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeOlmSelfTest<
+    'local,
+>(
     _env: JNIEnv<'local>,
     _this: JObject<'local>,
 ) -> jboolean {
@@ -285,12 +287,13 @@ mod tests {
     }
 }
 
-
 // Persist a temporary Olm account through the Android Keystore-backed store.
 // The public identity fingerprint is returned for the restoration test; no
 // private key or serialized state is returned to Kotlin.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePersistAccountState<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePersistAccountState<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     store: JObject<'local>,
@@ -307,7 +310,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
 // Restore a serialized Olm account from the Keystore-backed store and compare
 // its public identity keys against the test's expected fingerprint.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeRestoreAccountState<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeRestoreAccountState<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     store: JObject<'local>,
