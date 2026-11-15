@@ -1021,6 +1021,86 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeC
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePrepareInboundOlmSession<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+    remote_identity_key: JString<'local>,
+    wire_message: JByteArray<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let identity: String = match env.get_string(&remote_identity_key) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut wire = match read_olm_wire_message(&mut env, &wire_message) { Ok(v) => v, Err(_) => return std::ptr::null_mut() };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        prepare_inbound_prekey_decryption(&mut env, &store, &device_id, &receipt_id, &identity, &wire)
+    }));
+    wire.zeroize();
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePrepareOlmMessage<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+    session_id: JString<'local>,
+    wire_message: JByteArray<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let session_id: String = match env.get_string(&session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut wire = match read_olm_wire_message(&mut env, &wire_message) { Ok(v) => v, Err(_) => return std::ptr::null_mut() };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        prepare_existing_session_decryption(&mut env, &store, &device_id, &receipt_id, &session_id, &wire)
+    }));
+    wire.zeroize();
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeFinalizeInboundDecryption<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+) -> jboolean {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    match catch_unwind(AssertUnwindSafe(|| {
+        finalize_pending_decryption(&mut env, &store, &device_id, &receipt_id)
+    })) {
+        Ok(Ok(true)) => JNI_TRUE,
+        _ => JNI_FALSE,
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeDecryptOlmMessage<
     'local,
 >(
