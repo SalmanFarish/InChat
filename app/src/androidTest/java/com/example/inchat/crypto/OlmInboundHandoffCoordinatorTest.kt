@@ -184,6 +184,27 @@ class OlmInboundHandoffCoordinatorTest {
                 clock = { 400L },
             )
 
+            var senderAccountMismatchRejected = false
+            try {
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "mallory",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> cachedMessage(payload) }
+            } catch (_: IllegalArgumentException) {
+                senderAccountMismatchRejected = true
+            }
+            assertTrue(
+                "A verified device loaded under another account must be rejected",
+                senderAccountMismatchRejected,
+            )
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+
             var mappingFailed = false
             try {
                 coordinator.process(
