@@ -251,6 +251,68 @@
           ".validate": "newData.isNumber() && newData.val() >= 0"
         }
       }
+    },
+    "deviceKeys": {
+      "$uid": {
+        ".read": "auth != null",
+        "$deviceId": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['schemaVersion', 'deviceId', 'ed25519IdentityKey', 'curve25519IdentityKey', 'curve25519IdentityKeySignature', 'fallbackKey', 'oneTimeKeys', 'publishedAt']) && newData.child('schemaVersion').val() === 1 && newData.child('deviceId').val() === $deviceId && newData.child('ed25519IdentityKey').isString() && newData.child('curve25519IdentityKey').isString() && newData.child('curve25519IdentityKeySignature').isString() && newData.child('oneTimeKeys').numChildren() <= 20 && newData.child('oneTimeKeys').numChildren() > 0 && newData.child('publishedAt').isNumber()",
+          "ed25519IdentityKey": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+          },
+          "curve25519IdentityKey": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+          },
+          "curve25519IdentityKeySignature": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 256"
+          },
+          "fallbackKey": {
+            ".validate": "newData.hasChildren(['keyKind', 'keyId', 'publicKey', 'signature'])",
+            "keyKind": {
+              ".validate": "newData.val() === 'fallback'"
+            },
+            "keyId": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+            },
+            "publicKey": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+            },
+            "signature": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 256"
+            },
+            "$other": {
+              ".validate": "false"
+            }
+          },
+          "oneTimeKeys": {
+            "$index": {
+              ".validate": "newData.hasChildren(['keyKind', 'keyId', 'publicKey', 'signature'])",
+              "keyKind": {
+                ".validate": "newData.val() === 'one_time'"
+              },
+              "keyId": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+              },
+              "publicKey": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128"
+              },
+              "signature": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 256"
+              },
+              "$other": {
+                ".validate": "false"
+              }
+            }
+          },
+          "publishedAt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "$other": {
+            ".validate": "false"
+          }
+        }
+      }
     }
   }
 }
