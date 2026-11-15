@@ -735,17 +735,20 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
         Ok(v) => v.into(),
         Err(_) => return std::ptr::null_mut(),
     };
-    let plaintext: String = match env.get_string(&plaintext) {
+    let mut plaintext: String = match env.get_string(&plaintext) {
         Ok(v) => v.into(),
         Err(_) => return std::ptr::null_mut(),
     };
-    match catch_unwind(AssertUnwindSafe(|| {
+    let result = catch_unwind(AssertUnwindSafe(|| {
         encrypt_olm_message(&mut env, &store, &device_id, &session_id, &plaintext)
-    })) {
-        Ok(Ok(wire)) => env
-            .byte_array_from_slice(&wire)
-            .map(|v| v.into_raw())
-            .unwrap_or(std::ptr::null_mut()),
+    }));
+    plaintext.zeroize();
+    match result {
+        Ok(Ok(mut wire)) => {
+            let output = env.byte_array_from_slice(&wire);
+            wire.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
         _ => std::ptr::null_mut(),
     }
 }
@@ -778,10 +781,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeC
     }));
     wire.zeroize();
     match result {
-        Ok(Ok(value)) => env
-            .new_string(value)
-            .map(|v| v.into_raw())
-            .unwrap_or(std::ptr::null_mut()),
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
         _ => std::ptr::null_mut(),
     }
 }
@@ -814,10 +818,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeD
     }));
     wire.zeroize();
     match result {
-        Ok(Ok(value)) => env
-            .new_string(value)
-            .map(|v| v.into_raw())
-            .unwrap_or(std::ptr::null_mut()),
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
         _ => std::ptr::null_mut(),
     }
 }
