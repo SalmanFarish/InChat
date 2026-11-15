@@ -68,6 +68,31 @@ internal object NativeCryptoBridge {
         wireMessage: ByteArray,
     ): String?
 
+    /** Atomically stage an initial pre-key decrypt for a durable inbound receipt. */
+    external fun nativePrepareInboundOlmSession(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+        remoteIdentityKey: String,
+        wireMessage: ByteArray,
+    ): String?
+
+    /** Decrypt or recover staged plaintext for a normal Olm message receipt. */
+    external fun nativePrepareOlmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+        sessionId: String,
+        wireMessage: ByteArray,
+    ): String?
+
+    /** Clear staged plaintext after the Room message and receipt commit succeeds. */
+    external fun nativeFinalizeInboundDecryption(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+    ): Boolean
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
