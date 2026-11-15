@@ -35,9 +35,14 @@ class OlmInboundHandoffCoordinatorTest {
                 requireNotNull(localBundle.oneTimeKeys.firstOrNull()).publicKey,
             )
         )
+        val initialPayload = authenticatedPayload(
+            "handoff-$suffix", "alice", senderDeviceId, "local-user",
+            localBundle.deviceId, 150L, "handoff plaintext",
+        )
         val ciphertext = requireNotNull(
             NativeCryptoBridge.nativeEncryptOlmMessage(
-                senderStore, senderDeviceId, senderSessionId, "handoff plaintext"
+                senderStore, senderDeviceId, senderSessionId,
+                OlmAuthenticatedMessagePayloadCodec.encode(initialPayload),
             )
         )
         val encodedEnvelope = EncryptedOlmEnvelopeCodec.encode(
@@ -71,12 +76,11 @@ class OlmInboundHandoffCoordinatorTest {
                 receiptId, senderBundle, receipt.envelope
             )
             assertEquals("handoff plaintext", staged.plaintext)
-            val message = cachedMessage(
-                localUserId = "local-user",
-                senderUserId = "alice",
-                messageId = receipt.messageId,
-                plaintext = staged.plaintext,
+            val decodedPayload = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
+                staged.plaintext, receipt.messageId, "alice", senderDeviceId,
+                "local-user", localBundle.deviceId,
             )
+            val message = cachedMessage(decodedPayload)
             assertTrue(
                 OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
                     .commit(receiptId, message, 200L)
@@ -95,6 +99,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
                 ) { error("A committed receipt must not rebuild or insert its message") },
             )
             assertEquals(
@@ -136,9 +141,14 @@ class OlmInboundHandoffCoordinatorTest {
                 requireNotNull(localBundle.oneTimeKeys.firstOrNull()).publicKey,
             )
         )
+        val firstPayload = authenticatedPayload(
+            "handoff-retry-$suffix", "alice", senderDeviceId, "local-user",
+            localBundle.deviceId, 150L, "retryable handoff plaintext",
+        )
         val wire = requireNotNull(
             NativeCryptoBridge.nativeEncryptOlmMessage(
-                senderStore, senderDeviceId, sessionId, "retryable handoff plaintext"
+                senderStore, senderDeviceId, sessionId,
+                OlmAuthenticatedMessagePayloadCodec.encode(firstPayload),
             )
         )
         val envelope = EncryptedOlmEnvelopeCodec.encode(
@@ -179,6 +189,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
                 ) { error("Simulated invalid authenticated payload metadata") }
             } catch (_: IllegalStateException) {
                 mappingFailed = true
@@ -190,14 +201,9 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.PRE_KEY,
-                ) { plaintext ->
-                    cachedMessage(
-                        "local-user",
-                        "alice",
-                        messageId,
-                        plaintext,
-                        chatId = "wrong-chat",
-                    )
+                    localUserId = "local-user",
+                ) { payload ->
+                    cachedMessage(payload, chatId = "wrong-chat")
                 }
             } catch (_: IllegalArgumentException) {
                 routingFailed = true
@@ -218,8 +224,9 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.PRE_KEY,
-                ) { plaintext ->
-                    cachedMessage("local-user", "alice", messageId, plaintext)
+                    localUserId = "local-user",
+                ) { payload ->
+                    cachedMessage(payload)
                 },
             )
             assertEquals(
@@ -236,6 +243,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
                 ) { error("Duplicate processing must not create another message") },
             )
 
@@ -255,9 +263,14 @@ class OlmInboundHandoffCoordinatorTest {
 
             // The established session now carries a regular Olm message.
             val normalMessageId = "handoff-normal-$suffix"
+            val normalPayload = authenticatedPayload(
+                normalMessageId, "alice", senderDeviceId, "local-user",
+                localBundle.deviceId, 550L, "normal handoff plaintext",
+            )
             val normalWire = requireNotNull(
                 NativeCryptoBridge.nativeEncryptOlmMessage(
-                    senderStore, senderDeviceId, sessionId, "normal handoff plaintext"
+                    senderStore, senderDeviceId, sessionId,
+                    OlmAuthenticatedMessagePayloadCodec.encode(normalPayload),
                 )
             )
             val normalEnvelope = EncryptedOlmEnvelopeCodec.encode(
@@ -281,8 +294,9 @@ class OlmInboundHandoffCoordinatorTest {
                     normalReceiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.NORMAL,
-                ) { plaintext ->
-                    cachedMessage("local-user", "alice", normalMessageId, plaintext)
+                    localUserId = "local-user",
+                ) { payload ->
+                    cachedMessage(payload)
                 },
             )
             assertEquals(
@@ -293,9 +307,14 @@ class OlmInboundHandoffCoordinatorTest {
             // A normal-message mapping failure must also retain the staged
             // plaintext so the same receipt can be retried safely.
             val retryNormalMessageId = "handoff-normal-retry-$suffix"
+            val retryNormalPayload = authenticatedPayload(
+                retryNormalMessageId, "alice", senderDeviceId, "local-user",
+                localBundle.deviceId, 650L, "normal retry plaintext",
+            )
             val retryNormalWire = requireNotNull(
                 NativeCryptoBridge.nativeEncryptOlmMessage(
-                    senderStore, senderDeviceId, sessionId, "normal retry plaintext"
+                    senderStore, senderDeviceId, sessionId,
+                    OlmAuthenticatedMessagePayloadCodec.encode(retryNormalPayload),
                 )
             )
             val retryNormalEnvelope = EncryptedOlmEnvelopeCodec.encode(
@@ -319,6 +338,7 @@ class OlmInboundHandoffCoordinatorTest {
                     retryNormalReceiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.NORMAL,
+                    localUserId = "local-user",
                 ) { error("Simulated normal-message metadata failure") }
             } catch (_: IllegalStateException) {
                 normalMappingFailed = true
@@ -334,8 +354,9 @@ class OlmInboundHandoffCoordinatorTest {
                     retryNormalReceiptId,
                     senderBundle,
                     OlmInboundCiphertextKind.NORMAL,
-                ) { plaintext ->
-                    cachedMessage("local-user", "alice", retryNormalMessageId, plaintext)
+                    localUserId = "local-user",
+                ) { payload ->
+                    cachedMessage(payload)
                 },
             )
             assertEquals(
@@ -367,20 +388,35 @@ class OlmInboundHandoffCoordinatorTest {
         )
     }
 
-    private fun cachedMessage(
-        localUserId: String,
-        senderUserId: String,
+    private fun authenticatedPayload(
         messageId: String,
-        plaintext: String,
-        chatId: String = senderUserId,
-    ) = CachedMessageEntity(
-        ownerUserId = localUserId,
-        chatId = chatId,
+        senderUserId: String,
+        senderDeviceId: String,
+        recipientUserId: String,
+        recipientDeviceId: String,
+        sentAtMillis: Long,
+        text: String,
+    ) = OlmAuthenticatedMessagePayload(
         messageId = messageId,
-        senderId = senderUserId,
+        senderUserId = senderUserId,
+        senderDeviceId = senderDeviceId,
+        recipientUserId = recipientUserId,
+        recipientDeviceId = recipientDeviceId,
+        sentAtMillis = sentAtMillis,
+        text = text,
+    )
+
+    private fun cachedMessage(
+        payload: OlmAuthenticatedMessagePayload,
+        chatId: String = payload.senderUserId,
+    ) = CachedMessageEntity(
+        ownerUserId = payload.recipientUserId,
+        chatId = chatId,
+        messageId = payload.messageId,
+        senderId = payload.senderUserId,
         senderNickname = "Alice",
-        text = plaintext,
-        timestamp = 150L,
+        text = payload.text,
+        timestamp = payload.sentAtMillis,
         replyMessageId = "",
         replySenderId = "",
         replySenderNickname = "",
