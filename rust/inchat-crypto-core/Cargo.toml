@@ -6,5 +6,10 @@ rust-version = "1.89"
 publish = false
 description = "Experimental cryptographic core for the InChat Android client"
 
+[lib]
+name = "inchat_crypto_core"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
+jni = "=0.21.1"
 vodozemac = "=0.11.2"
