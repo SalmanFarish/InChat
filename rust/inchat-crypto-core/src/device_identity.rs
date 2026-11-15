@@ -396,8 +396,8 @@ fn mark_device_identity_published<'local>(
     store: &JObject<'local>,
     device_id: &str,
 ) -> Result<(), &'static str> {
-    let state_blob = read_optional_device_state(env, store)?
-        .ok_or("No saved Olm device identity exists")?;
+    let state_blob =
+        read_optional_device_state(env, store)?.ok_or("No saved Olm device identity exists")?;
     let mut account = decode_device_account_state(state_blob, device_id)?;
     account.mark_keys_as_published();
     let updated_state = encode_device_account_state(device_id, &account)?;
@@ -558,8 +558,11 @@ mod tests {
     fn unpublished_prekeys_replenish_after_previous_batch_is_published() {
         let mut account = Account::new();
         assert!(super::ensure_unpublished_prekeys(&mut account));
-        let first_ids: std::collections::HashSet<_> =
-            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        let first_ids: std::collections::HashSet<_> = account
+            .one_time_keys()
+            .keys()
+            .map(|id| id.to_base64())
+            .collect();
         assert_eq!(first_ids.len(), 20);
         assert_eq!(account.fallback_key().len(), 1);
 
@@ -568,8 +571,11 @@ mod tests {
         assert!(account.fallback_key().is_empty());
 
         assert!(super::ensure_unpublished_prekeys(&mut account));
-        let next_ids: std::collections::HashSet<_> =
-            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        let next_ids: std::collections::HashSet<_> = account
+            .one_time_keys()
+            .keys()
+            .map(|id| id.to_base64())
+            .collect();
         assert_eq!(next_ids.len(), 20);
         assert!(first_ids.is_disjoint(&next_ids));
         assert_eq!(account.fallback_key().len(), 1);
@@ -580,12 +586,18 @@ mod tests {
         let mut account = Account::new();
         account.generate_one_time_keys(7);
         account.generate_fallback_key();
-        let before: std::collections::HashSet<_> =
-            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        let before: std::collections::HashSet<_> = account
+            .one_time_keys()
+            .keys()
+            .map(|id| id.to_base64())
+            .collect();
 
         assert!(super::ensure_unpublished_prekeys(&mut account));
-        let after: std::collections::HashSet<_> =
-            account.one_time_keys().keys().map(|id| id.to_base64()).collect();
+        let after: std::collections::HashSet<_> = account
+            .one_time_keys()
+            .keys()
+            .map(|id| id.to_base64())
+            .collect();
         assert!(before.is_subset(&after));
         assert_eq!(after.len(), 20);
     }
