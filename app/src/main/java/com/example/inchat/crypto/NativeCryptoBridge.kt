@@ -15,4 +15,13 @@ internal object NativeCryptoBridge {
     external fun nativeVodozemacVersion(): String
 
     external fun nativeOlmSelfTest(): Boolean
+
+    /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
+    external fun nativePersistAccountState(store: CryptoStateStore): String
+
+    /** Restore that account from Keystore and compare its public identity keys. */
+    external fun nativeRestoreAccountState(
+        store: CryptoStateStore,
+        expectedIdentityKeys: String
+    ): Boolean
 }
