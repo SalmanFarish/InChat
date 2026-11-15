@@ -4,7 +4,7 @@ use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle};
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
+use vodozemac::{Curve25519PublicKey, KeyId};
 use zeroize::Zeroize;
 
 const DEVICE_STATE_HEADER: &[u8; 6] = b"ICDEV\x01";
@@ -355,7 +355,7 @@ mod tests {
             )
             .expect("signature should decode");
 
-            let kind = if bundle["fallbackKey"]["keyId"] == key_id {
+            let kind = if bundle["fallbackKey"]["keyId"].as_str() == Some(key_id) {
                 "fallback"
             } else {
                 "one_time"
