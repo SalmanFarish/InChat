@@ -94,7 +94,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerCommitment<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerCommitment<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -115,7 +117,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasRevealPublicKey<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasRevealPublicKey<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -133,7 +137,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerPublicKey<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasAcceptPeerPublicKey<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -154,7 +160,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasDisplayCodes<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasDisplayCodes<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -177,7 +185,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasConfirmMatch<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasConfirmMatch<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -197,7 +207,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreateLocalMac<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCreateLocalMac<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -207,13 +219,15 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
         with_session(&handle, |session| session.create_local_mac())
     })();
     match result {
-        Ok(Ok(value)) => java_string(&mut env, &value),
+        Ok(value) => java_string(&mut env, &value),
         _ => std::ptr::null_mut(),
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasVerifyPeerMac<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasVerifyPeerMac<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -232,7 +246,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasIsComplete<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasIsComplete<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
@@ -249,7 +265,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel<'local>(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
