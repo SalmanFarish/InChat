@@ -265,9 +265,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel<
-    'local,
->(
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeSasCancel<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: JString<'local>,
