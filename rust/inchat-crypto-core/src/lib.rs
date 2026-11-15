@@ -176,8 +176,7 @@ fn persist_test_account<'local>(
     // CryptoStateStore encrypts it with Android Keystore and zeroes the array.
     let java_state_result = env.byte_array_from_slice(&state_blob);
     state_blob.zeroize();
-    let java_state = java_state_result
-        .map_err(|_| "Could not create temporary Java state buffer")?;
+    let java_state = java_state_result.map_err(|_| "Could not create temporary Java state buffer")?;
 
     env.call_method(
         store,
