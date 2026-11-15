@@ -112,4 +112,40 @@ internal object NativeCryptoBridge {
         store: CryptoStateStore,
         encryptedReply: ByteArray,
     ): Boolean
+
+    /**
+     * Start an isolated, process-local SAS verification attempt.
+     *
+     * Identity inputs must come from the authenticated local device and a
+     * previously signature-verified remote device bundle. This method does not
+     * persist trust or communicate over Firebase.
+     *
+     * Returns JSON containing an opaque handle and this device's commitment.
+     */
+    external fun nativeSasCreate(
+        initiatorUserId: String,
+        initiatorDeviceId: String,
+        initiatorEd25519Key: String,
+        responderUserId: String,
+        responderDeviceId: String,
+        responderEd25519Key: String,
+        transactionId: String,
+        localIsInitiator: Boolean,
+    ): String?
+
+    external fun nativeSasAcceptPeerCommitment(handle: String, commitment: String): Boolean
+    external fun nativeSasRevealPublicKey(handle: String): String?
+    external fun nativeSasAcceptPeerPublicKey(handle: String, publicKey: String): Boolean
+
+    /** JSON contains seven emoji indices and three decimal comparison values. */
+    external fun nativeSasDisplayCodes(handle: String): String?
+
+    external fun nativeSasConfirmMatch(handle: String, matched: Boolean): Boolean
+    external fun nativeSasCreateLocalMac(handle: String): String?
+    external fun nativeSasVerifyPeerMac(handle: String, mac: String): Boolean
+    external fun nativeSasIsComplete(handle: String): Boolean
+
+    /** Cancelling drops the native ephemeral secret; handles are process-local. */
+    external fun nativeSasCancel(handle: String): Boolean
+
 }
