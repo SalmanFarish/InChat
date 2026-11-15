@@ -132,9 +132,9 @@ internal class SasVerificationInboxReceiver(
             }
             val encoded = SasVerificationMessageCodec.encode(item.message)
             val decoded = SasVerificationMessageCodec.decode(
-                encoded, localUserId, localDeviceId, clock().coerceAtLeast(0L),
+                encoded, localUserId, localDeviceId, now,
             )
-            when (ledger.register(decoded, clock().coerceAtLeast(0L))) {
+            when (ledger.register(decoded, now)) {
                 SasMessageRegistration.NEW -> {
                     transport.acknowledge(localDeviceId, item.deliveryId)
                     received++
