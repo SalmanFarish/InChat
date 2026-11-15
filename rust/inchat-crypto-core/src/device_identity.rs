@@ -3,7 +3,7 @@ use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use vodozemac::olm::{Account, AccountPickle};
+use vodozemac::olm::{Account, AccountPickle, OlmMessage};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
 use zeroize::Zeroize;
 
@@ -148,7 +148,8 @@ fn encode_device_account_state(
     let pickle = serde_json::to_value(account.pickle())
         .map_err(|_| "Olm device account serialization failed")?;
     let restored = Account::from(
-        serde_json::from_value(pickle).map_err(|_| "Olm device account serialization failed")?,
+        serde_json::from_value::<AccountPickle>(pickle)
+            .map_err(|_| "Olm device account serialization failed")?,
     );
     encode_device_crypto_state(
         device_id,
