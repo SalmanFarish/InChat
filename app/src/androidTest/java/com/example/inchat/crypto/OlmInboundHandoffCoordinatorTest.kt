@@ -115,6 +115,116 @@ class OlmInboundHandoffCoordinatorTest {
         }
     }
 
+
+    @Test
+    fun coordinatorRetriesMappingFailureThenCommitsExactlyOnce() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val localBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
+        val senderDeviceId = "handoff-retry-sender-$suffix"
+        val senderStore = CryptoStateStore(context, "device-handoff-retry-sender-$suffix")
+        val senderJson = JSONObject(
+            NativeCryptoBridge.nativeEnsureDeviceIdentity(senderStore, senderDeviceId)
+                ?: error("Sender identity should be created")
+        )
+        val senderBundle = parseBundle(senderDeviceId, senderJson)
+        val sessionId = requireNotNull(
+            NativeCryptoBridge.nativeCreateOutboundOlmSession(
+                senderStore,
+                senderDeviceId,
+                localBundle.curve25519IdentityKey,
+                requireNotNull(localBundle.oneTimeKeys.firstOrNull()).publicKey,
+            )
+        )
+        val wire = requireNotNull(
+            NativeCryptoBridge.nativeEncryptOlmMessage(
+                senderStore, senderDeviceId, sessionId, "retryable handoff plaintext"
+            )
+        )
+        val envelope = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = senderDeviceId,
+                recipientDeviceId = localBundle.deviceId,
+                sessionId = sessionId,
+                ciphertext = wire,
+            )
+        )
+        val databaseName = "olm-inbound-handoff-retry-$suffix.db"
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val messageId = "handoff-retry-$suffix"
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), localBundle.deviceId)
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", messageId, envelope, 300L),
+            )
+            val receiptId = sha256(
+                "alice\u0000$senderDeviceId\u0000$messageId\u0000${localBundle.deviceId}"
+            )
+            val receipt = requireNotNull(db.olmInboundReceiptDao().getByReceiptId(receiptId))
+            val repository = OlmSessionRepository(context)
+            val coordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                messageDao = db.messageDao(),
+                clock = { 400L },
+            )
+
+            var mappingFailed = false
+            try {
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.PRE_KEY,
+                ) { error("Simulated invalid authenticated payload metadata") }
+            } catch (_: IllegalStateException) {
+                mappingFailed = true
+            }
+            assertTrue("Message mapping failure should propagate", mappingFailed)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(
+                null,
+                db.messageDao().getMessage("local-user", "alice", messageId),
+            )
+
+            assertEquals(
+                OlmInboundHandoffResult.COMMITTED,
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.PRE_KEY,
+                ) { plaintext ->
+                    cachedMessage("local-user", "alice", messageId, plaintext)
+                },
+            )
+            assertEquals(
+                "retryable handoff plaintext",
+                db.messageDao().getMessage("local-user", "alice", messageId)?.text,
+            )
+            assertEquals(
+                OlmInboundReceiptStatus.PROCESSED.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(
+                OlmInboundHandoffResult.ALREADY_COMMITTED,
+                coordinator.process(
+                    receiptId,
+                    senderBundle,
+                    OlmInboundCiphertextKind.PRE_KEY,
+                ) { error("Duplicate processing must not create another message") },
+            )
+        } finally {
+            db.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun parseBundle(deviceId: String, json: JSONObject): PublicDeviceKeyBundle {
         val identity = json.getJSONObject("identityKeys")
         fun parsePrekey(value: JSONObject) = SignedOlmPreKey(
