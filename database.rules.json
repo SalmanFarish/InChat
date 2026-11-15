@@ -258,6 +258,17 @@
         ".write": "auth != null && auth.uid === $uid",
         "$deviceId": {}
       }
+    },
+    "deviceKeyClaims": {
+      "$uid": {
+        "$deviceId": {
+          "$keyId": {
+            ".read": "auth != null",
+            ".write": "auth != null && !data.exists() && newData.val() === true",
+            ".validate": "newData.isBoolean() && newData.val() === true"
+          }
+        }
+      }
     }
   }
 }
