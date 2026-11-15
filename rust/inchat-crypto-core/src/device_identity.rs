@@ -147,7 +147,6 @@ fn public_device_key_bundle(account: &Account, device_id: &str) -> Value {
     })
 }
 
-
 /// Verify the identity binding and every signed prekey in an untrusted public bundle.
 fn verify_public_device_key_bundle(encoded: &str) -> bool {
     let Ok(bundle) = serde_json::from_str::<Value>(encoded) else {
@@ -156,8 +155,7 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
     let Some(device_id) = bundle.get("deviceId").and_then(Value::as_str) else {
         return false;
     };
-    if !valid_device_id(device_id)
-        || bundle.get("schemaVersion").and_then(Value::as_u64) != Some(1)
+    if !valid_device_id(device_id) || bundle.get("schemaVersion").and_then(Value::as_u64) != Some(1)
     {
         return false;
     }
@@ -171,7 +169,8 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
     let Some(curve25519) = identity.get("curve25519").and_then(Value::as_str) else {
         return false;
     };
-    let Some(identity_signature) = identity.get("curve25519Signature").and_then(Value::as_str) else {
+    let Some(identity_signature) = identity.get("curve25519Signature").and_then(Value::as_str)
+    else {
         return false;
     };
     let Ok(identity_key) = Ed25519PublicKey::from_base64(ed25519) else {
@@ -182,7 +181,10 @@ fn verify_public_device_key_bundle(encoded: &str) -> bool {
     };
     let identity_payload =
         format!("{SIGNATURE_CONTEXT}\\n{device_id}\\nidentity_curve25519\\n{curve25519}");
-    if identity_key.verify(identity_payload.as_bytes(), &identity_signature).is_err() {
+    if identity_key
+        .verify(identity_payload.as_bytes(), &identity_signature)
+        .is_err()
+    {
         return false;
     }
 
