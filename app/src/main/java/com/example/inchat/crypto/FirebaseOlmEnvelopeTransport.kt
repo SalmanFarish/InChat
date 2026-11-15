@@ -33,6 +33,7 @@ internal class FirebaseOlmEnvelopeTransport(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
     ): FirebaseOlmUploadResult {
+        require(delivery.status == OlmDeliveryStatus.IN_FLIGHT) { "Only a claimed outbox delivery can be uploaded" }
         val senderUid = requireNotNull(auth.currentUser?.uid) {
             "Sign in before uploading an encrypted delivery"
         }
