@@ -244,7 +244,7 @@ fn restore_test_account<'local>(
 pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVodozemacVersion<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _this: JObject<'local>,
 ) -> jstring {
     match env.new_string(VODOZEMAC_VERSION) {
@@ -269,11 +269,27 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeO
 #[cfg(test)]
 mod tests {
     use super::{run_olm_self_test, OlmMessageParts};
-    use vodozemac::olm::OlmMessage;
+    use vodozemac::olm::{Account, AccountPickle, OlmMessage};
 
     #[test]
     fn two_independent_devices_establish_and_exchange_olm_messages() {
         run_olm_self_test().expect("two-device Olm exchange should succeed");
+    }
+
+    #[test]
+    fn account_pickle_round_trips_public_identity_keys() {
+        let mut account = Account::new();
+        account.generate_one_time_keys(5);
+        account.generate_fallback_key();
+
+        let identity_keys = account.identity_keys();
+        let serialized = serde_json::to_vec(&account.pickle())
+            .expect("an Olm account pickle should serialize");
+        let pickle: AccountPickle = serde_json::from_slice(&serialized)
+            .expect("an Olm account pickle should deserialize");
+        let restored = Account::from(pickle);
+
+        assert_eq!(identity_keys, restored.identity_keys());
     }
 
     #[test]
@@ -318,7 +334,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeR
     store: JObject<'local>,
     expected_identity: JString<'local>,
 ) -> jboolean {
-    let expected = match env.get_string(&expected_identity) {
+    let expected: String = match env.get_string(&expected_identity) {
         Ok(value) => value.into(),
         Err(_) => return JNI_FALSE,
     };
