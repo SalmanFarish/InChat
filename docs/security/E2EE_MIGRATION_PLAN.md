@@ -33,7 +33,7 @@ New messages need an explicit versioned envelope. The isolated Olm prototype now
 - `sessionId`: the local Olm session selector.
 - `ciphertext`: URL-safe Base64 of the opaque native Olm wire message.
 
-The codec rejects unsupported versions/algorithms, invalid device IDs, self-addressed envelopes, malformed Base64, and oversized or truncated ciphertext. Device IDs and session IDs are routing metadata, not cryptographic authentication; Olm ciphertext authentication remains authoritative. This codec is not connected to Firebase or live chat records.
+The codec rejects unsupported versions/algorithms, invalid device IDs, self-addressed envelopes, malformed Base64, and oversized or truncated ciphertext. Device IDs and session IDs are routing metadata, not cryptographic authentication; Olm ciphertext authentication remains authoritative. This codec is not connected to Firebase or live chat records. The app-facing Olm repository now has envelope-aware methods to encrypt for a recipient device, establish an inbound session from a matching envelope, and decrypt only when the envelope's recipient and expected sender routing IDs match. The two-device instrumentation test exercises an envelope-wrapped initial prekey message and encrypted reply.
 
 Existing message ID, account sender ID, timestamp, and delivery bookkeeping remain separate from message contents. The eventual database adapter must map legacy records to encryption version 0 and must never silently downgrade a version 1 send to plaintext.
 
