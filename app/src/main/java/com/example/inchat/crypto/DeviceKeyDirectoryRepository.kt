@@ -121,6 +121,29 @@ internal class DeviceKeyDirectoryRepository(
         }
     }
 
+    /**
+     * Claim the first available one-time prekey for a specific remote device.
+     * Concurrent callers may race on the same key; the database transaction
+     * ensures only one succeeds, and this method tries the next candidate.
+     *
+     * Returns null when the device has no unclaimed one-time prekeys.
+     */
+    suspend fun claimAvailableOneTimePreKey(
+        targetUid: String,
+        deviceId: String,
+    ): SignedOlmPreKey? {
+        require(DEVICE_ID_REGEX.matches(deviceId)) { "Device ID has an invalid format" }
+        val device = getUserDevices(targetUid).firstOrNull { it.deviceId == deviceId }
+            ?: return null
+
+        for (prekey in device.oneTimeKeys) {
+            if (claimOneTimePreKey(targetUid, deviceId, prekey.keyId)) {
+                return prekey
+            }
+        }
+        return null
+    }
+
     /** Remove only this installation's public directory entry. */
     suspend fun removeMyDevice(deviceId: String) {
         val uid = requireNotNull(auth.currentUser?.uid) {
