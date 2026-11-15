@@ -204,9 +204,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
 ) -> jstring {
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
-        with_session(&handle, |session| {
-            session.create_local_mac()
-        })
+        with_session(&handle, |session| session.create_local_mac())
     })();
     match result {
         Ok(Ok(value)) => java_string(&mut env, &value),
