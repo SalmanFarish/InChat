@@ -46,7 +46,8 @@ internal class OlmInboundHandoffCoordinator(
         receiptId: String,
         remoteDevice: PublicDeviceKeyBundle,
         ciphertextKind: OlmInboundCiphertextKind,
-        messageFactory: (plaintext: String) -> CachedMessageEntity,
+        localUserId: String,
+        messageFactory: (payload: OlmAuthenticatedMessagePayload) -> CachedMessageEntity,
     ): OlmInboundHandoffResult = processingMutex.withLock {
         withContext(ioDispatcher) {
             require(RECEIPT_ID_PATTERN.matches(receiptId)) {
@@ -92,18 +93,32 @@ internal class OlmInboundHandoffCoordinator(
                     )
             }
 
-            val message = messageFactory(staged.plaintext)
-            require(message.text == staged.plaintext) {
-                "Cached message text must exactly match the staged plaintext"
+            val payload = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
+                plaintext = staged.plaintext,
+                expectedMessageId = receipt.messageId,
+                expectedSenderUserId = receipt.senderUserId,
+                expectedSenderDeviceId = receipt.senderDeviceId,
+                expectedRecipientUserId = localUserId,
+                expectedRecipientDeviceId = receipt.recipientDeviceId,
+            )
+            val message = messageFactory(payload)
+            require(message.ownerUserId == localUserId) {
+                "Cached message owner does not match the authenticated recipient"
             }
-            require(message.messageId == receipt.messageId) {
-                "Cached message ID does not match its inbound receipt"
+            require(message.text == payload.text) {
+                "Cached message text must exactly match the authenticated payload"
             }
-            require(message.senderId == receipt.senderUserId) {
-                "Cached message sender does not match its inbound receipt"
+            require(message.messageId == payload.messageId) {
+                "Cached message ID does not match the authenticated payload"
             }
-            require(message.chatId == receipt.senderUserId) {
-                "Cached message chat does not match its inbound receipt sender"
+            require(message.senderId == payload.senderUserId) {
+                "Cached message sender does not match the authenticated payload"
+            }
+            require(message.chatId == payload.senderUserId) {
+                "Cached message chat does not match the authenticated sender"
+            }
+            require(message.timestamp == payload.sentAtMillis) {
+                "Cached message timestamp does not match the authenticated payload"
             }
             require(!message.isPending) {
                 "Decrypted inbound messages cannot be pending sends"
