@@ -662,7 +662,7 @@ mod tests {
         let saved_account = serde_json::to_vec(&bob.pickle())
             .expect("Bob's consumed account state should serialize");
         let restored_account = Account::from(
-            serde_json::from_slice(&saved_account)
+            serde_json::from_slice::<vodozemac::olm::AccountPickle>(&saved_account)
                 .expect("Bob's consumed account state should deserialize"),
         );
         assert_eq!(restored_account.stored_one_time_key_count(), 0);
