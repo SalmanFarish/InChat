@@ -99,7 +99,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.PRE_KEY,
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("A committed receipt must not rebuild or insert its message") },
             )
@@ -190,7 +190,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.PRE_KEY,
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("Simulated invalid authenticated payload metadata") }
             } catch (_: IllegalStateException) {
@@ -203,7 +203,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.PRE_KEY,
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
                     cachedMessage(payload, chatId = "wrong-chat")
@@ -227,7 +227,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.PRE_KEY,
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
                     cachedMessage(payload)
@@ -247,7 +247,7 @@ class OlmInboundHandoffCoordinatorTest {
                     receiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.PRE_KEY,
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("Duplicate processing must not create another message") },
             )
@@ -299,7 +299,7 @@ class OlmInboundHandoffCoordinatorTest {
                     normalReceiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.NORMAL,
+                    ciphertextKind = OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
                     cachedMessage(payload)
@@ -344,7 +344,7 @@ class OlmInboundHandoffCoordinatorTest {
                     retryNormalReceiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.NORMAL,
+                    ciphertextKind = OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { error("Simulated normal-message metadata failure") }
             } catch (_: IllegalStateException) {
@@ -361,7 +361,7 @@ class OlmInboundHandoffCoordinatorTest {
                     retryNormalReceiptId,
                     senderBundle,
                     remoteDeviceUserId = "alice",
-                    OlmInboundCiphertextKind.NORMAL,
+                    ciphertextKind = OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
                     cachedMessage(payload)
