@@ -35,6 +35,38 @@ internal object NativeCryptoBridge {
         deviceId: String,
     ): Boolean
 
+    /** Create and persist an outbound Olm session; returns its opaque session ID. */
+    external fun nativeCreateOutboundOlmSession(
+        store: CryptoStateStore,
+        deviceId: String,
+        remoteIdentityKey: String,
+        remoteOneTimeKey: String,
+    ): String?
+
+    /** Encrypt with a saved session; wire format is one message-type byte followed by ciphertext. */
+    external fun nativeEncryptOlmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        sessionId: String,
+        plaintext: String,
+    ): ByteArray?
+
+    /** Establish an inbound session and atomically save prekey consumption plus session state. */
+    external fun nativeCreateInboundOlmSession(
+        store: CryptoStateStore,
+        deviceId: String,
+        remoteIdentityKey: String,
+        wireMessage: ByteArray,
+    ): String?
+
+    /** Decrypt a normal Olm message and persist the advanced receive ratchet before returning. */
+    external fun nativeDecryptOlmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        sessionId: String,
+        wireMessage: ByteArray,
+    ): String?
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
