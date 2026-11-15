@@ -106,6 +106,7 @@ fn signed_public_key(
     let signature = account.sign(payload.as_bytes()).to_base64();
 
     json!({
+        "keyKind": key_kind,
         "keyId": key_id,
         "key": public_key,
         "signature": signature
@@ -228,7 +229,7 @@ fn ensure_device_identity<'local>(
     }
 
     let existing_state = read_optional_device_state(env, store)?;
-    let (mut account, is_new) = match existing_state {
+    let (account, is_new) = match existing_state {
         Some(state_blob) => (decode_device_account_state(state_blob, device_id)?, false),
         None => {
             let mut account = Account::new();
@@ -368,11 +369,10 @@ mod tests {
             )
             .expect("signature should decode");
 
-            let kind = if bundle["fallbackKey"]["keyId"].as_str() == Some(key_id) {
-                "fallback"
-            } else {
-                "one_time"
-            };
+            let kind = entry["keyKind"]
+                .as_str()
+                .expect("prekey kind should be a string");
+            assert!(kind == "one_time" || kind == "fallback");
             let payload = signed_key_payload(device_id, kind, key_id, public_key);
             identity_key
                 .verify(payload.as_bytes(), &signature)
