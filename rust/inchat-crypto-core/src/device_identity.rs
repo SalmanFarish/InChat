@@ -21,9 +21,21 @@ fn valid_device_id(device_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
+fn valid_receipt_id(receipt_id: &str) -> bool {
+    receipt_id.len() == 64
+        && receipt_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+struct PendingDecryption {
+    session_id: String,
+    ciphertext: Vec<u8>,
+    plaintext: String,
+}
+
 struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
+    pending_decryptions: std::collections::BTreeMap<String, PendingDecryption>,
 }
 
 fn encode_device_crypto_state(
@@ -43,8 +55,23 @@ fn encode_device_crypto_state(
                 .map_err(|_| "Olm session serialization failed")?,
         );
     }
-    let mut serialized = serde_json::to_vec(&json!({"account": account, "sessions": sessions}))
-        .map_err(|_| "Olm device crypto state serialization failed")?;
+    let mut pending_decryptions = serde_json::Map::new();
+    for (receipt_id, pending) in &state.pending_decryptions {
+        pending_decryptions.insert(
+            receipt_id.clone(),
+            json!({
+                "sessionId": pending.session_id,
+                "ciphertext": pending.ciphertext,
+                "plaintext": pending.plaintext
+            }),
+        );
+    }
+    let mut serialized = serde_json::to_vec(&json!({
+        "account": account,
+        "sessions": sessions,
+        "pendingDecryptions": pending_decryptions
+    }))
+    .map_err(|_| "Olm device crypto state serialization failed")?;
     let mut blob =
         Vec::with_capacity(DEVICE_STATE_HEADER_V2.len() + 1 + device_id.len() + serialized.len());
     blob.extend_from_slice(DEVICE_STATE_HEADER_V2);
@@ -97,6 +124,7 @@ fn decode_device_crypto_state(
             return Ok(DeviceCryptoState {
                 account: Account::from(pickle),
                 sessions: std::collections::BTreeMap::new(),
+                pending_decryptions: std::collections::BTreeMap::new(),
             });
         }
         let envelope: Value = serde_json::from_slice(&blob[pickle_start..])
@@ -128,9 +156,45 @@ fn decode_device_crypto_state(
             }
             sessions.insert(id.clone(), session);
         }
+        let mut pending_decryptions = std::collections::BTreeMap::new();
+        if let Some(pending_values) = envelope.get("pendingDecryptions").and_then(Value::as_object) {
+            if pending_values.len() > 256 {
+                return Err("Saved Olm state contains too many pending decryptions");
+            }
+            for (receipt_id, value) in pending_values {
+                if !valid_receipt_id(receipt_id) {
+                    return Err("Saved pending decryption has an invalid receipt ID");
+                }
+                let session_id = value.get("sessionId").and_then(Value::as_str)
+                    .ok_or("Saved pending decryption has no session ID")?;
+                if session_id.is_empty() || session_id.len() > 128 {
+                    return Err("Saved pending decryption has an invalid session ID");
+                }
+                let ciphertext = value.get("ciphertext").and_then(Value::as_array)
+                    .ok_or("Saved pending decryption has no ciphertext")?
+                    .iter()
+                    .map(|byte| byte.as_u64().and_then(|v| u8::try_from(v).ok())
+                        .ok_or("Saved pending ciphertext is invalid"))
+                    .collect::<Result<Vec<u8>, _>>()?;
+                if ciphertext.len() < 2 || ciphertext.len() > MAX_OLM_WIRE_BYTES {
+                    return Err("Saved pending ciphertext has an invalid size");
+                }
+                let plaintext = value.get("plaintext").and_then(Value::as_str)
+                    .ok_or("Saved pending decryption has no plaintext")?.to_owned();
+                if plaintext.len() > MAX_OLM_PLAINTEXT_BYTES {
+                    return Err("Saved pending plaintext exceeds the message size limit");
+                }
+                pending_decryptions.insert(receipt_id.clone(), PendingDecryption {
+                    session_id: session_id.to_owned(),
+                    ciphertext,
+                    plaintext,
+                });
+            }
+        }
         Ok(DeviceCryptoState {
             account: Account::from(account_pickle),
             sessions,
+            pending_decryptions,
         })
     })();
     blob.zeroize();
@@ -156,6 +220,7 @@ fn encode_device_account_state(
         &DeviceCryptoState {
             account: restored,
             sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
         },
     )
 }
@@ -425,6 +490,7 @@ fn ensure_device_identity<'local>(
             DeviceCryptoState {
                 account: Account::new(),
                 sessions: std::collections::BTreeMap::new(),
+                pending_decryptions: std::collections::BTreeMap::new(),
             },
             true,
         ),
@@ -910,6 +976,7 @@ mod tests {
         let state = super::DeviceCryptoState {
             account: alice,
             sessions,
+            pending_decryptions: std::collections::BTreeMap::new(),
         };
         let encoded = super::encode_device_crypto_state("session-device", &state)
             .expect("unified state should serialize");
