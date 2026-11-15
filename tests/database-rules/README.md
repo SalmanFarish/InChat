@@ -33,6 +33,7 @@ The current suite checks:
 - recipients cannot delete another user's message;
 - senders can delete their own messages;
 - profile-photo payload and privacy preference validation;
-- direct-chat and group read permissions.
+- direct-chat and group read permissions;
+- atomic one-time prekey claims, including concurrent claim attempts, repeat claims, and unauthenticated access.
 
 Add a test whenever a security rule or Worker-owned data path changes.
