@@ -7,7 +7,8 @@ use vodozemac::olm::{Account, AccountPickle};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
 use zeroize::Zeroize;
 
-const DEVICE_STATE_HEADER: &[u8; 6] = b"ICDEV\x01";
+const DEVICE_STATE_HEADER_V1: &[u8; 6] = b"ICDEV\x01";
+const DEVICE_STATE_HEADER_V2: &[u8; 6] = b"ICDEV\x02";
 const MAX_DEVICE_STATE_BYTES: usize = 8 * 1024 * 1024;
 const INITIAL_ONE_TIME_KEY_COUNT: usize = 20;
 const SIGNATURE_CONTEXT: &str = "INCHAT_OLM_PUBLIC_KEY_V1";
@@ -20,73 +21,119 @@ fn valid_device_id(device_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-fn encode_device_account_state(
+struct DeviceCryptoState {
+    account: Account,
+    sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
+}
+
+fn encode_device_crypto_state(
     device_id: &str,
-    account: &Account,
+    state: &DeviceCryptoState,
 ) -> Result<Vec<u8>, &'static str> {
     if !valid_device_id(device_id) {
         return Err("Device ID has an invalid format");
     }
-
-    let mut serialized_pickle = serde_json::to_vec(&account.pickle())
+    let account = serde_json::to_value(state.account.pickle())
         .map_err(|_| "Olm device account serialization failed")?;
-
-    let mut state_blob = Vec::with_capacity(
-        DEVICE_STATE_HEADER.len() + 1 + device_id.len() + serialized_pickle.len(),
-    );
-    state_blob.extend_from_slice(DEVICE_STATE_HEADER);
-    state_blob.push(device_id.len() as u8);
-    state_blob.extend_from_slice(device_id.as_bytes());
-    state_blob.extend_from_slice(&serialized_pickle);
-    serialized_pickle.zeroize();
-
-    if state_blob.len() > MAX_DEVICE_STATE_BYTES {
-        state_blob.zeroize();
-        return Err("Olm device account state exceeds the storage limit");
+    let mut sessions = serde_json::Map::new();
+    for (id, session) in &state.sessions {
+        sessions.insert(id.clone(), serde_json::to_value(session.pickle())
+            .map_err(|_| "Olm session serialization failed")?);
     }
-
-    Ok(state_blob)
+    let mut serialized = serde_json::to_vec(&json!({"account": account, "sessions": sessions}))
+        .map_err(|_| "Olm device crypto state serialization failed")?;
+    let mut blob = Vec::with_capacity(DEVICE_STATE_HEADER_V2.len() + 1 + device_id.len() + serialized.len());
+    blob.extend_from_slice(DEVICE_STATE_HEADER_V2);
+    blob.push(device_id.len() as u8);
+    blob.extend_from_slice(device_id.as_bytes());
+    blob.extend_from_slice(&serialized);
+    serialized.zeroize();
+    if blob.len() > MAX_DEVICE_STATE_BYTES {
+        blob.zeroize();
+        return Err("Olm device crypto state exceeds the storage limit");
+    }
+    Ok(blob)
 }
 
-fn decode_device_account_state(
-    mut state_blob: Vec<u8>,
+fn decode_device_crypto_state(
+    mut blob: Vec<u8>,
     expected_device_id: &str,
-) -> Result<Account, &'static str> {
+) -> Result<DeviceCryptoState, &'static str> {
     let result = (|| {
-        if !valid_device_id(expected_device_id) {
-            return Err("Device ID has an invalid format");
+        if !valid_device_id(expected_device_id) || blob.len() > MAX_DEVICE_STATE_BYTES {
+            return Err("Saved Olm device state has an invalid size or device ID");
         }
-        if state_blob.len() > MAX_DEVICE_STATE_BYTES
-            || !state_blob.starts_with(DEVICE_STATE_HEADER)
-            || state_blob.len() <= DEVICE_STATE_HEADER.len()
-        {
-            return Err("Saved Olm device state has an invalid format");
-        }
-
-        let id_length = state_blob[DEVICE_STATE_HEADER.len()] as usize;
-        if id_length == 0 || id_length > 64 {
-            return Err("Saved Olm device ID has an invalid length");
-        }
-
-        let id_start = DEVICE_STATE_HEADER.len() + 1;
-        let pickle_start = id_start + id_length;
-        if pickle_start >= state_blob.len() {
+        let header = if blob.starts_with(DEVICE_STATE_HEADER_V2) {
+            DEVICE_STATE_HEADER_V2
+        } else if blob.starts_with(DEVICE_STATE_HEADER_V1) {
+            DEVICE_STATE_HEADER_V1
+        } else {
+            return Err("Saved Olm device state has an unsupported format");
+        };
+        if blob.len() <= header.len() {
             return Err("Saved Olm device state is truncated");
         }
-
-        let stored_device_id = std::str::from_utf8(&state_blob[id_start..pickle_start])
+        let id_len = blob[header.len()] as usize;
+        if id_len == 0 || id_len > 64 {
+            return Err("Saved Olm device ID has an invalid length");
+        }
+        let id_start = header.len() + 1;
+        let pickle_start = id_start + id_len;
+        if pickle_start >= blob.len() {
+            return Err("Saved Olm device state is truncated");
+        }
+        let stored_id = std::str::from_utf8(&blob[id_start..pickle_start])
             .map_err(|_| "Saved Olm device ID is not valid UTF-8")?;
-        if stored_device_id != expected_device_id {
+        if stored_id != expected_device_id {
             return Err("Saved Olm state belongs to a different device ID");
         }
-
-        let pickle = serde_json::from_slice::<AccountPickle>(&state_blob[pickle_start..])
-            .map_err(|_| "Saved Olm device account could not be decoded")?;
-        Ok(Account::from(pickle))
+        if header == DEVICE_STATE_HEADER_V1 {
+            let pickle = serde_json::from_slice::<AccountPickle>(&blob[pickle_start..])
+                .map_err(|_| "Saved legacy Olm account could not be decoded")?;
+            return Ok(DeviceCryptoState { account: Account::from(pickle), sessions: std::collections::BTreeMap::new() });
+        }
+        let envelope: Value = serde_json::from_slice(&blob[pickle_start..])
+            .map_err(|_| "Saved Olm device crypto state could not be decoded")?;
+        let account_pickle = serde_json::from_value::<AccountPickle>(
+            envelope.get("account").cloned().ok_or("Saved Olm state has no account")?
+        ).map_err(|_| "Saved Olm device account could not be decoded")?;
+        let values = envelope.get("sessions").and_then(Value::as_object)
+            .ok_or("Saved Olm device state has invalid sessions")?;
+        if values.len() > 10_000 {
+            return Err("Saved Olm device state contains too many sessions");
+        }
+        let mut sessions = std::collections::BTreeMap::new();
+        for (id, value) in values {
+            if id.is_empty() || id.len() > 128 {
+                return Err("Saved Olm session ID has an invalid format");
+            }
+            let pickle = serde_json::from_value::<vodozemac::olm::SessionPickle>(value.clone())
+                .map_err(|_| "Saved Olm session could not be decoded")?;
+            let session = vodozemac::olm::Session::from_pickle(pickle);
+            if session.session_id() != *id {
+                return Err("Saved Olm session ID does not match its pickle");
+            }
+            sessions.insert(id.clone(), session);
+        }
+        Ok(DeviceCryptoState { account: Account::from(account_pickle), sessions })
     })();
-
-    state_blob.zeroize();
+    blob.zeroize();
     result
+}
+
+fn decode_device_account_state(blob: Vec<u8>, device_id: &str) -> Result<Account, &'static str> {
+    Ok(decode_device_crypto_state(blob, device_id)?.account)
+}
+
+fn encode_device_account_state(device_id: &str, account: &Account) -> Result<Vec<u8>, &'static str> {
+    let pickle = serde_json::to_value(account.pickle())
+        .map_err(|_| "Olm device account serialization failed")?;
+    let restored = Account::from(serde_json::from_value(pickle)
+        .map_err(|_| "Olm device account serialization failed")?);
+    encode_device_crypto_state(device_id, &DeviceCryptoState {
+        account: restored,
+        sessions: std::collections::BTreeMap::new(),
+    })
 }
 
 fn signed_key_payload(device_id: &str, key_kind: &str, key_id: &str, public_key: &str) -> String {
@@ -287,7 +334,7 @@ fn read_optional_device_state<'local>(
     let mut state_blob: Vec<u8> = java_copy.iter().map(|value| *value as u8).collect();
     java_copy.zeroize();
 
-    if state_blob.len() < DEVICE_STATE_HEADER.len() || !state_blob.starts_with(DEVICE_STATE_HEADER)
+    if state_blob.len() < DEVICE_STATE_HEADER_V1.len() || !(state_blob.starts_with(DEVICE_STATE_HEADER_V1) || state_blob.starts_with(DEVICE_STATE_HEADER_V2))
     {
         state_blob.zeroize();
         return Err("Saved device identity state uses an unsupported format");
@@ -346,21 +393,21 @@ fn ensure_device_identity<'local>(
     }
 
     let existing_state = read_optional_device_state(env, store)?;
-    let (mut account, is_new) = match existing_state {
-        Some(state_blob) => (decode_device_account_state(state_blob, device_id)?, false),
-        None => (Account::new(), true),
+    let (mut state, is_new) = match existing_state {
+        Some(state_blob) => (decode_device_crypto_state(state_blob, device_id)?, false),
+        None => (DeviceCryptoState { account: Account::new(), sessions: std::collections::BTreeMap::new() }, true),
     };
 
     // Replenish only unpublished keys. Published private keys remain in the
     // account until vodozemac consumes them while creating an inbound session.
     // A fresh batch is persisted before its public parts can be uploaded.
-    let replenished = ensure_unpublished_prekeys(&mut account);
+    let replenished = ensure_unpublished_prekeys(&mut state.account);
     if is_new || replenished {
-        let state_blob = encode_device_account_state(device_id, &account)?;
+        let state_blob = encode_device_crypto_state(device_id, &state)?;
         write_device_state(env, store, state_blob)?;
     }
 
-    serde_json::to_string(&public_device_key_bundle(&account, device_id))
+    serde_json::to_string(&public_device_key_bundle(&state.account, device_id))
         .map_err(|_| "Could not encode the public Olm device key bundle")
 }
 
@@ -398,9 +445,9 @@ fn mark_device_identity_published<'local>(
 ) -> Result<(), &'static str> {
     let state_blob =
         read_optional_device_state(env, store)?.ok_or("No saved Olm device identity exists")?;
-    let mut account = decode_device_account_state(state_blob, device_id)?;
-    account.mark_keys_as_published();
-    let updated_state = encode_device_account_state(device_id, &account)?;
+    let mut state = decode_device_crypto_state(state_blob, device_id)?;
+    state.account.mark_keys_as_published();
+    let updated_state = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, updated_state)
 }
 
