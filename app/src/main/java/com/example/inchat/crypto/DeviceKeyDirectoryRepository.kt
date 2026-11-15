@@ -6,7 +6,10 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Publishes and retrieves public Olm device bundles through Firebase Realtime
@@ -53,6 +56,69 @@ internal class DeviceKeyDirectoryRepository(
         return snapshot.children.mapNotNull { child ->
             parseDirectoryEntry(child)
         }.sortedBy { it.deviceId }
+    }
+
+    /**
+     * Atomically claim a published one-time prekey. Claims live in a separate
+     * path so the public directory remains owner-write-only and no server
+     * function (paid or otherwise) is required.
+     *
+     * Returns false when another authenticated client has already claimed it.
+     */
+    suspend fun claimOneTimePreKey(
+        targetUid: String,
+        deviceId: String,
+        keyId: String,
+    ): Boolean {
+        requireNotNull(auth.currentUser) { "Sign in before claiming a one-time prekey" }
+        require(UID_REGEX.matches(targetUid)) { "User ID has an invalid format" }
+        require(DEVICE_ID_REGEX.matches(deviceId)) { "Device ID has an invalid format" }
+        require(KEY_ID_REGEX.matches(keyId)) { "Prekey ID has an invalid format" }
+
+        val publishedKeys = database.reference
+            .child(ROOT_NODE)
+            .child(targetUid)
+            .child(deviceId)
+            .child("oneTimeKeys")
+            .get()
+            .await()
+        require(publishedKeys.children.any {
+            it.child("keyId").getValue(String::class.java) == keyId
+        }) {
+            "The requested one-time prekey is not in the published device bundle"
+        }
+
+        val claimReference = database.reference
+            .child(CLAIMS_NODE)
+            .child(targetUid)
+            .child(deviceId)
+            .child(keyId)
+
+        return suspendCancellableCoroutine { continuation ->
+            claimReference.runTransaction(object : com.google.firebase.database.Transaction.Handler {
+                override fun doTransaction(currentData: com.google.firebase.database.MutableData):
+                    com.google.firebase.database.Transaction.Result {
+                    if (currentData.value != null) {
+                        return com.google.firebase.database.Transaction.abort()
+                    }
+                    currentData.value = true
+                    return com.google.firebase.database.Transaction.success(currentData)
+                }
+
+                override fun onComplete(
+                    error: com.google.firebase.database.DatabaseError?,
+                    committed: Boolean,
+                    currentData: DataSnapshot?,
+                ) {
+                    if (!continuation.isActive) return
+                    if (error != null) {
+                        continuation.resumeWithException(error.toException())
+                    } else {
+                        continuation.resume(committed)
+                    }
+                }
+            }, false)
+        }
     }
 
     /** Remove only this installation's public directory entry. */
@@ -193,9 +259,11 @@ internal class DeviceKeyDirectoryRepository(
 
     private companion object {
         const val ROOT_NODE = "deviceKeys"
+        const val CLAIMS_NODE = "deviceKeyClaims"
         const val SCHEMA_VERSION = 1
         const val MAX_ONE_TIME_KEYS = 20
         val UID_REGEX = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
+        val KEY_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
     }
 }
