@@ -200,6 +200,18 @@ class CryptoStateStoreTest {
         }
     }
 
+    @Test
+    fun deviceIdentityRepositoryReusesInstallationIdentityAcrossInstances() {
+        val firstBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
+        val restoredBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
+
+        assertEquals(firstBundle.deviceId, restoredBundle.deviceId)
+        assertEquals(firstBundle.ed25519IdentityKey, restoredBundle.ed25519IdentityKey)
+        assertEquals(firstBundle.curve25519IdentityKey, restoredBundle.curve25519IdentityKey)
+        assertTrue(firstBundle.oneTimeKeys.isNotEmpty())
+        assertNotNull(firstBundle.fallbackKey)
+    }
+
     private fun stateFile(stateId: String): File =
         File(File(context.noBackupFilesDir, "inchat-crypto"), "$stateId.bin")
 }
