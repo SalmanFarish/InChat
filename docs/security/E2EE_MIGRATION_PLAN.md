@@ -31,3 +31,20 @@ The durable sender outbox remains at-least-once. An isolated Firebase Realtime D
 - Version 1 encrypted messages must never silently fall back to plaintext.
 - Do not connect the isolated prototype to live chats until sender transport, receiver authentication, deduplication, local persistence, notification privacy, and two-device tests are complete.
 - Keep all infrastructure within free Firebase Spark capabilities; no card-required or paid storage services.
+
+
+## Device identity verification groundwork
+
+A deterministic SHA-256 fingerprint helper now binds the installation device ID and
+the Ed25519 identity public key using a versioned domain separator. It validates
+the device ID, exact 32-byte public-key length, and canonical unpadded Base64
+encoding, then formats the full 256-bit digest in four-character groups for
+human comparison.
+
+This helper is only a display/verification primitive. It does not mark a device
+as trusted, persist a trust decision, or make a self-signed directory entry
+authentic. Users must compare the complete fingerprint through an independent
+trusted channel. The next required work is an authenticated SAS verification
+exchange and durable local identity-pin state; until those exist, directory
+bundles must not be treated as verified people and no encrypted send path may
+be enabled.
