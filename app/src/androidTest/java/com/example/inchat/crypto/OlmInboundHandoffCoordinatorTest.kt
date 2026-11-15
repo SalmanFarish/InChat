@@ -98,6 +98,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     receiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("A committed receipt must not rebuild or insert its message") },
@@ -188,6 +189,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     receiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("Simulated invalid authenticated payload metadata") }
@@ -200,6 +202,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     receiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
@@ -223,6 +226,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     receiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
@@ -242,6 +246,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     receiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { error("Duplicate processing must not create another message") },
@@ -293,6 +298,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     normalReceiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
@@ -337,6 +343,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     retryNormalReceiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { error("Simulated normal-message metadata failure") }
@@ -353,6 +360,7 @@ class OlmInboundHandoffCoordinatorTest {
                 coordinator.process(
                     retryNormalReceiptId,
                     senderBundle,
+                    remoteDeviceUserId = "alice",
                     OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
