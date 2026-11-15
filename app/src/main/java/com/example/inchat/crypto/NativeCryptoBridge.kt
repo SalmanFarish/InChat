@@ -26,4 +26,13 @@ internal object NativeCryptoBridge {
         store: CryptoStateStore,
         expectedIdentityKeys: String
     ): Boolean
+
+    /** Persist a test Olm session and return only the peer's encrypted reply. */
+    external fun nativePersistOlmSessionState(store: CryptoStateStore): ByteArray
+
+    /** Restore the saved test session and verify it decrypts the encrypted reply. */
+    external fun nativeRestoreOlmSessionState(
+        store: CryptoStateStore,
+        encryptedReply: ByteArray,
+    ): Boolean
 }
