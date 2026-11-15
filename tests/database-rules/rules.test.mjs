@@ -239,3 +239,112 @@ test("group members can read their group, non-members cannot", async () => {
   await assertSucceeds(get(ref(bobDb, "chats/group")));
   await assertFails(get(ref(malloryDb, "chats/group")));
 });
+
+
+function publicDeviceBundle(deviceId = "device-alice-1") {
+  return {
+    schemaVersion: 1,
+    deviceId,
+    ed25519IdentityKey: "ed25519-public-key",
+    curve25519IdentityKey: "curve25519-public-key",
+    curve25519IdentityKeySignature: "signed-curve25519-identity",
+    fallbackKey: {
+      keyKind: "fallback",
+      keyId: "fallback-1",
+      publicKey: "fallback-public-key",
+      signature: "fallback-signature",
+    },
+    oneTimeKeys: [
+      {
+        keyKind: "one_time",
+        keyId: "one-time-1",
+        publicKey: "one-time-public-key",
+        signature: "one-time-signature",
+      },
+    ],
+    publishedAt: 1700000000000,
+  };
+}
+
+test("an authenticated owner can publish a public device-key bundle", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertSucceeds(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-alice-1"),
+      publicDeviceBundle(),
+    ),
+  );
+});
+
+test("authenticated users can read public device bundles", async () => {
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(
+      ref(context.database(), "deviceKeys/alice/device-alice-1"),
+      publicDeviceBundle(),
+    );
+  });
+
+  await assertSucceeds(
+    get(ref(bobDb, "deviceKeys/alice/device-alice-1")),
+  );
+});
+
+test("unauthenticated users cannot read the device-key directory", async () => {
+  const unauthenticatedDb = testEnv.unauthenticatedContext().database();
+
+  await assertFails(
+    get(ref(unauthenticatedDb, "deviceKeys/alice")),
+  );
+});
+
+test("a user cannot publish or replace another user's device bundle", async () => {
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  await assertFails(
+    set(
+      ref(bobDb, "deviceKeys/alice/device-alice-1"),
+      publicDeviceBundle(),
+    ),
+  );
+});
+
+test("device directory rejects mismatched IDs and malformed signed prekeys", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-alice-1"),
+      publicDeviceBundle("device-someone-else"),
+    ),
+  );
+
+  const malformed = publicDeviceBundle();
+  malformed.oneTimeKeys[0].keyKind = "fallback";
+  await assertFails(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-alice-1"),
+      malformed,
+    ),
+  );
+});
+
+test("device directory limits published one-time keys to twenty", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const oversized = publicDeviceBundle();
+  oversized.oneTimeKeys = Array.from({ length: 21 }, (_, index) => ({
+    keyKind: "one_time",
+    keyId: "key-" + index,
+    publicKey: "public-" + index,
+    signature: "signature-" + index,
+  }));
+
+  await assertFails(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-alice-1"),
+      oversized,
+    ),
+  );
+});
