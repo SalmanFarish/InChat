@@ -55,6 +55,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -80,17 +81,18 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         val stateJob = launch { current.states.collect { states = it } }
         try {
             while (isActive) {
-                withContext(Dispatchers.IO) {
-                    current.expireStaleAttempts()
-                    current.receivePending()
+                try {
+                    withContext(Dispatchers.IO) {
+                        current.expireStaleAttempts()
+                        current.receivePending()
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    error = failure.message ?: "Could not receive verification messages."
                 }
                 delay(1_500)
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            error = failure.message ?: "Could not receive verification messages."
-            delay(1_500)
         } finally {
             stateJob.cancel()
         }
