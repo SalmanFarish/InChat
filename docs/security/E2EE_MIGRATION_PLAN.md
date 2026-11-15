@@ -47,6 +47,8 @@ Encryption must be device-aware, not just account-aware.
 
 Each installation needs its own cryptographic device identity and protocol state. Public identity/prekey material may be published to a server directory; private identity, ratchet, and session state must remain on the device and be protected by Android Keystore-backed storage.
 
+The isolated Android prototype now has an outbound-delivery preparer for a single target device: it loads that device's verified public bundle, atomically claims an available one-time prekey, uses the signed fallback key only when all one-time keys are already claimed, creates a native Olm session, and emits the first encrypted envelope. It remains a preparation primitive only; it does not enqueue or send chat messages. A claimed one-time key is intentionally never reclaimed if a later local session-creation step fails, avoiding unsafe key reuse.
+
 The server-side directory must support:
 
 - User ID and stable device ID.
