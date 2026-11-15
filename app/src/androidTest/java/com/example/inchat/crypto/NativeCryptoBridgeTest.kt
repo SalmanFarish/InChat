@@ -97,6 +97,69 @@ class NativeCryptoBridgeTest {
     }
 
     @Test
+    fun olmSessionRepositoryUsesVerifiedDeviceBundleAndPersistsRatchets() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val remoteDeviceId = "olm-remote-$suffix"
+        val remoteStore = CryptoStateStore(context, "device-remote-$suffix")
+        val remoteJson = JSONObject(
+            NativeCryptoBridge.nativeEnsureDeviceIdentity(remoteStore, remoteDeviceId)
+                ?: error("Remote identity should be created")
+        )
+        assertTrue(NativeCryptoBridge.nativeMarkDeviceKeysPublished(remoteStore, remoteDeviceId))
+
+        val identity = remoteJson.getJSONObject("identityKeys")
+        val fallbackJson = remoteJson.getJSONObject("fallbackKey")
+        val oneTimeJson = remoteJson.getJSONArray("oneTimeKeys")
+        val remoteBundle = PublicDeviceKeyBundle(
+            deviceId = remoteDeviceId,
+            ed25519IdentityKey = identity.getString("ed25519"),
+            curve25519IdentityKey = identity.getString("curve25519"),
+            curve25519IdentityKeySignature = identity.getString("curve25519Signature"),
+            fallbackKey = SignedOlmPreKey(
+                keyKind = fallbackJson.getString("keyKind"),
+                keyId = fallbackJson.getString("keyId"),
+                publicKey = fallbackJson.getString("key"),
+                signature = fallbackJson.getString("signature"),
+            ),
+            oneTimeKeys = (0 until oneTimeJson.length()).map { index ->
+                val item = oneTimeJson.getJSONObject(index)
+                SignedOlmPreKey(
+                    keyKind = item.getString("keyKind"),
+                    keyId = item.getString("keyId"),
+                    publicKey = item.getString("key"),
+                    signature = item.getString("signature"),
+                )
+            },
+        )
+
+        val repository = OlmSessionRepository(context)
+        val sessionId = repository.createOutboundSession(
+            remoteBundle,
+            requireNotNull(remoteBundle.oneTimeKeys.firstOrNull()),
+        )
+        val firstMessage = repository.encrypt(sessionId, "repository handshake")
+        val localBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
+        val inbound = JSONObject(
+            NativeCryptoBridge.nativeCreateInboundOlmSession(
+                remoteStore,
+                remoteDeviceId,
+                localBundle.curve25519IdentityKey,
+                firstMessage,
+            ) ?: error("Remote device should accept the repository pre-key message")
+        )
+        assertEquals("repository handshake", inbound.getString("plaintext"))
+
+        val reply = NativeCryptoBridge.nativeEncryptOlmMessage(
+            remoteStore,
+            remoteDeviceId,
+            inbound.getString("sessionId"),
+            "repository reply",
+        ) ?: error("Remote device should encrypt its reply")
+        assertEquals("repository reply", repository.decrypt(sessionId, reply))
+    }
+
+    @Test
     fun deviceIdentityPersistsAndReplenishesAfterPublication() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repository = DeviceIdentityRepository(context)
