@@ -486,6 +486,29 @@ mod tests {
     }
 
     #[test]
+    fn public_device_bundle_verification_rejects_tampering() {
+        let mut account = Account::new();
+        account.generate_one_time_keys(2);
+        account.generate_fallback_key();
+
+        let mut bundle = public_device_key_bundle(&account, "device-verify-1");
+        let encoded = serde_json::to_string(&bundle).expect("bundle should encode");
+        assert!(super::verify_public_device_key_bundle(&encoded));
+
+        bundle["fallbackKey"]["key"] =
+            serde_json::json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        let tampered = serde_json::to_string(&bundle).expect("tampered bundle should encode");
+        assert!(!super::verify_public_device_key_bundle(&tampered));
+
+        let mut bundle = public_device_key_bundle(&account, "device-verify-1");
+        bundle["identityKeys"]["curve25519"] =
+            serde_json::json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        let tampered_identity =
+            serde_json::to_string(&bundle).expect("tampered identity should encode");
+        assert!(!super::verify_public_device_key_bundle(&tampered_identity));
+    }
+
+    #[test]
     fn independent_accounts_have_distinct_device_identity_keys() {
         let first = Account::new();
         let second = Account::new();
