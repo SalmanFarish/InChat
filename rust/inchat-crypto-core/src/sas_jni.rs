@@ -224,11 +224,13 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeS
     let result = (|| {
         let handle = read_string(&mut env, &handle)?;
         let mac = read_string(&mut env, &mac)?;
-        with_session(&handle, |session| {
-            session.verify_peer_mac(&mac)
-        })
+        with_session(&handle, |session| session.verify_peer_mac(&mac))
     })();
-    if matches!(result, Ok(Ok(()))) { JNI_TRUE } else { JNI_FALSE }
+    if matches!(result, Ok(Ok(()))) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 #[unsafe(no_mangle)]
