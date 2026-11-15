@@ -31,6 +31,9 @@ internal class FirebaseOlmInboxReceiver(
 
         for (item in items) {
             val registration = withContext(ioDispatcher) {
+                require(EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId == item.senderDeviceId) {
+                    "Inbox sender device does not match the encrypted envelope"
+                }
                 ledger.register(
                     senderUserId = item.senderUid,
                     messageId = item.messageId,
