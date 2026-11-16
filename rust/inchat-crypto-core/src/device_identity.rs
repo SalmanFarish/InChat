@@ -1,3 +1,5 @@
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
@@ -1234,6 +1236,356 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeD
     }
 }
 
+// Device-transfer envelopes are encrypted end-to-end with a random 256-bit
+// one-time key exchanged out-of-band during pairing. The destination device ID
+// is authenticated as associated data, so an envelope cannot be redirected.
+const DEVICE_TRANSFER_HEADER: &[u8; 5] = b"ICTR\x01";
+const DEVICE_TRANSFER_NONCE_BYTES: usize = 12;
+const DEVICE_TRANSFER_KEY_BYTES: usize = 32;
+const MAX_DEVICE_TRANSFER_BYTES: usize =
+    DEVICE_TRANSFER_HEADER.len() + DEVICE_TRANSFER_NONCE_BYTES + MAX_DEVICE_STATE_BYTES + 16;
+
+fn device_transfer_aad(source_device_id: &str, target_device_id: &str) -> Vec<u8> {
+    format!(
+        "INCHAT_DEVICE_IDENTITY_TRANSFER_V1\n{source_device_id}\n{target_device_id}"
+    )
+    .into_bytes()
+}
+
+fn encrypt_device_transfer(
+    mut state_blob: Vec<u8>,
+    mut transfer_key: Vec<u8>,
+    nonce: &[u8],
+    source_device_id: &str,
+    target_device_id: &str,
+) -> Result<Vec<u8>, &'static str> {
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+        || transfer_key.len() != DEVICE_TRANSFER_KEY_BYTES
+        || nonce.len() != DEVICE_TRANSFER_NONCE_BYTES
+        || state_blob.is_empty()
+        || state_blob.len() > MAX_DEVICE_STATE_BYTES
+    {
+        state_blob.zeroize();
+        transfer_key.zeroize();
+        return Err("Device transfer parameters are invalid");
+    }
+
+    let aad = device_transfer_aad(source_device_id, target_device_id);
+    let cipher = match ChaCha20Poly1305::new_from_slice(&transfer_key) {
+        Ok(cipher) => cipher,
+        Err(_) => {
+            state_blob.zeroize();
+            transfer_key.zeroize();
+            return Err("Device transfer key is invalid");
+        }
+    };
+    let encrypted = cipher.encrypt(
+        Nonce::from_slice(nonce),
+        Payload {
+            msg: &state_blob,
+            aad: &aad,
+        },
+    );
+    state_blob.zeroize();
+    transfer_key.zeroize();
+
+    let mut ciphertext = encrypted.map_err(|_| "Could not encrypt device identity transfer")?;
+    let mut envelope = Vec::with_capacity(
+        DEVICE_TRANSFER_HEADER.len() + nonce.len() + ciphertext.len(),
+    );
+    envelope.extend_from_slice(DEVICE_TRANSFER_HEADER);
+    envelope.extend_from_slice(nonce);
+    envelope.append(&mut ciphertext);
+    if envelope.len() > MAX_DEVICE_TRANSFER_BYTES {
+        envelope.zeroize();
+        return Err("Encrypted device transfer exceeds the size limit");
+    }
+    Ok(envelope)
+}
+
+fn decrypt_device_transfer(
+    mut envelope: Vec<u8>,
+    mut transfer_key: Vec<u8>,
+    source_device_id: &str,
+    target_device_id: &str,
+) -> Result<Vec<u8>, &'static str> {
+    let minimum = DEVICE_TRANSFER_HEADER.len() + DEVICE_TRANSFER_NONCE_BYTES + 16;
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+        || transfer_key.len() != DEVICE_TRANSFER_KEY_BYTES
+        || envelope.len() < minimum
+        || envelope.len() > MAX_DEVICE_TRANSFER_BYTES
+        || !envelope.starts_with(DEVICE_TRANSFER_HEADER)
+    {
+        envelope.zeroize();
+        transfer_key.zeroize();
+        return Err("Encrypted device transfer is invalid");
+    }
+
+    let nonce_start = DEVICE_TRANSFER_HEADER.len();
+    let ciphertext_start = nonce_start + DEVICE_TRANSFER_NONCE_BYTES;
+    let aad = device_transfer_aad(source_device_id, target_device_id);
+    let cipher = match ChaCha20Poly1305::new_from_slice(&transfer_key) {
+        Ok(cipher) => cipher,
+        Err(_) => {
+            envelope.zeroize();
+            transfer_key.zeroize();
+            return Err("Device transfer key is invalid");
+        }
+    };
+    let plaintext = cipher.decrypt(
+        Nonce::from_slice(&envelope[nonce_start..ciphertext_start]),
+        Payload {
+            msg: &envelope[ciphertext_start..],
+            aad: &aad,
+        },
+    );
+    envelope.zeroize();
+    transfer_key.zeroize();
+    plaintext.map_err(|_| "Device transfer authentication failed")
+}
+
+fn rebind_transferred_device_state(
+    plaintext: Vec<u8>,
+    source_device_id: &str,
+    target_device_id: &str,
+) -> Result<Vec<u8>, &'static str> {
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+    {
+        return Err("Device transfer IDs are invalid");
+    }
+    let mut state = decode_device_crypto_state(plaintext, source_device_id)?;
+    // Published prekeys were signed with the old device ID. Retire only the
+    // unpublished batch and create a fresh batch which will be signed for the
+    // destination ID. The long-term identity and all Olm sessions are retained.
+    state.account.mark_keys_as_published();
+    ensure_unpublished_prekeys(&mut state.account);
+    encode_device_crypto_state(target_device_id, &state)
+}
+
+fn read_transfer_array<'local>(
+    env: &mut JNIEnv<'local>,
+    value: &JByteArray<'local>,
+    expected_length: Option<usize>,
+    minimum_length: usize,
+    maximum_length: usize,
+) -> Result<Vec<u8>, &'static str> {
+    let length = env
+        .get_array_length(value)
+        .map_err(|_| "Could not inspect device transfer buffer")? as usize;
+    let valid_length = length >= minimum_length
+        && length <= maximum_length
+        && expected_length.is_none_or(|expected| length == expected);
+    if !valid_length {
+        let zeros = vec![0_i8; length];
+        let _ = env.set_byte_array_region(value, 0, &zeros);
+        return Err("Device transfer buffer has an invalid size");
+    }
+
+    let mut java_copy = vec![0_i8; length];
+    let copy_result = env.get_byte_array_region(value, 0, &mut java_copy);
+    let zeros = vec![0_i8; length];
+    let clear_result = env.set_byte_array_region(value, 0, &zeros);
+    copy_result.map_err(|_| "Could not copy device transfer buffer")?;
+    clear_result.map_err(|_| "Could not clear temporary device transfer buffer")?;
+
+    let mut result: Vec<u8> = java_copy.iter().map(|byte| *byte as u8).collect();
+    java_copy.zeroize();
+    Ok(std::mem::take(&mut result))
+}
+
+fn export_device_identity<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    source_device_id: &str,
+    target_device_id: &str,
+    transfer_key: Vec<u8>,
+    nonce: Vec<u8>,
+) -> Result<Vec<u8>, &'static str> {
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+    {
+        return Err("Device transfer IDs are invalid");
+    }
+    let state_blob =
+        read_optional_device_state(env, store)?.ok_or("No saved Olm device identity exists")?;
+    let state = decode_device_crypto_state(state_blob, source_device_id)?;
+    let encoded_state = encode_device_crypto_state(source_device_id, &state)?;
+    encrypt_device_transfer(
+        encoded_state,
+        transfer_key,
+        &nonce,
+        source_device_id,
+        target_device_id,
+    )
+}
+
+fn import_device_identity<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    source_device_id: &str,
+    target_device_id: &str,
+    transfer_key: Vec<u8>,
+    encrypted_payload: Vec<u8>,
+) -> Result<(), &'static str> {
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+    {
+        return Err("Device transfer IDs are invalid");
+    }
+    if let Some(mut existing) = read_optional_device_state(env, store)? {
+        existing.zeroize();
+        return Err("Destination already has a crypto identity; refusing to overwrite it");
+    }
+
+    let plaintext = decrypt_device_transfer(
+        encrypted_payload,
+        transfer_key,
+        source_device_id,
+        target_device_id,
+    )?;
+    let state_blob =
+        rebind_transferred_device_state(plaintext, source_device_id, target_device_id)?;
+    write_device_state(env, store, state_blob)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeExportDeviceIdentity<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    source_device_id: JString<'local>,
+    target_device_id: JString<'local>,
+    transfer_key: JByteArray<'local>,
+    nonce: JByteArray<'local>,
+) -> jbyteArray {
+    let source_id: String = match env.get_string(&source_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let target_id: String = match env.get_string(&target_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let mut key = match read_transfer_array(
+        &mut env,
+        &transfer_key,
+        Some(DEVICE_TRANSFER_KEY_BYTES),
+        DEVICE_TRANSFER_KEY_BYTES,
+        DEVICE_TRANSFER_KEY_BYTES,
+    ) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let mut nonce_bytes = match read_transfer_array(
+        &mut env,
+        &nonce,
+        Some(DEVICE_TRANSFER_NONCE_BYTES),
+        DEVICE_TRANSFER_NONCE_BYTES,
+        DEVICE_TRANSFER_NONCE_BYTES,
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            key.zeroize();
+            return std::ptr::null_mut();
+        }
+    };
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        export_device_identity(
+            &mut env,
+            &store,
+            &source_id,
+            &target_id,
+            std::mem::take(&mut key),
+            std::mem::take(&mut nonce_bytes),
+        )
+    }));
+    key.zeroize();
+    nonce_bytes.zeroize();
+
+    match result {
+        Ok(Ok(mut payload)) => {
+            let output = env.byte_array_from_slice(&payload);
+            payload.zeroize();
+            output.map(|value| value.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        Ok(Err(_)) | Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeImportDeviceIdentity<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    source_device_id: JString<'local>,
+    target_device_id: JString<'local>,
+    transfer_key: JByteArray<'local>,
+    encrypted_payload: JByteArray<'local>,
+) -> jboolean {
+    let source_id: String = match env.get_string(&source_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let target_id: String = match env.get_string(&target_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let mut key = match read_transfer_array(
+        &mut env,
+        &transfer_key,
+        Some(DEVICE_TRANSFER_KEY_BYTES),
+        DEVICE_TRANSFER_KEY_BYTES,
+        DEVICE_TRANSFER_KEY_BYTES,
+    ) {
+        Ok(value) => value,
+        Err(_) => return JNI_FALSE,
+    };
+    let mut payload = match read_transfer_array(
+        &mut env,
+        &encrypted_payload,
+        None,
+        DEVICE_TRANSFER_HEADER.len() + DEVICE_TRANSFER_NONCE_BYTES + 16,
+        MAX_DEVICE_TRANSFER_BYTES,
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            key.zeroize();
+            return JNI_FALSE;
+        }
+    };
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        import_device_identity(
+            &mut env,
+            &store,
+            &source_id,
+            &target_id,
+            std::mem::take(&mut key),
+            std::mem::take(&mut payload),
+        )
+    }));
+    key.zeroize();
+    payload.zeroize();
+
+    match result {
+        Ok(Ok(())) => JNI_TRUE,
+        Ok(Err(_)) | Err(_) => JNI_FALSE,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1622,5 +1974,118 @@ mod tests {
         let second = Account::new();
 
         assert_ne!(first.identity_keys(), second.identity_keys());
+    }
+}
+
+
+#[cfg(test)]
+mod transfer_tests {
+    use super::{
+        decrypt_device_transfer, encrypt_device_transfer, rebind_transferred_device_state,
+        DeviceCryptoState, DEVICE_TRANSFER_KEY_BYTES, DEVICE_TRANSFER_NONCE_BYTES,
+    };
+    use vodozemac::olm::{Account, SessionConfig};
+
+    #[test]
+    fn encrypted_transfer_rebinds_identity_and_preserves_sessions() {
+        let mut source_account = Account::new();
+        source_account.generate_one_time_keys(3);
+        source_account.generate_fallback_key();
+        let expected_identity = source_account.identity_keys();
+
+        let mut peer = Account::new();
+        peer.generate_one_time_keys(1);
+        let peer_key = *peer.one_time_keys().values().next().unwrap();
+        let session = source_account
+            .create_outbound_session(
+                SessionConfig::version_1(),
+                peer.curve25519_key(),
+                peer_key,
+            )
+            .expect("source session should be created");
+        let session_id = session.session_id();
+
+        let mut sessions = std::collections::BTreeMap::new();
+        sessions.insert(session_id.clone(), session);
+        let state = DeviceCryptoState {
+            account: source_account,
+            sessions,
+            pending_decryptions: std::collections::BTreeMap::new(),
+        };
+        let source_id = "source-device";
+        let target_id = "target-device";
+        let state_blob = super::encode_device_crypto_state(source_id, &state)
+            .expect("source state should encode");
+        let key = vec![0x42; DEVICE_TRANSFER_KEY_BYTES];
+        let nonce = vec![0x24; DEVICE_TRANSFER_NONCE_BYTES];
+
+        let encrypted = encrypt_device_transfer(
+            state_blob.clone(),
+            key.clone(),
+            &nonce,
+            source_id,
+            target_id,
+        )
+        .expect("transfer should encrypt");
+        assert!(!encrypted.windows(state_blob.len()).any(|part| part == state_blob));
+        let plaintext = decrypt_device_transfer(
+            encrypted,
+            key.clone(),
+            source_id,
+            target_id,
+        )
+        .expect("transfer should authenticate and decrypt");
+        let rebound = rebind_transferred_device_state(plaintext, source_id, target_id)
+            .expect("state should rebind to destination ID");
+        let restored = super::decode_device_crypto_state(rebound, target_id)
+            .expect("destination state should decode");
+
+        assert_eq!(restored.account.identity_keys(), expected_identity);
+        assert_eq!(restored.sessions.len(), 1);
+        assert!(restored.sessions.contains_key(&session_id));
+        assert_eq!(restored.account.one_time_keys().len(), 20);
+        assert_eq!(restored.account.fallback_key().len(), 1);
+    }
+
+    #[test]
+    fn transfer_authentication_rejects_wrong_key_ids_and_tampering() {
+        let state = DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+        };
+        let source_id = "source-device";
+        let target_id = "target-device";
+        let state_blob = super::encode_device_crypto_state(source_id, &state).unwrap();
+        let key = vec![0xA5; DEVICE_TRANSFER_KEY_BYTES];
+        let nonce = vec![0x5A; DEVICE_TRANSFER_NONCE_BYTES];
+        let encrypted = encrypt_device_transfer(
+            state_blob,
+            key.clone(),
+            &nonce,
+            source_id,
+            target_id,
+        )
+        .unwrap();
+
+        assert!(decrypt_device_transfer(
+            encrypted.clone(),
+            vec![0xA4; DEVICE_TRANSFER_KEY_BYTES],
+            source_id,
+            target_id,
+        )
+        .is_err());
+        assert!(decrypt_device_transfer(
+            encrypted.clone(),
+            key.clone(),
+            source_id,
+            "attacker-device",
+        )
+        .is_err());
+
+        let mut tampered = encrypted;
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+        assert!(decrypt_device_transfer(tampered, key, source_id, target_id).is_err());
     }
 }
