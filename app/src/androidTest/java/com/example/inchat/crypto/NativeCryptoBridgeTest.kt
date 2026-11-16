@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONObject
+import java.security.SecureRandom
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -534,6 +535,118 @@ class NativeCryptoBridgeTest {
         assertTrue(NativeCryptoBridge.nativeSasCancel(aliceHandle))
         assertTrue(NativeCryptoBridge.nativeSasCancel(bobHandle))
         assertTrue(!NativeCryptoBridge.nativeSasIsComplete(aliceHandle))
+    }
+
+    @Test
+    fun encryptedDeviceIdentityTransferPreservesIdentityAndOlmSessions() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val sourceDeviceId = "transfer-source-$suffix"
+        val targetDeviceId = "transfer-target-$suffix"
+        val peerDeviceId = "transfer-peer-$suffix"
+        val sourceStore = CryptoStateStore(context, "device-$sourceDeviceId")
+        val targetStore = CryptoStateStore(context, "device-$targetDeviceId")
+        val peerStore = CryptoStateStore(context, "device-$peerDeviceId")
+
+        val sourceBundle = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(sourceStore, sourceDeviceId)
+            )
+        )
+        val peerBundle = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(peerStore, peerDeviceId)
+            )
+        )
+        assertTrue(NativeCryptoBridge.nativeMarkDeviceKeysPublished(peerStore, peerDeviceId))
+
+        val sourceIdentity = sourceBundle.getJSONObject("identityKeys")
+        val peerIdentity = peerBundle.getJSONObject("identityKeys")
+        val peerOneTimeKey = peerBundle.getJSONArray("oneTimeKeys")
+            .getJSONObject(0).getString("key")
+        val sessionId = requireNotNull(
+            NativeCryptoBridge.nativeCreateOutboundOlmSession(
+                sourceStore,
+                sourceDeviceId,
+                peerIdentity.getString("curve25519"),
+                peerOneTimeKey,
+            )
+        )
+
+        val transferKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val encryptedTransfer = requireNotNull(
+            NativeCryptoBridge.nativeExportDeviceIdentity(
+                sourceStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transferKey.clone(),
+                nonce.clone(),
+            )
+        )
+
+        val wrongKey = transferKey.clone().also { it[0] = (it[0].toInt() xor 0x01).toByte() }
+        assertTrue(
+            "A transfer encrypted with another key must not import",
+            !NativeCryptoBridge.nativeImportDeviceIdentity(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                wrongKey,
+                encryptedTransfer.clone(),
+            ),
+        )
+
+        assertTrue(
+            "The authenticated transfer should import into the empty target store",
+            NativeCryptoBridge.nativeImportDeviceIdentity(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transferKey.clone(),
+                encryptedTransfer.clone(),
+            ),
+        )
+
+        val transferredBundle = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(targetStore, targetDeviceId)
+            )
+        )
+        assertEquals(targetDeviceId, transferredBundle.getString("deviceId"))
+        assertEquals(
+            sourceIdentity.getString("ed25519"),
+            transferredBundle.getJSONObject("identityKeys").getString("ed25519"),
+        )
+        assertEquals(
+            sourceIdentity.getString("curve25519"),
+            transferredBundle.getJSONObject("identityKeys").getString("curve25519"),
+        )
+        assertTrue(
+            "Transferred public keys must be correctly signed for the new device ID",
+            NativeCryptoBridge.nativeVerifyDeviceKeyBundle(transferredBundle.toString()),
+        )
+
+        val encryptedMessage = requireNotNull(
+            NativeCryptoBridge.nativeEncryptOlmMessage(
+                targetStore,
+                targetDeviceId,
+                sessionId,
+                "session survived identity transfer",
+            )
+        )
+        val received = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeCreateInboundOlmSession(
+                    peerStore,
+                    peerDeviceId,
+                    sourceIdentity.getString("curve25519"),
+                    encryptedMessage,
+                )
+            )
+        )
+        assertEquals("session survived identity transfer", received.getString("plaintext"))
+        assertEquals(sessionId, received.getString("sessionId"))
     }
 
 }
