@@ -109,7 +109,7 @@ internal class DeviceIdentityRepository(context: Context) {
      */
     private fun hasOrphanedDeviceIdentityState(): Boolean {
         val uuidStateFile = Regex(
-            """device-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.bin(?:\\.bak)?""",
+            """device-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}[.]bin(?:[.]bak)?""",
         )
         return identityDirectory.listFiles()?.any { file ->
             uuidStateFile.matches(file.name)
