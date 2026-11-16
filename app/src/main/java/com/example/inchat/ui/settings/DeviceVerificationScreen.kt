@@ -360,8 +360,6 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             }
         )
     }
-        }
-    }
 }
 
 @Composable
