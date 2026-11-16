@@ -1349,7 +1349,7 @@ fn decrypt_device_transfer(
 }
 
 fn rebind_transferred_device_state(
-    plaintext: Vec<u8>,
+    mut plaintext: Vec<u8>,
     source_device_id: &str,
     target_device_id: &str,
 ) -> Result<Vec<u8>, &'static str> {
@@ -1357,6 +1357,7 @@ fn rebind_transferred_device_state(
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
     {
+        plaintext.zeroize();
         return Err("Device transfer IDs are invalid");
     }
     let mut state = decode_device_crypto_state(plaintext, source_device_id)?;
@@ -1391,8 +1392,10 @@ fn read_transfer_array<'local>(
     let copy_result = env.get_byte_array_region(value, 0, &mut java_copy);
     let zeros = vec![0_i8; length];
     let clear_result = env.set_byte_array_region(value, 0, &zeros);
-    copy_result.map_err(|_| "Could not copy device transfer buffer")?;
-    clear_result.map_err(|_| "Could not clear temporary device transfer buffer")?;
+    if copy_result.is_err() || clear_result.is_err() {
+        java_copy.zeroize();
+        return Err("Could not safely copy and clear temporary device transfer buffer");
+    }
 
     let mut result: Vec<u8> = java_copy.iter().map(|byte| *byte as u8).collect();
     java_copy.zeroize();
@@ -1407,14 +1410,29 @@ fn export_device_identity<'local>(
     transfer_key: Vec<u8>,
     nonce: Vec<u8>,
 ) -> Result<Vec<u8>, &'static str> {
+    let mut transfer_key = transfer_key;
+    let mut nonce = nonce;
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
     {
+        transfer_key.zeroize();
+        nonce.zeroize();
         return Err("Device transfer IDs are invalid");
     }
-    let state_blob =
-        read_optional_device_state(env, store)?.ok_or("No saved Olm device identity exists")?;
+    let state_blob = match read_optional_device_state(env, store) {
+        Ok(Some(blob)) => blob,
+        Ok(None) => {
+            transfer_key.zeroize();
+            nonce.zeroize();
+            return Err("No saved Olm device identity exists");
+        }
+        Err(error) => {
+            transfer_key.zeroize();
+            nonce.zeroize();
+            return Err(error);
+        }
+    };
     let state = decode_device_crypto_state(state_blob, source_device_id)?;
     let encoded_state = encode_device_crypto_state(source_device_id, &state)?;
     encrypt_device_transfer(
@@ -1431,18 +1449,30 @@ fn import_device_identity<'local>(
     store: &JObject<'local>,
     source_device_id: &str,
     target_device_id: &str,
-    transfer_key: Vec<u8>,
-    encrypted_payload: Vec<u8>,
+    mut transfer_key: Vec<u8>,
+    mut encrypted_payload: Vec<u8>,
 ) -> Result<(), &'static str> {
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
     {
+        transfer_key.zeroize();
+        encrypted_payload.zeroize();
         return Err("Device transfer IDs are invalid");
     }
-    if let Some(mut existing) = read_optional_device_state(env, store)? {
-        existing.zeroize();
-        return Err("Destination already has a crypto identity; refusing to overwrite it");
+    match read_optional_device_state(env, store) {
+        Ok(Some(mut existing)) => {
+            existing.zeroize();
+            transfer_key.zeroize();
+            encrypted_payload.zeroize();
+            return Err("Destination already has a crypto identity; refusing to overwrite it");
+        }
+        Ok(None) => {}
+        Err(error) => {
+            transfer_key.zeroize();
+            encrypted_payload.zeroize();
+            return Err(error);
+        }
     }
 
     let plaintext = decrypt_device_transfer(
@@ -2027,7 +2057,9 @@ mod transfer_tests {
             target_id,
         )
         .expect("transfer should encrypt");
-        assert!(!encrypted.windows(state_blob.len()).any(|part| part == state_blob));
+        assert!(!encrypted
+            .windows(state_blob.len())
+            .any(|part| part == state_blob.as_slice()));
         let plaintext = decrypt_device_transfer(
             encrypted,
             key.clone(),
