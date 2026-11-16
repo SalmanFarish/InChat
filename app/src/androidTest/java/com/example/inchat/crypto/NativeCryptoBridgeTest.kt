@@ -575,15 +575,19 @@ class NativeCryptoBridgeTest {
 
         val transferKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val exportKey = transferKey.clone()
+        val exportNonce = nonce.clone()
         val encryptedTransfer = requireNotNull(
             NativeCryptoBridge.nativeExportDeviceIdentity(
                 sourceStore,
                 sourceDeviceId,
                 targetDeviceId,
-                transferKey.clone(),
-                nonce.clone(),
+                exportKey,
+                exportNonce,
             )
         )
+        assertTrue("Native export must clear its temporary key buffer", exportKey.all { it == 0.toByte() })
+        assertTrue("Native export must clear its temporary nonce buffer", exportNonce.all { it == 0.toByte() })
 
         val wrongKey = transferKey.clone().also { it[0] = (it[0].toInt() xor 0x01).toByte() }
         assertTrue(
@@ -600,6 +604,17 @@ class NativeCryptoBridgeTest {
         assertTrue(
             "The authenticated transfer should import into the empty target store",
             NativeCryptoBridge.nativeImportDeviceIdentity(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transferKey.clone(),
+                encryptedTransfer.clone(),
+            ),
+        )
+
+        assertTrue(
+            "A destination identity must never be overwritten by a second import",
+            !NativeCryptoBridge.nativeImportDeviceIdentity(
                 targetStore,
                 sourceDeviceId,
                 targetDeviceId,
