@@ -77,9 +77,61 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     var states by remember { mutableStateOf<Map<String, SasVerificationUiState>>(emptyMap()) }
     var isPublishing by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var isInitializing by remember { mutableStateOf(true) }
+    var initializationReady by remember { mutableStateOf(false) }
+    var initializationAttempt by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var devicePendingRemoval by remember { mutableStateOf<PublicDeviceKeyBundle?>(null) }
+
+    // Restore this installation's existing identity before offering first-time publication.
+    LaunchedEffect(uid, initializationAttempt) {
+        isInitializing = true
+        initializationReady = false
+        error = null
+        try {
+            val restored = withContext(Dispatchers.IO) {
+                check(directoryRepository.authenticatedUserId == uid) {
+                    "The signed-in account changed. Sign in again."
+                }
+                val bundle = identityRepository.ensurePublicKeyBundle()
+                val registeredDevices = directoryRepository.getUserDevices(uid)
+                val isAlreadyPublished = registeredDevices.any { it.deviceId == bundle.deviceId }
+                val restoredCoordinator = if (isAlreadyPublished) {
+                    directoryRepository.touchMyDevice(bundle.deviceId)
+                    val ledger = SasVerificationMessageLedger(
+                        dao = LocalChatDatabase.getInstance(context).sasVerificationMessageDao(),
+                        localUserId = uid,
+                        localDeviceId = bundle.deviceId
+                    )
+                    SasVerificationCoordinator(
+                        localUserId = uid,
+                        identityRepository = identityRepository,
+                        directoryRepository = directoryRepository,
+                        transport = FirebaseSasVerificationTransport(localDeviceId = bundle.deviceId),
+                        ledger = ledger,
+                        trustedDeviceRepository = trustedDeviceRepository,
+                    )
+                } else {
+                    null
+                }
+                Triple(bundle.deviceId, registeredDevices, restoredCoordinator)
+            }
+            devices = restored.second
+            if (restored.third != null) {
+                localDeviceId = restored.first
+                coordinator = restored.third
+                notice = "This device was restored automatically."
+            }
+            initializationReady = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = failure.message ?: "Could not restore this device."
+        } finally {
+            isInitializing = false
+        }
+    }
 
     LaunchedEffect(localDeviceId, uid) {
         val deviceId = localDeviceId ?: return@LaunchedEffect
@@ -210,7 +262,22 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (localDeviceId == null) {
+            if (isInitializing) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.height(20.dp), strokeWidth = 2.dp)
+                    Text("Restoring this device…", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else if (!initializationReady) {
+                Text(
+                    "InChat couldn't check whether this device is already registered. Retry before publishing to avoid creating a duplicate entry.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = { initializationAttempt += 1 },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Retry") }
+            } else if (localDeviceId == null) {
                 Button(onClick = ::publishThisDevice, enabled = !isPublishing, modifier = Modifier.fillMaxWidth()) {
                     if (isPublishing) {
                         CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
