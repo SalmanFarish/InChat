@@ -88,6 +88,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     LaunchedEffect(uid, initializationAttempt) {
         isInitializing = true
         initializationReady = false
+        localDeviceId = null
+        coordinator = null
+        devices = emptyList()
         error = null
         try {
             val restored = withContext(Dispatchers.IO) {
