@@ -1,11 +1,6 @@
 package com.example.inchat.ui.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,7 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.alpha
 import android.text.format.DateUtils
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -272,7 +266,13 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (isInitializing) {
-                TerminalRestoreLoader()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
+                    Text("Restoring this device…", style = MaterialTheme.typography.bodyMedium)
+                }
             } else if (!initializationReady) {
                 Text(
                     "InChat couldn't check whether this device is already registered. Retry before publishing to avoid creating a duplicate entry.",
@@ -432,69 +432,6 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 TextButton(onClick = { devicePendingRemoval = null }) { Text("Cancel") }
             }
         )
-    }
-}
-
-@Composable
-private fun TerminalRestoreLoader() {
-    val cursorTransition = rememberInfiniteTransition(label = "terminal-cursor")
-    val cursorAlpha by cursorTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 650),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "terminal-cursor-alpha"
-    )
-    val terminalGreen = androidx.compose.ui.graphics.Color(0xFF79E08B)
-    val terminalMuted = androidx.compose.ui.graphics.Color(0xFF9BAA9E)
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = androidx.compose.ui.graphics.Color(0xFF101713),
-        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFF294332))
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(
-                "INCHAT // DEVICE RESTORE",
-                color = terminalGreen,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "> device --restore --check",
-                color = androidx.compose.ui.graphics.Color(0xFFE1EAE3),
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontSize = 12.sp
-            )
-            Text(
-                "[WAIT] Checking this installation…",
-                color = terminalMuted,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontSize = 12.sp
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "[RUN] Restoring registered identity",
-                    color = terminalGreen,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontSize = 12.sp
-                )
-                Text(
-                    " █",
-                    color = terminalGreen,
-                    modifier = Modifier.alpha(cursorAlpha),
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontSize = 12.sp
-                )
-            }
-        }
     }
 }
 
