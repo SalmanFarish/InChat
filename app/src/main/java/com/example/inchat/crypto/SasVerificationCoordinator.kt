@@ -190,6 +190,17 @@ internal class SasVerificationCoordinator(
             check(message.type == SasVerificationMessageType.COMMITMENT) {
                 "No active verification exists for this transaction"
             }
+            val competingAttempt = attempts.values.firstOrNull {
+                it.peerUserId == message.senderUserId &&
+                    it.peerDeviceId == message.senderDeviceId
+            }
+            if (competingAttempt != null) {
+                // Both devices may start at nearly the same time. Keep the first
+                // transaction and cancel the competing incoming one so its sender
+                // does not remain stuck waiting for a response that will never come.
+                rejectCompetingAttempt(message)
+                return@withLock
+            }
             attempt = createResponderAttempt(message)
         }
 
@@ -256,6 +267,24 @@ internal class SasVerificationCoordinator(
             }
             SasVerificationMessageType.CANCEL -> Unit
         }
+    }
+
+    private suspend fun rejectCompetingAttempt(message: SasVerificationMessage) {
+        val now = clock().coerceAtLeast(0L)
+        if (now >= message.expiresAtMillis) return
+        transport.upload(
+            SasVerificationMessage(
+                transactionId = message.transactionId,
+                senderUserId = localUserId,
+                senderDeviceId = localDeviceId,
+                recipientUserId = message.senderUserId,
+                recipientDeviceId = message.senderDeviceId,
+                type = SasVerificationMessageType.CANCEL,
+                payload = "",
+                createdAtMillis = now,
+                expiresAtMillis = message.expiresAtMillis,
+            )
+        )
     }
 
     private suspend fun createResponderAttempt(message: SasVerificationMessage): Attempt {
