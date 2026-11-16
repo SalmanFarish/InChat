@@ -24,6 +24,8 @@ internal data class PublicDeviceKeyBundle(
     val curve25519IdentityKeySignature: String,
     val fallbackKey: SignedOlmPreKey?,
     val oneTimeKeys: List<SignedOlmPreKey>,
+    /** Server timestamp updated while this installation is active. */
+    val lastSeenAtMillis: Long? = null,
 )
 
 /**

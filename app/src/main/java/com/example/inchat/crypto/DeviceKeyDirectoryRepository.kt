@@ -79,6 +79,22 @@ internal class DeviceKeyDirectoryRepository(
         }.sortedBy { it.deviceId }
     }
 
+    /** Update the activity timestamp for this installation without rewriting its keys. */
+    suspend fun touchMyDevice(deviceId: String) {
+        val uid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before updating device activity"
+        }
+        require(DEVICE_ID_REGEX.matches(deviceId)) { "Device ID has an invalid format" }
+        val deviceReference = database.reference
+            .child(ROOT_NODE)
+            .child(uid)
+            .child(deviceId)
+        require(deviceReference.get().await().exists()) {
+            "This device is not published in the account directory"
+        }
+        deviceReference.child("lastSeenAt").setValue(ServerValue.TIMESTAMP).await()
+    }
+
     /**
      * Atomically claim a published one-time prekey. Claims live in a separate
      * path so the public directory remains owner-write-only and no server
@@ -204,6 +220,7 @@ internal class DeviceKeyDirectoryRepository(
             fallbackKey = snapshot.child("fallbackKey").takeIf { it.exists() }
                 ?.let(::parsePrekey),
             oneTimeKeys = snapshot.child("oneTimeKeys").children.map(::parsePrekey),
+            lastSeenAtMillis = snapshot.child("lastSeenAt").getValue(Long::class.javaObjectType),
         )
         validateBundle(bundle)
         verifyCryptographicSignatures(bundle)
@@ -292,6 +309,7 @@ internal class DeviceKeyDirectoryRepository(
         "fallbackKey" to requireNotNull(fallbackKey).toDirectoryMap(),
         "oneTimeKeys" to oneTimeKeys.map { it.toDirectoryMap() },
         "publishedAt" to ServerValue.TIMESTAMP,
+        "lastSeenAt" to ServerValue.TIMESTAMP,
     )
 
     private fun SignedOlmPreKey.toDirectoryMap(): Map<String, String> = mapOf(
