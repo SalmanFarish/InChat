@@ -195,11 +195,17 @@ internal class SasVerificationCoordinator(
                     it.peerDeviceId == message.senderDeviceId
             }
             if (competingAttempt != null) {
-                // Both devices may start at nearly the same time. Keep the first
-                // transaction and cancel the competing incoming one so its sender
-                // does not remain stuck waiting for a response that will never come.
-                rejectCompetingAttempt(message)
-                return@withLock
+                // Resolve simultaneous starts identically on both devices. The
+                // lexicographically smaller transaction ID wins at both ends.
+                if (competingAttempt.transactionId < message.transactionId) {
+                    rejectCompetingAttempt(message)
+                    return@withLock
+                }
+                discard(
+                    competingAttempt,
+                    SasVerificationPhase.CANCELLED,
+                    "A simultaneous verification request was selected instead."
+                )
             }
             attempt = createResponderAttempt(message)
         }
