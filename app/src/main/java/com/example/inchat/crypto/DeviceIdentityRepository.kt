@@ -56,8 +56,11 @@ internal class DeviceIdentityRepository(context: Context) {
     fun currentDeviceId(): String = getOrCreateDeviceId()
 
     /**
-     * Produce an authenticated transfer envelope for one explicitly paired
-     * destination. The one-time key and nonce are wiped after the native call.
+     * Low-level transfer primitive. Do not expose it in UI until pairing,
+     * authenticated destination acknowledgement, and source retirement are
+     * implemented as one complete handoff flow.
+     *
+     * The one-time key and nonce are wiped after the native call.
      */
     fun exportEncryptedIdentity(
         targetDeviceId: String,
@@ -83,8 +86,9 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Import into this installation only. Native code refuses to overwrite an
-     * existing identity and persists the authenticated state under this device ID.
+     * Low-level transfer primitive. The caller must verify the paired source
+     * and complete the source-retirement handshake before treating this as a
+     * finished migration. Native code refuses to overwrite an existing identity.
      */
     fun importEncryptedIdentity(
         sourceDeviceId: String,
