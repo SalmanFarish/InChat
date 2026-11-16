@@ -1433,15 +1433,31 @@ fn export_device_identity<'local>(
             return Err(error);
         }
     };
-    let state = decode_device_crypto_state(state_blob, source_device_id)?;
-    let encoded_state = encode_device_crypto_state(source_device_id, &state)?;
-    encrypt_device_transfer(
+    let state = match decode_device_crypto_state(state_blob, source_device_id) {
+        Ok(state) => state,
+        Err(error) => {
+            transfer_key.zeroize();
+            nonce.zeroize();
+            return Err(error);
+        }
+    };
+    let encoded_state = match encode_device_crypto_state(source_device_id, &state) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            transfer_key.zeroize();
+            nonce.zeroize();
+            return Err(error);
+        }
+    };
+    let result = encrypt_device_transfer(
         encoded_state,
         transfer_key,
         &nonce,
         source_device_id,
         target_device_id,
-    )
+    );
+    nonce.zeroize();
+    result
 }
 
 fn import_device_identity<'local>(
