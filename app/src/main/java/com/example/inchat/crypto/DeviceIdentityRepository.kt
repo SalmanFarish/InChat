@@ -52,6 +52,67 @@ internal class DeviceIdentityRepository(context: Context) {
         return parsePublicBundle(encodedBundle, deviceId)
     }
 
+    /** Return this installation's stable device ID without exposing private state. */
+    fun currentDeviceId(): String = getOrCreateDeviceId()
+
+    /**
+     * Produce an authenticated transfer envelope for one explicitly paired
+     * destination. The one-time key and nonce are wiped after the native call.
+     */
+    fun exportEncryptedIdentity(
+        targetDeviceId: String,
+        transferKey: ByteArray,
+        nonce: ByteArray,
+    ): ByteArray {
+        val sourceDeviceId = getOrCreateDeviceId()
+        require(targetDeviceId != sourceDeviceId) {
+            "A device identity cannot be transferred to itself"
+        }
+        return try {
+            NativeCryptoBridge.nativeExportDeviceIdentity(
+                CryptoStateStore(appContext, "device-$sourceDeviceId"),
+                sourceDeviceId,
+                targetDeviceId,
+                transferKey,
+                nonce,
+            ) ?: throw IllegalStateException("Could not encrypt the device identity transfer")
+        } finally {
+            transferKey.fill(0)
+            nonce.fill(0)
+        }
+    }
+
+    /**
+     * Import into this installation only. Native code refuses to overwrite an
+     * existing identity and persists the authenticated state under this device ID.
+     */
+    fun importEncryptedIdentity(
+        sourceDeviceId: String,
+        transferKey: ByteArray,
+        encryptedPayload: ByteArray,
+    ) {
+        val targetDeviceId = getOrCreateDeviceId()
+        require(sourceDeviceId != targetDeviceId) {
+            "A device identity cannot be transferred to itself"
+        }
+        try {
+            check(
+                NativeCryptoBridge.nativeImportDeviceIdentity(
+                    CryptoStateStore(appContext, "device-$targetDeviceId"),
+                    sourceDeviceId,
+                    targetDeviceId,
+                    transferKey,
+                    encryptedPayload,
+                ),
+            ) {
+                "Could not authenticate or import the device identity transfer"
+            }
+        } finally {
+            transferKey.fill(0)
+            encryptedPayload.fill(0)
+        }
+    }
+
     /**
      * Acknowledge publication only after Firebase confirms the public bundle upload.
      * If this fails, the same unpublished keys are returned on the next attempt.
