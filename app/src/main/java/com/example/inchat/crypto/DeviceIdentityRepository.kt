@@ -78,6 +78,17 @@ internal class DeviceIdentityRepository(context: Context) {
             }
             savedId
         } catch (_: FileNotFoundException) {
+            // The device ID and encrypted Olm state are written separately. If the
+            // ID file disappears while a UUID-named state file survives, generating
+            // a new ID would orphan the old private identity and publish a duplicate.
+            // Fail closed instead; a genuinely cleared app has neither file.
+            if (hasOrphanedDeviceIdentityState()) {
+                throw IOException(
+                    "Encrypted device identity state exists, but its device ID is missing. " +
+                        "Refusing to create a replacement identity.",
+                )
+            }
+
             val newId = UUID.randomUUID().toString()
             val output = deviceIdFile.startWrite()
             try {
@@ -89,6 +100,20 @@ internal class DeviceIdentityRepository(context: Context) {
             }
             newId
         }
+    }
+
+    /**
+     * Detect an identity state whose matching device-id file has gone missing.
+     * Only UUID-backed production identity files are considered; instrumentation
+     * tests and other CryptoStateStore users may use unrelated state IDs.
+     */
+    private fun hasOrphanedDeviceIdentityState(): Boolean {
+        val uuidStateFile = Regex(
+            """device-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.bin(?:\\.bak)?""",
+        )
+        return identityDirectory.listFiles()?.any { file ->
+            uuidStateFile.matches(file.name)
+        } == true
     }
 
     private fun parsePublicBundle(
