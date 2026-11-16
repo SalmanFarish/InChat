@@ -261,7 +261,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         ) {
             Text("Verify your devices", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
             Text(
-                "Publish this installation's public identity, then compare the same safety numbers on both devices. Private keys stay on each device.",
+                "Publish this phone's public identity, then compare the same safety numbers on both phones. Trust is saved separately on each phone; one phone's trust does not automatically appear on the other. Private keys stay on their respective phones.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -290,11 +290,11 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     } else {
                         Icon(Icons.Outlined.Lock, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Publish this device")
+                        Text("Publish this phone's identity")
                     }
                 }
                 Text(
-                    "This is an explicit setup step. It publishes only public device keys to the account's device directory.",
+                    "This phone is not yet listed in this account's device directory. Publishing shares only its public keys; it does not grant or change trust.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -470,7 +470,7 @@ private fun DeviceVerificationAttemptCard(
             when (state?.phase) {
                 null, SasVerificationPhase.CANCELLED, SasVerificationPhase.EXPIRED, SasVerificationPhase.FAILED -> {
                     Text(
-                        if (trustedAtMillis != null) "Trusted on this device"
+                        if (trustedAtMillis != null) "This phone trusts this device"
                         else state?.error ?: "Not verified",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (trustedAtMillis != null) MaterialTheme.colorScheme.primary
@@ -478,7 +478,7 @@ private fun DeviceVerificationAttemptCard(
                     )
                     if (trustedAtMillis != null) {
                         OutlinedButton(onClick = onRevoke, modifier = Modifier.fillMaxWidth()) {
-                            Text("Revoke trust")
+                            Text("Remove trust on this phone")
                         }
                     } else {
                         Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Verify this device") }
@@ -500,14 +500,14 @@ private fun DeviceVerificationAttemptCard(
                 }
                 SasVerificationPhase.COMPLETE -> {
                     Text(
-                        if (trustedAtMillis != null) "Verified and trusted on this device"
-                        else "Verification completed. Checking the local trust record…",
+                        if (trustedAtMillis != null) "Verified; this phone trusts this device"
+                        else "Verification completed. Checking whether this phone saved trust…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
                     if (trustedAtMillis != null) {
                         OutlinedButton(onClick = onRevoke, modifier = Modifier.fillMaxWidth()) {
-                            Text("Revoke trust")
+                            Text("Remove trust on this phone")
                         }
                     }
                 }
