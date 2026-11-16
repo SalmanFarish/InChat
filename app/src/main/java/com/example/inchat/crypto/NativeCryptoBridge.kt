@@ -27,6 +27,32 @@ internal object NativeCryptoBridge {
         deviceId: String,
     ): String?
 
+    /**
+     * Encrypt the current device identity for a specifically paired destination.
+     * The transfer key and nonce are consumed and cleared by native code. The
+     * returned bytes contain only an authenticated encrypted transfer envelope.
+     */
+    external fun nativeExportDeviceIdentity(
+        store: CryptoStateStore,
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transferKey: ByteArray,
+        nonce: ByteArray,
+    ): ByteArray?
+
+    /**
+     * Import an authenticated transfer into an empty destination store. Native
+     * code validates the source state, rebinds it to targetDeviceId, discards
+     * source-device unpublished prekeys, and persists it through Android Keystore.
+     */
+    external fun nativeImportDeviceIdentity(
+        store: CryptoStateStore,
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transferKey: ByteArray,
+        encryptedPayload: ByteArray,
+    ): Boolean
+
     /** Verify a remote public device bundle and all its Ed25519 signatures in Rust. */
     external fun nativeVerifyDeviceKeyBundle(encodedBundle: String): Boolean
 
