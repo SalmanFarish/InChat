@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import android.text.format.DateUtils
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +79,21 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     var isRefreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var devicePendingRemoval by remember { mutableStateOf<PublicDeviceKeyBundle?>(null) }
+
+    LaunchedEffect(localDeviceId, uid) {
+        val deviceId = localDeviceId ?: return@LaunchedEffect
+        while (isActive) {
+            try {
+                withContext(Dispatchers.IO) { directoryRepository.touchMyDevice(deviceId) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.message ?: "Could not update this device's activity."
+            }
+            delay(5 * 60 * 1000L)
+        }
+    }
 
     LaunchedEffect(uid, devices, states) {
         trustedAtByDevice = withContext(Dispatchers.IO) {
@@ -237,9 +254,20 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 }
                 otherDevices.forEach { device ->
                     val state = states.values.firstOrNull { it.peerDeviceId == device.deviceId && it.peerUserId == uid }
+                    val lastSeen = device.lastSeenAtMillis
+                    val isLegacyEntry = lastSeen == null
                     DeviceVerificationAttemptCard(
                         device = device,
                         state = state,
+                        activityLabel = if (isLegacyEntry) {
+                            "Activity not recorded yet (older device entry)"
+                        } else {
+                            "Last seen in verification " + DateUtils.getRelativeTimeSpanString(
+                                requireNotNull(lastSeen), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS
+                            ).toString()
+                        },
+                        canRemove = isLegacyEntry,
+                        onRemove = { devicePendingRemoval = device },
                         trustedAtMillis = trustedAtByDevice[device.deviceId],
                         onRevoke = {
                             scope.launch {
@@ -296,12 +324,53 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         }
     }
+
+    devicePendingRemoval?.let { device ->
+        AlertDialog(
+            onDismissRequest = { devicePendingRemoval = null },
+            title = { Text("Remove device entry?") },
+            text = {
+                Text(
+                    "This removes this device's public keys from your account directory. " +
+                        "Only remove it if you recognise it as an old installation. " +
+                        "A currently used phone must keep its entry."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    devicePendingRemoval = null
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                directoryRepository.removeMyDevice(device.deviceId)
+                                trustedDeviceRepository.revoke(uid, device.deviceId)
+                            }
+                            devices = devices.filterNot { it.deviceId == device.deviceId }
+                            trustedAtByDevice = trustedAtByDevice - device.deviceId
+                            notice = "Old device entry removed from this account."
+                            error = null
+                        } catch (failure: Exception) {
+                            error = failure.message ?: "Could not remove the device entry."
+                        }
+                    }
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { devicePendingRemoval = null }) { Text("Cancel") }
+            }
+        )
+    }
+        }
+    }
 }
 
 @Composable
 private fun DeviceVerificationAttemptCard(
     device: PublicDeviceKeyBundle,
     state: SasVerificationUiState?,
+    activityLabel: String,
+    canRemove: Boolean,
+    onRemove: () -> Unit,
     trustedAtMillis: Long?,
     onRevoke: () -> Unit,
     onStart: () -> Unit,
@@ -321,6 +390,12 @@ private fun DeviceVerificationAttemptCard(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            Text(activityLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (canRemove) {
+                OutlinedButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
+                    Text("Remove legacy device entry")
+                }
+            }
             when (state?.phase) {
                 null, SasVerificationPhase.CANCELLED, SasVerificationPhase.EXPIRED, SasVerificationPhase.FAILED -> {
                     Text(

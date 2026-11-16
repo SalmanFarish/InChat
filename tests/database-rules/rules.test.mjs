@@ -539,3 +539,21 @@ test("blocked users cannot start SAS verification in either direction", async ()
     sasVerificationRecord(),
   ));
 });
+
+
+test("a device owner can update the activity timestamp without replacing its public keys", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertSucceeds(set(
+    ref(aliceDb, "deviceKeys/alice/device-alice-1/lastSeenAt"),
+    Date.now(),
+  ));
+  await assertSucceeds(get(ref(aliceDb, "deviceKeys/alice/device-alice-1/ed25519IdentityKey")));
+});
+
+test("another account cannot update a user's device activity timestamp", async () => {
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  await assertFails(set(
+    ref(bobDb, "deviceKeys/alice/device-alice-1/lastSeenAt"),
+    Date.now(),
+  ));
+});
