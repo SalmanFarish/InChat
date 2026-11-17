@@ -49,7 +49,6 @@ import com.example.inchat.crypto.DeviceIdentityTransferCoordinator
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.DevicePairingProtocol
 import com.example.inchat.crypto.FirebaseDeviceTransferTransport
-import com.google.android.gms.tasks.Task
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -414,7 +413,7 @@ fun DeviceTransferScreen(
                                 pairingPreview = DevicePairingProtocol.PairingPreview(
                                     targetDeviceId = target,
                                     sasCode = response.sasCode,
-                                    expiresAtMillis = System.currentTimeMillis() + 120_000L,
+                                    expiresAtMillis = JSONObject(scanned).getLong("expiresAt"),
                                 )
                                 mode = TransferMode.DESTINATION_RESPONSE
                             }
