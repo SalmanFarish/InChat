@@ -440,7 +440,7 @@ fun DeviceTransferScreen(
                     InfoCard(
                         "Your old device identity has been retired. Continue using InChat on the new phone. Re-establish device trust and verification on the new installation where needed.",
                     )
-                    Button(onClick = { resetFlow() }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onBackClick, modifier = Modifier.fillMaxWidth()) {
                         Text("Done")
                     }
                 }
@@ -591,7 +591,7 @@ fun DeviceTransferScreen(
                     InfoCard(
                         "This phone now holds the transferred identity and has sent its signed acknowledgement. Return to the old phone and check the acknowledgement to complete retirement.",
                     )
-                    Button(onClick = { resetFlow() }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onBackClick, modifier = Modifier.fillMaxWidth()) {
                         Text("Done")
                     }
                 }
