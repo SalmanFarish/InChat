@@ -600,3 +600,85 @@ test("another account cannot update a user's device activity timestamp", async (
     Date.now(),
   ));
 });
+
+
+function deviceTransferMetadata(overrides = {}) {
+  const createdAtMillis = Date.now();
+  return {
+    protocolVersion: 1,
+    sourceDeviceId: "device-alice-1",
+    targetDeviceId: "device-alice-2",
+    transactionId: "transfer-transaction-1",
+    createdAtMillis,
+    expiresAtMillis: createdAtMillis + 120000,
+    payloadSize: 3,
+    chunkCount: 1,
+    payloadSha256: "a".repeat(64),
+    ...overrides,
+  };
+}
+
+test("same-account registered devices can upload a bounded encrypted transfer relay", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeys/alice/device-alice-2"), publicDeviceBundle("device-alice-2"));
+  });
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  await assertSucceeds(set(ref(aliceDb, path + "/metadata"), deviceTransferMetadata()));
+  await assertSucceeds(set(ref(aliceDb, path + "/chunks/0"), "AQID"));
+  await assertSucceeds(set(ref(aliceDb, path + "/ready"), true));
+});
+
+test("device transfer relay is private to the signed-in account", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), path), {
+      metadata: deviceTransferMetadata(),
+      chunks: { "0": "AQID" },
+      ready: true,
+    });
+  });
+  await assertSucceeds(get(ref(aliceDb, path)));
+  await assertFails(get(ref(bobDb, path)));
+});
+
+test("device transfer relay rejects unregistered devices and oversized metadata", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1/metadata";
+  await assertFails(set(ref(aliceDb, path), deviceTransferMetadata({
+    sourceDeviceId: "not-registered",
+  })));
+  await assertFails(set(ref(aliceDb, path), deviceTransferMetadata({
+    payloadSize: 9437185,
+  })));
+});
+
+test("device transfer chunks are immutable and the ready marker is one-way", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeys/alice/device-alice-2"), publicDeviceBundle("device-alice-2"));
+  });
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  await assertSucceeds(set(ref(aliceDb, path + "/metadata"), deviceTransferMetadata()));
+  await assertSucceeds(set(ref(aliceDb, path + "/chunks/0"), "AQID"));
+  await assertFails(set(ref(aliceDb, path + "/chunks/0"), "BAUG"));
+  await assertSucceeds(set(ref(aliceDb, path + "/ready"), true));
+  await assertFails(set(ref(aliceDb, path + "/ready"), false));
+});
+
+test("only the account owner can remove a completed device transfer relay", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), path), {
+      metadata: deviceTransferMetadata(),
+      chunks: { "0": "AQID" },
+      ready: true,
+    });
+  });
+  await assertFails(set(ref(bobDb, path), null));
+  await assertSucceeds(set(ref(aliceDb, path), null));
+});
