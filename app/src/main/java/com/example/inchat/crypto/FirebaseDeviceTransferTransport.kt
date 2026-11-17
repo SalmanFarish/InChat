@@ -1,0 +1,216 @@
+package com.example.inchat.crypto
+
+import android.util.Base64
+import com.example.inchat.data.repository.FirebaseServerClock
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.tasks.await
+import java.security.MessageDigest
+
+/**
+ * Short-lived, same-account relay for device-identity ciphertext.
+ *
+ * Only the AEAD envelope is uploaded. Transfer keys, pairing private keys,
+ * identity state and acknowledgement signatures never enter Firebase.
+ * The receiver verifies size, chunk count, expiry and SHA-256 before import.
+ */
+internal class FirebaseDeviceTransferTransport(
+    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val clock: () -> Long = FirebaseServerClock::now,
+) {
+    suspend fun upload(
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        encryptedPayload: ByteArray,
+    ) {
+        val uid = requireUid()
+        validateIds(sourceDeviceId, targetDeviceId, transactionId)
+        require(sourceDeviceId != targetDeviceId)
+        require(encryptedPayload.size in 1..MAX_PAYLOAD_BYTES) {
+            "Encrypted device transfer has an invalid size"
+        }
+        val now = clock().coerceAtLeast(0L)
+        val expiresAt = now + TRANSFER_LIFETIME_MILLIS
+        val root = database.reference
+        require(root.child(DEVICE_KEYS_NODE).child(uid).child(sourceDeviceId).get().await().exists()) {
+            "Source device is not published in this account"
+        }
+        require(root.child(DEVICE_KEYS_NODE).child(uid).child(targetDeviceId).get().await().exists()) {
+            "Destination device is not published in this account"
+        }
+
+        val transaction = root.child(INBOX_NODE).child(uid).child(targetDeviceId).child(transactionId)
+        require(!transaction.get().await().exists()) { "A relay record already exists for this transfer" }
+
+        val chunks = encryptedPayload.asList().chunked(CHUNK_BYTES)
+        val metadata = mapOf(
+            "protocolVersion" to PROTOCOL_VERSION,
+            "sourceDeviceId" to sourceDeviceId,
+            "targetDeviceId" to targetDeviceId,
+            "transactionId" to transactionId,
+            "createdAtMillis" to now,
+            "expiresAtMillis" to expiresAt,
+            "payloadSize" to encryptedPayload.size,
+            "chunkCount" to chunks.size,
+            "payloadSha256" to sha256Hex(encryptedPayload),
+        )
+
+        try {
+            transaction.child("metadata").setValue(metadata).await()
+            chunks.forEachIndexed { index, bytes ->
+                val encoded = Base64.encodeToString(
+                    ByteArray(bytes.size) { bytes[it] },
+                    Base64.NO_WRAP,
+                )
+                transaction.child("chunks").child(index.toString()).setValue(encoded).await()
+            }
+            // This marker is written last. Readers ignore partial uploads.
+            transaction.child("ready").setValue(true).await()
+        } catch (failure: Throwable) {
+            // Best-effort removal of incomplete ciphertext; never masks the original error.
+            runCatching { transaction.removeValue().await() }
+            throw failure
+        }
+    }
+
+    /**
+     * Returns ciphertext only after all chunks and metadata have been checked.
+     * A null result means the source has not finished uploading yet.
+     */
+    suspend fun download(
+        targetDeviceId: String,
+        transactionId: String,
+    ): ByteArray? {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        val snapshot = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId).get().await()
+        if (!snapshot.child("ready").getValue(Boolean::class.java).orFalse()) return null
+
+        val metadata = parseMetadata(snapshot.child("metadata"), targetDeviceId, transactionId)
+        val now = clock().coerceAtLeast(0L)
+        require(metadata.expiresAtMillis > now) { "Device transfer relay has expired" }
+        require(metadata.createdAtMillis <= now + MAX_FUTURE_SKEW_MILLIS) {
+            "Device transfer relay timestamp is invalid"
+        }
+
+        val chunks = snapshot.child("chunks").children.associate { child ->
+            requireNotNull(child.key).toIntOrNull() to requireNotNull(
+                child.getValue(String::class.java)
+            )
+        }
+        require(chunks.size == metadata.chunkCount && chunks.keys.all { it != null }) {
+            "Device transfer relay is missing chunks"
+        }
+        val output = java.io.ByteArrayOutputStream(metadata.payloadSize)
+        for (index in 0 until metadata.chunkCount) {
+            val encoded = requireNotNull(chunks[index]) { "Device transfer relay is missing a chunk" }
+            val decoded = Base64.decode(encoded, Base64.DEFAULT)
+            require(decoded.size in 1..CHUNK_BYTES) { "Device transfer chunk has an invalid size" }
+            output.write(decoded)
+            decoded.fill(0)
+        }
+        val payload = output.toByteArray()
+        require(payload.size == metadata.payloadSize && payload.size <= MAX_PAYLOAD_BYTES) {
+            payload.fill(0)
+            "Device transfer payload size does not match its metadata"
+        }
+        val actualHash = sha256Hex(payload)
+        val expected = metadata.payloadSha256.toByteArray(Charsets.US_ASCII)
+        val actual = actualHash.toByteArray(Charsets.US_ASCII)
+        require(MessageDigest.isEqual(expected, actual)) {
+            payload.fill(0)
+            "Device transfer payload integrity check failed"
+        }
+        return payload
+    }
+
+    /** Remove the relay only after the destination has successfully imported it. */
+    suspend fun acknowledgeImported(targetDeviceId: String, transactionId: String) {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        val reference = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId)
+        val snapshot = reference.get().await()
+        if (!snapshot.exists()) return
+        val metadata = parseMetadata(snapshot.child("metadata"), targetDeviceId, transactionId)
+        require(snapshot.child("ready").getValue(Boolean::class.java) == true) {
+            "Cannot acknowledge an incomplete device transfer"
+        }
+        require(metadata.expiresAtMillis > clock().coerceAtLeast(0L)) {
+            "Device transfer relay has expired"
+        }
+        reference.removeValue().await()
+    }
+
+    private fun parseMetadata(
+        snapshot: DataSnapshot,
+        targetDeviceId: String,
+        transactionId: String,
+    ): Metadata {
+        require(snapshot.exists())
+        val version = requireNotNull(snapshot.child("protocolVersion").getValue(Int::class.java))
+        val source = requireNotNull(snapshot.child("sourceDeviceId").getValue(String::class.java))
+        val target = requireNotNull(snapshot.child("targetDeviceId").getValue(String::class.java))
+        val transaction = requireNotNull(snapshot.child("transactionId").getValue(String::class.java))
+        val created = requireNotNull(snapshot.child("createdAtMillis").getValue(Long::class.java))
+        val expires = requireNotNull(snapshot.child("expiresAtMillis").getValue(Long::class.java))
+        val size = requireNotNull(snapshot.child("payloadSize").getValue(Int::class.java))
+        val count = requireNotNull(snapshot.child("chunkCount").getValue(Int::class.java))
+        val hash = requireNotNull(snapshot.child("payloadSha256").getValue(String::class.java))
+        validateIds(source, target, transaction)
+        require(version == PROTOCOL_VERSION && target == targetDeviceId && transaction == transactionId)
+        require(source != target && size in 1..MAX_PAYLOAD_BYTES)
+        require(count == (size + CHUNK_BYTES - 1) / CHUNK_BYTES && count in 1..MAX_CHUNKS)
+        require(expires > created && expires - created <= TRANSFER_LIFETIME_MILLIS)
+        require(hash.matches(HASH_PATTERN))
+        return Metadata(source, target, transaction, created, expires, size, count, hash)
+    }
+
+    private fun requireUid(): String = requireNotNull(auth.currentUser?.uid) {
+        "Sign in to the same InChat account on both devices"
+    }
+
+    private fun validateIds(source: String, target: String, transaction: String) {
+        require(DEVICE_ID_PATTERN.matches(source) && DEVICE_ID_PATTERN.matches(target)) {
+            "Device ID has an invalid format"
+        }
+        require(TRANSACTION_PATTERN.matches(transaction)) { "Transfer transaction ID is invalid" }
+    }
+
+    private data class Metadata(
+        val sourceDeviceId: String,
+        val targetDeviceId: String,
+        val transactionId: String,
+        val createdAtMillis: Long,
+        val expiresAtMillis: Long,
+        val payloadSize: Int,
+        val chunkCount: Int,
+        val payloadSha256: String,
+    )
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun Boolean?.orFalse() = this == true
+
+    private companion object {
+        const val INBOX_NODE = "deviceTransferInbox"
+        const val DEVICE_KEYS_NODE = "deviceKeys"
+        const val PROTOCOL_VERSION = 1
+        const val CHUNK_BYTES = 128 * 1024
+        const val MAX_PAYLOAD_BYTES = 9 * 1024 * 1024
+        const val MAX_CHUNKS = (MAX_PAYLOAD_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES
+        const val TRANSFER_LIFETIME_MILLIS = 2 * 60 * 1000L
+        const val MAX_FUTURE_SKEW_MILLIS = 2 * 60 * 1000L
+        val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
+        val TRANSACTION_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
+        val HASH_PATTERN = Regex("[A-Fa-f0-9]{64}")
+    }
+}
