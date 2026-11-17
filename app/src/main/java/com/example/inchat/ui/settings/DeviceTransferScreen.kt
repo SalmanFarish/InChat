@@ -117,18 +117,25 @@ fun DeviceTransferScreen(
                 }
                 identityRepository.pendingIdentityTransfer()
             }
-            if (pending != null && pending.ownerUserId == uid && !pending.retired) {
+            if (pending != null && pending.ownerUserId == uid) {
                 sourceDeviceId = pending.sourceDeviceId
                 targetDeviceId = pending.targetDeviceId
                 transactionId = pending.transactionId
-                if (pending.exported) {
-                    mode = TransferMode.SOURCE_WAITING
-                    notice = "Recovered a pending source transfer. Check the destination acknowledgement before doing anything else."
-                } else {
-                    withContext(Dispatchers.IO) {
-                        identityRepository.cancelIdentityTransfer()
+                when {
+                    pending.retired -> {
+                        mode = TransferMode.SOURCE_DONE
+                        notice = "This phone's identity was already retired by a completed transfer."
                     }
-                    notice = "An interrupted pairing that had not exported any identity data was safely cancelled. You can start again."
+                    pending.exported -> {
+                        mode = TransferMode.SOURCE_WAITING
+                        notice = "Recovered a pending source transfer. Check the destination acknowledgement before doing anything else."
+                    }
+                    else -> {
+                        withContext(Dispatchers.IO) {
+                            identityRepository.cancelIdentityTransfer()
+                        }
+                        notice = "An interrupted pairing that had not exported any identity data was safely cancelled. You can start again."
+                    }
                 }
             }
         } catch (failure: Exception) {
