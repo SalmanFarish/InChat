@@ -34,8 +34,12 @@ internal data class PendingDeviceIdentityTransfer(
     val sourceDeviceId: String,
     val targetDeviceId: String,
     val transactionId: String?,
+    val ownerUserId: String?,
+    val sourceIdentityFingerprint: String?,
     val exported: Boolean,
     val acknowledged: Boolean,
+    val retiring: Boolean,
+    val retired: Boolean,
 )
 
 /**
@@ -67,15 +71,28 @@ internal class DeviceIdentityRepository(context: Context) {
     /** Return this installation's stable device ID without exposing private state. */
     fun currentDeviceId(): String = getOrCreateDeviceId()
 
+    /** Re-check the transfer lock even when a caller has cached this identity. */
+    fun requireIdentityUsable() {
+        transferJournal.requireUnlocked(getOrCreateDeviceId())
+    }
+
     /**
-     * Persistently lock this source identity before exporting it. The lock survives
-     * process death and blocks OlmSessionRepository through ensurePublicKeyBundle().
+     * Persistently lock this source identity before exporting it. Bind the transfer
+     * to the signed-in account and the source Ed25519 identity fingerprint so the
+     * destination can be checked before the old directory entry is revoked.
      */
-    fun beginIdentityTransfer(targetDeviceId: String): String {
-        val sourceDeviceId = getOrCreateDeviceId()
-        transferJournal.requireUnlocked(sourceDeviceId)
+    fun beginIdentityTransfer(targetDeviceId: String, ownerUserId: String): String {
+        val sourceBundle = ensurePublicKeyBundle()
+        val sourceDeviceId = sourceBundle.deviceId
         val transactionId = UUID.randomUUID().toString().replace("-", "")
-        transferJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
+        val identityFingerprint = fingerprint(sourceBundle.ed25519IdentityKey)
+        transferJournal.begin(
+            sourceDeviceId,
+            targetDeviceId,
+            transactionId,
+            ownerUserId,
+            identityFingerprint,
+        )
         return transactionId
     }
 
@@ -91,8 +108,12 @@ internal class DeviceIdentityRepository(context: Context) {
                 sourceDeviceId = pending.sourceDeviceId,
                 targetDeviceId = pending.targetDeviceId,
                 transactionId = pending.transactionId,
+                ownerUserId = pending.ownerUserId,
+                sourceIdentityFingerprint = pending.sourceIdentityFingerprint,
                 exported = pending.exported,
                 acknowledged = pending.acknowledged,
+                retiring = pending.retiring,
+                retired = pending.retired,
             )
         }
 
@@ -217,12 +238,49 @@ internal class DeviceIdentityRepository(context: Context) {
         transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean {
+    /**
+     * Retire this source only after the coordinator has confirmed that the
+     * destination bundle is published and the source directory entry is gone.
+     * The journal records the irreversible decision before the Keystore key is
+     * deleted, so a process death can safely resume the deletion.
+     */
+    fun retireIdentityTransfer(targetDeviceId: String, transactionId: String) {
+        val sourceDeviceId = getOrCreateDeviceId()
+        val pending = requireNotNull(transferJournal.pending()) {
+            "No device transfer is pending"
+        }
+        require(
+            pending.sourceDeviceId == sourceDeviceId &&
+                pending.targetDeviceId == targetDeviceId &&
+                pending.transactionId == transactionId &&
+                pending.acknowledged &&
+                pending.ownerUserId != null &&
+                pending.sourceIdentityFingerprint != null
+        ) {
+            "Source retirement requires the verified, account-bound transfer"
+        }
+
+        transferJournal.markRetiring(sourceDeviceId, targetDeviceId, transactionId)
+        CryptoStateStore(appContext, "device-$sourceDeviceId").delete()
+        transferJournal.markRetired(sourceDeviceId, targetDeviceId, transactionId)
+    }
+
+
         return try {
             val sourceDeviceId = getOrCreateDeviceId()
-            transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
             val receiptSha256 = MessageDigest.getInstance("SHA-256")
                 .digest(acknowledgement)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val existing = transferJournal.pending()
+            if (existing?.acknowledged == true) {
+                return transferJournal.hasRecordedAcknowledgement(
+                    sourceDeviceId,
+                    targetDeviceId,
+                    transactionId,
+                    receiptSha256,
+                )
+            }
+            transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
             val verified = NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
                 sourceDeviceId,
@@ -315,6 +373,12 @@ internal class DeviceIdentityRepository(context: Context) {
         encoded: String,
         expectedDeviceId: String,
     ): PublicDeviceKeyBundle {
+    private fun fingerprint(identityKey: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(identityKey.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+
         val root = JSONObject(encoded)
         require(root.getInt("schemaVersion") == 1) {
             "Unsupported public Olm device-key bundle version"
