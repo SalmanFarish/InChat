@@ -70,7 +70,8 @@ fun SettingsScreen(
     authViewModel: AuthViewModel,
     onBackClick: () -> Unit,
     onPrivacyClick: () -> Unit,
-    onDeviceVerificationClick: () -> Unit
+    onDeviceVerificationClick: () -> Unit,
+    onDeviceTransferClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -376,6 +377,34 @@ fun SettingsScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                         Icon(imageVector = Icons.Outlined.ChevronRight, contentDescription = "Open device verification", modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(
+                        interactionSource = null,
+                        indication = null,
+                        onClick = onDeviceTransferClick
+                    ),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SettingsIconTile(icon = Icons.Outlined.Devices, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Transfer to a new phone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Move this phone's encrypted identity using QR pairing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Icon(imageVector = Icons.Outlined.ChevronRight, contentDescription = "Open device transfer", modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
