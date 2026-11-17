@@ -347,6 +347,17 @@ test("authenticated clients can claim a one-time prekey exactly once", async () 
   await assertSucceeds(get(ref(winnerDb, path)));
 });
 
+test("a one-time prekey cannot be claimed after its device is revoked", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const claimPath = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+
+  await assertSucceeds(
+    set(ref(aliceDb, "deviceKeys/alice/device-alice-1"), null),
+  );
+  await assertFails(set(ref(bobDb, claimPath), true));
+});
+
 test("unauthenticated clients cannot claim a one-time prekey", async () => {
   const unauthenticatedDb = testEnv.unauthenticatedContext().database();
   await assertFails(
