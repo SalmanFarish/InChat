@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +108,33 @@ fun DeviceTransferScreen(
     var confirmationQr by remember { mutableStateOf<String?>(null) }
     var pairingPreview by remember { mutableStateOf<DevicePairingProtocol.PairingPreview?>(null) }
     var verifiedPairing by remember { mutableStateOf<DevicePairingProtocol.VerifiedPairing?>(null) }
+
+    LaunchedEffect(uid) {
+        try {
+            val pending = withContext(Dispatchers.IO) {
+                check(directoryRepository.authenticatedUserId == uid) {
+                    "The signed-in account changed."
+                }
+                identityRepository.pendingIdentityTransfer()
+            }
+            if (pending != null && pending.ownerUserId == uid && !pending.retired) {
+                sourceDeviceId = pending.sourceDeviceId
+                targetDeviceId = pending.targetDeviceId
+                transactionId = pending.transactionId
+                if (pending.exported) {
+                    mode = TransferMode.SOURCE_WAITING
+                    notice = "Recovered a pending source transfer. Check the destination acknowledgement before doing anything else."
+                } else {
+                    withContext(Dispatchers.IO) {
+                        identityRepository.cancelIdentityTransfer()
+                    }
+                    notice = "An interrupted pairing that had not exported any identity data was safely cancelled. You can start again."
+                }
+            }
+        } catch (failure: Exception) {
+            error = failure.message ?: "Could not check for a pending device transfer."
+        }
+    }
 
     suspend fun scanQr(): String {
         val options = GmsBarcodeScannerOptions.Builder()
@@ -347,6 +375,32 @@ fun DeviceTransferScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    OutlinedButton(
+                        onClick = {
+                            runTask {
+                                val removed = withContext(Dispatchers.IO) {
+                                    transport.discardUnreadyUpload(
+                                        requireNotNull(targetDeviceId),
+                                        requireNotNull(transactionId),
+                                    )
+                                }
+                                if (removed) {
+                                    withContext(Dispatchers.IO) {
+                                        identityRepository.cancelUnpublishedIdentityTransfer(
+                                            requireNotNull(targetDeviceId),
+                                            requireNotNull(transactionId),
+                                        )
+                                    }
+                                    resetFlow()
+                                    notice = "The incomplete upload was removed. Start a fresh QR pairing."
+                                } else {
+                                    notice = "A complete relay payload exists or could not be safely removed. Keep this phone unchanged and continue on the destination."
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Restart only if upload did not complete") }
                     Button(
                         onClick = {
                             runTask {
