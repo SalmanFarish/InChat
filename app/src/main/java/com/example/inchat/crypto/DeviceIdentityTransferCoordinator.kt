@@ -25,7 +25,9 @@ internal interface DeviceIdentityTransferDirectory {
  *
  * This class does not provide the pairing transport. The transfer key, nonce,
  * encrypted payload and receipt must still be carried by an authenticated
- * device-to-device channel before this coordinator is exposed in UI.
+ * device-to-device channel before this coordinator is exposed in UI. The receipt
+ * is signed by the transferred identity, which is still present on the source
+ * until retirement; it is not independent proof that a distinct device imported it.
  */
 internal class DeviceIdentityTransferCoordinator(
     private val identityRepository: DeviceIdentityRepository,
@@ -38,7 +40,7 @@ internal class DeviceIdentityTransferCoordinator(
     }
 
     /**
-     * Publish the imported target identity and return its Ed25519 proof-of-possession receipt.
+     * Publish the imported target identity and return a context-bound Ed25519 receipt.
      * Publication happens before acknowledgement so the source can independently
      * confirm the destination is present in the public device directory.
      */
@@ -47,8 +49,7 @@ internal class DeviceIdentityTransferCoordinator(
         ownerUserId: String,
         transactionId: String,
     ): ByteArray {
-        
-            check(directory.authenticatedUserId == ownerUserId) {
+        check(directory.authenticatedUserId == ownerUserId) {
                 "Sign in to the same InChat account on the destination device"
             }
             val targetDeviceId = identityRepository.currentDeviceId()
@@ -63,10 +64,10 @@ internal class DeviceIdentityTransferCoordinator(
             directory.publishMyDevice(bundle)
             identityRepository.markPublicKeyBundlePublished()
 
-            return identityRepository.createIdentityTransferAcknowledgement(
-                sourceDeviceId = sourceDeviceId,
-                transactionId = transactionId,
-            )
+        return identityRepository.createIdentityTransferAcknowledgement(
+            sourceDeviceId = sourceDeviceId,
+            transactionId = transactionId,
+        )
     }
 
     /**
