@@ -945,7 +945,7 @@ class NativeCryptoBridgeTest {
 
         val verifyReceipt = acknowledgement.clone()
         assertTrue(
-            "Source must verify destination possession of the transferred identity key",
+            "Source must verify the transaction-bound identity signature",
             NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
                 sourceStore,
                 sourceDeviceId,
