@@ -243,14 +243,14 @@ fun DeviceTransferScreen(
                 TransferMode.CHOOSE -> {
                     ActionCard(
                         title = "This is the old phone",
-                        description = "Show a pairing QR code and securely send this phone's encrypted identity to the new phone.",
+                        description = "Share a temporary pairing code and securely send this phone's encrypted identity to the new phone.",
                         buttonText = "Transfer from this phone",
                         enabled = !busy,
                         onClick = { mode = TransferMode.SOURCE_START },
                     )
                     ActionCard(
                         title = "This is the new phone",
-                        description = "Scan the old phone's QR code, compare the safety code, and receive the identity.",
+                        description = "Paste the old phone's pairing code, compare the safety code, and receive the identity.",
                         buttonText = "Receive on this phone",
                         enabled = !busy,
                         onClick = { mode = TransferMode.DESTINATION_START },
@@ -266,6 +266,7 @@ fun DeviceTransferScreen(
                         "The source identity must be published in your account's device directory before it can be transferred.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    CodeInputField(scannedCode, { scannedCode = it }, "Paste pairing code from old phone")
                     Button(
                         onClick = {
                             runTask {
@@ -293,18 +294,19 @@ fun DeviceTransferScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("Create pairing QR")
+                        else Text("Create pairing code")
                     }
                 }
 
                 TransferMode.SOURCE_REQUEST -> {
-                    StepLabel("1 of 4 · Scan this code with the new phone")
-                    QrPanel(requireNotNull(requestQr), "Scan this QR code from the new phone")
+                    StepLabel("1 of 4 · Share this pairing code with the new phone")
+                    CodePanel(requireNotNull(requestQr), "Copy this pairing code and paste it on the new phone")
                     Text(
-                        "This QR contains temporary public pairing information only. It does not contain your identity private keys or the transfer secret.",
+                        "This code contains temporary public pairing information only. It does not contain your identity private keys or the transfer secret.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    CodeInputField(scannedCode, { scannedCode = it }, "Paste response code from new phone")
                     OutlinedButton(
                         onClick = { resetFlow() },
                         enabled = !busy,
@@ -331,7 +333,7 @@ fun DeviceTransferScreen(
                     ) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
-                        Text("Scan response from new phone")
+                        Text("Verify response code from new phone")
                     }
                 }
 
@@ -342,6 +344,7 @@ fun DeviceTransferScreen(
                         "The new phone must display exactly the same six-digit code. If the codes differ, cancel and start again. Never approve a mismatch.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    CodeInputField(scannedCode, { scannedCode = it }, "Paste final confirmation code from new phone")
                     Button(
                         onClick = {
                             runTask {
@@ -378,7 +381,7 @@ fun DeviceTransferScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("Codes match · scan final confirmation")
+                        else Text("Codes match · verify final confirmation")
                     }
                     OutlinedButton(
                         onClick = { resetFlow() },
@@ -463,7 +466,7 @@ fun DeviceTransferScreen(
                 TransferMode.DESTINATION_START -> {
                     Text("Start on the new phone", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Scan the QR code shown on the old phone. The pairing request expires after two minutes, so keep both screens ready.",
+                        "Paste the pairing code copied from the old phone. The request expires after two minutes, so keep both screens ready.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
@@ -502,7 +505,7 @@ fun DeviceTransferScreen(
                         else {
                             Icon(Icons.Outlined.QrCode, contentDescription = null)
                             Spacer(Modifier.size(8.dp))
-                            Text("Scan old phone's QR")
+                            Text("Verify old phone's pairing code")
                         }
                     }
                 }
@@ -510,9 +513,9 @@ fun DeviceTransferScreen(
                 TransferMode.DESTINATION_RESPONSE -> {
                     StepLabel("1 of 4 · Compare this code on both phones")
                     SasPanel(requireNotNull(pairingPreview).sasCode)
-                    QrPanel(requireNotNull(responseQr), "Scan this response QR with the old phone")
+                    CodePanel(requireNotNull(responseQr), "Copy this response code and paste it on the old phone")
                     Text(
-                        "Check that the six digits match the old phone before confirming. The old phone must scan this response QR first.",
+                        "Check that the six digits match the old phone before confirming. The old phone must verify this response code first.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
@@ -540,8 +543,8 @@ fun DeviceTransferScreen(
                 }
 
                 TransferMode.DESTINATION_CONFIRMATION -> {
-                    StepLabel("2 of 4 · Let the old phone scan this confirmation")
-                    QrPanel(requireNotNull(confirmationQr), "Scan this confirmation QR from the old phone")
+                    StepLabel("2 of 4 · Share the confirmation code with the old phone")
+                    CodePanel(requireNotNull(confirmationQr), "Copy this confirmation code and paste it on the old phone")
                     InfoCard(
                         "Keep this screen open. After the old phone uploads the encrypted identity, return here and receive it.",
                     )
