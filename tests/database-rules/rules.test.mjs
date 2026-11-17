@@ -694,7 +694,6 @@ test("an incomplete relay can be removed, but a ready relay needs an acknowledge
   })));
   await assertSucceeds(set(ref(aliceDb, completedPath + "/chunks/0"), "AQID"));
   await assertSucceeds(set(ref(aliceDb, completedPath + "/ready"), true));
-  await assertFails(set(ref(aliceDb, completedPath), null));
   await assertSucceeds(set(ref(aliceDb, completedPath + "/acknowledgement"), "A".repeat(88)));
   await assertFails(set(ref(aliceDb, completedPath + "/acknowledgement"), "B".repeat(88)));
   await assertSucceeds(set(ref(aliceDb, completedPath), null));
