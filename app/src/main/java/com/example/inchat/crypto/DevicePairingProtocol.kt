@@ -178,6 +178,18 @@ internal class DevicePairingProtocol(
         val response = parseObject(encodedResponse)
         require(response.getString("protocol") == PROTOCOL)
         require(response.getString("targetDeviceId") == targetDeviceId)
+        val transactionId = response.getString("transactionId")
+        val session = synchronized(ephemeralSessions) { ephemeralSessions[transactionId] }
+            ?: throw IllegalStateException("Pairing session expired; scan a new QR code")
+        require(
+            session.targetDeviceId == targetDeviceId &&
+                session.sourceDeviceId == response.getString("sourceDeviceId") &&
+                session.sourceNonce == response.getString("sourceNonce") &&
+                session.targetNonce == response.getString("targetNonce") &&
+                session.expiresAtMillis == response.getLong("expiresAt") &&
+                session.peerEphemeralPublicKey == response.getString("sourceEphemeralPublicKey") &&
+                encode(session.keyPair.public.encoded) == response.getString("targetEphemeralPublicKey")
+        ) { "Pairing response does not match this destination's ephemeral session" }
         val now = clock().coerceAtLeast(0L)
         require(response.getLong("expiresAt") > now) { "Pairing request has expired" }
         val publicKey = response.getString("targetPairingPublicKey")
@@ -242,6 +254,10 @@ internal class DevicePairingProtocol(
         require(response.getString("sourceNonce") == request.getString("sourceNonce")) {
             "Pairing response does not match this QR request"
         }
+        require(
+            response.getString("sourceEphemeralPublicKey") ==
+                request.getString("sourceEphemeralPublicKey")
+        ) { "Pairing response changed the source ephemeral key" }
         require(response.getLong("expiresAt") == request.getLong("expiresAt"))
         require(response.getLong("expiresAt") > now) { "Pairing request has expired" }
 
@@ -321,7 +337,7 @@ internal class DevicePairingProtocol(
      * destination confirmation. The source ephemeral private key is consumed.
      */
     fun deriveSourceTransferKey(pairing: VerifiedPairing): ByteArray =
-        deriveTransferKey(pairing, expectedSource = true)
+        deriveTransferKey(pairing)
 
     /**
      * Derive the same one-time transfer key on the destination after its user
@@ -329,12 +345,13 @@ internal class DevicePairingProtocol(
      */
     fun deriveDestinationTransferKey(targetDeviceId: String, transactionId: String): ByteArray {
         val session = synchronized(ephemeralSessions) {
-            ephemeralSessions.remove(transactionId)
+            ephemeralSessions[transactionId]
         } ?: throw IllegalStateException("Pairing session expired; scan a new QR code")
         require(session.targetDeviceId == targetDeviceId) {
             "Pairing session belongs to another destination"
         }
         require(session.expiresAtMillis > clock()) { "Pairing session expired" }
+        synchronized(ephemeralSessions) { ephemeralSessions.remove(transactionId) }
         return deriveEcdhKey(
             session.keyPair,
             session.peerEphemeralPublicKey,
@@ -351,11 +368,10 @@ internal class DevicePairingProtocol(
         synchronized(ephemeralSessions) { ephemeralSessions.remove(transactionId) }
     }
 
-    private fun deriveTransferKey(pairing: VerifiedPairing, expectedSource: Boolean): ByteArray {
-        require(expectedSource)
+    private fun deriveTransferKey(pairing: VerifiedPairing): ByteArray {
         require(pairing.expiresAtMillis > clock()) { "Pairing session expired" }
         val session = synchronized(ephemeralSessions) {
-            ephemeralSessions.remove(pairing.transactionId)
+            ephemeralSessions[pairing.transactionId]
         } ?: throw IllegalStateException("Pairing session expired; scan a new QR code")
         require(
             session.sourceDeviceId == pairing.sourceDeviceId &&
@@ -363,6 +379,7 @@ internal class DevicePairingProtocol(
                 session.expiresAtMillis == pairing.expiresAtMillis &&
                 session.targetDeviceId.isEmpty()
         ) { "Source pairing session does not match the verified destination" }
+        synchronized(ephemeralSessions) { ephemeralSessions.remove(pairing.transactionId) }
         return deriveEcdhKey(
             session.keyPair,
             pairing.targetEphemeralPublicKey,
