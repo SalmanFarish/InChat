@@ -141,8 +141,13 @@ internal class SasVerificationCoordinator(
     }
 
     /** Poll the dedicated inbox. Each delivery is acknowledged only after this coordinator handles it. */
-    suspend fun receivePending(): SasVerificationInboxReceiveResult = withContext(Dispatchers.IO) {
-        receiver.receivePending { message -> handleIncoming(message) }
+    suspend fun receivePending(): SasVerificationInboxReceiveResult {
+        // The inbox receiver caches the device ID; re-check the durable lock
+        // before allowing it to process another message after a transfer starts.
+        identityRepository.requireIdentityUsable()
+        return withContext(Dispatchers.IO) {
+            receiver.receivePending { message -> handleIncoming(message) }
+        }
     }
 
     /** Call only after the user has visually compared both devices and selected “They match”. */
@@ -182,6 +187,7 @@ internal class SasVerificationCoordinator(
     }
 
     private suspend fun handleIncoming(message: SasVerificationMessage) = mutex.withLock {
+        identityRepository.requireIdentityUsable()
         check(message.recipientUserId == localUserId && message.recipientDeviceId == localDeviceId)
         check(directoryRepository.authenticatedUserId == localUserId)
         var attempt = attempts[message.transactionId]
