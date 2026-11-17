@@ -644,11 +644,17 @@ class NativeCryptoBridgeTest {
     @Test
     fun cachedOlmRepositoryCannotBypassAStartedIdentityTransfer() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val olmRepository = OlmSessionRepository(context)
-        val identityRepository = DeviceIdentityRepository(context)
-        val originalDeviceId = olmRepository.localDeviceId
         val suffix = UUID.randomUUID().toString().replace("-", "")
-        val transactionId = identityRepository.beginIdentityTransfer(
+        val testRoot = File(context.cacheDir, "cached-transfer-lock-$suffix")
+        val noBackupDirectory = File(testRoot, "no-backup").also { it.mkdirs() }
+        val isolatedContext = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getNoBackupFilesDir(): File = noBackupDirectory
+        }
+        val olmRepository = OlmSessionRepository(isolatedContext)
+        val identityRepository = DeviceIdentityRepository(isolatedContext)
+        val originalDeviceId = olmRepository.localDeviceId
+        identityRepository.beginIdentityTransfer(
             targetDeviceId = "transfer-lock-target-$suffix",
             ownerUserId = "transfer-lock-user-$suffix",
         )
@@ -664,7 +670,11 @@ class NativeCryptoBridgeTest {
             }
             assertTrue("A cached Olm repository must re-check the durable transfer lock", blocked)
         } finally {
-            identityRepository.cancelIdentityTransfer()
+            runCatching { identityRepository.cancelIdentityTransfer() }
+            runCatching {
+                CryptoStateStore(isolatedContext, "device-$originalDeviceId").delete()
+            }
+            testRoot.deleteRecursively()
         }
     }
 
