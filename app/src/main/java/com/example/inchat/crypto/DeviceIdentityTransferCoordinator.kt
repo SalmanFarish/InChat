@@ -38,7 +38,7 @@ internal class DeviceIdentityTransferCoordinator(
     }
 
     /**
-     * Publish the imported target identity and return its HMAC acknowledgement.
+     * Publish the imported target identity and return its Ed25519 proof-of-possession receipt.
      * Publication happens before acknowledgement so the source can independently
      * confirm the destination is present in the public device directory.
      */
@@ -46,9 +46,8 @@ internal class DeviceIdentityTransferCoordinator(
         sourceDeviceId: String,
         ownerUserId: String,
         transactionId: String,
-        transferKey: ByteArray,
     ): ByteArray {
-        try {
+        
             check(directory.authenticatedUserId == ownerUserId) {
                 "Sign in to the same InChat account on the destination device"
             }
@@ -67,11 +66,7 @@ internal class DeviceIdentityTransferCoordinator(
             return identityRepository.createIdentityTransferAcknowledgement(
                 sourceDeviceId = sourceDeviceId,
                 transactionId = transactionId,
-                transferKey = transferKey,
             )
-        } finally {
-            transferKey.fill(0)
-        }
     }
 
     /**
@@ -85,7 +80,6 @@ internal class DeviceIdentityTransferCoordinator(
     suspend fun acknowledgeAndRetireSource(
         targetDeviceId: String,
         transactionId: String,
-        transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean {
         try {
@@ -109,7 +103,6 @@ internal class DeviceIdentityTransferCoordinator(
             val accepted = identityRepository.acknowledgeIdentityTransfer(
                 targetDeviceId = targetDeviceId,
                 transactionId = transactionId,
-                transferKey = transferKey,
                 acknowledgement = acknowledgement,
             )
             if (!accepted) return false
@@ -140,7 +133,6 @@ internal class DeviceIdentityTransferCoordinator(
             identityRepository.retireIdentityTransfer(targetDeviceId, transactionId)
             return true
         } finally {
-            transferKey.fill(0)
             acknowledgement.fill(0)
         }
     }
