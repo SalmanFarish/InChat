@@ -758,6 +758,20 @@ class NativeCryptoBridgeTest {
                 sourcePairing,
                 verifiedPairing,
             )
+            val damagedPayload = requireNotNull(encryptedPayload).clone().also {
+                it[it.lastIndex] = (it.last().toInt() xor 0x01).toByte()
+            }
+            assertTrue(
+                "A damaged transfer must fail without consuming the destination pairing session",
+                runCatching {
+                    targetCoordinator.importPairedIdentity(
+                        pairingProtocol = destinationPairing,
+                        sourceDeviceId = sourceBundle.deviceId,
+                        transactionId = transactionId,
+                        encryptedPayload = damagedPayload,
+                    )
+                }.isFailure,
+            )
             targetCoordinator.importPairedIdentity(
                 pairingProtocol = destinationPairing,
                 sourceDeviceId = sourceBundle.deviceId,
