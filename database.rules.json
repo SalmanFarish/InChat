@@ -346,7 +346,7 @@
             ".read": "auth != null && auth.uid === $uid",
             ".write": "auth != null && auth.uid === $uid && !newData.exists() && data.exists() && data.child('metadata').child('targetDeviceId').val() === $targetDeviceId",
             "metadata": {
-              ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists() && root.child('deviceKeys').child($uid).child($targetDeviceId).exists()",
+              ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists() && root.child('deviceKeys').child($uid).child(newData.child('sourceDeviceId').val()).exists()",
               "$other": {
                 ".validate": "false"
               },
@@ -390,6 +390,10 @@
             },
             "$other": {
               ".validate": "false"
+            },
+            "acknowledgement": {
+              ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists() && root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('ready').val() === true && root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('metadata').child('expiresAtMillis').val() > now",
+              ".validate": "newData.isString() && newData.val().length >= 43 && newData.val().length <= 344 && newData.val().matches(/^[A-Za-z0-9+/]+={0,2}$/)"
             }
           }
         }
