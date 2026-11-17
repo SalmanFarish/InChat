@@ -824,6 +824,7 @@ class NativeCryptoBridgeTest {
             transferKey.fill(0)
             encryptedPayload?.fill(0)
             acknowledgement?.fill(0)
+            runCatching { DevicePairingProtocol().deletePairingKey(targetDeviceId) }
             runCatching {
                 CryptoStateStore(targetContext, "device-$targetDeviceId").delete()
             }
