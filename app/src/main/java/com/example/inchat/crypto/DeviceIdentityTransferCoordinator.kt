@@ -24,9 +24,10 @@ internal interface DeviceIdentityTransferDirectory {
  * remove the old public directory entry, confirm removal, and only then delete the
  * old local Keystore key/state. All actions are retryable after process death.
  *
- * This class does not provide the pairing transport. The transfer key, nonce,
- * encrypted payload and receipt must still be carried by an authenticated
- * device-to-device channel before this coordinator is exposed in UI. The receipt
+ * Pairing-derived key agreement and the encrypted export/import operations are
+ * connected here. A temporary authenticated device-to-device transport, QR UI,
+ * recovery screens and two-physical-device verification are still required before
+ * this coordinator is exposed in UI. The receipt
  * is signed by the transferred identity, which is still present on the source
  * until retirement; it is not independent proof that a distinct device imported it.
  */
@@ -93,12 +94,14 @@ internal class DeviceIdentityTransferCoordinator(
         val transferKey = pairingProtocol.deriveSourceTransferKey(pairing)
         val nonce = ByteArray(12).also(SecureRandom()::nextBytes)
         return try {
-            identityRepository.exportEncryptedIdentity(
+            val encrypted = identityRepository.exportEncryptedIdentity(
                 targetDeviceId = pairing.targetDeviceId,
                 transactionId = pairing.transactionId,
                 transferKey = transferKey,
                 nonce = nonce,
             )
+            pairingProtocol.clearEphemeralSession(pairing.transactionId)
+            encrypted
         } catch (failure: Throwable) {
             transferKey.fill(0)
             nonce.fill(0)
@@ -125,12 +128,19 @@ internal class DeviceIdentityTransferCoordinator(
             targetDeviceId,
             transactionId,
         )
-        identityRepository.importEncryptedIdentity(
-            sourceDeviceId = sourceDeviceId,
-            transactionId = transactionId,
-            transferKey = transferKey,
-            encryptedPayload = encryptedPayload,
-        )
+        try {
+            identityRepository.importEncryptedIdentity(
+                sourceDeviceId = sourceDeviceId,
+                transactionId = transactionId,
+                transferKey = transferKey,
+                encryptedPayload = encryptedPayload,
+            )
+            pairingProtocol.clearEphemeralSession(transactionId)
+        } catch (failure: Throwable) {
+            transferKey.fill(0)
+            encryptedPayload.fill(0)
+            throw failure
+        }
     }
 
     /**
