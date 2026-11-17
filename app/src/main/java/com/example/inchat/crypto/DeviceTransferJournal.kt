@@ -14,8 +14,12 @@ import java.io.IOException
  * state. Both pending and acknowledged transfers remain locked until a separate,
  * fully implemented source-retirement step is introduced.
  */
-internal class DeviceTransferJournal(context: Context) {
-    private val directory = File(context.applicationContext.noBackupFilesDir, DIRECTORY_NAME)
+internal class DeviceTransferJournal(
+    context: Context,
+    storageDirectory: File? = null,
+) {
+    private val directory = storageDirectory
+        ?: File(context.applicationContext.noBackupFilesDir, DIRECTORY_NAME)
     private val atomicFile = AtomicFile(File(directory, FILE_NAME))
 
     data class PendingTransfer(
