@@ -262,6 +262,7 @@
     "deviceKeyClaims": {
       "$uid": {
         "$deviceId": {
+          ".write": "auth != null && auth.uid === $uid && !newData.exists() && !root.child('deviceKeys').child($uid).child($deviceId).exists()",
           "$keyId": {
             ".read": "auth != null",
             ".write": "auth != null && ((!data.exists() && newData.val() === true) || (auth.uid === $uid && !newData.exists() && !root.child('deviceKeys').child($uid).child($deviceId).exists()))",
