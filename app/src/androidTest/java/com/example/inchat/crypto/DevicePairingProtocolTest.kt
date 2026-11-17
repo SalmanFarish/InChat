@@ -26,6 +26,16 @@ class DevicePairingProtocolTest {
             expectRejected {
                 destinationProtocol.confirmResponse(destination.encoded, targetId, "000000")
             }
+            val changedSourceKey = JSONObject(destination.encoded)
+                .put("sourceEphemeralPublicKey", "YWJj")
+                .toString()
+            expectRejected {
+                destinationProtocol.confirmResponse(
+                    changedSourceKey,
+                    targetId,
+                    destination.sasCode,
+                )
+            }
             val destinationConfirmation = destinationProtocol.confirmResponse(
                 destination.encoded,
                 targetId,
