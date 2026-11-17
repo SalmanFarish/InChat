@@ -106,6 +106,8 @@ class DevicePairingProtocolTest {
                 )
             }
         } finally {
+            sourceProtocol.clearEphemeralSession(transactionId)
+            destinationProtocol.clearEphemeralSession(transactionId)
             destinationProtocol.deletePairingKey(targetId)
         }
     }
@@ -127,6 +129,10 @@ class DevicePairingProtocolTest {
             val response2 = destinationProtocol.respondToRequest(request2, targetId)
             org.junit.Assert.assertNotEquals(response1.encoded, response2.encoded)
         } finally {
+            sourceProtocol.clearEphemeralSession(tx1)
+            sourceProtocol.clearEphemeralSession(tx2)
+            destinationProtocol.clearEphemeralSession(tx1)
+            destinationProtocol.clearEphemeralSession(tx2)
             destinationProtocol.deletePairingKey(targetId)
         }
     }
