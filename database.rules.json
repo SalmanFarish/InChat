@@ -264,7 +264,7 @@
         "$deviceId": {
           "$keyId": {
             ".read": "auth != null",
-            ".write": "auth != null && !data.exists() && newData.val() === true",
+            ".write": "auth != null && ((!data.exists() && newData.val() === true) || (auth.uid === $uid && !newData.exists() && !root.child('deviceKeys').child($uid).child($deviceId).exists()))",
             ".validate": "newData.isBoolean() && newData.val() === true"
           }
         }
