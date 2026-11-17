@@ -198,44 +198,34 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Create a shared-secret HMAC receipt after the imported state has been
-     * persisted. It can be regenerated after process death from the still-present
-     * imported identity and the same one-time transfer key. It is not a digital
-     * signature and is not non-repudiable.
+     * Sign a receipt with the imported identity private key. The source can
+     * verify this signature using its still-local Ed25519 identity public key.
      */
     fun createIdentityTransferAcknowledgement(
         sourceDeviceId: String,
         transactionId: String,
-        transferKey: ByteArray,
     ): ByteArray {
-        return try {
-            val targetDeviceId = getOrCreateDeviceId()
-            require(sourceDeviceId != targetDeviceId) {
-                "A device identity cannot acknowledge its own transfer"
-            }
-            NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
-                CryptoStateStore(appContext, "device-$targetDeviceId"),
-                sourceDeviceId,
-                targetDeviceId,
-                transactionId,
-                transferKey,
-            ) ?: throw IllegalStateException(
-                "Destination identity is not ready to acknowledge this transfer",
-            )
-        } finally {
-            transferKey.fill(0)
+        val targetDeviceId = getOrCreateDeviceId()
+        require(sourceDeviceId != targetDeviceId) {
+            "A device identity cannot acknowledge its own transfer"
         }
+        return NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
+            CryptoStateStore(appContext, "device-$targetDeviceId"),
+            sourceDeviceId,
+            targetDeviceId,
+            transactionId,
+        ) ?: throw IllegalStateException(
+            "Destination identity is not ready to acknowledge this transfer",
+        )
     }
 
     /**
-     * Verify the destination receipt against the source's still-local identity.
-     * A verified receipt is durably recorded, but the source remains locked:
-     * retirement is a separate step and is deliberately not performed here.
+     * Verify the destination's Ed25519 proof of possession against the source's
+     * still-local identity. The accepted receipt digest is durably recorded.
      */
     fun acknowledgeIdentityTransfer(
         targetDeviceId: String,
         transactionId: String,
-        transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean {
         return try {
@@ -258,7 +248,6 @@ internal class DeviceIdentityRepository(context: Context) {
                 sourceDeviceId,
                 targetDeviceId,
                 transactionId,
-                transferKey,
                 acknowledgement,
             )
             if (verified) {
@@ -271,7 +260,6 @@ internal class DeviceIdentityRepository(context: Context) {
             }
             verified
         } finally {
-            transferKey.fill(0)
             acknowledgement.fill(0)
         }
     }
