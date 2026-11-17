@@ -15,6 +15,13 @@ import java.security.MessageDigest
  * identity state and acknowledgement signatures never enter Firebase.
  * The receiver verifies size, chunk count, expiry and SHA-256 before import.
  */
+internal data class DeviceTransferRelayPayload(
+    val sourceDeviceId: String,
+    val targetDeviceId: String,
+    val transactionId: String,
+    val encryptedPayload: ByteArray,
+)
+
 internal class FirebaseDeviceTransferTransport(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
@@ -45,7 +52,7 @@ internal class FirebaseDeviceTransferTransport(
         val transaction = root.child(INBOX_NODE).child(uid).child(targetDeviceId).child(transactionId)
         require(!transaction.get().await().exists()) { "A relay record already exists for this transfer" }
 
-        val chunks = encryptedPayload.asList().chunked(CHUNK_BYTES)
+        val chunkCount = (encryptedPayload.size + CHUNK_BYTES - 1) / CHUNK_BYTES
         val metadata = mapOf(
             "protocolVersion" to PROTOCOL_VERSION,
             "sourceDeviceId" to sourceDeviceId,
@@ -54,18 +61,22 @@ internal class FirebaseDeviceTransferTransport(
             "createdAtMillis" to now,
             "expiresAtMillis" to expiresAt,
             "payloadSize" to encryptedPayload.size,
-            "chunkCount" to chunks.size,
+            "chunkCount" to chunkCount,
             "payloadSha256" to sha256Hex(encryptedPayload),
         )
 
         try {
             transaction.child("metadata").setValue(metadata).await()
-            chunks.forEachIndexed { index, bytes ->
-                val encoded = Base64.encodeToString(
-                    ByteArray(bytes.size) { bytes[it] },
-                    Base64.NO_WRAP,
-                )
-                transaction.child("chunks").child(index.toString()).setValue(encoded).await()
+            repeat(chunkCount) { index ->
+                val start = index * CHUNK_BYTES
+                val end = minOf(start + CHUNK_BYTES, encryptedPayload.size)
+                val chunk = encryptedPayload.copyOfRange(start, end)
+                try {
+                    val encoded = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                    transaction.child("chunks").child(index.toString()).setValue(encoded).await()
+                } finally {
+                    chunk.fill(0)
+                }
             }
             // This marker is written last. Readers ignore partial uploads.
             transaction.child("ready").setValue(true).await()
@@ -83,7 +94,7 @@ internal class FirebaseDeviceTransferTransport(
     suspend fun download(
         targetDeviceId: String,
         transactionId: String,
-    ): ByteArray? {
+    ): DeviceTransferRelayPayload? {
         val uid = requireUid()
         require(DEVICE_ID_PATTERN.matches(targetDeviceId))
         require(TRANSACTION_PATTERN.matches(transactionId))
@@ -126,7 +137,34 @@ internal class FirebaseDeviceTransferTransport(
             payload.fill(0)
             "Device transfer payload integrity check failed"
         }
-        return payload
+        return DeviceTransferRelayPayload(
+            sourceDeviceId = metadata.sourceDeviceId,
+            targetDeviceId = metadata.targetDeviceId,
+            transactionId = metadata.transactionId,
+            encryptedPayload = payload,
+        )
+    }
+
+    /** Remove expired records for this account/device without requiring a server function. */
+    suspend fun pruneExpired(targetDeviceId: String): Int {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        val inbox = database.reference.child(INBOX_NODE).child(uid).child(targetDeviceId)
+        val snapshot = inbox.get().await()
+        val now = clock().coerceAtLeast(0L)
+        var removed = 0
+        for (record in snapshot.children) {
+            val transactionId = record.key ?: continue
+            val expired = runCatching {
+                parseMetadata(record.child("metadata"), targetDeviceId, transactionId)
+                    .expiresAtMillis <= now
+            }.getOrDefault(false)
+            if (expired) {
+                record.ref.removeValue().await()
+                removed++
+            }
+        }
+        return removed
     }
 
     /** Remove the relay only after the destination has successfully imported it. */
