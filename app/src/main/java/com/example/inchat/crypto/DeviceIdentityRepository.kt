@@ -42,10 +42,12 @@ internal class DeviceIdentityRepository(context: Context) {
     private val appContext = context.applicationContext
     private val identityDirectory = File(appContext.noBackupFilesDir, DIRECTORY_NAME)
     private val deviceIdFile = AtomicFile(File(identityDirectory, DEVICE_ID_FILE))
+    private val transferJournal = DeviceTransferJournal(appContext)
 
     /** Create the local native identity if needed and return its public key bundle. */
     fun ensurePublicKeyBundle(): PublicDeviceKeyBundle {
         val deviceId = getOrCreateDeviceId()
+        transferJournal.requireUnlocked(deviceId)
         val stateStore = CryptoStateStore(appContext, "device-$deviceId")
         val encodedBundle = NativeCryptoBridge.nativeEnsureDeviceIdentity(stateStore, deviceId)
             ?: throw IllegalStateException("Native Olm device identity could not be loaded")
@@ -54,6 +56,25 @@ internal class DeviceIdentityRepository(context: Context) {
 
     /** Return this installation's stable device ID without exposing private state. */
     fun currentDeviceId(): String = getOrCreateDeviceId()
+
+    /**
+     * Persistently lock this source identity before exporting it. The lock survives
+     * process death and blocks OlmSessionRepository through ensurePublicKeyBundle().
+     */
+    fun beginIdentityTransfer(targetDeviceId: String) {
+        val sourceDeviceId = getOrCreateDeviceId()
+        transferJournal.requireUnlocked(sourceDeviceId)
+        transferJournal.begin(sourceDeviceId, targetDeviceId)
+    }
+
+    /** Cancel only a pending transfer belonging to this installation. */
+    fun cancelIdentityTransfer() {
+        transferJournal.cancel(getOrCreateDeviceId())
+    }
+
+    /** Exposes only whether this installation currently has a pending handoff. */
+    fun hasPendingIdentityTransfer(): Boolean =
+        transferJournal.pending()?.sourceDeviceId == getOrCreateDeviceId()
 
     /**
      * Low-level transfer primitive. Do not expose it in UI until pairing,
@@ -71,6 +92,7 @@ internal class DeviceIdentityRepository(context: Context) {
         require(targetDeviceId != sourceDeviceId) {
             "A device identity cannot be transferred to itself"
         }
+        transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId)
         return try {
             NativeCryptoBridge.nativeExportDeviceIdentity(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
@@ -123,6 +145,7 @@ internal class DeviceIdentityRepository(context: Context) {
      */
     fun markPublicKeyBundlePublished() {
         val deviceId = getOrCreateDeviceId()
+        transferJournal.requireUnlocked(deviceId)
         val stateStore = CryptoStateStore(appContext, "device-$deviceId")
         check(NativeCryptoBridge.nativeMarkDeviceKeysPublished(stateStore, deviceId)) {
             "Native Olm device keys could not be marked as published"
