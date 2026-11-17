@@ -396,7 +396,7 @@ fun SettingsScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SettingsIconTile(icon = Icons.Outlined.Devices, tint = MaterialTheme.colorScheme.primary)
+                        SettingsIconTile(icon = Icons.Outlined.Lock, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Transfer to a new phone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
