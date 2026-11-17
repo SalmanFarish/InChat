@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.UUID
 
 /** One public Olm prekey, signed by the device's Ed25519 identity key. */
@@ -61,10 +62,12 @@ internal class DeviceIdentityRepository(context: Context) {
      * Persistently lock this source identity before exporting it. The lock survives
      * process death and blocks OlmSessionRepository through ensurePublicKeyBundle().
      */
-    fun beginIdentityTransfer(targetDeviceId: String) {
+    fun beginIdentityTransfer(targetDeviceId: String): String {
         val sourceDeviceId = getOrCreateDeviceId()
         transferJournal.requireUnlocked(sourceDeviceId)
-        transferJournal.begin(sourceDeviceId, targetDeviceId)
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
+        transferJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
+        return transactionId
     }
 
     /** Cancel only a pending transfer belonging to this installation. */
@@ -85,6 +88,7 @@ internal class DeviceIdentityRepository(context: Context) {
      */
     fun exportEncryptedIdentity(
         targetDeviceId: String,
+        transactionId: String,
         transferKey: ByteArray,
         nonce: ByteArray,
     ): ByteArray {
@@ -92,12 +96,13 @@ internal class DeviceIdentityRepository(context: Context) {
         require(targetDeviceId != sourceDeviceId) {
             "A device identity cannot be transferred to itself"
         }
-        transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId)
+        transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
         return try {
             NativeCryptoBridge.nativeExportDeviceIdentity(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
                 sourceDeviceId,
                 targetDeviceId,
+                transactionId,
                 transferKey,
                 nonce,
             ) ?: throw IllegalStateException("Could not encrypt the device identity transfer")
@@ -114,6 +119,7 @@ internal class DeviceIdentityRepository(context: Context) {
      */
     fun importEncryptedIdentity(
         sourceDeviceId: String,
+        transactionId: String,
         transferKey: ByteArray,
         encryptedPayload: ByteArray,
     ) {
@@ -127,6 +133,7 @@ internal class DeviceIdentityRepository(context: Context) {
                     CryptoStateStore(appContext, "device-$targetDeviceId"),
                     sourceDeviceId,
                     targetDeviceId,
+                    transactionId,
                     transferKey,
                     encryptedPayload,
                 ),
@@ -136,6 +143,75 @@ internal class DeviceIdentityRepository(context: Context) {
         } finally {
             transferKey.fill(0)
             encryptedPayload.fill(0)
+        }
+    }
+
+    /**
+     * Create the destination's authenticated receipt after the imported state has
+     * been persisted. The receipt can be regenerated after process death from the
+     * still-present imported identity and the same one-time transfer key.
+     */
+    fun createIdentityTransferAcknowledgement(
+        sourceDeviceId: String,
+        transactionId: String,
+        transferKey: ByteArray,
+    ): ByteArray {
+        val targetDeviceId = getOrCreateDeviceId()
+        require(sourceDeviceId != targetDeviceId) {
+            "A device identity cannot acknowledge its own transfer"
+        }
+        return try {
+            NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
+                CryptoStateStore(appContext, "device-$targetDeviceId"),
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                transferKey,
+            ) ?: throw IllegalStateException(
+                "Destination identity is not ready to acknowledge this transfer",
+            )
+        } finally {
+            transferKey.fill(0)
+        }
+    }
+
+    /**
+     * Verify the destination receipt against the source's still-local identity.
+     * A verified receipt is durably recorded, but the source remains locked:
+     * retirement is a separate step and is deliberately not performed here.
+     */
+    fun acknowledgeIdentityTransfer(
+        targetDeviceId: String,
+        transactionId: String,
+        transferKey: ByteArray,
+        acknowledgement: ByteArray,
+    ): Boolean {
+        val sourceDeviceId = getOrCreateDeviceId()
+        transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
+        val receiptSha256 = MessageDigest.getInstance("SHA-256")
+            .digest(acknowledgement)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return try {
+            val verified = NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
+                CryptoStateStore(appContext, "device-$sourceDeviceId"),
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                transferKey,
+                acknowledgement,
+            )
+            if (verified) {
+                transferJournal.markAcknowledged(
+                    sourceDeviceId,
+                    targetDeviceId,
+                    transactionId,
+                    receiptSha256,
+                )
+            }
+            verified
+        } finally {
+            transferKey.fill(0)
+            acknowledgement.fill(0)
         }
     }
 
