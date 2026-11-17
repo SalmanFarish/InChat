@@ -1238,8 +1238,9 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeD
 }
 
 // Device-transfer envelopes are encrypted end-to-end with a random 256-bit
-// one-time key exchanged out-of-band during pairing. The destination device ID
-// is authenticated as associated data, so an envelope cannot be redirected.
+// one-time key exchanged out-of-band during pairing. The source ID, destination ID,
+// and unique transaction ID are authenticated as associated data, so an envelope
+// cannot be redirected or replayed into another transfer transaction.
 const DEVICE_TRANSFER_HEADER: &[u8; 5] = b"ICTR\x02";
 const DEVICE_TRANSFER_NONCE_BYTES: usize = 12;
 const DEVICE_TRANSFER_KEY_BYTES: usize = 32;
@@ -1968,6 +1969,19 @@ mod tests {
             .decrypt(&follow_up)
             .expect("second restored ratchet decrypts");
         assert_eq!(plaintext.as_slice(), b"second reply");
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc_4231_test_case_one() {
+        let actual = super::hmac_sha256(vec![0x0b; 20], b"Hi There")
+            .expect("HMAC should be calculated");
+        let expected = [
+            0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53,
+            0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b, 0xf1, 0x2b,
+            0x88, 0x1d, 0xc2, 0x00, 0xc9, 0x83, 0x3d, 0xa7,
+            0x26, 0xe9, 0x37, 0x6c, 0x2e, 0x32, 0xcf, 0xf7,
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
