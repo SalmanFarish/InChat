@@ -87,7 +87,7 @@ internal class DeviceTransferJournal(context: Context) {
 
     fun requireUnlocked(sourceDeviceId: String) {
         val existing = pending() ?: return
-        check(existing.sourceDeviceId != sourceDeviceId) {
+        check(existing == null) {
             "This device identity is locked while a transfer is pending"
         }
     }
