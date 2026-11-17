@@ -106,15 +106,63 @@ internal class DevicePairingProtocol(
     }
 
     /**
-     * Source scans the destination response and verifies possession of the
-     * destination-only private key. Callers must still require the user to
-     * compare sasCode on both phones and explicitly confirm before transfer.
+     * Destination calls this only after its user compares the SAS and confirms.
+     * The second signature prevents the source from treating an unconfirmed QR
+     * response as an authenticated pairing.
      */
-    fun verifyResponse(
+    fun confirmResponse(
+        encodedResponse: String,
+        targetDeviceId: String,
+        confirmedSasCode: String,
+    ): String {
+        require(DEVICE_ID.matches(targetDeviceId))
+        val response = parseObject(encodedResponse)
+        require(response.getString("protocol") == PROTOCOL)
+        require(response.getString("targetDeviceId") == targetDeviceId)
+        val now = clock().coerceAtLeast(0L)
+        require(response.getLong("expiresAt") > now) { "Pairing request has expired" }
+        val publicKey = response.getString("targetPairingPublicKey")
+        val transcript = transcript(
+            response.getString("sourceDeviceId"),
+            targetDeviceId,
+            response.getString("transactionId"),
+            response.getString("sourceNonce"),
+            response.getString("targetNonce"),
+            response.getLong("expiresAt"),
+            publicKey,
+        )
+        require(constantTimeEquals(sasCode(transcript), confirmedSasCode)) {
+            "The displayed pairing codes do not match"
+        }
+        val pair = loadOrCreateKeyPair(targetDeviceId)
+        val signer = Signature.getInstance(SIGNATURE_ALGORITHM)
+        signer.initSign(pair.private, random)
+        signer.update(transcript)
+        signer.update(DESTINATION_CONFIRMATION_SUFFIX)
+        return JSONObject()
+            .put("protocol", PROTOCOL)
+            .put("sourceDeviceId", response.getString("sourceDeviceId"))
+            .put("targetDeviceId", targetDeviceId)
+            .put("transactionId", response.getString("transactionId"))
+            .put("sourceNonce", response.getString("sourceNonce"))
+            .put("targetNonce", response.getString("targetNonce"))
+            .put("expiresAt", response.getLong("expiresAt"))
+            .put("targetPairingPublicKey", publicKey)
+            .put("confirmationSignature", encode(signer.sign()))
+            .toString()
+    }
+
+    /**
+     * Source scans the destination's final confirmation QR. Both signatures
+     * must verify, and the source user must independently confirm the same SAS.
+     */
+    fun verifyConfirmation(
         encodedRequest: String,
         encodedResponse: String,
+        encodedConfirmation: String,
         expectedSourceDeviceId: String,
         expectedTransactionId: String,
+        confirmedSasCode: String,
     ): VerifiedPairing {
         val request = parseRequest(encodedRequest)
         val response = parseObject(encodedResponse)
@@ -138,9 +186,21 @@ internal class DevicePairingProtocol(
         require(DEVICE_ID.matches(targetDeviceId) && targetDeviceId != sourceDeviceId) {
             "Destination device ID is invalid"
         }
+        val confirmation = parseObject(encodedConfirmation)
+        require(confirmation.getString("protocol") == PROTOCOL)
+        listOf("sourceDeviceId", "targetDeviceId", "transactionId", "sourceNonce",
+            "targetNonce", "targetPairingPublicKey").forEach { field ->
+            require(confirmation.getString(field) == response.getString(field)) {
+                "Destination confirmation does not match its pairing response"
+            }
+        }
+        require(confirmation.getLong("expiresAt") == response.getLong("expiresAt"))
         val publicKeyBytes = decode(response.getString("targetPairingPublicKey"), MAX_PUBLIC_KEY_BYTES)
         val targetNonce = decode(response.getString("targetNonce"), NONCE_BYTES)
         val signatureBytes = decode(response.getString("signature"), MAX_SIGNATURE_BYTES)
+        val confirmationBytes = decode(
+            confirmation.getString("confirmationSignature"), MAX_SIGNATURE_BYTES,
+        )
         require(targetNonce.size == NONCE_BYTES)
         try {
             val publicKey = java.security.KeyFactory.getInstance("EC")
@@ -160,6 +220,16 @@ internal class DevicePairingProtocol(
             require(verifier.verify(signatureBytes)) {
                 "Destination pairing-key proof is invalid"
             }
+            require(constantTimeEquals(sasCode(transcript), confirmedSasCode)) {
+                "The displayed pairing codes do not match"
+            }
+            val confirmationVerifier = Signature.getInstance(SIGNATURE_ALGORITHM)
+            confirmationVerifier.initVerify(publicKey)
+            confirmationVerifier.update(transcript)
+            confirmationVerifier.update(DESTINATION_CONFIRMATION_SUFFIX)
+            require(confirmationVerifier.verify(confirmationBytes)) {
+                "Destination user confirmation is invalid"
+            }
             return VerifiedPairing(
                 sourceDeviceId = sourceDeviceId,
                 targetDeviceId = targetDeviceId,
@@ -172,6 +242,7 @@ internal class DevicePairingProtocol(
             publicKeyBytes.fill(0)
             targetNonce.fill(0)
             signatureBytes.fill(0)
+            confirmationBytes.fill(0)
         }
     }
 
@@ -261,6 +332,12 @@ internal class DevicePairingProtocol(
         }
     }
 
+    private fun constantTimeEquals(expected: String, actual: String): Boolean =
+        MessageDigest.isEqual(
+            expected.toByteArray(StandardCharsets.US_ASCII),
+            actual.toByteArray(StandardCharsets.US_ASCII),
+        )
+
     private fun alias(deviceId: String) = "$KEY_ALIAS_PREFIX$deviceId"
 
     private fun encode(bytes: ByteArray): String = Base64.encodeToString(
@@ -276,6 +353,8 @@ internal class DevicePairingProtocol(
     private companion object {
         const val PROTOCOL = "INCHAT-PAIR-1"
         const val DOMAIN = "INCHAT-DESTINATION-PAIRING-PROOF-V1"
+        val DESTINATION_CONFIRMATION_SUFFIX =
+            "\nINCHAT-DESTINATION-USER-CONFIRMED-V1".toByteArray(StandardCharsets.UTF_8)
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS_PREFIX = "inchat-device-pairing-v1-"
         const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
