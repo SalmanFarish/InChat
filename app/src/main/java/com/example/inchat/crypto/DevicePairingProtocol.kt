@@ -466,8 +466,19 @@ internal class DevicePairingProtocol(
         require(DEVICE_ID.matches(value.getString("sourceDeviceId")))
         require(TRANSACTION_ID.matches(value.getString("transactionId")))
         val nonce = decode(value.getString("sourceNonce"), NONCE_BYTES)
-        require(nonce.size == NONCE_BYTES) { "Pairing request nonce is invalid" }
-        nonce.fill(0)
+        val ephemeralPublicKey = decode(
+            value.getString("sourceEphemeralPublicKey"),
+            MAX_PUBLIC_KEY_BYTES,
+        )
+        try {
+            require(nonce.size == NONCE_BYTES) { "Pairing request nonce is invalid" }
+            java.security.KeyFactory.getInstance("EC").generatePublic(
+                java.security.spec.X509EncodedKeySpec(ephemeralPublicKey),
+            )
+        } finally {
+            nonce.fill(0)
+            ephemeralPublicKey.fill(0)
+        }
         return value
     }
 
