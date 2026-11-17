@@ -110,6 +110,18 @@ internal class DeviceIdentityRepository(context: Context) {
         transferJournal.cancel(getOrCreateDeviceId())
     }
 
+    /** Call only after the relay confirms an exported payload was never marked ready. */
+    internal fun cancelUnpublishedIdentityTransfer(
+        targetDeviceId: String,
+        transactionId: String,
+    ) {
+        transferJournal.cancelUnpublishedExport(
+            getOrCreateDeviceId(),
+            targetDeviceId,
+            transactionId,
+        )
+    }
+
     /** Metadata-only snapshot for recovering a pending transfer after process death. */
     fun pendingIdentityTransfer(): PendingDeviceIdentityTransfer? =
         transferJournal.pending()?.let { pending ->
