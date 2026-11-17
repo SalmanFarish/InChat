@@ -8,12 +8,11 @@ import java.io.FileNotFoundException
 import java.io.IOException
 
 /**
- * Durable local state for the source side of a device-identity handoff.
+ * Durable local state for a device-identity handoff.
  *
- * This journal contains routing metadata only, never keys or Olm state. A pending
- * transfer is fail-closed across process death: identity use stays blocked until
- * the handoff is explicitly cancelled or a later authenticated completion flow
- * is implemented. It intentionally has no "complete" or delete operation yet.
+ * This journal stores routing/receipt metadata only, never transfer keys or Olm
+ * state. Both pending and acknowledged transfers remain locked until a separate,
+ * fully implemented source-retirement step is introduced.
  */
 internal class DeviceTransferJournal(context: Context) {
     private val directory = File(context.applicationContext.noBackupFilesDir, DIRECTORY_NAME)
@@ -22,6 +21,9 @@ internal class DeviceTransferJournal(context: Context) {
     data class PendingTransfer(
         val sourceDeviceId: String,
         val targetDeviceId: String,
+        val transactionId: String?,
+        val acknowledged: Boolean = false,
+        val receiptSha256: String? = null,
     )
 
     fun pending(): PendingTransfer? = synchronized(LOCK) {
@@ -36,12 +38,14 @@ internal class DeviceTransferJournal(context: Context) {
         } catch (failure: Exception) {
             throw IOException("Device transfer journal is malformed", failure)
         }
-        if (json.optInt("schemaVersion") != SCHEMA_VERSION ||
-            json.optString("status") != STATUS_PENDING
-        ) {
-            throw IOException("Device transfer journal has an unsupported state")
+        if (json.optInt("schemaVersion") != SCHEMA_VERSION) {
+            throw IOException("Device transfer journal has an unsupported schema")
         }
 
+        val status = json.optString("status")
+        if (status != STATUS_PENDING && status != STATUS_ACKNOWLEDGED) {
+            throw IOException("Device transfer journal has an unsupported state")
+        }
         val source = json.optString("sourceDeviceId")
         val target = json.optString("targetDeviceId")
         if (!DEVICE_ID_REGEX.matches(source) ||
@@ -50,30 +54,50 @@ internal class DeviceTransferJournal(context: Context) {
         ) {
             throw IOException("Device transfer journal contains invalid device IDs")
         }
-        PendingTransfer(source, target)
-    }
 
-    /** Persist the source lock before any transfer export can occur. */
-    fun begin(sourceDeviceId: String, targetDeviceId: String) = synchronized(LOCK) {
-        validateIds(sourceDeviceId, targetDeviceId)
-        val existing = pending()
-        if (existing != null) {
-            check(existing == PendingTransfer(sourceDeviceId, targetDeviceId)) {
-                "Another device transfer is already pending"
-            }
-            return@synchronized
+        // Schema-1 journals written by the earlier prototype may not have a
+        // transaction ID. They remain locked and can only be cancelled safely.
+        val transactionId = json.optString("transactionId").takeIf { it.isNotBlank() }
+        if (transactionId != null && !TRANSACTION_ID_REGEX.matches(transactionId)) {
+            throw IOException("Device transfer journal contains an invalid transaction ID")
         }
-        write(
-            JSONObject()
-                .put("schemaVersion", SCHEMA_VERSION)
-                .put("status", STATUS_PENDING)
-                .put("sourceDeviceId", sourceDeviceId)
-                .put("targetDeviceId", targetDeviceId)
-                .toString(),
-        )
+        val receiptSha256 = json.optString("receiptSha256").takeIf { it.isNotBlank() }
+        if (receiptSha256 != null && !RECEIPT_HASH_REGEX.matches(receiptSha256)) {
+            throw IOException("Device transfer journal contains an invalid receipt digest")
+        }
+        val acknowledged = status == STATUS_ACKNOWLEDGED
+        if (acknowledged && (transactionId == null || receiptSha256 == null)) {
+            throw IOException("Acknowledged device transfer has incomplete receipt metadata")
+        }
+
+        PendingTransfer(source, target, transactionId, acknowledged, receiptSha256)
     }
 
-    /** Unlock only the matching source transfer; never clears another transfer. */
+    /** Persist the source lock and unique transaction ID before exporting. */
+    fun begin(sourceDeviceId: String, targetDeviceId: String, transactionId: String) =
+        synchronized(LOCK) {
+            validateIds(sourceDeviceId, targetDeviceId)
+            require(TRANSACTION_ID_REGEX.matches(transactionId)) {
+                "Device transfer transaction ID has an invalid format"
+            }
+            val next = PendingTransfer(sourceDeviceId, targetDeviceId, transactionId)
+            val existing = pending()
+            if (existing != null) {
+                check(existing == next) { "Another device transfer is already pending" }
+                return@synchronized
+            }
+            write(
+                JSONObject()
+                    .put("schemaVersion", SCHEMA_VERSION)
+                    .put("status", STATUS_PENDING)
+                    .put("sourceDeviceId", sourceDeviceId)
+                    .put("targetDeviceId", targetDeviceId)
+                    .put("transactionId", transactionId)
+                    .toString(),
+            )
+        }
+
+    /** Unlock only a matching, not-yet-acknowledged source transfer. */
     fun cancel(sourceDeviceId: String) = synchronized(LOCK) {
         require(DEVICE_ID_REGEX.matches(sourceDeviceId)) {
             "Source device ID has an invalid format"
@@ -82,21 +106,72 @@ internal class DeviceTransferJournal(context: Context) {
         check(existing.sourceDeviceId == sourceDeviceId) {
             "Pending transfer belongs to a different source device"
         }
+        check(!existing.acknowledged) {
+            "An acknowledged transfer cannot be cancelled"
+        }
         atomicFile.delete()
     }
 
     fun requireUnlocked(sourceDeviceId: String) {
         val existing = pending() ?: return
-        check(existing == null) {
-            "This device identity is locked while a transfer is pending"
+        throw IllegalStateException(
+            "Device identity $sourceDeviceId is locked while transfer " +
+                "${existing.transactionId ?: "legacy"} is pending",
+        )
+    }
+
+    fun requirePendingTarget(
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+    ) {
+        val existing = pending()
+        check(
+            existing == PendingTransfer(sourceDeviceId, targetDeviceId, transactionId),
+        ) {
+            "Export does not match the pending device transfer"
         }
     }
 
-    fun requirePendingTarget(sourceDeviceId: String, targetDeviceId: String) {
+    fun requirePending(
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+    ) {
         val existing = pending()
-        check(existing == PendingTransfer(sourceDeviceId, targetDeviceId)) {
-            "Begin a device transfer to this destination before exporting"
+        check(
+            existing == PendingTransfer(sourceDeviceId, targetDeviceId, transactionId),
+        ) {
+            "Acknowledgement does not match the pending device transfer"
         }
+    }
+
+    /** Persist that the source verified the destination's authenticated receipt. */
+    fun markAcknowledged(
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        receiptSha256: String,
+    ) = synchronized(LOCK) {
+        require(RECEIPT_HASH_REGEX.matches(receiptSha256)) {
+            "Acknowledgement digest has an invalid format"
+        }
+        val existing = pending()
+        check(
+            existing == PendingTransfer(sourceDeviceId, targetDeviceId, transactionId),
+        ) {
+            "Acknowledgement does not match the pending device transfer"
+        }
+        write(
+            JSONObject()
+                .put("schemaVersion", SCHEMA_VERSION)
+                .put("status", STATUS_ACKNOWLEDGED)
+                .put("sourceDeviceId", sourceDeviceId)
+                .put("targetDeviceId", targetDeviceId)
+                .put("transactionId", transactionId)
+                .put("receiptSha256", receiptSha256)
+                .toString(),
+        )
     }
 
     private fun write(encoded: String) {
@@ -125,7 +200,10 @@ internal class DeviceTransferJournal(context: Context) {
         const val FILE_NAME = "device-transfer.json"
         const val SCHEMA_VERSION = 1
         const val STATUS_PENDING = "pending"
+        const val STATUS_ACKNOWLEDGED = "acknowledged"
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
+        val TRANSACTION_ID_REGEX = Regex("[0-9a-f]{32}")
+        val RECEIPT_HASH_REGEX = Regex("[0-9a-f]{64}")
         val LOCK = Any()
     }
 }
