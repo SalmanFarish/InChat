@@ -739,6 +739,24 @@ class NativeCryptoBridgeTest {
                 transactionId = transactionId,
             )
 
+            // A valid receipt alone must not retire the source when the target
+            // cannot yet be confirmed in the account directory.
+            val destinationEntry = publishedDevices.remove(targetDeviceId)
+            var missingDestinationRejected = false
+            try {
+                sourceCoordinator.acknowledgeAndRetireSource(
+                    targetDeviceId = targetDeviceId,
+                    transactionId = transactionId,
+                    acknowledgement = requireNotNull(acknowledgement).clone(),
+                )
+            } catch (_: IllegalStateException) {
+                missingDestinationRejected = true
+            }
+            assertTrue("An unavailable destination directory entry must block retirement", missingDestinationRejected)
+            assertTrue("Source state must remain while destination confirmation is pending", CryptoStateStore(sourceContext, "device-${sourceBundle.deviceId}").read() != null)
+            assertTrue("The source transfer lock must remain after the failed retirement attempt", sourceRepository.hasPendingIdentityTransfer())
+            publishedDevices[targetDeviceId] = requireNotNull(destinationEntry)
+
             assertTrue(
                 "Source retirement should succeed only after destination publication",
                 sourceCoordinator.acknowledgeAndRetireSource(
@@ -773,6 +791,9 @@ class NativeCryptoBridgeTest {
             acknowledgement?.fill(0)
             runCatching {
                 CryptoStateStore(targetContext, "device-$targetDeviceId").delete()
+            }
+            runCatching {
+                CryptoStateStore(sourceContext, "device-${sourceRepository.currentDeviceId()}").delete()
             }
             sourceRoot.deleteRecursively()
             targetRoot.deleteRecursively()
