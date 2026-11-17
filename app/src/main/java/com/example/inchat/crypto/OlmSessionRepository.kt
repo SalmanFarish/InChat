@@ -28,9 +28,17 @@ internal class OlmSessionRepository(context: Context) {
     private val appContext = context.applicationContext
     private val identityRepository = DeviceIdentityRepository(appContext)
 
-    private val localBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private val cachedLocalBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         identityRepository.ensurePublicKeyBundle()
     }
+
+    // Do not let a repository instance created before transfer retain permission
+    // to use the old identity after another component locks it for migration.
+    private val localBundle: PublicDeviceKeyBundle
+        get() {
+            identityRepository.requireIdentityUsable()
+            return cachedLocalBundle
+        }
 
     private fun localStore(): CryptoStateStore =
         CryptoStateStore(appContext, "device-${localBundle.deviceId}")
