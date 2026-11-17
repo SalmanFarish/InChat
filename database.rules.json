@@ -354,7 +354,7 @@
             },
             "chunks": {
               "$chunkIndex": {
-                ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists() && root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('metadata').exists() && !root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('ready').exists() && $chunkIndex.matches(/^(0|[1-9][0-9]?)$/) && $chunkIndex.toNumber() < root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('metadata').child('chunkCount').val()",
+                ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists() && root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('metadata').exists() && !root.child('deviceTransferInbox').child($uid).child($targetDeviceId).child($transactionId).child('ready').exists() && $chunkIndex.matches(/^(0|[1-9]|[1-6][0-9]|7[01])$/)",
                 ".validate": "newData.isString() && newData.val().length >= 4 && newData.val().length <= 174764 && newData.val().matches(/^[A-Za-z0-9+/]*={0,2}$/)"
               }
             },
