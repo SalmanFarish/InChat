@@ -4,6 +4,7 @@ use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
@@ -1239,17 +1240,45 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeD
 // Device-transfer envelopes are encrypted end-to-end with a random 256-bit
 // one-time key exchanged out-of-band during pairing. The destination device ID
 // is authenticated as associated data, so an envelope cannot be redirected.
-const DEVICE_TRANSFER_HEADER: &[u8; 5] = b"ICTR\x01";
+const DEVICE_TRANSFER_HEADER: &[u8; 5] = b"ICTR\x02";
 const DEVICE_TRANSFER_NONCE_BYTES: usize = 12;
 const DEVICE_TRANSFER_KEY_BYTES: usize = 32;
 const MAX_DEVICE_TRANSFER_BYTES: usize =
     DEVICE_TRANSFER_HEADER.len() + DEVICE_TRANSFER_NONCE_BYTES + MAX_DEVICE_STATE_BYTES + 16;
 
-fn device_transfer_aad(source_device_id: &str, target_device_id: &str) -> Vec<u8> {
-    format!(
-        "INCHAT_DEVICE_IDENTITY_TRANSFER_V1\n{source_device_id}\n{target_device_id}"
-    )
-    .into_bytes()
+fn device_transfer_aad(source_device_id: &str, target_device_id: &str, transaction_id: &str) -> Vec<u8> {
+    format!("INCHAT_DEVICE_IDENTITY_TRANSFER_V2\n{source_device_id}\n{target_device_id}\n{transaction_id}").into_bytes()
+}
+
+fn valid_transfer_id(value: &str) -> bool {
+    value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn hmac_sha256(mut key: Vec<u8>, message: &[u8]) -> Result<[u8; 32], &'static str> {
+    if key.is_empty() || key.len() > 1024 { key.zeroize(); return Err("Acknowledgement key is invalid"); }
+    let mut key_block = [0_u8; 64];
+    if key.len() > 64 { let digest = Sha256::digest(&key); key_block[..32].copy_from_slice(&digest); }
+    else { key_block[..key.len()].copy_from_slice(&key); }
+    key.zeroize();
+    let mut ipad = [0x36_u8; 64]; let mut opad = [0x5c_u8; 64];
+    for i in 0..64 { ipad[i] ^= key_block[i]; opad[i] ^= key_block[i]; }
+    key_block.zeroize();
+    let mut inner = Sha256::new(); inner.update(ipad); inner.update(message);
+    let mut inner_hash = inner.finalize().to_vec(); ipad.zeroize();
+    let mut outer = Sha256::new(); outer.update(opad); outer.update(&inner_hash);
+    let digest = outer.finalize(); opad.zeroize(); inner_hash.zeroize();
+    let mut result = [0_u8; 32]; result.copy_from_slice(&digest); Ok(result)
+}
+
+fn transfer_acknowledgement_mac(
+    key: Vec<u8>, source: &str, target: &str, transaction: &str, identity_key: &str,
+) -> Result<[u8; 32], &'static str> {
+    if !valid_device_id(source) || !valid_device_id(target) || source == target
+        || !valid_transfer_id(transaction) || identity_key.is_empty() || identity_key.len() > 128 {
+        let mut key = key; key.zeroize(); return Err("Acknowledgement context is invalid");
+    }
+    let mut message = format!("INCHAT_DEVICE_TRANSFER_ACK_V1\n{transaction}\n{source}\n{target}\n{identity_key}").into_bytes();
+    let result = hmac_sha256(key, &message); message.zeroize(); result
 }
 
 fn encrypt_device_transfer(
@@ -1258,10 +1287,12 @@ fn encrypt_device_transfer(
     nonce: &[u8],
     source_device_id: &str,
     target_device_id: &str,
+    transaction_id: &str,
 ) -> Result<Vec<u8>, &'static str> {
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
+        || !valid_transfer_id(transaction_id)
         || transfer_key.len() != DEVICE_TRANSFER_KEY_BYTES
         || nonce.len() != DEVICE_TRANSFER_NONCE_BYTES
         || state_blob.is_empty()
@@ -1272,7 +1303,7 @@ fn encrypt_device_transfer(
         return Err("Device transfer parameters are invalid");
     }
 
-    let aad = device_transfer_aad(source_device_id, target_device_id);
+    let aad = device_transfer_aad(source_device_id, target_device_id, transaction_id);
     let cipher = match ChaCha20Poly1305::new_from_slice(&transfer_key) {
         Ok(cipher) => cipher,
         Err(_) => {
@@ -1310,11 +1341,13 @@ fn decrypt_device_transfer(
     mut transfer_key: Vec<u8>,
     source_device_id: &str,
     target_device_id: &str,
+    transaction_id: &str,
 ) -> Result<Vec<u8>, &'static str> {
     let minimum = DEVICE_TRANSFER_HEADER.len() + DEVICE_TRANSFER_NONCE_BYTES + 16;
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
+        || !valid_transfer_id(transaction_id)
         || transfer_key.len() != DEVICE_TRANSFER_KEY_BYTES
         || envelope.len() < minimum
         || envelope.len() > MAX_DEVICE_TRANSFER_BYTES
@@ -1327,7 +1360,7 @@ fn decrypt_device_transfer(
 
     let nonce_start = DEVICE_TRANSFER_HEADER.len();
     let ciphertext_start = nonce_start + DEVICE_TRANSFER_NONCE_BYTES;
-    let aad = device_transfer_aad(source_device_id, target_device_id);
+    let aad = device_transfer_aad(source_device_id, target_device_id, transaction_id);
     let cipher = match ChaCha20Poly1305::new_from_slice(&transfer_key) {
         Ok(cipher) => cipher,
         Err(_) => {
@@ -1407,6 +1440,7 @@ fn export_device_identity<'local>(
     store: &JObject<'local>,
     source_device_id: &str,
     target_device_id: &str,
+    transaction_id: &str,
     transfer_key: Vec<u8>,
     nonce: Vec<u8>,
 ) -> Result<Vec<u8>, &'static str> {
@@ -1415,6 +1449,7 @@ fn export_device_identity<'local>(
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
+        || !valid_transfer_id(transaction_id)
     {
         transfer_key.zeroize();
         nonce.zeroize();
@@ -1455,6 +1490,7 @@ fn export_device_identity<'local>(
         &nonce,
         source_device_id,
         target_device_id,
+        transaction_id,
     );
     nonce.zeroize();
     result
@@ -1465,12 +1501,14 @@ fn import_device_identity<'local>(
     store: &JObject<'local>,
     source_device_id: &str,
     target_device_id: &str,
+    transaction_id: &str,
     mut transfer_key: Vec<u8>,
     mut encrypted_payload: Vec<u8>,
 ) -> Result<(), &'static str> {
     if !valid_device_id(source_device_id)
         || !valid_device_id(target_device_id)
         || source_device_id == target_device_id
+        || !valid_transfer_id(transaction_id)
     {
         transfer_key.zeroize();
         encrypted_payload.zeroize();
@@ -1496,6 +1534,7 @@ fn import_device_identity<'local>(
         transfer_key,
         source_device_id,
         target_device_id,
+        transaction_id,
     )?;
     let state_blob =
         rebind_transferred_device_state(plaintext, source_device_id, target_device_id)?;
@@ -1511,6 +1550,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     store: JObject<'local>,
     source_device_id: JString<'local>,
     target_device_id: JString<'local>,
+    transaction_id: JString<'local>,
     transfer_key: JByteArray<'local>,
     nonce: JByteArray<'local>,
 ) -> jbyteArray {
@@ -1519,6 +1559,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
         Err(_) => return std::ptr::null_mut(),
     };
     let target_id: String = match env.get_string(&target_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let transaction: String = match env.get_string(&transaction_id) {
         Ok(value) => value.into(),
         Err(_) => return std::ptr::null_mut(),
     };
@@ -1552,6 +1596,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
             &store,
             &source_id,
             &target_id,
+            &transaction,
             std::mem::take(&mut key),
             std::mem::take(&mut nonce_bytes),
         )
@@ -1578,6 +1623,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeI
     store: JObject<'local>,
     source_device_id: JString<'local>,
     target_device_id: JString<'local>,
+    transaction_id: JString<'local>,
     transfer_key: JByteArray<'local>,
     encrypted_payload: JByteArray<'local>,
 ) -> jboolean {
@@ -1586,6 +1632,10 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeI
         Err(_) => return JNI_FALSE,
     };
     let target_id: String = match env.get_string(&target_device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let transaction: String = match env.get_string(&transaction_id) {
         Ok(value) => value.into(),
         Err(_) => return JNI_FALSE,
     };
@@ -1619,6 +1669,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeI
             &store,
             &source_id,
             &target_id,
+            &transaction,
             std::mem::take(&mut key),
             std::mem::take(&mut payload),
         )
@@ -1630,6 +1681,90 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeI
         Ok(Ok(())) => JNI_TRUE,
         Ok(Err(_)) | Err(_) => JNI_FALSE,
     }
+}
+
+fn device_identity_ed25519_key<'local>(env: &mut JNIEnv<'local>, store: &JObject<'local>, device_id: &str) -> Result<String, &'static str> {
+    let blob = read_optional_device_state(env, store)?.ok_or("No imported Olm device identity exists")?;
+    let state = decode_device_crypto_state(blob, device_id)?;
+    Ok(state.account.identity_keys().ed25519.to_base64())
+}
+
+fn create_device_transfer_acknowledgement<'local>(
+    env: &mut JNIEnv<'local>, store: &JObject<'local>, source: &str, target: &str,
+    transaction: &str, key: Vec<u8>,
+) -> Result<[u8; 32], &'static str> {
+    if key.len() != DEVICE_TRANSFER_KEY_BYTES {
+        let mut key = key; key.zeroize(); return Err("Acknowledgement key has invalid size");
+    }
+    let identity = match device_identity_ed25519_key(env, store, target) {
+        Ok(value) => value,
+        Err(error) => { let mut key = key; key.zeroize(); return Err(error); }
+    };
+    transfer_acknowledgement_mac(key, source, target, transaction, &identity)
+}
+
+fn verify_device_transfer_acknowledgement<'local>(
+    env: &mut JNIEnv<'local>, store: &JObject<'local>, source: &str, target: &str,
+    transaction: &str, key: Vec<u8>, mut acknowledgement: Vec<u8>,
+) -> Result<bool, &'static str> {
+    if acknowledgement.len() != 32 {
+        let mut key = key; key.zeroize(); acknowledgement.zeroize();
+        return Err("Acknowledgement has invalid size");
+    }
+    let identity = match device_identity_ed25519_key(env, store, source) {
+        Ok(value) => value,
+        Err(error) => { let mut key = key; key.zeroize(); acknowledgement.zeroize(); return Err(error); }
+    };
+    let expected = transfer_acknowledgement_mac(key, source, target, transaction, &identity)?;
+    let mut difference = 0_u8;
+    for index in 0..32 { difference |= expected[index] ^ acknowledgement[index]; }
+    acknowledgement.zeroize();
+    Ok(difference == 0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeCreateDeviceTransferAcknowledgement<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    source_device_id: JString<'local>, target_device_id: JString<'local>, transaction_id: JString<'local>,
+    transfer_key: JByteArray<'local>,
+) -> jbyteArray {
+    let source: String = match env.get_string(&source_device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let target: String = match env.get_string(&target_device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let transaction: String = match env.get_string(&transaction_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut key = match read_transfer_array(&mut env, &transfer_key, Some(32), 32, 32) {
+        Ok(v) => v, Err(_) => return std::ptr::null_mut(),
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| create_device_transfer_acknowledgement(
+        &mut env, &store, &source, &target, &transaction, std::mem::take(&mut key),
+    )));
+    key.zeroize();
+    match result {
+        Ok(Ok(mut mac)) => { let output = env.byte_array_from_slice(&mac); mac.zeroize(); output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut()) }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeVerifyDeviceTransferAcknowledgement<'local>(
+    mut env: JNIEnv<'local>, _this: JObject<'local>, store: JObject<'local>,
+    source_device_id: JString<'local>, target_device_id: JString<'local>, transaction_id: JString<'local>,
+    transfer_key: JByteArray<'local>, acknowledgement: JByteArray<'local>,
+) -> jboolean {
+    let source: String = match env.get_string(&source_device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let target: String = match env.get_string(&target_device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let transaction: String = match env.get_string(&transaction_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let mut key = match read_transfer_array(&mut env, &transfer_key, Some(32), 32, 32) {
+        Ok(v) => v, Err(_) => return JNI_FALSE,
+    };
+    let mut receipt = match read_transfer_array(&mut env, &acknowledgement, Some(32), 32, 32) {
+        Ok(v) => v, Err(_) => { key.zeroize(); return JNI_FALSE; },
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| verify_device_transfer_acknowledgement(
+        &mut env, &store, &source, &target, &transaction,
+        std::mem::take(&mut key), std::mem::take(&mut receipt),
+    )));
+    key.zeroize(); receipt.zeroize();
+    match result { Ok(Ok(true)) => JNI_TRUE, _ => JNI_FALSE }
 }
 
 #[cfg(test)]
@@ -1781,6 +1916,29 @@ mod tests {
             .decrypt(&follow_up)
             .expect("second restored ratchet decrypts");
         assert_eq!(plaintext.as_slice(), b"second reply");
+    }
+
+    #[test]
+    fn transfer_acknowledgements_bind_key_and_full_context() {
+        let key = vec![7_u8; 32];
+        let identity = "sample-ed25519-public-key";
+        let expected = super::transfer_acknowledgement_mac(key.clone(), "source", "target",
+            "0123456789abcdef0123456789abcdef", identity).unwrap();
+        let same = super::transfer_acknowledgement_mac(key.clone(), "source", "target",
+            "0123456789abcdef0123456789abcdef", identity).unwrap();
+        assert_eq!(expected, same);
+        for (source, target, transaction, identity_key) in [
+            ("other", "target", "0123456789abcdef0123456789abcdef", identity),
+            ("source", "other", "0123456789abcdef0123456789abcdef", identity),
+            ("source", "target", "1123456789abcdef0123456789abcdef", identity),
+            ("source", "target", "0123456789abcdef0123456789abcdef", "different-key"),
+        ] {
+            let different = super::transfer_acknowledgement_mac(key.clone(), source, target, transaction, identity_key).unwrap();
+            assert_ne!(expected, different);
+        }
+        let different_key = super::transfer_acknowledgement_mac(vec![8_u8; 32], "source", "target",
+            "0123456789abcdef0123456789abcdef", identity).unwrap();
+        assert_ne!(expected, different_key);
     }
 
     #[test]
