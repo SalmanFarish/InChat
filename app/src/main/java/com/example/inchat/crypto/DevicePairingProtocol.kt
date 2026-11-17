@@ -249,6 +249,17 @@ internal class DevicePairingProtocol(
         val transactionId = request.getString("transactionId")
         require(sourceDeviceId == expectedSourceDeviceId) { "Pairing request belongs to another source device" }
         require(transactionId == expectedTransactionId) { "Pairing transaction does not match" }
+        val sourceSession = synchronized(ephemeralSessions) { ephemeralSessions[transactionId] }
+            ?: throw IllegalStateException("Source pairing session expired; create a new QR code")
+        require(
+            sourceSession.sourceDeviceId == sourceDeviceId &&
+                sourceSession.transactionId == transactionId &&
+                sourceSession.targetDeviceId.isEmpty() &&
+                sourceSession.expiresAtMillis == request.getLong("expiresAt") &&
+                sourceSession.sourceNonce == request.getString("sourceNonce") &&
+                encode(sourceSession.keyPair.public.encoded) ==
+                    request.getString("sourceEphemeralPublicKey")
+        ) { "Pairing QR does not belong to this source session" }
         require(response.getString("sourceDeviceId") == sourceDeviceId)
         require(response.getString("transactionId") == transactionId)
         require(response.getString("sourceNonce") == request.getString("sourceNonce")) {
@@ -377,7 +388,9 @@ internal class DevicePairingProtocol(
             session.sourceDeviceId == pairing.sourceDeviceId &&
                 session.transactionId == pairing.transactionId &&
                 session.expiresAtMillis == pairing.expiresAtMillis &&
-                session.targetDeviceId.isEmpty()
+                session.targetDeviceId.isEmpty() &&
+                session.sourceNonce == pairing.sourceNonce &&
+                encode(session.keyPair.public.encoded) == pairing.sourceEphemeralPublicKey
         ) { "Source pairing session does not match the verified destination" }
         synchronized(ephemeralSessions) { ephemeralSessions.remove(pairing.transactionId) }
         return deriveEcdhKey(
