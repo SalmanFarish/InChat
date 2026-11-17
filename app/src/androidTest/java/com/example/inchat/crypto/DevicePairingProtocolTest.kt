@@ -107,6 +107,10 @@ class DevicePairingProtocolTest {
             // The QR exchange never contains a transfer key. Both phones derive
             // the same 32-byte key from their short-lived ECDH private keys.
             val sourceTransferKey = sourceProtocol.deriveSourceTransferKey(verified)
+            // The QR proof expires after two minutes, but once the destination
+            // has signed its confirmation it may need longer to receive a large
+            // relay payload. Its confirmed ECDH session remains time-bounded.
+            now += 3 * 60 * 1000L
             val destinationTransferKey = destinationProtocol.deriveDestinationTransferKey(
                 targetId,
                 transactionId,
