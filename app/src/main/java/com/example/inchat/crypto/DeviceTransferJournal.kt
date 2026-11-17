@@ -168,6 +168,7 @@ internal class DeviceTransferJournal(
             check(!existing.exported && !existing.acknowledged) {
                 "Device transfer has already been exported"
             }
+            requireRetirementBinding(existing)
             writeRecord(existing, STATUS_EXPORTED)
         }
 
@@ -217,6 +218,7 @@ internal class DeviceTransferJournal(
         check(existing.exported) {
             "Acknowledgement does not match an exported pending transfer"
         }
+        requireRetirementBinding(existing)
     }
 
     /** True only when the exact receipt was already durably accepted. */
@@ -251,6 +253,7 @@ internal class DeviceTransferJournal(
         check(existing.exported) {
             "Acknowledgement does not match an exported pending transfer"
         }
+        requireRetirementBinding(existing)
         writeRecord(existing.copy(acknowledged = true, receiptSha256 = receiptSha256), STATUS_ACKNOWLEDGED)
     }
 
@@ -264,6 +267,7 @@ internal class DeviceTransferJournal(
         check(existing.acknowledged) {
             "Source retirement requires a verified destination acknowledgement"
         }
+        requireRetirementBinding(existing)
         if (existing.retiring) return@synchronized
         writeRecord(existing, STATUS_RETIRING)
     }
@@ -297,6 +301,12 @@ internal class DeviceTransferJournal(
             "Device transfer does not match the pending transaction"
         }
         return requireNotNull(existing)
+    }
+
+    private fun requireRetirementBinding(record: PendingTransfer) {
+        check(record.ownerUserId != null && record.sourceIdentityFingerprint != null) {
+            "This legacy transfer cannot be safely completed. Cancel it before export and start again."
+        }
     }
 
     private fun writeRecord(record: PendingTransfer, status: String) {
