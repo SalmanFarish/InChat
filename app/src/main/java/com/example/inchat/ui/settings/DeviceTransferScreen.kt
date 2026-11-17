@@ -397,6 +397,7 @@ fun DeviceTransferScreen(
                                     "Sign in to the same InChat account on both phones."
                                 }
                                 val scanned = scanQr()
+                                require(scanned.length <= 4096) { "Pairing QR is too large" }
                                 val source = JSONObject(scanned).getString("sourceDeviceId")
                                 val tx = JSONObject(scanned).getString("transactionId")
                                 val target = withContext(Dispatchers.IO) {
