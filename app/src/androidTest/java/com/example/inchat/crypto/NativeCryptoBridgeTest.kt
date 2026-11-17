@@ -1026,6 +1026,11 @@ class NativeCryptoBridgeTest {
         )
         assertEquals("session survived identity transfer", received.getString("plaintext"))
         assertEquals(sessionId, received.getString("sessionId"))
+
+        // These stores use unique test-only IDs; remove only those generated stores.
+        sourceStore.delete()
+        targetStore.delete()
+        peerStore.delete()
     }
 
 }
