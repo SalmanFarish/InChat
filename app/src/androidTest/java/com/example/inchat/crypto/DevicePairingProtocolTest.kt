@@ -55,6 +55,39 @@ class DevicePairingProtocolTest {
             assertEquals(destination.sasCode, verified.sasCode)
             assertEquals(6, verified.sasCode.length)
 
+            // Reject tampering while the source's one-time ECDH session is still
+            // available; successful derivation below deliberately consumes it.
+            val alteredSourceEphemeral = JSONObject(destination.encoded)
+                .put("sourceEphemeralPublicKey", "YWJj")
+                .toString()
+            expectRejected {
+                sourceProtocol.verifyConfirmation(
+                    request, alteredSourceEphemeral, destinationConfirmation, sourceId,
+                    transactionId, destination.sasCode,
+                )
+            }
+            val alteredTarget = JSONObject(destination.encoded)
+                .put("targetDeviceId", "attacker_$suffix")
+                .toString()
+            expectRejected {
+                sourceProtocol.verifyConfirmation(
+                    request, alteredTarget, destinationConfirmation, sourceId, transactionId,
+                    destination.sasCode,
+                )
+            }
+            expectRejected {
+                sourceProtocol.verifyConfirmation(
+                    request, destination.encoded, destinationConfirmation, sourceId,
+                    UUID.randomUUID().toString().replace("-", ""), destination.sasCode,
+                )
+            }
+            expectRejected {
+                sourceProtocol.verifyConfirmation(
+                    request, destination.encoded, destinationConfirmation, "other_$suffix",
+                    transactionId, destination.sasCode,
+                )
+            }
+
             // The QR exchange never contains a transfer key. Both phones derive
             // the same 32-byte key from their short-lived ECDH private keys.
             val sourceTransferKey = sourceProtocol.deriveSourceTransferKey(verified)
@@ -76,43 +109,40 @@ class DevicePairingProtocolTest {
                 destinationTransferKey.fill(0)
             }
 
-            val alteredSourceEphemeral = JSONObject(destination.encoded)
-                .put("sourceEphemeralPublicKey", "YWJj")
-                .toString()
-            expectRejected {
-                sourceProtocol.verifyConfirmation(
-                    request, alteredSourceEphemeral, destinationConfirmation, sourceId,
-                    transactionId, destination.sasCode,
-                )
-            }
+        } finally {
+            sourceProtocol.clearEphemeralSession(transactionId)
+            destinationProtocol.clearEphemeralSession(transactionId)
+            destinationProtocol.deletePairingKey(targetId)
+        }
+    }
 
-            val altered = JSONObject(destination.encoded)
-                .put("targetDeviceId", "attacker_$suffix")
-                .toString()
-            expectRejected {
-                sourceProtocol.verifyConfirmation(
-                    request, altered, destinationConfirmation, sourceId, transactionId,
-                    destination.sasCode,
-                )
-            }
-            expectRejected {
-                sourceProtocol.verifyConfirmation(
-                    request, destination.encoded, destinationConfirmation, sourceId,
-                    UUID.randomUUID().toString().replace("-", ""), destination.sasCode,
-                )
-            }
-            expectRejected {
-                sourceProtocol.verifyConfirmation(
-                    request, destination.encoded, destinationConfirmation, "other_$suffix",
-                    transactionId, destination.sasCode,
-                )
-            }
 
+    @Test
+    fun expiredPairingRequestIsRejectedBeforeKeyDerivation() {
+        var now = 1_800_000_000_000L
+        val sourceProtocol = DevicePairingProtocol(clock = { now })
+        val destinationProtocol = DevicePairingProtocol(clock = { now })
+        val suffix = UUID.randomUUID().toString().replace("-", "").take(12)
+        val sourceId = "source_$suffix"
+        val targetId = "target_$suffix"
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
+        try {
+            val request = sourceProtocol.createRequest(sourceId, transactionId)
+            val response = destinationProtocol.respondToRequest(request, targetId)
+            val confirmation = destinationProtocol.confirmResponse(
+                response.encoded,
+                targetId,
+                response.sasCode,
+            )
             now += 2 * 60 * 1000L + 1L
             expectRejected {
                 sourceProtocol.verifyConfirmation(
-                    request, destination.encoded, destinationConfirmation, sourceId,
-                    transactionId, destination.sasCode,
+                    request,
+                    response.encoded,
+                    confirmation,
+                    sourceId,
+                    transactionId,
+                    response.sasCode,
                 )
             }
         } finally {
