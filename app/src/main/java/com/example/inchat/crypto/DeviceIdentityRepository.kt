@@ -120,8 +120,8 @@ internal class DeviceIdentityRepository(context: Context) {
     fun hasPendingIdentityTransfer(): Boolean = transferJournal.pending() != null
 
     /**
-     * Low-level transfer primitive. Do not expose it in UI until the pairing
-     * transport and source-retirement protocol are integrated end to end.
+     * Low-level transfer primitive. Do not expose it in UI until authenticated
+     * pairing and the retirement workflow are integrated end to end.
      *
      * The export is marked durable before its bytes are returned to a transport.
      * The one-time key and nonce are wiped after the native call.
@@ -164,7 +164,7 @@ internal class DeviceIdentityRepository(context: Context) {
 
     /**
      * Low-level transfer primitive. After import, the destination should create
-     * an authenticated receipt. The source must verify it and complete a separate
+     * a context-bound signed receipt. The source must verify it and complete a separate
      * retirement protocol before either side treats migration as finished.
      * Native code refuses to overwrite an existing identity.
      */
@@ -221,8 +221,9 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Verify the destination's Ed25519 proof of possession against the source's
-     * still-local identity. The accepted receipt digest is durably recorded.
+     * Verify the context-bound signature against the source's still-local identity.
+     * The accepted receipt digest is durably recorded; the signature is not independent
+     * proof of a distinct destination because the identity key was copied during transfer.
      */
     fun acknowledgeIdentityTransfer(
         targetDeviceId: String,
