@@ -544,10 +544,11 @@ class NativeCryptoBridgeTest {
         val suffix = UUID.randomUUID().toString()
         val sourceDeviceId = "journal-source-$suffix"
         val targetDeviceId = "journal-target-$suffix"
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
         val firstJournal = DeviceTransferJournal(context)
 
-        firstJournal.begin(sourceDeviceId, targetDeviceId)
-        firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId)
+        firstJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
+        firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
 
         var locked = false
         try {
@@ -559,7 +560,11 @@ class NativeCryptoBridgeTest {
 
         var wrongTargetRejected = false
         try {
-            firstJournal.requirePendingTarget(sourceDeviceId, "different-target")
+            firstJournal.requirePendingTarget(
+                sourceDeviceId,
+                "different-target",
+                transactionId,
+            )
         } catch (_: IllegalStateException) {
             wrongTargetRejected = true
         }
@@ -567,6 +572,25 @@ class NativeCryptoBridgeTest {
 
         firstJournal.cancel(sourceDeviceId)
         DeviceTransferJournal(context).requireUnlocked(sourceDeviceId)
+
+        val acknowledgedTransaction = UUID.randomUUID().toString().replace("-", "")
+        firstJournal.begin(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
+        firstJournal.markAcknowledged(
+            sourceDeviceId,
+            targetDeviceId,
+            acknowledgedTransaction,
+            "a".repeat(64),
+        )
+        val restored = DeviceTransferJournal(context).pending()
+        assertTrue("Verified acknowledgement must persist across journal recreation", restored?.acknowledged == true)
+
+        var acknowledgedCancelRejected = false
+        try {
+            firstJournal.cancel(sourceDeviceId)
+        } catch (_: IllegalStateException) {
+            acknowledgedCancelRejected = true
+        }
+        assertTrue("An acknowledged transfer must remain locked", acknowledgedCancelRejected)
     }
 
     @Test
@@ -605,6 +629,7 @@ class NativeCryptoBridgeTest {
             )
         )
 
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
         val transferKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val exportKey = transferKey.clone()
@@ -614,6 +639,7 @@ class NativeCryptoBridgeTest {
                 sourceStore,
                 sourceDeviceId,
                 targetDeviceId,
+                transactionId,
                 exportKey,
                 exportNonce,
             )
@@ -623,11 +649,24 @@ class NativeCryptoBridgeTest {
 
         val wrongKey = transferKey.clone().also { it[0] = (it[0].toInt() xor 0x01).toByte() }
         assertTrue(
+            "The transfer envelope must not be reusable in another transaction",
+            !NativeCryptoBridge.nativeImportDeviceIdentity(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                UUID.randomUUID().toString().replace("-", ""),
+                transferKey.clone(),
+                encryptedTransfer.clone(),
+            ),
+        )
+
+        assertTrue(
             "A transfer encrypted with another key must not import",
             !NativeCryptoBridge.nativeImportDeviceIdentity(
                 targetStore,
                 sourceDeviceId,
                 targetDeviceId,
+                transactionId,
                 wrongKey,
                 encryptedTransfer.clone(),
             ),
@@ -639,6 +678,7 @@ class NativeCryptoBridgeTest {
                 targetStore,
                 sourceDeviceId,
                 targetDeviceId,
+                transactionId,
                 transferKey.clone(),
                 encryptedTransfer.clone(),
             ),
@@ -650,10 +690,71 @@ class NativeCryptoBridgeTest {
                 targetStore,
                 sourceDeviceId,
                 targetDeviceId,
+                transactionId,
                 transferKey.clone(),
                 encryptedTransfer.clone(),
             ),
         )
+
+        val acknowledgementKey = transferKey.clone()
+        val acknowledgement = requireNotNull(
+            NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                acknowledgementKey,
+            )
+        )
+        assertEquals(32, acknowledgement.size)
+        assertTrue(
+            "Native acknowledgement creation must clear its temporary key",
+            acknowledgementKey.all { it == 0.toByte() },
+        )
+
+        val wrongTransactionKey = transferKey.clone()
+        assertTrue(
+            "A receipt must not verify for a different transaction",
+            !NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
+                sourceStore,
+                sourceDeviceId,
+                targetDeviceId,
+                UUID.randomUUID().toString().replace("-", ""),
+                wrongTransactionKey,
+                acknowledgement.clone(),
+            ),
+        )
+
+        val wrongAcknowledgementKey = transferKey.clone().also {
+            it[0] = (it[0].toInt() xor 0x01).toByte()
+        }
+        assertTrue(
+            "A receipt must not verify with a different transfer key",
+            !NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
+                sourceStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                wrongAcknowledgementKey,
+                acknowledgement.clone(),
+            ),
+        )
+
+        val verifyKey = transferKey.clone()
+        val verifyReceipt = acknowledgement.clone()
+        assertTrue(
+            "Source must authenticate the destination's receipt",
+            NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
+                sourceStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                verifyKey,
+                verifyReceipt,
+            ),
+        )
+        assertTrue("Receipt verification must clear its key buffer", verifyKey.all { it == 0.toByte() })
+        assertTrue("Receipt verification must clear its receipt buffer", verifyReceipt.all { it == 0.toByte() })
 
         val transferredBundle = JSONObject(
             requireNotNull(
