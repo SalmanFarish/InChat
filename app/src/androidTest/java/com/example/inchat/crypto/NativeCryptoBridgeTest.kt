@@ -550,7 +550,13 @@ class NativeCryptoBridgeTest {
 
         try {
             val firstJournal = DeviceTransferJournal(context, journalDirectory)
-            firstJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
+            firstJournal.begin(
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                "journal-user-$suffix",
+                "b".repeat(64),
+            )
             firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
 
             var locked = false
@@ -577,7 +583,13 @@ class NativeCryptoBridgeTest {
             DeviceTransferJournal(context, journalDirectory).requireUnlocked(sourceDeviceId)
 
             val acknowledgedTransaction = UUID.randomUUID().toString().replace("-", "")
-            firstJournal.begin(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
+            firstJournal.begin(
+                sourceDeviceId,
+                targetDeviceId,
+                acknowledgedTransaction,
+                "journal-user-$suffix",
+                "b".repeat(64),
+            )
             firstJournal.markExported(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
             val exported = DeviceTransferJournal(context, journalDirectory).pending()
             assertTrue("Export status must persist across journal recreation", exported?.exported == true)
@@ -601,8 +613,56 @@ class NativeCryptoBridgeTest {
                 "Verified acknowledgement must persist across journal recreation",
                 restored?.acknowledged == true,
             )
+
+            firstJournal.markRetiring(
+                sourceDeviceId,
+                targetDeviceId,
+                acknowledgedTransaction,
+            )
+            firstJournal.markRetired(
+                sourceDeviceId,
+                targetDeviceId,
+                acknowledgedTransaction,
+            )
+            val retired = DeviceTransferJournal(context, journalDirectory).pending()
+            assertTrue("Retirement status must survive journal recreation", retired?.retired == true)
+
+            var retiredStillLocked = false
+            try {
+                firstJournal.requireUnlocked(sourceDeviceId)
+            } catch (_: IllegalStateException) {
+                retiredStillLocked = true
+            }
+            assertTrue("A retired source must never recreate/use its old identity", retiredStillLocked)
         } finally {
             journalDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cachedOlmRepositoryCannotBypassAStartedIdentityTransfer() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val olmRepository = OlmSessionRepository(context)
+        val identityRepository = DeviceIdentityRepository(context)
+        val originalDeviceId = olmRepository.localDeviceId
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val transactionId = identityRepository.beginIdentityTransfer(
+            targetDeviceId = "transfer-lock-target-$suffix",
+            ownerUserId = "transfer-lock-user-$suffix",
+        )
+
+        try {
+            assertEquals(originalDeviceId, identityRepository.currentDeviceId())
+            var blocked = false
+            try {
+                // localBundle was already cached before beginIdentityTransfer.
+                olmRepository.localDeviceId
+            } catch (_: IllegalStateException) {
+                blocked = true
+            }
+            assertTrue("A cached Olm repository must re-check the durable transfer lock", blocked)
+        } finally {
+            identityRepository.cancelIdentityTransfer()
         }
     }
 
