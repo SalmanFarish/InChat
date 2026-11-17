@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.QrCode
@@ -170,6 +171,16 @@ fun DeviceTransferScreen(
         }
     }
 
+    val pairingSessionMustStayOpen = mode == TransferMode.SOURCE_REQUEST ||
+        mode == TransferMode.SOURCE_COMPARE ||
+        mode == TransferMode.DESTINATION_RESPONSE ||
+        mode == TransferMode.DESTINATION_CONFIRMATION ||
+        mode == TransferMode.DESTINATION_IMPORTED
+
+    BackHandler(enabled = pairingSessionMustStayOpen) {
+        error = "Keep this screen open until pairing and transfer are complete. Use Cancel pairing only before confirming the destination."
+    }
+
     fun resetFlow() {
         transactionId?.let { tx ->
             sourceProtocol.clearEphemeralSession(tx)
@@ -200,7 +211,15 @@ fun DeviceTransferScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(
+                        onClick = {
+                            if (pairingSessionMustStayOpen) {
+                                error = "Keep this screen open until pairing and transfer are complete."
+                            } else {
+                                onBackClick()
+                            }
+                        },
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -295,6 +314,11 @@ fun DeviceTransferScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    OutlinedButton(
+                        onClick = { resetFlow() },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Cancel pairing") }
                     OutlinedButton(
                         onClick = {
                             runTask {
