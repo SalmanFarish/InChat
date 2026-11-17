@@ -1271,7 +1271,7 @@ fn device_transfer_acknowledgement_payload(
     }
 
     Ok(format!(
-        "INCHAT_DEVICE_TRANSFER_ACK_V2\\n{transaction_id}\\n{source_device_id}\\n{target_device_id}\\n{identity_key}"
+        "INCHAT_DEVICE_TRANSFER_ACK_V2\n{transaction_id}\\n{source_device_id}\\n{target_device_id}\\n{identity_key}"
     )
     .into_bytes())
 }
