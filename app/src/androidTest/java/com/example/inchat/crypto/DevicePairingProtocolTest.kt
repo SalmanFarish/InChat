@@ -66,6 +66,16 @@ class DevicePairingProtocolTest {
                 destinationTransferKey.fill(0)
             }
 
+            val alteredSourceEphemeral = JSONObject(destination.encoded)
+                .put("sourceEphemeralPublicKey", "YWJj")
+                .toString()
+            expectRejected {
+                sourceProtocol.verifyConfirmation(
+                    request, alteredSourceEphemeral, destinationConfirmation, sourceId,
+                    transactionId, destination.sasCode,
+                )
+            }
+
             val altered = JSONObject(destination.encoded)
                 .put("targetDeviceId", "attacker_$suffix")
                 .toString()
