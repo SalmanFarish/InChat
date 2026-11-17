@@ -111,13 +111,13 @@ internal class DeviceIdentityRepository(context: Context) {
         transferKey: ByteArray,
         nonce: ByteArray,
     ): ByteArray {
-        val sourceDeviceId = getOrCreateDeviceId()
-        require(targetDeviceId != sourceDeviceId) {
-            "A device identity cannot be transferred to itself"
-        }
-        transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
-        val payload = try {
-            NativeCryptoBridge.nativeExportDeviceIdentity(
+        return try {
+            val sourceDeviceId = getOrCreateDeviceId()
+            require(targetDeviceId != sourceDeviceId) {
+                "A device identity cannot be transferred to itself"
+            }
+            transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
+            val payload = NativeCryptoBridge.nativeExportDeviceIdentity(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
                 sourceDeviceId,
                 targetDeviceId,
@@ -125,20 +125,20 @@ internal class DeviceIdentityRepository(context: Context) {
                 transferKey,
                 nonce,
             ) ?: throw IllegalStateException("Could not encrypt the device identity transfer")
+
+            try {
+                // Persist this before returning bytes to any transport. After this
+                // point the payload may have been delivered, so cancellation is unsafe.
+                transferJournal.markExported(sourceDeviceId, targetDeviceId, transactionId)
+            } catch (failure: Throwable) {
+                payload.fill(0)
+                throw failure
+            }
+            payload
         } finally {
             transferKey.fill(0)
             nonce.fill(0)
         }
-
-        try {
-            // Persist this before returning bytes to any transport. After this
-            // point the payload may have been delivered, so cancellation is unsafe.
-            transferJournal.markExported(sourceDeviceId, targetDeviceId, transactionId)
-        } catch (failure: Throwable) {
-            payload.fill(0)
-            throw failure
-        }
-        return payload
     }
 
     /**
@@ -153,11 +153,11 @@ internal class DeviceIdentityRepository(context: Context) {
         transferKey: ByteArray,
         encryptedPayload: ByteArray,
     ) {
-        val targetDeviceId = getOrCreateDeviceId()
-        require(sourceDeviceId != targetDeviceId) {
-            "A device identity cannot be transferred to itself"
-        }
         try {
+            val targetDeviceId = getOrCreateDeviceId()
+            require(sourceDeviceId != targetDeviceId) {
+                "A device identity cannot be transferred to itself"
+            }
             check(
                 NativeCryptoBridge.nativeImportDeviceIdentity(
                     CryptoStateStore(appContext, "device-$targetDeviceId"),
@@ -187,11 +187,11 @@ internal class DeviceIdentityRepository(context: Context) {
         transactionId: String,
         transferKey: ByteArray,
     ): ByteArray {
-        val targetDeviceId = getOrCreateDeviceId()
-        require(sourceDeviceId != targetDeviceId) {
-            "A device identity cannot acknowledge its own transfer"
-        }
         return try {
+            val targetDeviceId = getOrCreateDeviceId()
+            require(sourceDeviceId != targetDeviceId) {
+                "A device identity cannot acknowledge its own transfer"
+            }
             NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
                 CryptoStateStore(appContext, "device-$targetDeviceId"),
                 sourceDeviceId,
@@ -217,12 +217,12 @@ internal class DeviceIdentityRepository(context: Context) {
         transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean {
-        val sourceDeviceId = getOrCreateDeviceId()
-        transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
-        val receiptSha256 = MessageDigest.getInstance("SHA-256")
-            .digest(acknowledgement)
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return try {
+            val sourceDeviceId = getOrCreateDeviceId()
+            transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
+            val receiptSha256 = MessageDigest.getInstance("SHA-256")
+                .digest(acknowledgement)
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
             val verified = NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
                 sourceDeviceId,
