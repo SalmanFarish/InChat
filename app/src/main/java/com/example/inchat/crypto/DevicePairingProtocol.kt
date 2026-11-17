@@ -51,6 +51,12 @@ internal class DevicePairingProtocol(
         val sasCode: String,
     )
 
+    data class PairingPreview(
+        val targetDeviceId: String,
+        val sasCode: String,
+        val expiresAtMillis: Long,
+    )
+
     data class VerifiedPairing internal constructor(
         val sourceDeviceId: String,
         val targetDeviceId: String,
@@ -161,6 +167,83 @@ internal class DevicePairingProtocol(
             return Response(response, sasCode(transcript))
         } finally {
             targetNonce.fill(0)
+        }
+    }
+
+    /**
+     * Source validates the destination's signed response before displaying the
+     * short authentication string. This lets both users compare the same code
+     * before the destination signs its final confirmation QR.
+     */
+    fun inspectResponse(
+        encodedRequest: String,
+        encodedResponse: String,
+        expectedSourceDeviceId: String,
+        expectedTransactionId: String,
+    ): PairingPreview {
+        val request = parseRequest(encodedRequest)
+        val response = parseObject(encodedResponse)
+        val now = clock().coerceAtLeast(0L)
+        validateRequest(request, now)
+        require(response.getString("protocol") == PROTOCOL) { "Unsupported pairing response" }
+
+        val sourceDeviceId = request.getString("sourceDeviceId")
+        val transactionId = request.getString("transactionId")
+        require(sourceDeviceId == expectedSourceDeviceId) { "Pairing request belongs to another source device" }
+        require(transactionId == expectedTransactionId) { "Pairing transaction does not match" }
+        val session = synchronized(ephemeralSessions) { ephemeralSessions[transactionId] }
+            ?: throw IllegalStateException("Source pairing session expired; create a new QR code")
+        require(
+            session.sourceDeviceId == sourceDeviceId &&
+                session.transactionId == transactionId &&
+                session.targetDeviceId.isEmpty() &&
+                session.expiresAtMillis == request.getLong("expiresAt") &&
+                session.sourceNonce == request.getString("sourceNonce") &&
+                encode(session.keyPair.public.encoded) == request.getString("sourceEphemeralPublicKey")
+        ) { "Pairing QR does not belong to this source session" }
+
+        require(response.getString("sourceDeviceId") == sourceDeviceId)
+        require(response.getString("transactionId") == transactionId)
+        require(response.getString("sourceNonce") == request.getString("sourceNonce"))
+        require(response.getString("sourceEphemeralPublicKey") == request.getString("sourceEphemeralPublicKey"))
+        require(response.getLong("expiresAt") == request.getLong("expiresAt"))
+        require(response.getLong("expiresAt") > now) { "Pairing request has expired" }
+        val targetDeviceId = response.getString("targetDeviceId")
+        require(DEVICE_ID.matches(targetDeviceId) && targetDeviceId != sourceDeviceId) {
+            "Destination device ID is invalid"
+        }
+
+        val publicKeyBytes = decode(response.getString("targetPairingPublicKey"), MAX_PUBLIC_KEY_BYTES)
+        val targetNonce = decode(response.getString("targetNonce"), NONCE_BYTES)
+        val signatureBytes = decode(response.getString("signature"), MAX_SIGNATURE_BYTES)
+        require(targetNonce.size == NONCE_BYTES)
+        try {
+            val publicKey = java.security.KeyFactory.getInstance("EC")
+                .generatePublic(java.security.spec.X509EncodedKeySpec(publicKeyBytes))
+            val transcript = transcript(
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                request.getString("sourceNonce"),
+                response.getString("targetNonce"),
+                request.getLong("expiresAt"),
+                response.getString("targetPairingPublicKey"),
+                response.getString("sourceEphemeralPublicKey"),
+                response.getString("targetEphemeralPublicKey"),
+            )
+            val verifier = Signature.getInstance(SIGNATURE_ALGORITHM)
+            verifier.initVerify(publicKey)
+            verifier.update(transcript)
+            require(verifier.verify(signatureBytes)) { "Destination pairing-key proof is invalid" }
+            return PairingPreview(
+                targetDeviceId = targetDeviceId,
+                sasCode = sasCode(transcript),
+                expiresAtMillis = request.getLong("expiresAt"),
+            )
+        } finally {
+            publicKeyBytes.fill(0)
+            targetNonce.fill(0)
+            signatureBytes.fill(0)
         }
     }
 
