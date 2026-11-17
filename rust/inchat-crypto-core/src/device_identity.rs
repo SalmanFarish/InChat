@@ -2367,6 +2367,14 @@ mod transfer_tests {
             transaction_id,
         )
         .is_err());
+        assert!(decrypt_device_transfer(
+            encrypted.clone(),
+            key.clone(),
+            source_id,
+            target_id,
+            "0123456789abcdef0123456789abcdef",
+        )
+        .is_err());
 
         let mut tampered = encrypted;
         let last = tampered.len() - 1;
