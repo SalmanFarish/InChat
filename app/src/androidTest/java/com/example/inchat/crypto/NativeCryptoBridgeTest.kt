@@ -578,6 +578,18 @@ class NativeCryptoBridgeTest {
 
             val acknowledgedTransaction = UUID.randomUUID().toString().replace("-", "")
             firstJournal.begin(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
+            firstJournal.markExported(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
+            val exported = DeviceTransferJournal(context, journalDirectory).pending()
+            assertTrue("Export status must persist across journal recreation", exported?.exported == true)
+
+            var exportedCancelRejected = false
+            try {
+                firstJournal.cancel(sourceDeviceId)
+            } catch (_: IllegalStateException) {
+                exportedCancelRejected = true
+            }
+            assertTrue("A possibly delivered export must not be cancelled", exportedCancelRejected)
+
             firstJournal.markAcknowledged(
                 sourceDeviceId,
                 targetDeviceId,
@@ -589,14 +601,6 @@ class NativeCryptoBridgeTest {
                 "Verified acknowledgement must persist across journal recreation",
                 restored?.acknowledged == true,
             )
-
-            var acknowledgedCancelRejected = false
-            try {
-                firstJournal.cancel(sourceDeviceId)
-            } catch (_: IllegalStateException) {
-                acknowledgedCancelRejected = true
-            }
-            assertTrue("An acknowledged transfer must remain locked", acknowledgedCancelRejected)
         } finally {
             journalDirectory.deleteRecursively()
         }
