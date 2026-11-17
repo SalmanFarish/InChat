@@ -144,6 +144,114 @@ internal class DeviceIdentityTransferCoordinator(
     }
 
     /**
+     * Export and upload only the AEAD ciphertext. If upload fails before the relay's
+     * ready marker is committed, remove the incomplete record and roll back the
+     * local exported journal so the user can start a fresh pairing.
+     */
+    suspend fun exportPairedIdentityToRelay(
+        pairingProtocol: DevicePairingProtocol,
+        pairing: DevicePairingProtocol.VerifiedPairing,
+        transport: DeviceIdentityTransferTransport,
+    ) {
+        val encryptedPayload = exportPairedIdentity(pairingProtocol, pairing)
+        try {
+            transport.upload(
+                sourceDeviceId = pairing.sourceDeviceId,
+                targetDeviceId = pairing.targetDeviceId,
+                transactionId = pairing.transactionId,
+                encryptedPayload = encryptedPayload,
+            )
+        } catch (failure: Throwable) {
+            val safelyDiscarded = runCatching {
+                transport.discardUnreadyUpload(pairing.targetDeviceId, pairing.transactionId)
+            }.getOrDefault(false)
+            if (safelyDiscarded) {
+                identityRepository.cancelUnpublishedIdentityTransfer(
+                    pairing.targetDeviceId,
+                    pairing.transactionId,
+                )
+            }
+            throw failure
+        } finally {
+            encryptedPayload.fill(0)
+        }
+    }
+
+    /**
+     * Download, validate and import a complete relay payload. A false result means
+     * upload is not ready yet. After import, destination publication and receipt
+     * delivery are separate retryable steps.
+     */
+    suspend fun importPairedIdentityFromRelay(
+        pairingProtocol: DevicePairingProtocol,
+        sourceDeviceId: String,
+        transactionId: String,
+        transport: DeviceIdentityTransferTransport,
+    ): Boolean {
+        val relayPayload = transport.download(
+            targetDeviceId = identityRepository.currentDeviceId(),
+            transactionId = transactionId,
+        ) ?: return false
+        require(relayPayload.sourceDeviceId == sourceDeviceId) {
+            relayPayload.encryptedPayload.fill(0)
+            "Relay source does not match the paired device"
+        }
+        require(relayPayload.targetDeviceId == identityRepository.currentDeviceId()) {
+            relayPayload.encryptedPayload.fill(0)
+            "Relay destination does not match this installation"
+        }
+        importPairedIdentity(
+            pairingProtocol = pairingProtocol,
+            sourceDeviceId = sourceDeviceId,
+            transactionId = transactionId,
+            encryptedPayload = relayPayload.encryptedPayload,
+        )
+        return true
+    }
+
+    /** Publish the imported device and relay its signed receipt; safe to retry. */
+    suspend fun publishDestinationAcknowledgementToRelay(
+        sourceDeviceId: String,
+        ownerUserId: String,
+        transactionId: String,
+        transport: DeviceIdentityTransferTransport,
+    ) {
+        val acknowledgement = publishImportedDestination(
+            sourceDeviceId = sourceDeviceId,
+            ownerUserId = ownerUserId,
+            transactionId = transactionId,
+        )
+        try {
+            transport.publishAcknowledgement(
+                targetDeviceId = identityRepository.currentDeviceId(),
+                transactionId = transactionId,
+                acknowledgement = acknowledgement,
+            )
+        } finally {
+            acknowledgement.fill(0)
+        }
+    }
+
+    /** Fetch the destination receipt, retire the source, then remove the relay. */
+    suspend fun acknowledgeAndRetireSourceFromRelay(
+        targetDeviceId: String,
+        transactionId: String,
+        transport: DeviceIdentityTransferTransport,
+    ): Boolean {
+        val acknowledgement = transport.readAcknowledgement(targetDeviceId, transactionId)
+            ?: return false
+        val retired = acknowledgeAndRetireSource(
+            targetDeviceId = targetDeviceId,
+            transactionId = transactionId,
+            acknowledgement = acknowledgement,
+        )
+        if (retired) {
+            transport.deleteCompleted(targetDeviceId, transactionId)
+        }
+        return retired
+    }
+
+    /**
      * Publish the imported target identity and return a context-bound Ed25519 receipt.
      * Publication happens before acknowledgement so the source can independently
      * confirm the destination is present in the public device directory.
