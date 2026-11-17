@@ -366,7 +366,7 @@
                 ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 120000"
               },
               "expiresAtMillis": {
-                ".validate": "newData.isNumber() && newData.val() > now && newData.val() > newData.parent().child('createdAtMillis').val() && newData.val() - newData.parent().child('createdAtMillis').val() <= 120000"
+                ".validate": "newData.isNumber() && newData.val() > now && newData.val() > newData.parent().child('createdAtMillis').val() && newData.val() - newData.parent().child('createdAtMillis').val() <= 900000"
               },
               "payloadSize": {
                 ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 9437184"
