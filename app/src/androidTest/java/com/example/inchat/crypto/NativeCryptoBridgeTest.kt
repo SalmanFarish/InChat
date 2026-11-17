@@ -680,6 +680,125 @@ class NativeCryptoBridgeTest {
     }
 
     @Test
+    fun pairedIdentityTransferUsesRelayAndReturnsAcknowledgementBeforeRetirement() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val ownerUserId = "relay-transfer-user-$suffix"
+        val sourceRoot = File(context.cacheDir, "relay-transfer-source-$suffix")
+        val targetRoot = File(context.cacheDir, "relay-transfer-target-$suffix")
+        val sourceNoBackup = File(sourceRoot, "no-backup").also { it.mkdirs() }
+        val targetNoBackup = File(targetRoot, "no-backup").also { it.mkdirs() }
+
+        fun isolatedContext(directory: File): Context =
+            object : ContextWrapper(context) {
+                override fun getApplicationContext(): Context = this
+                override fun getNoBackupFilesDir(): File = directory
+            }
+
+        val sourceRepository = DeviceIdentityRepository(isolatedContext(sourceNoBackup))
+        val targetRepository = DeviceIdentityRepository(isolatedContext(targetNoBackup))
+        val sourceBundle = sourceRepository.ensurePublicKeyBundle()
+        val targetDeviceId = targetRepository.currentDeviceId()
+        val published = linkedMapOf<String, PublicDeviceKeyBundle>()
+        val directory = object : DeviceIdentityTransferDirectory {
+            override val authenticatedUserId: String = ownerUserId
+            override suspend fun publishMyDevice(bundle: PublicDeviceKeyBundle) {
+                published[bundle.deviceId] = bundle
+            }
+            override suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
+                check(uid == ownerUserId)
+                return published.values.toList()
+            }
+            override suspend fun removeMyDevice(deviceId: String) {
+                published.remove(deviceId)
+            }
+        }
+        class MemoryRelay : DeviceIdentityTransferTransport {
+            var source: String? = null
+            var target: String? = null
+            var transaction: String? = null
+            var payload: ByteArray? = null
+            var acknowledgement: ByteArray? = null
+            var ready = false
+            override suspend fun upload(sourceDeviceId: String, targetDeviceId: String, transactionId: String, encryptedPayload: ByteArray) {
+                source = sourceDeviceId
+                target = targetDeviceId
+                transaction = transactionId
+                payload?.fill(0)
+                payload = encryptedPayload.clone()
+                ready = true
+            }
+            override suspend fun download(targetDeviceId: String, transactionId: String): DeviceTransferRelayPayload? {
+                if (!ready || target != targetDeviceId || transaction != transactionId) return null
+                return DeviceTransferRelayPayload(requireNotNull(source), requireNotNull(target), requireNotNull(transaction), requireNotNull(payload).clone())
+            }
+            override suspend fun publishAcknowledgement(targetDeviceId: String, transactionId: String, acknowledgement: ByteArray) {
+                check(ready && target == targetDeviceId && transaction == transactionId)
+                this.acknowledgement?.fill(0)
+                this.acknowledgement = acknowledgement.clone()
+            }
+            override suspend fun readAcknowledgement(targetDeviceId: String, transactionId: String): ByteArray? {
+                if (target != targetDeviceId || transaction != transactionId) return null
+                return acknowledgement?.clone()
+            }
+            override suspend fun deleteCompleted(targetDeviceId: String, transactionId: String) {
+                check(acknowledgement != null && target == targetDeviceId && transaction == transactionId)
+                payload?.fill(0)
+                acknowledgement?.fill(0)
+                payload = null
+                acknowledgement = null
+                ready = false
+            }
+            override suspend fun discardUnreadyUpload(targetDeviceId: String, transactionId: String): Boolean {
+                if (ready) return false
+                payload?.fill(0)
+                payload = null
+                return true
+            }
+        }
+
+        val relay = MemoryRelay()
+        val sourceProtocol = DevicePairingProtocol()
+        val destinationProtocol = DevicePairingProtocol()
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
+        try {
+            directory.publishMyDevice(sourceBundle)
+            val request = sourceProtocol.createRequest(sourceBundle.deviceId, transactionId)
+            val response = destinationProtocol.respondToRequest(request, targetDeviceId)
+            val confirmation = destinationProtocol.confirmResponse(response.encoded, targetDeviceId, response.sasCode)
+            val pairing = sourceProtocol.verifyConfirmation(
+                encodedRequest = request,
+                encodedResponse = response.encoded,
+                encodedConfirmation = confirmation,
+                expectedSourceDeviceId = sourceBundle.deviceId,
+                expectedTransactionId = transactionId,
+                confirmedSasCode = response.sasCode,
+            )
+            val sourceCoordinator = DeviceIdentityTransferCoordinator(sourceRepository, directory)
+            val targetCoordinator = DeviceIdentityTransferCoordinator(targetRepository, directory)
+            assertEquals(transactionId, sourceCoordinator.beginTransfer(pairing, response.sasCode))
+            assertTrue("An incomplete relay must not be imported", !targetCoordinator.importPairedIdentityFromRelay(destinationProtocol, sourceBundle.deviceId, transactionId, relay))
+            sourceCoordinator.exportPairedIdentityToRelay(sourceProtocol, pairing, relay)
+            assertTrue("A complete relay payload must import on the paired destination",
+                targetCoordinator.importPairedIdentityFromRelay(destinationProtocol, sourceBundle.deviceId, transactionId, relay))
+            targetCoordinator.publishDestinationAcknowledgementToRelay(sourceBundle.deviceId, ownerUserId, transactionId, relay)
+            assertTrue("Source retires only after verifying the relayed receipt",
+                sourceCoordinator.acknowledgeAndRetireSourceFromRelay(targetDeviceId, transactionId, relay))
+            assertTrue("Destination remains registered", published.containsKey(targetDeviceId))
+            assertTrue("Source directory entry is revoked", !published.containsKey(sourceBundle.deviceId))
+            assertTrue("Completed relay ciphertext and receipt are removed", relay.payload == null && relay.acknowledgement == null)
+        } finally {
+            relay.payload?.fill(0)
+            relay.acknowledgement?.fill(0)
+            runCatching { destinationProtocol.deletePairingKey(targetDeviceId) }
+            runCatching { CryptoStateStore(isolatedContext(targetNoBackup), "device-$targetDeviceId").delete() }
+            runCatching { CryptoStateStore(isolatedContext(sourceNoBackup), "device-${sourceRepository.currentDeviceId()}").delete() }
+            sourceRoot.deleteRecursively()
+            targetRoot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun transferCoordinatorPublishesDestinationBeforeRevokingAndRetiringSource() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val suffix = UUID.randomUUID().toString().replace("-", "")
