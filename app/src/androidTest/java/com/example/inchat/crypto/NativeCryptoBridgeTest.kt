@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONObject
+import java.io.File
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -545,52 +546,60 @@ class NativeCryptoBridgeTest {
         val sourceDeviceId = "journal-source-$suffix"
         val targetDeviceId = "journal-target-$suffix"
         val transactionId = UUID.randomUUID().toString().replace("-", "")
-        val firstJournal = DeviceTransferJournal(context)
+        val journalDirectory = File(context.cacheDir, "device-transfer-journal-$suffix")
 
-        firstJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
-        firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
-
-        var locked = false
         try {
-            DeviceTransferJournal(context).requireUnlocked(sourceDeviceId)
-        } catch (_: IllegalStateException) {
-            locked = true
-        }
-        assertTrue("A recreated journal must retain the source lock", locked)
+            val firstJournal = DeviceTransferJournal(context, journalDirectory)
+            firstJournal.begin(sourceDeviceId, targetDeviceId, transactionId)
+            firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
 
-        var wrongTargetRejected = false
-        try {
-            firstJournal.requirePendingTarget(
-                sourceDeviceId,
-                "different-target",
-                transactionId,
-            )
-        } catch (_: IllegalStateException) {
-            wrongTargetRejected = true
-        }
-        assertTrue("Export must be bound to the journal's target", wrongTargetRejected)
+            var locked = false
+            try {
+                DeviceTransferJournal(context, journalDirectory).requireUnlocked(sourceDeviceId)
+            } catch (_: IllegalStateException) {
+                locked = true
+            }
+            assertTrue("A recreated journal must retain the source lock", locked)
 
-        firstJournal.cancel(sourceDeviceId)
-        DeviceTransferJournal(context).requireUnlocked(sourceDeviceId)
+            var wrongTargetRejected = false
+            try {
+                firstJournal.requirePendingTarget(
+                    sourceDeviceId,
+                    "different-target",
+                    transactionId,
+                )
+            } catch (_: IllegalStateException) {
+                wrongTargetRejected = true
+            }
+            assertTrue("Export must be bound to the journal's target", wrongTargetRejected)
 
-        val acknowledgedTransaction = UUID.randomUUID().toString().replace("-", "")
-        firstJournal.begin(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
-        firstJournal.markAcknowledged(
-            sourceDeviceId,
-            targetDeviceId,
-            acknowledgedTransaction,
-            "a".repeat(64),
-        )
-        val restored = DeviceTransferJournal(context).pending()
-        assertTrue("Verified acknowledgement must persist across journal recreation", restored?.acknowledged == true)
-
-        var acknowledgedCancelRejected = false
-        try {
             firstJournal.cancel(sourceDeviceId)
-        } catch (_: IllegalStateException) {
-            acknowledgedCancelRejected = true
+            DeviceTransferJournal(context, journalDirectory).requireUnlocked(sourceDeviceId)
+
+            val acknowledgedTransaction = UUID.randomUUID().toString().replace("-", "")
+            firstJournal.begin(sourceDeviceId, targetDeviceId, acknowledgedTransaction)
+            firstJournal.markAcknowledged(
+                sourceDeviceId,
+                targetDeviceId,
+                acknowledgedTransaction,
+                "a".repeat(64),
+            )
+            val restored = DeviceTransferJournal(context, journalDirectory).pending()
+            assertTrue(
+                "Verified acknowledgement must persist across journal recreation",
+                restored?.acknowledged == true,
+            )
+
+            var acknowledgedCancelRejected = false
+            try {
+                firstJournal.cancel(sourceDeviceId)
+            } catch (_: IllegalStateException) {
+                acknowledgedCancelRejected = true
+            }
+            assertTrue("An acknowledged transfer must remain locked", acknowledgedCancelRejected)
+        } finally {
+            journalDirectory.deleteRecursively()
         }
-        assertTrue("An acknowledged transfer must remain locked", acknowledgedCancelRejected)
     }
 
     @Test
