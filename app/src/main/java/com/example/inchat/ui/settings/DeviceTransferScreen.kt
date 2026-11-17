@@ -709,8 +709,8 @@ private fun SasPanel(code: String) {
 }
 
 @Composable
-private fun QrPanel(content: String, description: String) {
-    val bitmap = remember(content) { createQrBitmap(content) }
+private fun CodePanel(content: String, description: String) {
+    val clipboard = LocalClipboardManager.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -718,41 +718,32 @@ private fun QrPanel(content: String, description: String) {
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = description,
-                modifier = Modifier.size(260.dp),
-            )
-            Text(description, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            Text(description, style = MaterialTheme.typography.bodySmall)
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(content, style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(
+                onClick = { clipboard.setText(AnnotatedString(content)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Copy pairing code") }
         }
     }
 }
 
-private fun createQrBitmap(content: String): Bitmap {
-    val matrix = QRCodeWriter().encode(
-        content,
-        BarcodeFormat.QR_CODE,
-        720,
-        720,
-        mapOf(
-            EncodeHintType.MARGIN to 1,
-            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-        ),
+@Composable
+private fun CodeInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { if (it.length <= 4096) onValueChange(it) },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        minLines = 3,
+        maxLines = 6,
     )
-    val pixels = IntArray(matrix.width * matrix.height)
-    for (y in 0 until matrix.height) {
-        for (x in 0 until matrix.width) {
-            pixels[y * matrix.width + x] = if (matrix[x, y]) {
-                android.graphics.Color.BLACK
-            } else {
-                android.graphics.Color.WHITE
-            }
-        }
-    }
-    return Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888).apply {
-        setPixels(pixels, 0, matrix.width, 0, 0, matrix.width, matrix.height)
-    }
 }
