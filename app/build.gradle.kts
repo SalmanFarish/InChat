@@ -179,10 +179,6 @@ dependencies {
         "io.coil-kt:coil-compose:2.7.0"
     )
 
-    // QR pairing UI (free on-device QR encoding and Google Play services scanner)
-    implementation("com.google.zxing:core:3.5.3")
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
-
     // Testing dependencies
     testImplementation(
         libs.junit
