@@ -50,19 +50,19 @@ internal class DeviceIdentityTransferCoordinator(
         transactionId: String,
     ): ByteArray {
         check(directory.authenticatedUserId == ownerUserId) {
-                "Sign in to the same InChat account on the destination device"
-            }
-            val targetDeviceId = identityRepository.currentDeviceId()
-            require(sourceDeviceId != targetDeviceId) {
-                "A device identity cannot be transferred to itself"
-            }
+            "Sign in to the same InChat account on the destination device"
+        }
+        val targetDeviceId = identityRepository.currentDeviceId()
+        require(sourceDeviceId != targetDeviceId) {
+            "A device identity cannot be transferred to itself"
+        }
 
-            val bundle = identityRepository.ensurePublicKeyBundle()
-            check(bundle.deviceId == targetDeviceId) {
-                "Imported destination identity does not match this installation"
-            }
-            directory.publishMyDevice(bundle)
-            identityRepository.markPublicKeyBundlePublished()
+        val bundle = identityRepository.ensurePublicKeyBundle()
+        check(bundle.deviceId == targetDeviceId) {
+            "Imported destination identity does not match this installation"
+        }
+        directory.publishMyDevice(bundle)
+        identityRepository.markPublicKeyBundlePublished()
 
         return identityRepository.createIdentityTransferAcknowledgement(
             sourceDeviceId = sourceDeviceId,
