@@ -22,12 +22,20 @@ internal data class DeviceTransferRelayPayload(
     val encryptedPayload: ByteArray,
 )
 
+internal interface DeviceIdentityTransferTransport {
+    suspend fun upload(sourceDeviceId: String, targetDeviceId: String, transactionId: String, encryptedPayload: ByteArray)
+    suspend fun download(targetDeviceId: String, transactionId: String): DeviceTransferRelayPayload?
+    suspend fun publishAcknowledgement(targetDeviceId: String, transactionId: String, acknowledgement: ByteArray)
+    suspend fun readAcknowledgement(targetDeviceId: String, transactionId: String): ByteArray?
+    suspend fun deleteCompleted(targetDeviceId: String, transactionId: String)
+}
+
 internal class FirebaseDeviceTransferTransport(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val clock: () -> Long = FirebaseServerClock::now,
-) {
-    suspend fun upload(
+) : DeviceIdentityTransferTransport {
+    override suspend fun upload(
         sourceDeviceId: String,
         targetDeviceId: String,
         transactionId: String,
@@ -44,9 +52,6 @@ internal class FirebaseDeviceTransferTransport(
         val root = database.reference
         require(root.child(DEVICE_KEYS_NODE).child(uid).child(sourceDeviceId).get().await().exists()) {
             "Source device is not published in this account"
-        }
-        require(root.child(DEVICE_KEYS_NODE).child(uid).child(targetDeviceId).get().await().exists()) {
-            "Destination device is not published in this account"
         }
 
         val transaction = root.child(INBOX_NODE).child(uid).child(targetDeviceId).child(transactionId)
@@ -91,7 +96,7 @@ internal class FirebaseDeviceTransferTransport(
      * Returns ciphertext only after all chunks and metadata have been checked.
      * A null result means the source has not finished uploading yet.
      */
-    suspend fun download(
+    override suspend fun download(
         targetDeviceId: String,
         transactionId: String,
     ): DeviceTransferRelayPayload? {
@@ -143,6 +148,66 @@ internal class FirebaseDeviceTransferTransport(
             transactionId = metadata.transactionId,
             encryptedPayload = payload,
         )
+    }
+
+
+    override suspend fun publishAcknowledgement(
+        targetDeviceId: String,
+        transactionId: String,
+        acknowledgement: ByteArray,
+    ) {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        require(acknowledgement.size in 32..256)
+        val reference = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId)
+        val snapshot = reference.get().await()
+        require(snapshot.child("ready").getValue(Boolean::class.java) == true) {
+            "Cannot acknowledge a transfer that is not ready"
+        }
+        require(snapshot.child("metadata").child("expiresAtMillis").getValue(Long::class.java) ?: 0L > clock()) {
+            "Device transfer relay has expired"
+        }
+        val encoded = Base64.encodeToString(acknowledgement, Base64.NO_WRAP)
+        reference.child("acknowledgement").setValue(encoded).await()
+    }
+
+    override suspend fun readAcknowledgement(
+        targetDeviceId: String,
+        transactionId: String,
+    ): ByteArray? {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        val reference = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId)
+        val snapshot = reference.get().await()
+        if (!snapshot.exists()) return null
+        val expires = (snapshot.child("metadata").child("expiresAtMillis").value as? Number)?.toLong()
+            ?: return null
+        if (expires <= clock().coerceAtLeast(0L)) return null
+        val encoded = snapshot.child("acknowledgement").getValue(String::class.java) ?: return null
+        val bytes = Base64.decode(encoded, Base64.DEFAULT)
+        require(bytes.size in 32..256) {
+            bytes.fill(0)
+            "Device transfer acknowledgement has an invalid size"
+        }
+        return bytes
+    }
+
+    override suspend fun deleteCompleted(targetDeviceId: String, transactionId: String) {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        val reference = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId)
+        val snapshot = reference.get().await()
+        if (!snapshot.exists()) return
+        require(snapshot.child("acknowledgement").exists()) {
+            "Cannot remove a transfer before its acknowledgement is available"
+        }
+        reference.removeValue().await()
     }
 
     /** Remove expired records for this account/device without requiring a server function. */
