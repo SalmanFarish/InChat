@@ -154,8 +154,9 @@ internal class DeviceIdentityTransferCoordinator(
         pairing: DevicePairingProtocol.VerifiedPairing,
         transport: DeviceIdentityTransferTransport,
     ) {
-        val encryptedPayload = exportPairedIdentity(pairingProtocol, pairing)
+        var encryptedPayload: ByteArray? = null
         try {
+            encryptedPayload = exportPairedIdentity(pairingProtocol, pairing)
             transport.upload(
                 sourceDeviceId = pairing.sourceDeviceId,
                 targetDeviceId = pairing.targetDeviceId,
@@ -169,14 +170,21 @@ internal class DeviceIdentityTransferCoordinator(
                 }.getOrDefault(false)
             }
             if (safelyDiscarded) {
-                identityRepository.cancelUnpublishedIdentityTransfer(
-                    pairing.targetDeviceId,
-                    pairing.transactionId,
-                )
+                val exportedRollback = runCatching {
+                    identityRepository.cancelUnpublishedIdentityTransfer(
+                        pairing.targetDeviceId,
+                        pairing.transactionId,
+                    )
+                }
+                if (exportedRollback.isFailure) {
+                    // The export may have failed before the journal recorded it.
+                    // This fallback is safe only for a still-unexported journal.
+                    runCatching { identityRepository.cancelIdentityTransfer() }
+                }
             }
             throw failure
         } finally {
-            encryptedPayload.fill(0)
+            encryptedPayload?.fill(0)
         }
     }
 
