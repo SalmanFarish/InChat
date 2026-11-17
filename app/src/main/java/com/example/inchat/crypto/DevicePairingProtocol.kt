@@ -1,0 +1,290 @@
+package com.example.inchat.crypto
+
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import org.json.JSONObject
+import java.nio.charset.StandardCharsets
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
+
+/**
+ * QR-relayed proof that a destination installation controls a pairing key which
+ * is independent of the identity key being transferred.
+ *
+ * The destination private key is generated and retained by Android Keystore.
+ * Only its public key and a transaction-bound signature leave the device.
+ * This is the authentication primitive; it deliberately does not transport
+ * identity state or replace the user's visual SAS comparison.
+ */
+internal class DevicePairingProtocol(
+    private val random: SecureRandom = SecureRandom(),
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    data class Response(
+        val encoded: String,
+        val sasCode: String,
+    )
+
+    data class VerifiedPairing internal constructor(
+        val sourceDeviceId: String,
+        val targetDeviceId: String,
+        val transactionId: String,
+        val targetPairingPublicKey: String,
+        val sasCode: String,
+        val expiresAtMillis: Long,
+    )
+
+    /** Source displays this request as a QR code for the destination to scan. */
+    fun createRequest(sourceDeviceId: String, transactionId: String): String {
+        require(DEVICE_ID.matches(sourceDeviceId))
+        require(TRANSACTION_ID.matches(transactionId))
+        val now = clock().coerceAtLeast(0L)
+        val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
+        return try {
+            JSONObject()
+                .put("protocol", PROTOCOL)
+                .put("sourceDeviceId", sourceDeviceId)
+                .put("transactionId", transactionId)
+                .put("sourceNonce", encode(nonce))
+                .put("expiresAt", now + LIFETIME_MILLIS)
+                .toString()
+        } finally {
+            nonce.fill(0)
+        }
+    }
+
+    /**
+     * Destination scans the source QR, creates/loads its installation-specific
+     * Keystore key, and returns a signed response QR plus the SAS to compare.
+     */
+    fun respondToRequest(encodedRequest: String, targetDeviceId: String): Response {
+        require(DEVICE_ID.matches(targetDeviceId))
+        val request = parseRequest(encodedRequest)
+        val now = clock().coerceAtLeast(0L)
+        validateRequest(request, now)
+        val sourceDeviceId = request.getString("sourceDeviceId")
+        require(sourceDeviceId != targetDeviceId) { "A device cannot pair with itself" }
+
+        val pair = loadOrCreateKeyPair(targetDeviceId)
+        val publicKey = encode(pair.public.encoded)
+        val targetNonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
+        try {
+            val transcript = transcript(
+                sourceDeviceId,
+                targetDeviceId,
+                request.getString("transactionId"),
+                request.getString("sourceNonce"),
+                encode(targetNonce),
+                request.getLong("expiresAt"),
+                publicKey,
+            )
+            val signer = Signature.getInstance(SIGNATURE_ALGORITHM)
+            signer.initSign(pair.private, random)
+            signer.update(transcript)
+            val signature = encode(signer.sign())
+            val response = JSONObject()
+                .put("protocol", PROTOCOL)
+                .put("sourceDeviceId", sourceDeviceId)
+                .put("targetDeviceId", targetDeviceId)
+                .put("transactionId", request.getString("transactionId"))
+                .put("sourceNonce", request.getString("sourceNonce"))
+                .put("targetNonce", encode(targetNonce))
+                .put("expiresAt", request.getLong("expiresAt"))
+                .put("targetPairingPublicKey", publicKey)
+                .put("signature", signature)
+                .toString()
+            return Response(response, sasCode(transcript))
+        } finally {
+            targetNonce.fill(0)
+        }
+    }
+
+    /**
+     * Source scans the destination response and verifies possession of the
+     * destination-only private key. Callers must still require the user to
+     * compare sasCode on both phones and explicitly confirm before transfer.
+     */
+    fun verifyResponse(
+        encodedRequest: String,
+        encodedResponse: String,
+        expectedSourceDeviceId: String,
+        expectedTransactionId: String,
+    ): VerifiedPairing {
+        val request = parseRequest(encodedRequest)
+        val response = parseObject(encodedResponse)
+        val now = clock().coerceAtLeast(0L)
+        validateRequest(request, now)
+        require(response.getString("protocol") == PROTOCOL) { "Unsupported pairing response" }
+
+        val sourceDeviceId = request.getString("sourceDeviceId")
+        val transactionId = request.getString("transactionId")
+        require(sourceDeviceId == expectedSourceDeviceId) { "Pairing request belongs to another source device" }
+        require(transactionId == expectedTransactionId) { "Pairing transaction does not match" }
+        require(response.getString("sourceDeviceId") == sourceDeviceId)
+        require(response.getString("transactionId") == transactionId)
+        require(response.getString("sourceNonce") == request.getString("sourceNonce")) {
+            "Pairing response does not match this QR request"
+        }
+        require(response.getLong("expiresAt") == request.getLong("expiresAt"))
+        require(response.getLong("expiresAt") > now) { "Pairing request has expired" }
+
+        val targetDeviceId = response.getString("targetDeviceId")
+        require(DEVICE_ID.matches(targetDeviceId) && targetDeviceId != sourceDeviceId) {
+            "Destination device ID is invalid"
+        }
+        val publicKeyBytes = decode(response.getString("targetPairingPublicKey"), MAX_PUBLIC_KEY_BYTES)
+        val targetNonce = decode(response.getString("targetNonce"), NONCE_BYTES)
+        val signatureBytes = decode(response.getString("signature"), MAX_SIGNATURE_BYTES)
+        require(targetNonce.size == NONCE_BYTES)
+        try {
+            val publicKey = java.security.KeyFactory.getInstance("EC")
+                .generatePublic(java.security.spec.X509EncodedKeySpec(publicKeyBytes))
+            val transcript = transcript(
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+                request.getString("sourceNonce"),
+                response.getString("targetNonce"),
+                request.getLong("expiresAt"),
+                response.getString("targetPairingPublicKey"),
+            )
+            val verifier = Signature.getInstance(SIGNATURE_ALGORITHM)
+            verifier.initVerify(publicKey)
+            verifier.update(transcript)
+            require(verifier.verify(signatureBytes)) {
+                "Destination pairing-key proof is invalid"
+            }
+            return VerifiedPairing(
+                sourceDeviceId = sourceDeviceId,
+                targetDeviceId = targetDeviceId,
+                transactionId = transactionId,
+                targetPairingPublicKey = response.getString("targetPairingPublicKey"),
+                sasCode = sasCode(transcript),
+                expiresAtMillis = request.getLong("expiresAt"),
+            )
+        } finally {
+            publicKeyBytes.fill(0)
+            targetNonce.fill(0)
+            signatureBytes.fill(0)
+        }
+    }
+
+    /** Remove this installation's pairing key only during an explicit reset/revocation flow. */
+    fun deletePairingKey(deviceId: String) {
+        require(DEVICE_ID.matches(deviceId))
+        val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        store.deleteEntry(alias(deviceId))
+    }
+
+    private fun loadOrCreateKeyPair(deviceId: String): KeyPair {
+        val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val keyAlias = alias(deviceId)
+        if (store.containsAlias(keyAlias)) {
+            val privateKey = store.getKey(keyAlias, null) as java.security.PrivateKey
+            val publicKey = store.getCertificate(keyAlias).publicKey
+            return KeyPair(publicKey, privateKey)
+        }
+
+        val generator = KeyPairGenerator.getInstance("EC", ANDROID_KEYSTORE)
+        generator.initialize(
+            KeyGenParameterSpec.Builder(
+                keyAlias,
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+            )
+                .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setUserAuthenticationRequired(false)
+                .build(),
+        )
+        return generator.generateKeyPair()
+    }
+
+    private fun parseRequest(encoded: String): JSONObject {
+        require(encoded.length <= MAX_QR_LENGTH) { "Pairing QR is too large" }
+        val value = parseObject(encoded)
+        require(value.getString("protocol") == PROTOCOL) { "Unsupported pairing request" }
+        require(DEVICE_ID.matches(value.getString("sourceDeviceId")))
+        require(TRANSACTION_ID.matches(value.getString("transactionId")))
+        val nonce = decode(value.getString("sourceNonce"), NONCE_BYTES)
+        require(nonce.size == NONCE_BYTES) { "Pairing request nonce is invalid" }
+        nonce.fill(0)
+        return value
+    }
+
+    private fun validateRequest(request: JSONObject, now: Long) {
+        val expiry = request.getLong("expiresAt")
+        require(expiry > now && expiry - now <= LIFETIME_MILLIS) {
+            "Pairing request has expired or has an invalid lifetime"
+        }
+    }
+
+    private fun parseObject(encoded: String): JSONObject {
+        require(encoded.length <= MAX_QR_LENGTH) { "Pairing QR is too large" }
+        return JSONObject(encoded)
+    }
+
+    private fun transcript(
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        sourceNonce: String,
+        targetNonce: String,
+        expiresAt: Long,
+        publicKey: String,
+    ): ByteArray = listOf(
+        DOMAIN,
+        sourceDeviceId,
+        targetDeviceId,
+        transactionId,
+        sourceNonce,
+        targetNonce,
+        expiresAt.toString(),
+        publicKey,
+    ).joinToString("\n").toByteArray(StandardCharsets.UTF_8)
+
+    private fun sasCode(transcript: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(transcript)
+        return try {
+            val value = ((digest[0].toLong() and 0xff) shl 24) or
+                ((digest[1].toLong() and 0xff) shl 16) or
+                ((digest[2].toLong() and 0xff) shl 8) or
+                (digest[3].toLong() and 0xff)
+            "%06d".format(value % 1_000_000L)
+        } finally {
+            digest.fill(0)
+        }
+    }
+
+    private fun alias(deviceId: String) = "$KEY_ALIAS_PREFIX$deviceId"
+
+    private fun encode(bytes: ByteArray): String = Base64.encodeToString(
+        bytes,
+        Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+    )
+
+    private fun decode(value: String, maxBytes: Int): ByteArray {
+        require(value.length <= maxBytes * 2) { "Pairing field is too large" }
+        return Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
+    }
+
+    private companion object {
+        const val PROTOCOL = "INCHAT-PAIR-1"
+        const val DOMAIN = "INCHAT-DESTINATION-PAIRING-PROOF-V1"
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val KEY_ALIAS_PREFIX = "inchat-device-pairing-v1-"
+        const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
+        const val NONCE_BYTES = 32
+        const val MAX_PUBLIC_KEY_BYTES = 256
+        const val MAX_SIGNATURE_BYTES = 128
+        const val MAX_QR_LENGTH = 4096
+        const val LIFETIME_MILLIS = 2 * 60 * 1000L
+        val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+        val TRANSACTION_ID = Regex("[A-Za-z0-9_-]{16,64}")
+    }
+}
