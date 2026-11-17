@@ -358,16 +358,15 @@ internal class DeviceIdentityRepository(context: Context) {
         } == true
     }
 
-    private fun parsePublicBundle(
-        encoded: String,
-        expectedDeviceId: String,
-    ): PublicDeviceKeyBundle {
     private fun fingerprint(identityKey: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(identityKey.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-
+    private fun parsePublicBundle(
+        encoded: String,
+        expectedDeviceId: String,
+    ): PublicDeviceKeyBundle {
         val root = JSONObject(encoded)
         require(root.getInt("schemaVersion") == 1) {
             "Unsupported public Olm device-key bundle version"
