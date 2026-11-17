@@ -729,7 +729,31 @@ class NativeCryptoBridgeTest {
             directory.publishMyDevice(sourceBundle)
             val sourceCoordinator = DeviceIdentityTransferCoordinator(sourceRepository, directory)
             val targetCoordinator = DeviceIdentityTransferCoordinator(targetRepository, directory)
-            val transactionId = sourceCoordinator.beginTransfer(targetDeviceId)
+
+            // Exercise the same two-sided QR/SAS proof required by production
+            // before the coordinator is allowed to start an identity transfer.
+            val transactionId = UUID.randomUUID().toString().replace("-", "")
+            val sourcePairing = DevicePairingProtocol()
+            val destinationPairing = DevicePairingProtocol()
+            val pairingRequest = sourcePairing.createRequest(sourceBundle.deviceId, transactionId)
+            val pairingResponse = destinationPairing.respondToRequest(pairingRequest, targetDeviceId)
+            val destinationConfirmation = destinationPairing.confirmResponse(
+                pairingResponse.encoded,
+                targetDeviceId,
+                pairingResponse.sasCode,
+            )
+            val verifiedPairing = sourcePairing.verifyConfirmation(
+                encodedRequest = pairingRequest,
+                encodedResponse = pairingResponse.encoded,
+                encodedConfirmation = destinationConfirmation,
+                expectedSourceDeviceId = sourceBundle.deviceId,
+                expectedTransactionId = transactionId,
+                confirmedSasCode = pairingResponse.sasCode,
+            )
+            assertEquals(
+                transactionId,
+                sourceCoordinator.beginTransfer(verifiedPairing, pairingResponse.sasCode),
+            )
 
             encryptedPayload = sourceRepository.exportEncryptedIdentity(
                 targetDeviceId = targetDeviceId,
