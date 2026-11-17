@@ -246,25 +246,6 @@ internal class FirebaseDeviceTransferTransport(
         return removed
     }
 
-    /** Remove the relay only after the destination has successfully imported it. */
-    suspend fun acknowledgeImported(targetDeviceId: String, transactionId: String) {
-        val uid = requireUid()
-        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
-        require(TRANSACTION_PATTERN.matches(transactionId))
-        val reference = database.reference.child(INBOX_NODE).child(uid)
-            .child(targetDeviceId).child(transactionId)
-        val snapshot = reference.get().await()
-        if (!snapshot.exists()) return
-        val metadata = parseMetadata(snapshot.child("metadata"), targetDeviceId, transactionId)
-        require(snapshot.child("ready").getValue(Boolean::class.java) == true) {
-            "Cannot acknowledge an incomplete device transfer"
-        }
-        require(metadata.expiresAtMillis > clock().coerceAtLeast(0L)) {
-            "Device transfer relay has expired"
-        }
-        reference.removeValue().await()
-    }
-
     private fun parseMetadata(
         snapshot: DataSnapshot,
         targetDeviceId: String,
