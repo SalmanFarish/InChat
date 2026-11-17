@@ -657,6 +657,7 @@ class NativeCryptoBridgeTest {
         identityRepository.beginIdentityTransfer(
             targetDeviceId = "transfer-lock-target-$suffix",
             ownerUserId = "transfer-lock-user-$suffix",
+            transactionId = UUID.randomUUID().toString().replace("-", ""),
         )
 
         try {
