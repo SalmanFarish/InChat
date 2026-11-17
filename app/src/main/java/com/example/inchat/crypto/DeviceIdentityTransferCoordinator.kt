@@ -1,6 +1,7 @@
 package com.example.inchat.crypto
 
 import java.security.MessageDigest
+import java.security.SecureRandom
 
 /**
  * The narrow account-scoped directory operations needed to finish a transfer.
@@ -64,6 +65,71 @@ internal class DeviceIdentityTransferCoordinator(
             targetDeviceId = pairing.targetDeviceId,
             ownerUserId = ownerUserId,
             transactionId = pairing.transactionId,
+        )
+    }
+
+    /**
+     * Encrypt the source identity using the one-time key derived from the exact
+     * verified QR/SAS pairing. The pairing's ephemeral source key is consumed.
+     * The returned bytes are ciphertext only; callers must deliver them through
+     * an authenticated, size-limited transport and must not log or persist them
+     * in plaintext storage.
+     */
+    fun exportPairedIdentity(
+        pairingProtocol: DevicePairingProtocol,
+        pairing: DevicePairingProtocol.VerifiedPairing,
+    ): ByteArray {
+        val pending = requireNotNull(identityRepository.pendingIdentityTransfer()) {
+            "Start and confirm a device pairing before exporting"
+        }
+        require(
+            pending.sourceDeviceId == pairing.sourceDeviceId &&
+                pending.targetDeviceId == pairing.targetDeviceId &&
+                pending.transactionId == pairing.transactionId &&
+                !pending.exported &&
+                pending.ownerUserId == directory.authenticatedUserId
+        ) { "Pairing does not match the pending account transfer" }
+
+        val transferKey = pairingProtocol.deriveSourceTransferKey(pairing)
+        val nonce = ByteArray(12).also(SecureRandom()::nextBytes)
+        return try {
+            identityRepository.exportEncryptedIdentity(
+                targetDeviceId = pairing.targetDeviceId,
+                transactionId = pairing.transactionId,
+                transferKey = transferKey,
+                nonce = nonce,
+            )
+        } catch (failure: Throwable) {
+            transferKey.fill(0)
+            nonce.fill(0)
+            throw failure
+        }
+    }
+
+    /**
+     * Decrypt a received transfer only with the destination's matching ephemeral
+     * pairing session. A mismatched device or transaction is rejected before the
+     * native import is attempted. Import consumes and clears the ciphertext buffer.
+     */
+    fun importPairedIdentity(
+        pairingProtocol: DevicePairingProtocol,
+        sourceDeviceId: String,
+        transactionId: String,
+        encryptedPayload: ByteArray,
+    ) {
+        require(encryptedPayload.size in 1..MAX_TRANSFER_PAYLOAD_BYTES) {
+            "Encrypted device transfer has an invalid size"
+        }
+        val targetDeviceId = identityRepository.currentDeviceId()
+        val transferKey = pairingProtocol.deriveDestinationTransferKey(
+            targetDeviceId,
+            transactionId,
+        )
+        identityRepository.importEncryptedIdentity(
+            sourceDeviceId = sourceDeviceId,
+            transactionId = transactionId,
+            transferKey = transferKey,
+            encryptedPayload = encryptedPayload,
         )
     }
 
@@ -167,6 +233,12 @@ internal class DeviceIdentityTransferCoordinator(
         } finally {
             acknowledgement.fill(0)
         }
+    }
+
+    private companion object {
+        // Rust limits the decoded identity state to 8 MiB; allow modest AEAD
+        // envelope overhead while rejecting oversized untrusted transport data.
+        const val MAX_TRANSFER_PAYLOAD_BYTES = 9 * 1024 * 1024
     }
 
     private fun fingerprint(identityKey: String): String =
