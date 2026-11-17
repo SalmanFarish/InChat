@@ -43,6 +43,8 @@ internal class DevicePairingProtocol(
         val targetNonce: String,
         val expiresAtMillis: Long,
         val peerEphemeralPublicKey: String,
+        val destinationConfirmed: Boolean = false,
+        val transferExpiresAtMillis: Long = expiresAtMillis,
     )
 
     private val ephemeralSessions = mutableMapOf<String, EphemeralSession>()
@@ -295,19 +297,30 @@ internal class DevicePairingProtocol(
         signer.initSign(pair.private, random)
         signer.update(transcript)
         signer.update(DESTINATION_CONFIRMATION_SUFFIX)
-        return JSONObject()
-            .put("protocol", PROTOCOL)
-            .put("sourceDeviceId", response.getString("sourceDeviceId"))
-            .put("targetDeviceId", targetDeviceId)
-            .put("transactionId", response.getString("transactionId"))
-            .put("sourceNonce", response.getString("sourceNonce"))
-            .put("targetNonce", response.getString("targetNonce"))
-            .put("expiresAt", response.getLong("expiresAt"))
-            .put("targetPairingPublicKey", publicKey)
-            .put("sourceEphemeralPublicKey", response.getString("sourceEphemeralPublicKey"))
-            .put("targetEphemeralPublicKey", response.getString("targetEphemeralPublicKey"))
-            .put("confirmationSignature", encode(signer.sign()))
-            .toString()
+        val confirmationSignature = signer.sign()
+        return try {
+            synchronized(ephemeralSessions) {
+                ephemeralSessions[transactionId] = session.copy(
+                    destinationConfirmed = true,
+                    transferExpiresAtMillis = now + DESTINATION_TRANSFER_LIFETIME_MILLIS,
+                )
+            }
+            JSONObject()
+                .put("protocol", PROTOCOL)
+                .put("sourceDeviceId", response.getString("sourceDeviceId"))
+                .put("targetDeviceId", targetDeviceId)
+                .put("transactionId", response.getString("transactionId"))
+                .put("sourceNonce", response.getString("sourceNonce"))
+                .put("targetNonce", response.getString("targetNonce"))
+                .put("expiresAt", response.getLong("expiresAt"))
+                .put("targetPairingPublicKey", publicKey)
+                .put("sourceEphemeralPublicKey", response.getString("sourceEphemeralPublicKey"))
+                .put("targetEphemeralPublicKey", response.getString("targetEphemeralPublicKey"))
+                .put("confirmationSignature", encode(confirmationSignature))
+                .toString()
+        } finally {
+            confirmationSignature.fill(0)
+        }
     }
 
     /**
@@ -444,7 +457,12 @@ internal class DevicePairingProtocol(
         require(session.targetDeviceId == targetDeviceId) {
             "Pairing session belongs to another destination"
         }
-        require(session.expiresAtMillis > clock()) { "Pairing session expired" }
+        require(session.destinationConfirmed) {
+            "The destination user has not confirmed the matching safety code"
+        }
+        require(session.transferExpiresAtMillis > clock().coerceAtLeast(0L)) {
+            "Confirmed transfer session expired; start a new QR pairing"
+        }
         return deriveEcdhKey(
             session.keyPair,
             session.peerEphemeralPublicKey,
@@ -673,6 +691,7 @@ internal class DevicePairingProtocol(
         const val TRANSFER_KEY_BYTES = 32
         const val MAX_QR_LENGTH = 4096
         const val LIFETIME_MILLIS = 2 * 60 * 1000L
+        const val DESTINATION_TRANSFER_LIFETIME_MILLIS = 20 * 60 * 1000L
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         val TRANSACTION_ID = Regex("[A-Za-z0-9_-]{16,64}")
     }
