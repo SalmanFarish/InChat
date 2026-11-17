@@ -362,7 +362,6 @@ internal class DevicePairingProtocol(
             "Pairing session belongs to another destination"
         }
         require(session.expiresAtMillis > clock()) { "Pairing session expired" }
-        synchronized(ephemeralSessions) { ephemeralSessions.remove(transactionId) }
         return deriveEcdhKey(
             session.keyPair,
             session.peerEphemeralPublicKey,
@@ -392,7 +391,6 @@ internal class DevicePairingProtocol(
                 session.sourceNonce == pairing.sourceNonce &&
                 encode(session.keyPair.public.encoded) == pairing.sourceEphemeralPublicKey
         ) { "Source pairing session does not match the verified destination" }
-        synchronized(ephemeralSessions) { ephemeralSessions.remove(pairing.transactionId) }
         return deriveEcdhKey(
             session.keyPair,
             pairing.targetEphemeralPublicKey,
