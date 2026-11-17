@@ -1706,9 +1706,11 @@ fn create_device_transfer_acknowledgement<'local>(
         transaction,
         &identity_key,
     )?;
-    // This proves possession of the transferred Ed25519 private key. A party
-    // holding only the shared transfer key cannot forge this destination receipt.
-    Ok(state.account.sign(&payload).to_base64().into_bytes())
+    // Sign the transaction context with the transferred identity key. The source
+    // retains the same key until retirement, so this is not independent proof that
+    // a distinct destination device completed import; authenticated pairing remains
+    // a required prerequisite for the eventual user-facing transfer flow.
+     Ok(state.account.sign(&payload).to_base64().into_bytes())
 }
 
 fn verify_device_transfer_acknowledgement<'local>(
@@ -1974,7 +1976,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_acknowledgements_require_the_transferred_identity_private_key() {
+    fn transfer_acknowledgement_signature_binds_the_transfer_context() {
         let account = Account::new();
         let public_key = account.identity_keys().ed25519;
         let identity_key = public_key.to_base64();
