@@ -99,10 +99,10 @@ internal class DeviceIdentityRepository(context: Context) {
     fun hasPendingIdentityTransfer(): Boolean = transferJournal.pending() != null
 
     /**
-     * Low-level transfer primitive. Do not expose it in UI until pairing,
-     * authenticated destination acknowledgement, and source retirement are
-     * implemented as one complete handoff flow.
+     * Low-level transfer primitive. Do not expose it in UI until the pairing
+     * transport and source-retirement protocol are integrated end to end.
      *
+     * The export is marked durable before its bytes are returned to a transport.
      * The one-time key and nonce are wiped after the native call.
      */
     fun exportEncryptedIdentity(
@@ -142,9 +142,10 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Low-level transfer primitive. The caller must verify the paired source
-     * and complete the source-retirement handshake before treating this as a
-     * finished migration. Native code refuses to overwrite an existing identity.
+     * Low-level transfer primitive. After import, the destination should create
+     * an authenticated receipt. The source must verify it and complete a separate
+     * retirement protocol before either side treats migration as finished.
+     * Native code refuses to overwrite an existing identity.
      */
     fun importEncryptedIdentity(
         sourceDeviceId: String,
@@ -176,9 +177,10 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Create the destination's authenticated receipt after the imported state has
-     * been persisted. The receipt can be regenerated after process death from the
-     * still-present imported identity and the same one-time transfer key.
+     * Create a shared-secret HMAC receipt after the imported state has been
+     * persisted. It can be regenerated after process death from the still-present
+     * imported identity and the same one-time transfer key. It is not a digital
+     * signature and is not non-repudiable.
      */
     fun createIdentityTransferAcknowledgement(
         sourceDeviceId: String,
