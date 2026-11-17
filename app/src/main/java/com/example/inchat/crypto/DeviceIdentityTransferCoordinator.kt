@@ -24,10 +24,9 @@ internal interface DeviceIdentityTransferDirectory {
  * remove the old public directory entry, confirm removal, and only then delete the
  * old local Keystore key/state. All actions are retryable after process death.
  *
- * Pairing-derived key agreement and the encrypted export/import operations are
- * connected here. A temporary authenticated device-to-device transport, QR UI,
- * recovery screens and two-physical-device verification are still required before
- * this coordinator is exposed in UI. The receipt
+ * Pairing-derived key agreement, the encrypted Firebase relay, receipt exchange
+ * and source retirement are connected here. QR UI, user-facing recovery screens
+ * and two-physical-device verification are still required before exposure in UI. The receipt
  * is signed by the transferred identity, which is still present on the source
  * until retirement; it is not independent proof that a distinct device imported it.
  */
