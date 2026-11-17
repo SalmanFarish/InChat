@@ -668,6 +668,38 @@ test("device transfer chunks are immutable and the ready marker is one-way", asy
   await assertFails(set(ref(aliceDb, path + "/ready"), false));
 });
 
+test("a paired destination can receive a relay before its new identity is published", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeys/alice/device-alice-1"), publicDeviceBundle("device-alice-1"));
+  });
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  await assertSucceeds(set(ref(aliceDb, path + "/metadata"), deviceTransferMetadata()));
+});
+
+test("an incomplete relay can be removed, but a ready relay needs an acknowledgement", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const incompletePath = "deviceTransferInbox/alice/device-alice-2/incomplete-transfer";
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeys/alice/device-alice-1"), publicDeviceBundle("device-alice-1"));
+  });
+  const metadata = deviceTransferMetadata({ transactionId: "incomplete-transfer" });
+  await assertSucceeds(set(ref(aliceDb, incompletePath + "/metadata"), metadata));
+  await assertSucceeds(set(ref(aliceDb, incompletePath + "/chunks/0"), "AQID"));
+  await assertSucceeds(set(ref(aliceDb, incompletePath), null));
+
+  const completedPath = "deviceTransferInbox/alice/device-alice-2/completed-transfer";
+  await assertSucceeds(set(ref(aliceDb, completedPath + "/metadata"), deviceTransferMetadata({
+    transactionId: "completed-transfer",
+  })));
+  await assertSucceeds(set(ref(aliceDb, completedPath + "/chunks/0"), "AQID"));
+  await assertSucceeds(set(ref(aliceDb, completedPath + "/ready"), true));
+  await assertFails(set(ref(aliceDb, completedPath), null));
+  await assertSucceeds(set(ref(aliceDb, completedPath + "/acknowledgement"), "A".repeat(88)));
+  await assertFails(set(ref(aliceDb, completedPath + "/acknowledgement"), "B".repeat(88)));
+  await assertSucceeds(set(ref(aliceDb, completedPath), null));
+});
+
 test("only the account owner can remove a completed device transfer relay", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
