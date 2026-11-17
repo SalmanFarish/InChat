@@ -29,6 +29,9 @@ class DevicePairingProtocolTest {
                 sourceId,
                 transactionId,
             )
+            expectRejected {
+                destinationProtocol.deriveDestinationTransferKey(targetId, transactionId)
+            }
             assertEquals(targetId, preview.targetDeviceId)
             assertEquals(destination.sasCode, preview.sasCode)
             expectRejected {
