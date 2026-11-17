@@ -81,10 +81,19 @@ internal class DeviceIdentityRepository(context: Context) {
      * to the signed-in account and the source Ed25519 identity fingerprint so the
      * destination can be checked before the old directory entry is revoked.
      */
-    fun beginIdentityTransfer(targetDeviceId: String, ownerUserId: String): String {
+    fun beginIdentityTransfer(
+        targetDeviceId: String,
+        ownerUserId: String,
+        transactionId: String,
+    ): String {
+        require(Regex("[A-Za-z0-9_-]{16,64}").matches(transactionId)) {
+            "Device transfer transaction ID has an invalid format"
+        }
         val sourceBundle = ensurePublicKeyBundle()
         val sourceDeviceId = sourceBundle.deviceId
-        val transactionId = UUID.randomUUID().toString().replace("-", "")
+        require(targetDeviceId != sourceDeviceId) {
+            "A device identity cannot be transferred to itself"
+        }
         val identityFingerprint = fingerprint(sourceBundle.ed25519IdentityKey)
         transferJournal.begin(
             sourceDeviceId,
