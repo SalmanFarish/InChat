@@ -370,24 +370,26 @@ test("a claimed one-time prekey cannot be overwritten or deleted", async () => {
 
 test("a device owner can clear prekey claims only after revoking that device", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
-  const claimPath = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+  const claimsPath = "deviceKeyClaims/alice/device-alice-1";
+  const claimPath = `${claimsPath}/one-time-1`;
 
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await set(ref(context.database(), claimPath), true);
   });
 
-  await assertFails(set(ref(aliceDb, claimPath), null));
+  await assertFails(set(ref(aliceDb, claimsPath), null));
 
   await assertSucceeds(
     set(ref(aliceDb, "deviceKeys/alice/device-alice-1"), null),
   );
-  await assertSucceeds(set(ref(aliceDb, claimPath), null));
+  await assertSucceeds(set(ref(aliceDb, claimsPath), null));
 });
 
 test("another account cannot clear orphaned prekey claims", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
-  const claimPath = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+  const claimsPath = "deviceKeyClaims/alice/device-alice-1";
+  const claimPath = `${claimsPath}/one-time-1`;
 
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await set(ref(context.database(), claimPath), true);
@@ -395,7 +397,7 @@ test("another account cannot clear orphaned prekey claims", async () => {
   await assertSucceeds(
     set(ref(aliceDb, "deviceKeys/alice/device-alice-1"), null),
   );
-  await assertFails(set(ref(bobDb, claimPath), null));
+  await assertFails(set(ref(bobDb, claimsPath), null));
 });
 
 const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alice-1") => ({
