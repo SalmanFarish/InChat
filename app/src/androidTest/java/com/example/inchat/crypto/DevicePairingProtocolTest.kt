@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,11 +22,21 @@ class DevicePairingProtocolTest {
         try {
             val request = protocol.createRequest(sourceId, transactionId)
             val destination = protocol.respondToRequest(request, targetId)
-            val verified = protocol.verifyResponse(
+            expectRejected {
+                protocol.confirmResponse(destination.encoded, targetId, "000000")
+            }
+            val destinationConfirmation = protocol.confirmResponse(
+                destination.encoded,
+                targetId,
+                destination.sasCode,
+            )
+            val verified = protocol.verifyConfirmation(
                 request,
                 destination.encoded,
+                destinationConfirmation,
                 sourceId,
                 transactionId,
+                destination.sasCode,
             )
 
             assertEquals(targetId, verified.targetDeviceId)
@@ -39,28 +48,30 @@ class DevicePairingProtocolTest {
                 .put("targetDeviceId", "attacker_$suffix")
                 .toString()
             expectRejected {
-                protocol.verifyResponse(request, altered, sourceId, transactionId)
-            }
-            expectRejected {
-                protocol.verifyResponse(
-                    request,
-                    destination.encoded,
-                    sourceId,
-                    UUID.randomUUID().toString().replace("-", ""),
+                protocol.verifyConfirmation(
+                    request, altered, destinationConfirmation, sourceId, transactionId,
+                    destination.sasCode,
                 )
             }
             expectRejected {
-                protocol.verifyResponse(
-                    request,
-                    destination.encoded,
-                    "other_$suffix",
-                    transactionId,
+                protocol.verifyConfirmation(
+                    request, destination.encoded, destinationConfirmation, sourceId,
+                    UUID.randomUUID().toString().replace("-", ""), destination.sasCode,
+                )
+            }
+            expectRejected {
+                protocol.verifyConfirmation(
+                    request, destination.encoded, destinationConfirmation, "other_$suffix",
+                    transactionId, destination.sasCode,
                 )
             }
 
             now += 2 * 60 * 1000L + 1L
             expectRejected {
-                protocol.verifyResponse(request, destination.encoded, sourceId, transactionId)
+                protocol.verifyConfirmation(
+                    request, destination.encoded, destinationConfirmation, sourceId,
+                    transactionId, destination.sasCode,
+                )
             }
         } finally {
             protocol.deletePairingKey(targetId)
@@ -81,7 +92,7 @@ class DevicePairingProtocolTest {
             val response1 = protocol.respondToRequest(request1, targetId)
             val request2 = protocol.createRequest(sourceId, tx2)
             val response2 = protocol.respondToRequest(request2, targetId)
-            assertNotEquals(response1.sasCode, response2.sasCode)
+            org.junit.Assert.assertNotEquals(response1.encoded, response2.encoded)
         } finally {
             protocol.deletePairingKey(targetId)
         }
