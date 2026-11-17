@@ -22,9 +22,9 @@ import kotlin.coroutines.resumeWithException
 internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-) {
+) : DeviceIdentityTransferDirectory {
     /** Current Firebase account used as the owner of this device directory. */
-    val authenticatedUserId: String
+    override val authenticatedUserId: String
         get() = requireNotNull(auth.currentUser?.uid) {
             "Sign in before using the device key directory"
         }
@@ -33,7 +33,7 @@ internal class DeviceKeyDirectoryRepository(
      * Publish this installation's public bundle under the authenticated account.
      * Private identity material and serialized Olm state are never included.
      */
-    suspend fun publishMyDevice(bundle: PublicDeviceKeyBundle) {
+    override suspend fun publishMyDevice(bundle: PublicDeviceKeyBundle) {
         val uid = requireNotNull(auth.currentUser?.uid) {
             "Sign in before publishing a device identity"
         }
@@ -64,7 +64,7 @@ internal class DeviceKeyDirectoryRepository(
     }
 
     /** Read the public device directory for a user. Requires Firebase auth. */
-    suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
+    override suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
         requireNotNull(auth.currentUser) { "Sign in before reading device identities" }
         require(UID_REGEX.matches(uid)) { "User ID has an invalid format" }
 
@@ -182,7 +182,7 @@ internal class DeviceKeyDirectoryRepository(
     }
 
     /** Remove only this installation's public directory entry. */
-    suspend fun removeMyDevice(deviceId: String) {
+    override suspend fun removeMyDevice(deviceId: String) {
         val uid = requireNotNull(auth.currentUser?.uid) {
             "Sign in before removing a device identity"
         }
@@ -190,12 +190,15 @@ internal class DeviceKeyDirectoryRepository(
             "Device ID has an invalid format"
         }
 
-        database.reference
-            .child(ROOT_NODE)
-            .child(uid)
-            .child(deviceId)
-            .removeValue()
-            .await()
+        // Remove the public identity and its one-time-prekey claim records in
+        // one Realtime Database multi-location update. Claims have no value once
+        // the device entry has been revoked.
+        database.reference.updateChildren(
+            mapOf(
+                "$ROOT_NODE/$uid/$deviceId" to null,
+                "$CLAIMS_NODE/$uid/$deviceId" to null,
+            ),
+        ).await()
     }
 
     private fun parseDirectoryEntry(snapshot: DataSnapshot): PublicDeviceKeyBundle {
