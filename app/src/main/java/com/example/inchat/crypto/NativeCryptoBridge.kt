@@ -36,6 +36,7 @@ internal object NativeCryptoBridge {
         store: CryptoStateStore,
         sourceDeviceId: String,
         targetDeviceId: String,
+        transactionId: String,
         transferKey: ByteArray,
         nonce: ByteArray,
     ): ByteArray?
@@ -49,8 +50,32 @@ internal object NativeCryptoBridge {
         store: CryptoStateStore,
         sourceDeviceId: String,
         targetDeviceId: String,
+        transactionId: String,
         transferKey: ByteArray,
         encryptedPayload: ByteArray,
+    ): Boolean
+
+    /**
+     * Create a transfer acknowledgement from the destination's persisted identity.
+     * The receipt binds both device IDs, transaction ID, transfer key, and the
+     * transferred Ed25519 identity key.
+     */
+    external fun nativeCreateDeviceTransferAcknowledgement(
+        store: CryptoStateStore,
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        transferKey: ByteArray,
+    ): ByteArray?
+
+    /** Verify the destination receipt against the still-local source identity. */
+    external fun nativeVerifyDeviceTransferAcknowledgement(
+        store: CryptoStateStore,
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        transferKey: ByteArray,
+        acknowledgement: ByteArray,
     ): Boolean
 
     /** Verify a remote public device bundle and all its Ed25519 signatures in Rust. */
