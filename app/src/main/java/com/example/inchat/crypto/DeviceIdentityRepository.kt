@@ -198,8 +198,9 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /**
-     * Sign a receipt with the imported identity private key. The source can
-     * verify this signature using its still-local Ed25519 identity public key.
+     * Sign a context-bound receipt with the imported identity private key. The
+     * source can verify it using its local public key. Since both stores retain
+     * the same identity until retirement, this is not independent destination proof.
      */
     fun createIdentityTransferAcknowledgement(
         sourceDeviceId: String,
