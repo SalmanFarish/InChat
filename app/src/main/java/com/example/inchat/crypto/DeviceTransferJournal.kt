@@ -172,6 +172,19 @@ internal class DeviceTransferJournal(
             writeRecord(existing, STATUS_EXPORTED)
         }
 
+    /**
+     * Roll back an exported journal only after the relay has atomically confirmed
+     * that no ready payload exists and removed the incomplete record.
+     */
+    fun cancelUnpublishedExport(sourceDeviceId: String, targetDeviceId: String, transactionId: String) =
+        synchronized(LOCK) {
+            val existing = requireMatching(sourceDeviceId, targetDeviceId, transactionId)
+            check(existing.exported && !existing.acknowledged) {
+                "Only an unacknowledged export can be rolled back"
+            }
+            atomicFile.delete()
+        }
+
     /** Cancellation is safe only before an export has been created. */
     fun cancel(sourceDeviceId: String) = synchronized(LOCK) {
         require(DEVICE_ID_REGEX.matches(sourceDeviceId)) {
