@@ -629,6 +629,25 @@ test("same-account registered devices can upload a bounded encrypted transfer re
   await assertSucceeds(set(ref(aliceDb, path + "/ready"), true));
 });
 
+test("device transfer relay expiry is capped at fifteen minutes", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeys/alice/device-alice-1"), publicDeviceBundle("device-alice-1"));
+  });
+  const path = "deviceTransferInbox/alice/device-alice-2/transfer-transaction-1";
+  const createdAtMillis = Date.now();
+  await assertSucceeds(set(ref(aliceDb, path + "/metadata"), deviceTransferMetadata({
+    createdAtMillis,
+    expiresAtMillis: createdAtMillis + 900000,
+  })));
+  await assertSucceeds(set(ref(aliceDb, path), null));
+
+  await assertFails(set(ref(aliceDb, path + "/metadata"), deviceTransferMetadata({
+    createdAtMillis,
+    expiresAtMillis: createdAtMillis + 900001,
+  })));
+});
+
 test("device transfer relay is private to the signed-in account", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
