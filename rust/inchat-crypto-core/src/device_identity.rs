@@ -2290,6 +2290,7 @@ mod transfer_tests {
         };
         let source_id = "source-device";
         let target_id = "target-device";
+        let transaction_id = "0123456789abcdef0123456789abcdef";
         let state_blob = super::encode_device_crypto_state(source_id, &state)
             .expect("source state should encode");
         let key = vec![0x42; DEVICE_TRANSFER_KEY_BYTES];
@@ -2301,6 +2302,7 @@ mod transfer_tests {
             &nonce,
             source_id,
             target_id,
+            transaction_id,
         )
         .expect("transfer should encrypt");
         assert!(!encrypted
@@ -2311,6 +2313,7 @@ mod transfer_tests {
             key.clone(),
             source_id,
             target_id,
+            transaction_id,
         )
         .expect("transfer should authenticate and decrypt");
         let rebound = rebind_transferred_device_state(plaintext, source_id, target_id)
@@ -2334,6 +2337,7 @@ mod transfer_tests {
         };
         let source_id = "source-device";
         let target_id = "target-device";
+        let transaction_id = "fedcba9876543210fedcba9876543210";
         let state_blob = super::encode_device_crypto_state(source_id, &state).unwrap();
         let key = vec![0xA5; DEVICE_TRANSFER_KEY_BYTES];
         let nonce = vec![0x5A; DEVICE_TRANSFER_NONCE_BYTES];
@@ -2343,6 +2347,7 @@ mod transfer_tests {
             &nonce,
             source_id,
             target_id,
+            transaction_id,
         )
         .unwrap();
 
@@ -2351,6 +2356,7 @@ mod transfer_tests {
             vec![0xA4; DEVICE_TRANSFER_KEY_BYTES],
             source_id,
             target_id,
+            transaction_id,
         )
         .is_err());
         assert!(decrypt_device_transfer(
@@ -2358,12 +2364,20 @@ mod transfer_tests {
             key.clone(),
             source_id,
             "attacker-device",
+            transaction_id,
         )
         .is_err());
 
         let mut tampered = encrypted;
         let last = tampered.len() - 1;
         tampered[last] ^= 0x01;
-        assert!(decrypt_device_transfer(tampered, key, source_id, target_id).is_err());
+        assert!(decrypt_device_transfer(
+            tampered,
+            key,
+            source_id,
+            target_id,
+            transaction_id,
+        )
+        .is_err());
     }
 }
