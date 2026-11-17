@@ -3,6 +3,7 @@ package com.example.inchat.crypto
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.content.Context
+import android.content.ContextWrapper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +12,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class NativeCryptoBridgeTest {
@@ -663,6 +665,119 @@ class NativeCryptoBridgeTest {
             assertTrue("A cached Olm repository must re-check the durable transfer lock", blocked)
         } finally {
             identityRepository.cancelIdentityTransfer()
+        }
+    }
+
+    @Test
+    fun transferCoordinatorPublishesDestinationBeforeRevokingAndRetiringSource() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val ownerUserId = "transfer-user-$suffix"
+        val sourceRoot = File(context.cacheDir, "identity-transfer-source-$suffix")
+        val targetRoot = File(context.cacheDir, "identity-transfer-target-$suffix")
+        val sourceNoBackup = File(sourceRoot, "no-backup")
+        val targetNoBackup = File(targetRoot, "no-backup")
+        sourceNoBackup.mkdirs()
+        targetNoBackup.mkdirs()
+
+        fun isolatedContext(noBackupDirectory: File): Context =
+            object : ContextWrapper(context) {
+                override fun getApplicationContext(): Context = this
+                override fun getNoBackupFilesDir(): File = noBackupDirectory
+            }
+
+        val sourceContext = isolatedContext(sourceNoBackup)
+        val targetContext = isolatedContext(targetNoBackup)
+        val sourceRepository = DeviceIdentityRepository(sourceContext)
+        val targetRepository = DeviceIdentityRepository(targetContext)
+        val sourceBundle = sourceRepository.ensurePublicKeyBundle()
+        val targetDeviceId = targetRepository.currentDeviceId()
+        val publishedDevices = linkedMapOf<String, PublicDeviceKeyBundle>()
+
+        val directory = object : DeviceIdentityTransferDirectory {
+            override val authenticatedUserId: String = ownerUserId
+
+            override suspend fun publishMyDevice(bundle: PublicDeviceKeyBundle) {
+                publishedDevices[bundle.deviceId] = bundle
+            }
+
+            override suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
+                check(uid == ownerUserId)
+                return publishedDevices.values.toList()
+            }
+
+            override suspend fun removeMyDevice(deviceId: String) {
+                publishedDevices.remove(deviceId)
+            }
+        }
+
+        var encryptedPayload: ByteArray? = null
+        var acknowledgement: ByteArray? = null
+        val transferKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        try {
+            directory.publishMyDevice(sourceBundle)
+            val sourceCoordinator = DeviceIdentityTransferCoordinator(sourceRepository, directory)
+            val targetCoordinator = DeviceIdentityTransferCoordinator(targetRepository, directory)
+            val transactionId = sourceCoordinator.beginTransfer(targetDeviceId)
+
+            encryptedPayload = sourceRepository.exportEncryptedIdentity(
+                targetDeviceId = targetDeviceId,
+                transactionId = transactionId,
+                transferKey = transferKey.clone(),
+                nonce = ByteArray(12).also { SecureRandom().nextBytes(it) },
+            )
+            targetRepository.importEncryptedIdentity(
+                sourceDeviceId = sourceBundle.deviceId,
+                transactionId = transactionId,
+                transferKey = transferKey.clone(),
+                encryptedPayload = requireNotNull(encryptedPayload).clone(),
+            )
+
+            acknowledgement = targetCoordinator.publishImportedDestination(
+                sourceDeviceId = sourceBundle.deviceId,
+                ownerUserId = ownerUserId,
+                transactionId = transactionId,
+                transferKey = transferKey.clone(),
+            )
+
+            assertTrue(
+                "Source retirement should succeed only after destination publication",
+                sourceCoordinator.acknowledgeAndRetireSource(
+                    targetDeviceId = targetDeviceId,
+                    transactionId = transactionId,
+                    transferKey = transferKey.clone(),
+                    acknowledgement = requireNotNull(acknowledgement).clone(),
+                ),
+            )
+
+            assertTrue("Destination must remain in the account directory", publishedDevices.containsKey(targetDeviceId))
+            assertTrue("Old source directory entry must be revoked", !publishedDevices.containsKey(sourceBundle.deviceId))
+            assertEquals(
+                "Destination keeps the transferred Ed25519 identity",
+                sourceBundle.ed25519IdentityKey,
+                publishedDevices.getValue(targetDeviceId).ed25519IdentityKey,
+            )
+            assertTrue(
+                "Source journal must retain a terminal retirement tombstone",
+                sourceRepository.pendingIdentityTransfer()?.retired == true,
+            )
+            assertTrue(
+                "Retired source must not recreate its old crypto identity",
+                runCatching { sourceRepository.ensurePublicKeyBundle() }.isFailure,
+            )
+            assertTrue(
+                "Retired source crypto state must be deleted",
+                CryptoStateStore(sourceContext, "device-${sourceBundle.deviceId}").read() == null,
+            )
+        } finally {
+            transferKey.fill(0)
+            encryptedPayload?.fill(0)
+            acknowledgement?.fill(0)
+            runCatching {
+                CryptoStateStore(targetContext, "device-$targetDeviceId").delete()
+            }
+            sourceRoot.deleteRecursively()
+            targetRoot.deleteRecursively()
         }
     }
 
