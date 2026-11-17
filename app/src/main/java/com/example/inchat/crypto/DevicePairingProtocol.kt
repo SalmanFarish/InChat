@@ -418,7 +418,7 @@ internal class DevicePairingProtocol(
             peerBytes.fill(0)
         }
         val context = listOf(
-            "INCHAT-DEVICE-TRANSFER-ECDH-SALT-V1",
+            "INCHAT-DEVICE-TRANSFER-ECDH-SALT-V2",
             sourceDeviceId,
             targetDeviceId,
             transactionId,
@@ -434,7 +434,7 @@ internal class DevicePairingProtocol(
             try {
                 val expand = Mac.getInstance("HmacSHA256")
                 expand.init(SecretKeySpec(prk, "HmacSHA256"))
-                expand.update("INCHAT-DEVICE-IDENTITY-TRANSFER-KEY-V1".toByteArray(StandardCharsets.UTF_8))
+                expand.update("INCHAT-DEVICE-IDENTITY-TRANSFER-KEY-V2".toByteArray(StandardCharsets.UTF_8))
                 expand.update(1.toByte())
                 return expand.doFinal().copyOf(TRANSFER_KEY_BYTES)
             } finally {
@@ -566,10 +566,10 @@ internal class DevicePairingProtocol(
     }
 
     private companion object {
-        const val PROTOCOL = "INCHAT-PAIR-1"
-        const val DOMAIN = "INCHAT-DESTINATION-PAIRING-PROOF-V1"
+        const val PROTOCOL = "INCHAT-PAIR-2"
+        const val DOMAIN = "INCHAT-DESTINATION-PAIRING-PROOF-V2"
         val DESTINATION_CONFIRMATION_SUFFIX =
-            "\nINCHAT-DESTINATION-USER-CONFIRMED-V1".toByteArray(StandardCharsets.UTF_8)
+            "\nINCHAT-DESTINATION-USER-CONFIRMED-V2".toByteArray(StandardCharsets.UTF_8)
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS_PREFIX = "inchat-device-pairing-v1-"
         const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
