@@ -709,6 +709,7 @@ test("only the account owner can remove a completed device transfer relay", asyn
       metadata: deviceTransferMetadata(),
       chunks: { "0": "AQID" },
       ready: true,
+      acknowledgement: "A".repeat(88),
     });
   });
   await assertFails(set(ref(bobDb, path), null));
