@@ -1319,7 +1319,7 @@ fn transfer_acknowledgement_mac(
     let mut acknowledgement_key =
         hmac_sha256(transfer_key, b"INCHAT_DEVICE_TRANSFER_ACK_KEY_V1")?;
     let mut message = format!(
-        "INCHAT_DEVICE_TRANSFER_ACK_V1\\n{transaction_id}\\n{source_device_id}\\n{target_device_id}\\n{identity_key}"
+        "INCHAT_DEVICE_TRANSFER_ACK_V1\n{transaction_id}\n{source_device_id}\n{target_device_id}\n{identity_key}"
     )
     .into_bytes();
     let result = hmac_sha256(acknowledgement_key.to_vec(), &message);
