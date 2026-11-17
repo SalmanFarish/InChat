@@ -28,6 +28,7 @@ internal interface DeviceIdentityTransferTransport {
     suspend fun publishAcknowledgement(targetDeviceId: String, transactionId: String, acknowledgement: ByteArray)
     suspend fun readAcknowledgement(targetDeviceId: String, transactionId: String): ByteArray?
     suspend fun deleteCompleted(targetDeviceId: String, transactionId: String)
+    suspend fun discardUnreadyUpload(targetDeviceId: String, transactionId: String): Boolean
 }
 
 internal class FirebaseDeviceTransferTransport(
@@ -166,7 +167,7 @@ internal class FirebaseDeviceTransferTransport(
         require(snapshot.child("ready").getValue(Boolean::class.java) == true) {
             "Cannot acknowledge a transfer that is not ready"
         }
-        require(snapshot.child("metadata").child("expiresAtMillis").getValue(Long::class.java) ?: 0L > clock()) {
+        require(((snapshot.child("metadata").child("expiresAtMillis").value as? Number)?.toLong() ?: 0L) > clock().coerceAtLeast(0L)) {
             "Device transfer relay has expired"
         }
         val encoded = Base64.encodeToString(acknowledgement, Base64.NO_WRAP)
@@ -194,6 +195,19 @@ internal class FirebaseDeviceTransferTransport(
             "Device transfer acknowledgement has an invalid size"
         }
         return bytes
+    }
+
+    override suspend fun discardUnreadyUpload(targetDeviceId: String, transactionId: String): Boolean {
+        val uid = requireUid()
+        require(DEVICE_ID_PATTERN.matches(targetDeviceId))
+        require(TRANSACTION_PATTERN.matches(transactionId))
+        val reference = database.reference.child(INBOX_NODE).child(uid)
+            .child(targetDeviceId).child(transactionId)
+        val snapshot = reference.get().await()
+        if (!snapshot.exists()) return true
+        if (snapshot.child("ready").getValue(Boolean::class.java) == true) return false
+        reference.removeValue().await()
+        return !reference.get().await().exists()
     }
 
     override suspend fun deleteCompleted(targetDeviceId: String, transactionId: String) {
