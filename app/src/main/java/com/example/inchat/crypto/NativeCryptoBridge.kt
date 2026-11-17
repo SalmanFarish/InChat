@@ -29,8 +29,8 @@ internal object NativeCryptoBridge {
 
     /**
      * Encrypt the current device identity for a specifically paired destination.
-     * The transfer key and nonce are consumed and cleared by native code. The
-     * returned bytes contain only an authenticated encrypted transfer envelope.
+     * The source ID, destination ID, and transaction ID are authenticated as AAD.
+     * The transfer key and nonce are consumed and cleared by native code.
      */
     external fun nativeExportDeviceIdentity(
         store: CryptoStateStore,
@@ -42,8 +42,8 @@ internal object NativeCryptoBridge {
     ): ByteArray?
 
     /**
-     * Import an authenticated transfer into an empty destination store. Native
-     * code validates the source state, rebinds it to targetDeviceId, discards
+     * Import an authenticated, transaction-bound transfer into an empty
+     * destination store. Native code validates and rebinds the state, discards
      * source-device unpublished prekeys, and persists it through Android Keystore.
      */
     external fun nativeImportDeviceIdentity(
@@ -56,9 +56,9 @@ internal object NativeCryptoBridge {
     ): Boolean
 
     /**
-     * Create a transfer acknowledgement from the destination's persisted identity.
-     * The receipt binds both device IDs, transaction ID, transfer key, and the
-     * transferred Ed25519 identity key.
+     * Create a 32-byte HMAC receipt from the destination's persisted identity.
+     * It binds both device IDs, transaction ID, transfer secret, and the transferred
+     * Ed25519 identity key. This is a shared-secret MAC, not a non-repudiable signature.
      */
     external fun nativeCreateDeviceTransferAcknowledgement(
         store: CryptoStateStore,
