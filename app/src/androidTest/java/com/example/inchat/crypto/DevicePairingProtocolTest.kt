@@ -45,6 +45,27 @@ class DevicePairingProtocolTest {
             assertEquals(destination.sasCode, verified.sasCode)
             assertEquals(6, verified.sasCode.length)
 
+            // The QR exchange never contains a transfer key. Both phones derive
+            // the same 32-byte key from their short-lived ECDH private keys.
+            val sourceTransferKey = sourceProtocol.deriveSourceTransferKey(verified)
+            val destinationTransferKey = destinationProtocol.deriveDestinationTransferKey(
+                targetId,
+                transactionId,
+            )
+            try {
+                assertEquals(32, sourceTransferKey.size)
+                assertEquals(
+                    true,
+                    java.security.MessageDigest.isEqual(
+                        sourceTransferKey,
+                        destinationTransferKey,
+                    ),
+                )
+            } finally {
+                sourceTransferKey.fill(0)
+                destinationTransferKey.fill(0)
+            }
+
             val altered = JSONObject(destination.encoded)
                 .put("targetDeviceId", "attacker_$suffix")
                 .toString()
