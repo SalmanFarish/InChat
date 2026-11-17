@@ -238,34 +238,6 @@ internal class DeviceIdentityRepository(context: Context) {
         transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean {
-    /**
-     * Retire this source only after the coordinator has confirmed that the
-     * destination bundle is published and the source directory entry is gone.
-     * The journal records the irreversible decision before the Keystore key is
-     * deleted, so a process death can safely resume the deletion.
-     */
-    fun retireIdentityTransfer(targetDeviceId: String, transactionId: String) {
-        val sourceDeviceId = getOrCreateDeviceId()
-        val pending = requireNotNull(transferJournal.pending()) {
-            "No device transfer is pending"
-        }
-        require(
-            pending.sourceDeviceId == sourceDeviceId &&
-                pending.targetDeviceId == targetDeviceId &&
-                pending.transactionId == transactionId &&
-                pending.acknowledged &&
-                pending.ownerUserId != null &&
-                pending.sourceIdentityFingerprint != null
-        ) {
-            "Source retirement requires the verified, account-bound transfer"
-        }
-
-        transferJournal.markRetiring(sourceDeviceId, targetDeviceId, transactionId)
-        CryptoStateStore(appContext, "device-$sourceDeviceId").delete()
-        transferJournal.markRetired(sourceDeviceId, targetDeviceId, transactionId)
-    }
-
-
         return try {
             val sourceDeviceId = getOrCreateDeviceId()
             val receiptSha256 = MessageDigest.getInstance("SHA-256")
@@ -302,6 +274,33 @@ internal class DeviceIdentityRepository(context: Context) {
             transferKey.fill(0)
             acknowledgement.fill(0)
         }
+    }
+
+    /**
+     * Retire this source only after the coordinator has confirmed that the
+     * destination bundle is published and the source directory entry is gone.
+     * The journal records the irreversible decision before the Keystore key is
+     * deleted, so a process death can safely resume the deletion.
+     */
+    fun retireIdentityTransfer(targetDeviceId: String, transactionId: String) {
+        val sourceDeviceId = getOrCreateDeviceId()
+        val pending = requireNotNull(transferJournal.pending()) {
+            "No device transfer is pending"
+        }
+        require(
+            pending.sourceDeviceId == sourceDeviceId &&
+                pending.targetDeviceId == targetDeviceId &&
+                pending.transactionId == transactionId &&
+                pending.acknowledged &&
+                pending.ownerUserId != null &&
+                pending.sourceIdentityFingerprint != null
+        ) {
+            "Source retirement requires the verified, account-bound transfer"
+        }
+
+        transferJournal.markRetiring(sourceDeviceId, targetDeviceId, transactionId)
+        CryptoStateStore(appContext, "device-$sourceDeviceId").delete()
+        transferJournal.markRetired(sourceDeviceId, targetDeviceId, transactionId)
     }
 
     /**
