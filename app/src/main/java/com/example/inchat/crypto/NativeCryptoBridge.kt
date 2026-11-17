@@ -66,7 +66,7 @@ internal object NativeCryptoBridge {
         transactionId: String,
     ): ByteArray?
 
-    /** Verify destination proof of possession against the source identity public key. */
+    /** Verify the context-bound receipt against the source identity public key. */
     external fun nativeVerifyDeviceTransferAcknowledgement(
         store: CryptoStateStore,
         sourceDeviceId: String,
