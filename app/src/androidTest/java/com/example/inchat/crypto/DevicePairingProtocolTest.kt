@@ -23,6 +23,22 @@ class DevicePairingProtocolTest {
         try {
             val request = sourceProtocol.createRequest(sourceId, transactionId)
             val destination = destinationProtocol.respondToRequest(request, targetId)
+            val preview = sourceProtocol.inspectResponse(
+                request,
+                destination.encoded,
+                sourceId,
+                transactionId,
+            )
+            assertEquals(targetId, preview.targetDeviceId)
+            assertEquals(destination.sasCode, preview.sasCode)
+            expectRejected {
+                sourceProtocol.inspectResponse(
+                    request,
+                    JSONObject(destination.encoded).put("signature", "YWJj").toString(),
+                    sourceId,
+                    transactionId,
+                )
+            }
             expectRejected {
                 destinationProtocol.confirmResponse(destination.encoded, targetId, "000000")
             }
