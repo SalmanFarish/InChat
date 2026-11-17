@@ -724,7 +724,6 @@ class NativeCryptoBridgeTest {
 
         var encryptedPayload: ByteArray? = null
         var acknowledgement: ByteArray? = null
-        val transferKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
         try {
             directory.publishMyDevice(sourceBundle)
             val sourceCoordinator = DeviceIdentityTransferCoordinator(sourceRepository, directory)
@@ -755,16 +754,14 @@ class NativeCryptoBridgeTest {
                 sourceCoordinator.beginTransfer(verifiedPairing, pairingResponse.sasCode),
             )
 
-            encryptedPayload = sourceRepository.exportEncryptedIdentity(
-                targetDeviceId = targetDeviceId,
-                transactionId = transactionId,
-                transferKey = transferKey.clone(),
-                nonce = ByteArray(12).also { SecureRandom().nextBytes(it) },
+            encryptedPayload = sourceCoordinator.exportPairedIdentity(
+                sourcePairing,
+                verifiedPairing,
             )
-            targetRepository.importEncryptedIdentity(
+            targetCoordinator.importPairedIdentity(
+                pairingProtocol = destinationPairing,
                 sourceDeviceId = sourceBundle.deviceId,
                 transactionId = transactionId,
-                transferKey = transferKey.clone(),
                 encryptedPayload = requireNotNull(encryptedPayload).clone(),
             )
 
@@ -821,7 +818,6 @@ class NativeCryptoBridgeTest {
                 CryptoStateStore(sourceContext, "device-${sourceBundle.deviceId}").read() == null,
             )
         } finally {
-            transferKey.fill(0)
             encryptedPayload?.fill(0)
             acknowledgement?.fill(0)
             runCatching { DevicePairingProtocol().deletePairingKey(targetDeviceId) }
