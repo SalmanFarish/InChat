@@ -1255,30 +1255,76 @@ fn valid_transfer_id(value: &str) -> bool {
 }
 
 fn hmac_sha256(mut key: Vec<u8>, message: &[u8]) -> Result<[u8; 32], &'static str> {
-    if key.is_empty() || key.len() > 1024 { key.zeroize(); return Err("Acknowledgement key is invalid"); }
+    if key.is_empty() || key.len() > 1024 {
+        key.zeroize();
+        return Err("Acknowledgement key is invalid");
+    }
+
     let mut key_block = [0_u8; 64];
-    if key.len() > 64 { let digest = Sha256::digest(&key); key_block[..32].copy_from_slice(&digest); }
-    else { key_block[..key.len()].copy_from_slice(&key); }
+    if key.len() > key_block.len() {
+        let digest = Sha256::digest(&key);
+        key_block[..32].copy_from_slice(&digest);
+    } else {
+        key_block[..key.len()].copy_from_slice(&key);
+    }
     key.zeroize();
-    let mut ipad = [0x36_u8; 64]; let mut opad = [0x5c_u8; 64];
-    for i in 0..64 { ipad[i] ^= key_block[i]; opad[i] ^= key_block[i]; }
+
+    let mut inner_pad = [0x36_u8; 64];
+    let mut outer_pad = [0x5c_u8; 64];
+    for index in 0..64 {
+        inner_pad[index] ^= key_block[index];
+        outer_pad[index] ^= key_block[index];
+    }
     key_block.zeroize();
-    let mut inner = Sha256::new(); inner.update(ipad); inner.update(message);
-    let mut inner_hash = inner.finalize().to_vec(); ipad.zeroize();
-    let mut outer = Sha256::new(); outer.update(opad); outer.update(&inner_hash);
-    let digest = outer.finalize(); opad.zeroize(); inner_hash.zeroize();
-    let mut result = [0_u8; 32]; result.copy_from_slice(&digest); Ok(result)
+
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(message);
+    let mut inner_digest = inner.finalize().to_vec();
+    inner_pad.zeroize();
+
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(&inner_digest);
+    let digest = outer.finalize();
+    outer_pad.zeroize();
+    inner_digest.zeroize();
+
+    let mut result = [0_u8; 32];
+    result.copy_from_slice(&digest);
+    Ok(result)
 }
 
 fn transfer_acknowledgement_mac(
-    key: Vec<u8>, source: &str, target: &str, transaction: &str, identity_key: &str,
+    transfer_key: Vec<u8>,
+    source_device_id: &str,
+    target_device_id: &str,
+    transaction_id: &str,
+    identity_key: &str,
 ) -> Result<[u8; 32], &'static str> {
-    if !valid_device_id(source) || !valid_device_id(target) || source == target
-        || !valid_transfer_id(transaction) || identity_key.is_empty() || identity_key.len() > 128 {
-        let mut key = key; key.zeroize(); return Err("Acknowledgement context is invalid");
+    if !valid_device_id(source_device_id)
+        || !valid_device_id(target_device_id)
+        || source_device_id == target_device_id
+        || !valid_transfer_id(transaction_id)
+        || identity_key.is_empty()
+        || identity_key.len() > 128
+    {
+        let mut transfer_key = transfer_key;
+        transfer_key.zeroize();
+        return Err("Acknowledgement context is invalid");
     }
-    let mut message = format!("INCHAT_DEVICE_TRANSFER_ACK_V1\n{transaction}\n{source}\n{target}\n{identity_key}").into_bytes();
-    let result = hmac_sha256(key, &message); message.zeroize(); result
+
+    // Use a domain-separated subkey rather than reusing the AEAD key directly.
+    let mut acknowledgement_key =
+        hmac_sha256(transfer_key, b"INCHAT_DEVICE_TRANSFER_ACK_KEY_V1")?;
+    let mut message = format!(
+        "INCHAT_DEVICE_TRANSFER_ACK_V1\\n{transaction_id}\\n{source_device_id}\\n{target_device_id}\\n{identity_key}"
+    )
+    .into_bytes();
+    let result = hmac_sha256(acknowledgement_key.to_vec(), &message);
+    acknowledgement_key.zeroize();
+    message.zeroize();
+    result
 }
 
 fn encrypt_device_transfer(
@@ -1715,7 +1761,13 @@ fn verify_device_transfer_acknowledgement<'local>(
         Ok(value) => value,
         Err(error) => { let mut key = key; key.zeroize(); acknowledgement.zeroize(); return Err(error); }
     };
-    let expected = transfer_acknowledgement_mac(key, source, target, transaction, &identity)?;
+    let expected = match transfer_acknowledgement_mac(key, source, target, transaction, &identity) {
+        Ok(value) => value,
+        Err(error) => {
+            acknowledgement.zeroize();
+            return Err(error);
+        }
+    };
     let mut difference = 0_u8;
     for index in 0..32 { difference |= expected[index] ^ acknowledgement[index]; }
     acknowledgement.zeroize();
