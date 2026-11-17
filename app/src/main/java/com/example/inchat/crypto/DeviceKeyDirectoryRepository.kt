@@ -190,15 +190,24 @@ internal class DeviceKeyDirectoryRepository(
             "Device ID has an invalid format"
         }
 
-        // Remove the public identity and its one-time-prekey claim records in
-        // one Realtime Database multi-location update. Claims have no value once
-        // the device entry has been revoked.
-        database.reference.updateChildren(
-            mapOf(
-                "$ROOT_NODE/$uid/$deviceId" to null,
-                "$CLAIMS_NODE/$uid/$deviceId" to null,
-            ),
-        ).await()
+        // Revoke the public key bundle first. Rules intentionally permit the
+        // account owner to delete claim records only after this directory entry
+        // is absent, preventing an owner from resetting claims for an active key.
+        database.reference
+            .child(ROOT_NODE)
+            .child(uid)
+            .child(deviceId)
+            .removeValue()
+            .await()
+
+        // A failure here is safe: the device is already revoked. A retry is
+        // idempotent and completes cleanup of its now-orphaned claim records.
+        database.reference
+            .child(CLAIMS_NODE)
+            .child(uid)
+            .child(deviceId)
+            .removeValue()
+            .await()
     }
 
     private fun parseDirectoryEntry(snapshot: DataSnapshot): PublicDeviceKeyBundle {
