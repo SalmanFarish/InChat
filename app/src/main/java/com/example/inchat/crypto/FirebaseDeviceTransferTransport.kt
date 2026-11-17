@@ -170,8 +170,21 @@ internal class FirebaseDeviceTransferTransport(
         require(((snapshot.child("metadata").child("expiresAtMillis").value as? Number)?.toLong() ?: 0L) > clock().coerceAtLeast(0L)) {
             "Device transfer relay has expired"
         }
+        val acknowledgementReference = reference.child("acknowledgement")
+        val existing = acknowledgementReference.get().await().getValue(String::class.java)
+        if (existing != null) {
+            val existingBytes = Base64.decode(existing, Base64.DEFAULT)
+            try {
+                check(MessageDigest.isEqual(existingBytes, acknowledgement)) {
+                    "A different acknowledgement is already published for this transfer"
+                }
+                return
+            } finally {
+                existingBytes.fill(0)
+            }
+        }
         val encoded = Base64.encodeToString(acknowledgement, Base64.NO_WRAP)
-        reference.child("acknowledgement").setValue(encoded).await()
+        acknowledgementReference.setValue(encoded).await()
     }
 
     override suspend fun readAcknowledgement(
