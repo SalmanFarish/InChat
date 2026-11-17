@@ -29,6 +29,15 @@ internal data class PublicDeviceKeyBundle(
     val lastSeenAtMillis: Long? = null,
 )
 
+/** Durable, non-secret metadata used to resume a transfer after process death. */
+internal data class PendingDeviceIdentityTransfer(
+    val sourceDeviceId: String,
+    val targetDeviceId: String,
+    val transactionId: String?,
+    val exported: Boolean,
+    val acknowledged: Boolean,
+)
+
 /**
  * Owns the installation-scoped identifier and the matching native Olm account.
  *
@@ -75,9 +84,19 @@ internal class DeviceIdentityRepository(context: Context) {
         transferJournal.cancel(getOrCreateDeviceId())
     }
 
-    /** Exposes only whether this installation currently has a pending handoff. */
-    fun hasPendingIdentityTransfer(): Boolean =
-        transferJournal.pending()?.sourceDeviceId == getOrCreateDeviceId()
+    /** Metadata-only snapshot for recovering a pending transfer after process death. */
+    fun pendingIdentityTransfer(): PendingDeviceIdentityTransfer? =
+        transferJournal.pending()?.let { pending ->
+            PendingDeviceIdentityTransfer(
+                sourceDeviceId = pending.sourceDeviceId,
+                targetDeviceId = pending.targetDeviceId,
+                transactionId = pending.transactionId,
+                exported = pending.exported,
+                acknowledged = pending.acknowledged,
+            )
+        }
+
+    fun hasPendingIdentityTransfer(): Boolean = transferJournal.pending() != null
 
     /**
      * Low-level transfer primitive. Do not expose it in UI until pairing,
@@ -97,7 +116,7 @@ internal class DeviceIdentityRepository(context: Context) {
             "A device identity cannot be transferred to itself"
         }
         transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
-        return try {
+        val payload = try {
             NativeCryptoBridge.nativeExportDeviceIdentity(
                 CryptoStateStore(appContext, "device-$sourceDeviceId"),
                 sourceDeviceId,
@@ -110,6 +129,16 @@ internal class DeviceIdentityRepository(context: Context) {
             transferKey.fill(0)
             nonce.fill(0)
         }
+
+        try {
+            // Persist this before returning bytes to any transport. After this
+            // point the payload may have been delivered, so cancellation is unsafe.
+            transferJournal.markExported(sourceDeviceId, targetDeviceId, transactionId)
+        } catch (failure: Throwable) {
+            payload.fill(0)
+            throw failure
+        }
+        return payload
     }
 
     /**
