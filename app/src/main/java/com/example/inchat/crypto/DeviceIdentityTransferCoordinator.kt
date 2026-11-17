@@ -32,11 +32,35 @@ internal interface DeviceIdentityTransferDirectory {
 internal class DeviceIdentityTransferCoordinator(
     private val identityRepository: DeviceIdentityRepository,
     private val directory: DeviceIdentityTransferDirectory,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    /** Start a transfer bound to the currently authenticated Firebase account. */
-    fun beginTransfer(targetDeviceId: String): String {
+    /**
+     * A transfer can begin only with a fresh, two-sided QR pairing proof and
+     * explicit SAS confirmation on this source device. The destination must
+     * separately call confirmResponse after its own user confirms the same code.
+     */
+    fun beginTransfer(
+        pairing: DevicePairingProtocol.VerifiedPairing,
+        confirmedSasCode: String,
+    ): String {
         val ownerUserId = directory.authenticatedUserId
-        return identityRepository.beginIdentityTransfer(targetDeviceId, ownerUserId)
+        val sourceDeviceId = identityRepository.currentDeviceId()
+        require(pairing.sourceDeviceId == sourceDeviceId) {
+            "Pairing proof belongs to another source device"
+        }
+        require(pairing.targetDeviceId != sourceDeviceId)
+        require(pairing.expiresAtMillis > clock().coerceAtLeast(0L)) {
+            "Device pairing has expired. Scan a new QR code."
+        }
+        require(
+            MessageDigest.isEqual(
+                pairing.sasCode.toByteArray(Charsets.US_ASCII),
+                confirmedSasCode.toByteArray(Charsets.US_ASCII),
+            )
+        ) {
+            "Confirm that the codes match on both devices before transferring"
+        }
+        return identityRepository.beginIdentityTransfer(pairing.targetDeviceId, ownerUserId)
     }
 
     /**
