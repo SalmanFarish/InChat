@@ -537,6 +537,38 @@ class NativeCryptoBridgeTest {
         assertTrue(!NativeCryptoBridge.nativeSasIsComplete(aliceHandle))
     }
 
+
+    @Test
+    fun deviceTransferJournalLocksAcrossInstancesAndCanCancel() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString()
+        val sourceDeviceId = "journal-source-$suffix"
+        val targetDeviceId = "journal-target-$suffix"
+        val firstJournal = DeviceTransferJournal(context)
+
+        firstJournal.begin(sourceDeviceId, targetDeviceId)
+        firstJournal.requirePendingTarget(sourceDeviceId, targetDeviceId)
+
+        var locked = false
+        try {
+            DeviceTransferJournal(context).requireUnlocked(sourceDeviceId)
+        } catch (_: IllegalStateException) {
+            locked = true
+        }
+        assertTrue("A recreated journal must retain the source lock", locked)
+
+        var wrongTargetRejected = false
+        try {
+            firstJournal.requirePendingTarget(sourceDeviceId, "different-target")
+        } catch (_: IllegalStateException) {
+            wrongTargetRejected = true
+        }
+        assertTrue("Export must be bound to the journal's target", wrongTargetRejected)
+
+        firstJournal.cancel(sourceDeviceId)
+        DeviceTransferJournal(context).requireUnlocked(sourceDeviceId)
+    }
+
     @Test
     fun encryptedDeviceIdentityTransferPreservesIdentityAndOlmSessions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
