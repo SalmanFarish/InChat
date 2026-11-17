@@ -12,6 +12,9 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
+import javax.crypto.KeyAgreement
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * QR-relayed proof that a destination installation controls a pairing key which
@@ -26,6 +29,23 @@ internal class DevicePairingProtocol(
     private val random: SecureRandom = SecureRandom(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    /**
+     * Ephemeral ECDH private keys deliberately live only in this protocol
+     * instance's memory. A process restart invalidates the pairing and requires
+     * a fresh QR exchange; no transfer secret is written to disk or QR data.
+     */
+    private data class EphemeralSession(
+        val keyPair: KeyPair,
+        val sourceDeviceId: String,
+        val targetDeviceId: String,
+        val transactionId: String,
+        val sourceNonce: String,
+        val targetNonce: String,
+        val expiresAtMillis: Long,
+        val peerEphemeralPublicKey: String,
+    )
+
+    private val ephemeralSessions = mutableMapOf<String, EphemeralSession>()
     data class Response(
         val encoded: String,
         val sasCode: String,
@@ -38,6 +58,10 @@ internal class DevicePairingProtocol(
         val targetPairingPublicKey: String,
         val sasCode: String,
         val expiresAtMillis: Long,
+        internal val sourceEphemeralPublicKey: String,
+        internal val targetEphemeralPublicKey: String,
+        internal val sourceNonce: String,
+        internal val targetNonce: String,
     )
 
     /** Source displays this request as a QR code for the destination to scan. */
@@ -46,12 +70,27 @@ internal class DevicePairingProtocol(
         require(TRANSACTION_ID.matches(transactionId))
         val now = clock().coerceAtLeast(0L)
         val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
+        val ephemeral = generateEphemeralKeyPair()
+        val sourceEphemeralPublicKey = encode(ephemeral.public.encoded)
+        synchronized(ephemeralSessions) {
+            ephemeralSessions[transactionId] = EphemeralSession(
+                keyPair = ephemeral,
+                sourceDeviceId = sourceDeviceId,
+                targetDeviceId = "",
+                transactionId = transactionId,
+                sourceNonce = encode(nonce),
+                targetNonce = "",
+                expiresAtMillis = now + LIFETIME_MILLIS,
+                peerEphemeralPublicKey = "",
+            )
+        }
         return try {
             JSONObject()
                 .put("protocol", PROTOCOL)
                 .put("sourceDeviceId", sourceDeviceId)
                 .put("transactionId", transactionId)
                 .put("sourceNonce", encode(nonce))
+                .put("sourceEphemeralPublicKey", sourceEphemeralPublicKey)
                 .put("expiresAt", now + LIFETIME_MILLIS)
                 .toString()
         } finally {
@@ -74,6 +113,22 @@ internal class DevicePairingProtocol(
         val pair = loadOrCreateKeyPair(targetDeviceId)
         val publicKey = encode(pair.public.encoded)
         val targetNonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
+        val targetEphemeral = generateEphemeralKeyPair()
+        val targetEphemeralPublicKey = encode(targetEphemeral.public.encoded)
+        val sourceEphemeralPublicKey = request.getString("sourceEphemeralPublicKey")
+        val transactionId = request.getString("transactionId")
+        synchronized(ephemeralSessions) {
+            ephemeralSessions[transactionId] = EphemeralSession(
+                keyPair = targetEphemeral,
+                sourceDeviceId = sourceDeviceId,
+                targetDeviceId = targetDeviceId,
+                transactionId = transactionId,
+                sourceNonce = request.getString("sourceNonce"),
+                targetNonce = encode(targetNonce),
+                expiresAtMillis = request.getLong("expiresAt"),
+                peerEphemeralPublicKey = sourceEphemeralPublicKey,
+            )
+        }
         try {
             val transcript = transcript(
                 sourceDeviceId,
@@ -83,6 +138,8 @@ internal class DevicePairingProtocol(
                 encode(targetNonce),
                 request.getLong("expiresAt"),
                 publicKey,
+                sourceEphemeralPublicKey,
+                targetEphemeralPublicKey,
             )
             val signer = Signature.getInstance(SIGNATURE_ALGORITHM)
             signer.initSign(pair.private, random)
@@ -97,6 +154,8 @@ internal class DevicePairingProtocol(
                 .put("targetNonce", encode(targetNonce))
                 .put("expiresAt", request.getLong("expiresAt"))
                 .put("targetPairingPublicKey", publicKey)
+                .put("sourceEphemeralPublicKey", sourceEphemeralPublicKey)
+                .put("targetEphemeralPublicKey", targetEphemeralPublicKey)
                 .put("signature", signature)
                 .toString()
             return Response(response, sasCode(transcript))
@@ -130,6 +189,8 @@ internal class DevicePairingProtocol(
             response.getString("targetNonce"),
             response.getLong("expiresAt"),
             publicKey,
+            response.getString("sourceEphemeralPublicKey"),
+            response.getString("targetEphemeralPublicKey"),
         )
         require(constantTimeEquals(sasCode(transcript), confirmedSasCode)) {
             "The displayed pairing codes do not match"
@@ -148,6 +209,8 @@ internal class DevicePairingProtocol(
             .put("targetNonce", response.getString("targetNonce"))
             .put("expiresAt", response.getLong("expiresAt"))
             .put("targetPairingPublicKey", publicKey)
+            .put("sourceEphemeralPublicKey", response.getString("sourceEphemeralPublicKey"))
+            .put("targetEphemeralPublicKey", response.getString("targetEphemeralPublicKey"))
             .put("confirmationSignature", encode(signer.sign()))
             .toString()
     }
@@ -189,7 +252,8 @@ internal class DevicePairingProtocol(
         val confirmation = parseObject(encodedConfirmation)
         require(confirmation.getString("protocol") == PROTOCOL)
         listOf("sourceDeviceId", "targetDeviceId", "transactionId", "sourceNonce",
-            "targetNonce", "targetPairingPublicKey").forEach { field ->
+            "targetNonce", "targetPairingPublicKey", "sourceEphemeralPublicKey",
+            "targetEphemeralPublicKey").forEach { field ->
             require(confirmation.getString(field) == response.getString(field)) {
                 "Destination confirmation does not match its pairing response"
             }
@@ -213,6 +277,8 @@ internal class DevicePairingProtocol(
                 response.getString("targetNonce"),
                 request.getLong("expiresAt"),
                 response.getString("targetPairingPublicKey"),
+                response.getString("sourceEphemeralPublicKey"),
+                response.getString("targetEphemeralPublicKey"),
             )
             val verifier = Signature.getInstance(SIGNATURE_ALGORITHM)
             verifier.initVerify(publicKey)
@@ -237,12 +303,129 @@ internal class DevicePairingProtocol(
                 targetPairingPublicKey = response.getString("targetPairingPublicKey"),
                 sasCode = sasCode(transcript),
                 expiresAtMillis = request.getLong("expiresAt"),
+                sourceEphemeralPublicKey = response.getString("sourceEphemeralPublicKey"),
+                targetEphemeralPublicKey = response.getString("targetEphemeralPublicKey"),
+                sourceNonce = request.getString("sourceNonce"),
+                targetNonce = response.getString("targetNonce"),
             )
         } finally {
             publicKeyBytes.fill(0)
             targetNonce.fill(0)
             signatureBytes.fill(0)
             confirmationBytes.fill(0)
+        }
+    }
+
+    /**
+     * Derive the one-time transfer key on the source after verified SAS and
+     * destination confirmation. The source ephemeral private key is consumed.
+     */
+    fun deriveSourceTransferKey(pairing: VerifiedPairing): ByteArray =
+        deriveTransferKey(pairing, expectedSource = true)
+
+    /**
+     * Derive the same one-time transfer key on the destination after its user
+     * confirmed the SAS. The destination ephemeral private key is consumed.
+     */
+    fun deriveDestinationTransferKey(targetDeviceId: String, transactionId: String): ByteArray {
+        val session = synchronized(ephemeralSessions) {
+            ephemeralSessions.remove(transactionId)
+        } ?: throw IllegalStateException("Pairing session expired; scan a new QR code")
+        require(session.targetDeviceId == targetDeviceId) {
+            "Pairing session belongs to another destination"
+        }
+        require(session.expiresAtMillis > clock()) { "Pairing session expired" }
+        return deriveEcdhKey(
+            session.keyPair,
+            session.peerEphemeralPublicKey,
+            session.sourceDeviceId,
+            session.targetDeviceId,
+            session.transactionId,
+            session.sourceNonce,
+            session.targetNonce,
+        )
+    }
+
+    /** Discard ephemeral key material when the user cancels or pairing expires. */
+    fun clearEphemeralSession(transactionId: String) {
+        synchronized(ephemeralSessions) { ephemeralSessions.remove(transactionId) }
+    }
+
+    private fun deriveTransferKey(pairing: VerifiedPairing, expectedSource: Boolean): ByteArray {
+        require(expectedSource)
+        require(pairing.expiresAtMillis > clock()) { "Pairing session expired" }
+        val session = synchronized(ephemeralSessions) {
+            ephemeralSessions.remove(pairing.transactionId)
+        } ?: throw IllegalStateException("Pairing session expired; scan a new QR code")
+        require(
+            session.sourceDeviceId == pairing.sourceDeviceId &&
+                session.transactionId == pairing.transactionId &&
+                session.expiresAtMillis == pairing.expiresAtMillis &&
+                session.targetDeviceId.isEmpty()
+        ) { "Source pairing session does not match the verified destination" }
+        return deriveEcdhKey(
+            session.keyPair,
+            pairing.targetEphemeralPublicKey,
+            pairing.sourceDeviceId,
+            pairing.targetDeviceId,
+            pairing.transactionId,
+            pairing.sourceNonce,
+            pairing.targetNonce,
+        )
+    }
+
+    private fun generateEphemeralKeyPair(): KeyPair =
+        KeyPairGenerator.getInstance("EC").apply {
+            initialize(ECGenParameterSpec("secp256r1"), random)
+        }.generateKeyPair()
+
+    private fun deriveEcdhKey(
+        localPair: KeyPair,
+        peerPublicKeyEncoded: String,
+        sourceDeviceId: String,
+        targetDeviceId: String,
+        transactionId: String,
+        sourceNonce: String,
+        targetNonce: String,
+    ): ByteArray {
+        val peerBytes = decode(peerPublicKeyEncoded, MAX_PUBLIC_KEY_BYTES)
+        val sharedSecret = try {
+            val peerKey = java.security.KeyFactory.getInstance("EC")
+                .generatePublic(java.security.spec.X509EncodedKeySpec(peerBytes))
+            KeyAgreement.getInstance("ECDH").run {
+                init(localPair.private)
+                doPhase(peerKey, true)
+                generateSecret()
+            }
+        } finally {
+            peerBytes.fill(0)
+        }
+        val context = listOf(
+            "INCHAT-DEVICE-TRANSFER-ECDH-SALT-V1",
+            sourceDeviceId,
+            targetDeviceId,
+            transactionId,
+            sourceNonce,
+            targetNonce,
+        ).joinToString("\n").toByteArray(StandardCharsets.UTF_8)
+        val salt = MessageDigest.getInstance("SHA-256").digest(context)
+        context.fill(0)
+        try {
+            val extract = Mac.getInstance("HmacSHA256")
+            extract.init(SecretKeySpec(salt, "HmacSHA256"))
+            val prk = extract.doFinal(sharedSecret)
+            try {
+                val expand = Mac.getInstance("HmacSHA256")
+                expand.init(SecretKeySpec(prk, "HmacSHA256"))
+                expand.update("INCHAT-DEVICE-IDENTITY-TRANSFER-KEY-V1".toByteArray(StandardCharsets.UTF_8))
+                expand.update(1.toByte())
+                return expand.doFinal().copyOf(TRANSFER_KEY_BYTES)
+            } finally {
+                prk.fill(0)
+            }
+        } finally {
+            sharedSecret.fill(0)
+            salt.fill(0)
         }
     }
 
@@ -308,6 +491,8 @@ internal class DevicePairingProtocol(
         targetNonce: String,
         expiresAt: Long,
         publicKey: String,
+        sourceEphemeralPublicKey: String,
+        targetEphemeralPublicKey: String,
     ): ByteArray = listOf(
         DOMAIN,
         sourceDeviceId,
@@ -317,6 +502,8 @@ internal class DevicePairingProtocol(
         targetNonce,
         expiresAt.toString(),
         publicKey,
+        sourceEphemeralPublicKey,
+        targetEphemeralPublicKey,
     ).joinToString("\n").toByteArray(StandardCharsets.UTF_8)
 
     private fun sasCode(transcript: ByteArray): String {
@@ -361,6 +548,7 @@ internal class DevicePairingProtocol(
         const val NONCE_BYTES = 32
         const val MAX_PUBLIC_KEY_BYTES = 256
         const val MAX_SIGNATURE_BYTES = 128
+        const val TRANSFER_KEY_BYTES = 32
         const val MAX_QR_LENGTH = 4096
         const val LIFETIME_MILLIS = 2 * 60 * 1000L
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
