@@ -1271,7 +1271,7 @@ fn device_transfer_acknowledgement_payload(
     }
 
     Ok(format!(
-        "INCHAT_DEVICE_TRANSFER_ACK_V2\n{transaction_id}\\n{source_device_id}\\n{target_device_id}\\n{identity_key}"
+        "INCHAT_DEVICE_TRANSFER_ACK_V2\n{transaction_id}\n{source_device_id}\n{target_device_id}\n{identity_key}"
     )
     .into_bytes())
 }
@@ -1710,7 +1710,7 @@ fn create_device_transfer_acknowledgement<'local>(
     // retains the same key until retirement, so this is not independent proof that
     // a distinct destination device completed import; authenticated pairing remains
     // a required prerequisite for the eventual user-facing transfer flow.
-     Ok(state.account.sign(&payload).to_base64().into_bytes())
+    Ok(state.account.sign(&payload).to_base64().into_bytes())
 }
 
 fn verify_device_transfer_acknowledgement<'local>(
