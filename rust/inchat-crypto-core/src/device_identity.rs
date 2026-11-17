@@ -1287,12 +1287,13 @@ fn hmac_sha256(mut key: Vec<u8>, message: &[u8]) -> Result<[u8; 32], &'static st
     let mut outer = Sha256::new();
     outer.update(outer_pad);
     outer.update(&inner_digest);
-    let digest = outer.finalize();
+    let mut digest = outer.finalize().to_vec();
     outer_pad.zeroize();
     inner_digest.zeroize();
 
     let mut result = [0_u8; 32];
     result.copy_from_slice(&digest);
+    digest.zeroize();
     Ok(result)
 }
 
@@ -1762,7 +1763,7 @@ fn verify_device_transfer_acknowledgement<'local>(
         Ok(value) => value,
         Err(error) => { let mut key = key; key.zeroize(); acknowledgement.zeroize(); return Err(error); }
     };
-    let expected = match transfer_acknowledgement_mac(key, source, target, transaction, &identity) {
+    let mut expected = match transfer_acknowledgement_mac(key, source, target, transaction, &identity) {
         Ok(value) => value,
         Err(error) => {
             acknowledgement.zeroize();
@@ -1770,7 +1771,10 @@ fn verify_device_transfer_acknowledgement<'local>(
         }
     };
     let mut difference = 0_u8;
-    for index in 0..32 { difference |= expected[index] ^ acknowledgement[index]; }
+    for index in 0..32 {
+        difference |= expected[index] ^ acknowledgement[index];
+    }
+    expected.zeroize();
     acknowledgement.zeroize();
     Ok(difference == 0)
 }
