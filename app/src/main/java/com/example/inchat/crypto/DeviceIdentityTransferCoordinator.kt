@@ -2,6 +2,8 @@ package com.example.inchat.crypto
 
 import java.security.MessageDigest
 import java.security.SecureRandom
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * The narrow account-scoped directory operations needed to finish a transfer.
@@ -161,9 +163,11 @@ internal class DeviceIdentityTransferCoordinator(
                 encryptedPayload = encryptedPayload,
             )
         } catch (failure: Throwable) {
-            val safelyDiscarded = runCatching {
-                transport.discardUnreadyUpload(pairing.targetDeviceId, pairing.transactionId)
-            }.getOrDefault(false)
+            val safelyDiscarded = withContext(NonCancellable) {
+                runCatching {
+                    transport.discardUnreadyUpload(pairing.targetDeviceId, pairing.transactionId)
+                }.getOrDefault(false)
+            }
             if (safelyDiscarded) {
                 identityRepository.cancelUnpublishedIdentityTransfer(
                     pairing.targetDeviceId,
