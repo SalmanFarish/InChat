@@ -65,9 +65,14 @@ internal class SasVerificationCoordinator(
     private val mutableStates = MutableStateFlow<Map<String, SasVerificationUiState>>(emptyMap())
     val states: StateFlow<Map<String, SasVerificationUiState>> = mutableStates.asStateFlow()
 
-    private val localBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private val cachedLocalBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         identityRepository.ensurePublicKeyBundle()
     }
+    private val localBundle: PublicDeviceKeyBundle
+        get() {
+            identityRepository.requireIdentityUsable()
+            return cachedLocalBundle
+        }
     private val localDeviceId: String
         get() = localBundle.deviceId
     private val receiver by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
