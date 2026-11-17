@@ -1,7 +1,5 @@
 package com.example.inchat.ui.settings
 
-import android.graphics.Bitmap
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.QrCode
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -40,8 +38,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,17 +50,9 @@ import com.example.inchat.crypto.DeviceIdentityTransferCoordinator
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.DevicePairingProtocol
 import com.example.inchat.crypto.FirebaseDeviceTransferTransport
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
-import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
@@ -105,6 +96,7 @@ fun DeviceTransferScreen(
     var targetDeviceId by remember { mutableStateOf<String?>(null) }
     var transactionId by remember { mutableStateOf<String?>(null) }
     var requestQr by remember { mutableStateOf<String?>(null) }
+    var scannedCode by remember { mutableStateOf("") }
     var responseQr by remember { mutableStateOf<String?>(null) }
     var confirmationQr by remember { mutableStateOf<String?>(null) }
     var pairingPreview by remember { mutableStateOf<DevicePairingProtocol.PairingPreview?>(null) }
@@ -144,13 +136,11 @@ fun DeviceTransferScreen(
         }
     }
 
-    suspend fun scanQr(): String {
-        val options = GmsBarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .enableAutoZoom()
-            .build()
-        val barcode = GmsBarcodeScanning.getClient(context, options).startScan().await()
-        return requireNotNull(barcode.rawValue) { "The scanned QR code contains no text" }
+    fun scanQr(): String {
+        val value = scannedCode.trim()
+        require(value.isNotEmpty()) { "Paste the pairing code from the other phone first" }
+        require(value.length <= 4096) { "Pairing code is too large" }
+        return value
     }
 
     fun runTask(block: suspend () -> Unit) {
@@ -187,6 +177,7 @@ fun DeviceTransferScreen(
             destinationProtocol.clearEphemeralSession(tx)
         }
         requestQr = null
+        scannedCode = ""
         responseQr = null
         confirmationQr = null
         pairingPreview = null
