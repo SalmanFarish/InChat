@@ -60,7 +60,11 @@ internal class DeviceIdentityTransferCoordinator(
         ) {
             "Confirm that the codes match on both devices before transferring"
         }
-        return identityRepository.beginIdentityTransfer(pairing.targetDeviceId, ownerUserId)
+        return identityRepository.beginIdentityTransfer(
+            targetDeviceId = pairing.targetDeviceId,
+            ownerUserId = ownerUserId,
+            transactionId = pairing.transactionId,
+        )
     }
 
     /**
