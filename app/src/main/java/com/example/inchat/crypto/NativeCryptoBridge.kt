@@ -56,25 +56,22 @@ internal object NativeCryptoBridge {
     ): Boolean
 
     /**
-     * Create a 32-byte HMAC receipt from the destination's persisted identity.
-     * It binds both device IDs, transaction ID, transfer secret, and the transferred
-     * Ed25519 identity key. This is a shared-secret MAC, not a non-repudiable signature.
+     * Sign a destination receipt with the imported Ed25519 identity private key.
+     * The signature binds the source, destination and transaction identifiers.
      */
     external fun nativeCreateDeviceTransferAcknowledgement(
         store: CryptoStateStore,
         sourceDeviceId: String,
         targetDeviceId: String,
         transactionId: String,
-        transferKey: ByteArray,
     ): ByteArray?
 
-    /** Verify the destination receipt against the still-local source identity. */
+    /** Verify destination proof of possession against the source identity public key. */
     external fun nativeVerifyDeviceTransferAcknowledgement(
         store: CryptoStateStore,
         sourceDeviceId: String,
         targetDeviceId: String,
         transactionId: String,
-        transferKey: ByteArray,
         acknowledgement: ByteArray,
     ): Boolean
 
