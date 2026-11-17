@@ -318,7 +318,7 @@ internal class FirebaseDeviceTransferTransport(
         const val CHUNK_BYTES = 128 * 1024
         const val MAX_PAYLOAD_BYTES = 9 * 1024 * 1024
         const val MAX_CHUNKS = (MAX_PAYLOAD_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES
-        const val TRANSFER_LIFETIME_MILLIS = 2 * 60 * 1000L
+        const val TRANSFER_LIFETIME_MILLIS = 15 * 60 * 1000L
         const val MAX_FUTURE_SKEW_MILLIS = 2 * 60 * 1000L
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val TRANSACTION_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
