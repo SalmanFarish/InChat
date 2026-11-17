@@ -123,8 +123,11 @@ internal class DeviceIdentityTransferCoordinator(
                 require(fingerprint(sourceEntry.ed25519IdentityKey) == pending.sourceIdentityFingerprint) {
                     "Source directory entry no longer matches the transferring identity"
                 }
-                directory.removeMyDevice(pending.sourceDeviceId)
             }
+            // Always invoke removal, even when the public entry is already absent.
+            // This also retries cleanup of prekey-claim metadata if an earlier
+            // removal succeeded but its second cleanup operation was interrupted.
+            directory.removeMyDevice(pending.sourceDeviceId)
 
             val remaining = directory.getUserDevices(ownerUserId)
             check(remaining.none { it.deviceId == pending.sourceDeviceId }) {
