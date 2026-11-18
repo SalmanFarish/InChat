@@ -14,10 +14,7 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -2053,45 +2050,42 @@ class ChatViewModel : ViewModel() {
             _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
-
             try {
-                // Start the Firebase write first and run it until its first
-                // suspension. This queues the message with RTDB immediately,
-                // instead of making the network write wait for a Room disk write.
-                val sendJob = async(start = CoroutineStart.UNDISPATCHED) {
-                    chatRepository.sendMessage(
+                // Room is the primary message store: do not hand the message
+                // to Firebase unless the local pending copy is durable first.
+                try {
+                    chatRepository.cacheOutgoingMessage(
                         chatId = chatId,
-                        messageId = messageId,
-                        text = cleanText,
-                        senderId = currentUserId,
-                        senderNickname = senderNickname,
-                        receiverId = otherUserId,
-                        receiverNickname = otherUserNickname,
-                        replyTo = replyTo,
-                        onQueued = onQueued
+                        message = outgoingMessage
                     )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (cacheError: Exception) {
+                    _pendingMessageIds.value =
+                        _pendingMessageIds.value - messageId
+                    Log.e(
+                        "ChatViewModel",
+                        "Outgoing message could not be saved locally; it was not sent.",
+                        cacheError
+                    )
+                    onResult(
+                        false,
+                        "Could not save the message on this device. It was not sent."
+                    )
+                    return@launch
                 }
 
-                // Persist the pending copy concurrently. Await it before clearing
-                // the pending marker so a fast network response cannot race Room.
-                val cacheJob = async(Dispatchers.IO) {
-                    try {
-                        chatRepository.cacheOutgoingMessage(
-                            chatId = chatId,
-                            message = outgoingMessage
-                        )
-                    } catch (cacheError: Exception) {
-                        // A Room cache failure must not prevent Firebase delivery.
-                        Log.e(
-                            "ChatViewModel",
-                            "Could not cache outgoing message locally",
-                            cacheError
-                        )
-                    }
-                }
-
-                val sendResult = sendJob.await()
-                cacheJob.await()
+                val sendResult = chatRepository.sendMessage(
+                    chatId = chatId,
+                    messageId = messageId,
+                    text = cleanText,
+                    senderId = currentUserId,
+                    senderNickname = senderNickname,
+                    receiverId = otherUserId,
+                    receiverNickname = otherUserNickname,
+                    replyTo = replyTo,
+                    onQueued = onQueued
+                )
 
                 sendResult
                     .onSuccess {
