@@ -218,7 +218,7 @@ class MainActivity :
         var shouldRequestNotificationPermission by
         androidx.compose.runtime.remember {
             androidx.compose.runtime.mutableStateOf(
-                false
+                true
             )
         }
 
