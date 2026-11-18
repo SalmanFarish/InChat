@@ -103,13 +103,22 @@
               ".validate": "!newData.exists() || (newData.hasChildren(['type','storageKey','fileName','mimeType','sizeBytes']) && newData.child('type').isString() && (newData.child('type').val() === 'voice' || newData.child('type').val() === 'view_once_photo') && newData.child('storageKey').isString() && newData.child('storageKey').val().length >= 1 && newData.child('storageKey').val().length <= 300 && newData.child('fileName').isString() && newData.child('fileName').val().length >= 1 && newData.child('fileName').val().length <= 180 && newData.child('mimeType').isString() && newData.child('mimeType').val().length >= 1 && newData.child('mimeType').val().length <= 120 && newData.child('sizeBytes').isNumber() && newData.child('sizeBytes').val() > 0 && newData.child('sizeBytes').val() <= 5242880 && (newData.child('type').val() !== 'voice' || newData.child('sizeBytes').val() <= 1048576))",
               "$other": {
                 ".validate": "false"
-              }
+              },
+              "type": {},
+              "storageKey": {},
+              "fileName": {},
+              "mimeType": {},
+              "sizeBytes": {}
             },
             "replyTo": {
               ".validate": "!newData.exists() || (newData.hasChildren(['messageId','senderId','senderNickname','text']) && newData.child('messageId').isString() && newData.child('messageId').val().length >= 1 && newData.child('messageId').val().length <= 128 && newData.child('senderId').isString() && newData.child('senderId').val().length >= 1 && newData.child('senderId').val().length <= 128 && newData.child('senderNickname').isString() && newData.child('senderNickname').val().length >= 1 && newData.child('senderNickname').val().length <= 20 && newData.child('text').isString() && newData.child('text').val().length >= 1 && newData.child('text').val().length <= 5000)",
               "$other": {
                 ".validate": "false"
-              }
+              },
+              "messageId": {},
+              "senderId": {},
+              "senderNickname": {},
+              "text": {}
             },
             "systemEvent": {
               ".validate": "newData.isString() && (newData.val() === 'group_created' || newData.val() === 'member_added' || newData.val() === 'member_removed' || newData.val() === 'member_left' || newData.val() === 'group_renamed' || newData.val() === 'admin_promoted' || newData.val() === 'admin_demoted') && root.child('chats').child($chatId).child('type').val() === 'group' && (newData.val() === 'member_left' || root.child('chats').child($chatId).child('members').child(auth.uid).val() === 'admin')"
@@ -122,7 +131,11 @@
             },
             "$other": {
               ".validate": "false"
-            }
+            },
+            "id": {},
+            "senderId": {},
+            "senderNickname": {},
+            "timestamp": {}
           },
           ".indexOn": [
             "timestamp"
