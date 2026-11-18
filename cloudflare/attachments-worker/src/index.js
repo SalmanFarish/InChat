@@ -1675,7 +1675,7 @@ async function clearGroupUnreadIfAlreadyRead(
   chatId,
 ) {
   const path = "userChats/" + memberId + "/" + chatId;
-  const url = env.FIREBASE_DATABASE_URL.replace(/\\/$/, "") +
+  const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
     "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
 
   const [readResponse, readTimestampValue] = await Promise.all([
