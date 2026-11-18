@@ -45,11 +45,9 @@ object PresenceRepository {
     private var connectionSetupInFlight = false
 
     /*
-     * The /.info/connected listener below intentionally stays
-     * registered for the lifetime of the signed-in session.
-     * Firebase also receives a real long-lived listener from the
-     * server-clock component, so the process has an active
-     * realtime listener while the user is signed in.
+     * Presence is registered only while the app activity is foregrounded.
+     * FirebaseServerClock owns a separate realtime listener for the signed-in
+     * session, so its server-time estimate remains available in the background.
      */
 
     fun observePresence(
