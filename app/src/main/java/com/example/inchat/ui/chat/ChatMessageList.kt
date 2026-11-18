@@ -464,7 +464,7 @@ fun ChatMessageList(
                             .padding(
                                 horizontal =
                                     12.dp
-                            )
+                            ),
 
                     verticalArrangement =
                         Arrangement.spacedBy(
