@@ -1,4 +1,4 @@
-import { shouldIncrementGroupUnread } from "./group-unread.js";
+import { hasReadThrough, shouldIncrementGroupUnread } from "./group-unread.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -1756,6 +1756,8 @@ async function syncGroupConversationPreview(
       chat.groupReadCursors :
       {};
 
+  const recipientsToReconcile = [];
+
   if (!isSystemEvent && !inboxAlreadySynced) {
     // Read cursors are mirrored into the group record by the app's atomic
     // mark-read update. The Worker already loaded this record to validate the
@@ -1769,7 +1771,14 @@ async function syncGroupConversationPreview(
       updates[
         "userChats/" + memberId + "/" + chatId + "/unreadCount"
       ] = { ".sv": { increment: 1 } };
+      recipientsToReconcile.push(memberId);
     }
+  } else if (!isSystemEvent && inboxAlreadySynced) {
+    // Retry after a previously committed preview marker: recheck current read
+    // state without applying another unread increment.
+    recipientsToReconcile.push(
+      ...members.filter((memberId) => memberId !== message.senderId),
+    );
   }
 
   updates[
@@ -1784,6 +1793,69 @@ async function syncGroupConversationPreview(
       "PATCH",
       updates,
     );
+  }
+
+  // One group-level read of the mirror catches members who marked the group
+  // read after the initial chat snapshot. One latest-message query ensures we
+  // never clear unread for a newer message that arrived during this event.
+  // This is a fixed number of requests, not a request per group member.
+  if (recipientsToReconcile.length > 0) {
+    try {
+      const [freshReadCursors, freshLatestMessages] = await Promise.all([
+        adminDatabaseRequest(
+          env,
+          adminToken,
+          "chats/" + chatId + "/groupReadCursors",
+        ),
+        adminDatabaseRequest(
+          env,
+          adminToken,
+          "chats/" + chatId + "/messages",
+          "GET",
+          undefined,
+          "orderBy=%22timestamp%22&limitToLast=1",
+        ),
+      ]);
+
+      let newestTimestamp = 0;
+      for (const latestId of Object.keys(freshLatestMessages || {})) {
+        const latest = freshLatestMessages[latestId];
+        if (
+          latest &&
+          typeof latest.timestamp === "number" &&
+          Number.isFinite(latest.timestamp) &&
+          latest.timestamp > newestTimestamp
+        ) {
+          newestTimestamp = latest.timestamp;
+        }
+      }
+
+      const readMembers = recipientsToReconcile.filter((memberId) =>
+        hasReadThrough(freshReadCursors?.[memberId], newestTimestamp)
+      );
+
+      if (readMembers.length > 0) {
+        const readUpdates = {};
+        for (const memberId of readMembers) {
+          readUpdates[
+            "userChats/" + memberId + "/" + chatId + "/unreadCount"
+          ] = 0;
+        }
+        await adminDatabaseRequest(
+          env,
+          adminToken,
+          "",
+          "PATCH",
+          readUpdates,
+        );
+      }
+    } catch (reconciliationError) {
+      // Unread reconciliation must not block an otherwise valid FCM delivery.
+      console.warn(
+        "Could not reconcile group unread counts after the read-cursor update",
+        reconciliationError,
+      );
+    }
   }
 }
 

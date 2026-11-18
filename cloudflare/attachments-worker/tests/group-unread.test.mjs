@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   hasReadThrough,
   shouldIncrementGroupUnread,
+  membersReadThroughLatestMessage,
 } from "../src/group-unread.js";
 
 test("a message newer than the read cursor increments unread", () => {
@@ -31,4 +32,22 @@ test("an invalid or non-positive message timestamp is never incremented", () => 
   assert.equal(shouldIncrementGroupUnread(Number.NaN, 0), false);
   assert.equal(shouldIncrementGroupUnread("bad", 0), false);
   assert.equal(shouldIncrementGroupUnread(0, 0), false);
+});
+
+test("post-update reconciliation clears only members who read through the newest message", () => {
+  assert.deepEqual(
+    membersReadThroughLatestMessage(
+      ["alice", "bob", "carol", "dave"],
+      { alice: 200, bob: 150, carol: 300 },
+      200,
+    ),
+    ["alice", "carol"],
+  );
+});
+
+test("post-update reconciliation ignores invalid or missing cursor maps", () => {
+  assert.deepEqual(
+    membersReadThroughLatestMessage(["alice"], null, 200),
+    [],
+  );
 });
