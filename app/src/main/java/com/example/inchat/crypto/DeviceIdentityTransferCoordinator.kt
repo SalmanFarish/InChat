@@ -136,7 +136,7 @@ internal class DeviceIdentityTransferCoordinator(
                 transferKey = transferKey,
                 encryptedPayload = encryptedPayload,
             )
-            pairingProtocol.clearEphemeralSession(transactionId)
+            pairingProtocol.markDestinationIdentityImported(transactionId)
         } catch (failure: Throwable) {
             transferKey.fill(0)
             encryptedPayload.fill(0)
