@@ -1,3 +1,5 @@
+import { shouldIncrementGroupUnread } from "./group-unread.js";
+
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
 
@@ -1666,6 +1668,81 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   });
 }
 
+async function clearGroupUnreadIfAlreadyRead(
+  env,
+  adminToken,
+  memberId,
+  chatId,
+) {
+  const path = "userChats/" + memberId + "/" + chatId;
+  const url = env.FIREBASE_DATABASE_URL.replace(/\\/$/, "") +
+    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
+
+  const [readResponse, readTimestampValue] = await Promise.all([
+    fetch(url, {
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "X-Firebase-ETag": "true",
+      },
+    }),
+    adminDatabaseRequest(
+      env,
+      adminToken,
+      "groupReads/" + memberId + "/" + chatId,
+    ),
+  ]);
+
+  if (readResponse.status === 404) return false;
+  if (!readResponse.ok) {
+    throw new Error(
+      "Could not check the group member's inbox (" +
+      readResponse.status + ").",
+    );
+  }
+
+  const inbox = await readResponse.json();
+  const etag = readResponse.headers.get("ETag");
+  if (!inbox || !etag) return false;
+
+  const lastReadTimestamp = Number(readTimestampValue || 0);
+  const latestMessageTimestamp = Number(inbox.lastTimestamp || 0);
+  const unreadCount = Number(inbox.unreadCount || 0);
+
+  if (
+    !Number.isFinite(lastReadTimestamp) ||
+    !Number.isFinite(latestMessageTimestamp) ||
+    lastReadTimestamp <= 0 ||
+    latestMessageTimestamp <= 0 ||
+    lastReadTimestamp < latestMessageTimestamp ||
+    unreadCount <= 0
+  ) {
+    return false;
+  }
+
+  const nextInbox = { ...inbox, unreadCount: 0 };
+  const writeResponse = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + adminToken,
+      "Content-Type": "application/json",
+      "If-Match": etag,
+    },
+    body: JSON.stringify(nextInbox),
+  });
+
+  if (writeResponse.status === 412) return false;
+  if (!writeResponse.ok) {
+    const details = await writeResponse.text();
+    throw new Error(
+      "Could not reconcile a read group conversation (" +
+      writeResponse.status + "): " + details.slice(0, 240),
+    );
+  }
+
+  return true;
+}
+
+
 async function syncGroupConversationPreview(
   env,
   adminToken,
@@ -1741,14 +1818,47 @@ async function syncGroupConversationPreview(
   const isSystemEvent =
     typeof message.systemEvent === "string" &&
     message.systemEvent.trim() !== "";
+  const recipients = isSystemEvent ?
+    [] :
+    members.filter((memberId) => memberId !== message.senderId);
+  const recipientsToReconcile = [];
 
   if (!isSystemEvent && !inboxAlreadySynced) {
-    for (const memberId of members) {
-      if (memberId === message.senderId) continue;
+    // Compare each member's private group read cursor with this message before
+    // incrementing. Bound the reads so large groups do not fan out unboundedly.
+    const readCursors = await mapWithConcurrencyLimit(
+      recipients,
+      4,
+      async (memberId) => ({
+        memberId: memberId,
+        timestamp: await adminDatabaseRequest(
+          env,
+          adminToken,
+          "groupReads/" + memberId + "/" + chatId,
+        ),
+      }),
+    );
+
+    const readTimestampByMember = new Map(
+      readCursors.map((entry) => [entry.memberId, entry.timestamp]),
+    );
+
+    for (const memberId of recipients) {
+      const readTimestamp = readTimestampByMember.get(memberId);
+      if (!shouldIncrementGroupUnread(message.timestamp, readTimestamp)) {
+        continue;
+      }
+
       updates[
         "userChats/" + memberId + "/" + chatId + "/unreadCount"
       ] = { ".sv": { increment: 1 } };
+      recipientsToReconcile.push(memberId);
     }
+  } else if (!isSystemEvent && inboxAlreadySynced) {
+    // A previous attempt may have committed the inbox marker before a
+    // post-write read repair failed. Reconcile safely without incrementing
+    // again on retry.
+    recipientsToReconcile.push(...recipients);
   }
 
   updates[
@@ -1764,8 +1874,21 @@ async function syncGroupConversationPreview(
       updates,
     );
   }
-}
 
+  // A member can open the group after the cursor lookup but before the
+  // multi-location PATCH. Recheck with an inbox ETag so this repair cannot
+  // clear a newer unread message.
+  await mapWithConcurrencyLimit(
+    recipientsToReconcile,
+    4,
+    async (memberId) => clearGroupUnreadIfAlreadyRead(
+      env,
+      adminToken,
+      memberId,
+      chatId,
+    ),
+  );
+}
 
 async function rebuildConversationPreview(
   env,

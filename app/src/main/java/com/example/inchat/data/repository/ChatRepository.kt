@@ -447,6 +447,7 @@ class ChatRepository {
                 hiddenMessageIds = oldVisibility.hiddenMessageIds + pendingMessageIds
             )
             messageVisibilityCache[key] = updatedVisibility
+            var unreadResetWithGroupCursor = false
             // Direct-chat preview metadata is owned by this user. Group preview
             // fields are maintained by the group sync path, so only unreadCount
             // is updated there.
@@ -455,7 +456,19 @@ class ChatRepository {
                     .child(chatId)
                     .get()
                     .await()
-                if (chatSnapshot.child("type").getValue(String::class.java) != "group") {
+                if (chatSnapshot.child("type").getValue(String::class.java) == "group") {
+                    // Treat cleared group history as read through the clear
+                    // cutoff. Keep the cursor and unread badge in one atomic
+                    // multi-location update so delayed Worker events cannot
+                    // restore unread for messages that were just cleared.
+                    database.reference.updateChildren(
+                        mapOf(
+                            "groupReads/$ownerUserId/$chatId" to clearedAt,
+                            "userChats/$ownerUserId/$chatId/unreadCount" to 0L
+                        )
+                    ).await()
+                    unreadResetWithGroupCursor = true
+                } else {
                     database.getReference("userChats")
                         .child(ownerUserId)
                         .child(chatId)
@@ -481,13 +494,16 @@ class ChatRepository {
                 Log.w(TAG, "Chat history cleared, but the inbox preview could not be refreshed.", previewError)
             }
 
-            // Clearing a conversation also resets this user's unread badge.
-            database.getReference("userChats")
-                .child(ownerUserId)
-                .child(chatId)
-                .child("unreadCount")
-                .setValue(0L)
-                .await()
+            // Direct chats keep their existing separate read-cursor update;
+            // group chats reset unread atomically with their groupReads cursor.
+            if (!unreadResetWithGroupCursor) {
+                database.getReference("userChats")
+                    .child(ownerUserId)
+                    .child(chatId)
+                    .child("unreadCount")
+                    .setValue(0L)
+                    .await()
+            }
 
             Result.success(Unit)
         } catch (error: Exception) {
