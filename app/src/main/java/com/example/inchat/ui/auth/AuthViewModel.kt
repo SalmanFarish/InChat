@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
-import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,9 +60,6 @@ class AuthViewModel(
 
     private val userRepository =
         UserRepository()
-
-    private val messaging =
-        FirebaseMessaging.getInstance()
 
     private val _uiState =
         MutableStateFlow<AuthUiState>(
