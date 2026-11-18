@@ -266,7 +266,6 @@ fun DeviceTransferScreen(
                         "The source identity must be published in your account's device directory before it can be transferred.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    CodeInputField(scannedCode, { scannedCode = it }, "Paste pairing code from old phone")
                     Button(
                         onClick = {
                             runTask {
@@ -331,8 +330,6 @@ fun DeviceTransferScreen(
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Outlined.QrCode, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
                         Text("Verify response code from new phone")
                     }
                 }
@@ -503,8 +500,6 @@ fun DeviceTransferScreen(
                     ) {
                         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else {
-                            Icon(Icons.Outlined.QrCode, contentDescription = null)
-                            Spacer(Modifier.size(8.dp))
                             Text("Verify old phone's pairing code")
                         }
                     }
