@@ -1,4 +1,4 @@
-import { hasReadThrough, shouldIncrementGroupUnread } from "./group-unread.js";
+import { hasReadThrough, shouldIncrementGroupUnread, membersReadThroughLatestMessage } from "./group-unread.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -1830,8 +1830,10 @@ async function syncGroupConversationPreview(
         }
       }
 
-      const readMembers = recipientsToReconcile.filter((memberId) =>
-        hasReadThrough(freshReadCursors?.[memberId], newestTimestamp)
+      const readMembers = membersReadThroughLatestMessage(
+        recipientsToReconcile,
+        freshReadCursors,
+        newestTimestamp,
       );
 
       if (readMembers.length > 0) {
