@@ -346,6 +346,7 @@ class GroupChatRepository {
             database.reference.updateChildren(
                 mapOf(
                     "groupReads/$currentUserId/$groupId" to timestamp,
+                    "chats/$groupId/groupReadCursors/$currentUserId" to timestamp,
                     "userChats/$currentUserId/$groupId/unreadCount" to 0L
                 )
             ).await()

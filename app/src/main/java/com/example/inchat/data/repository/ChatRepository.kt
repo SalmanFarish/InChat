@@ -464,6 +464,7 @@ class ChatRepository {
                     database.reference.updateChildren(
                         mapOf(
                             "groupReads/$ownerUserId/$chatId" to clearedAt,
+                            "chats/$chatId/groupReadCursors/$ownerUserId" to clearedAt,
                             "userChats/$ownerUserId/$chatId/unreadCount" to 0L
                         )
                     ).await()

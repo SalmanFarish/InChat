@@ -356,6 +356,21 @@ test("a non-participant cannot read a direct conversation", async () => {
   await assertFails(get(ref(malloryDb, "chats/dm")));
 });
 
+test("a group member can write only their own mirrored group read cursor", async () => {
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+
+  await assertSucceeds(
+    set(ref(bobDb, "chats/group/groupReadCursors/bob"), 2000),
+  );
+  await assertFails(
+    set(ref(bobDb, "chats/group/groupReadCursors/alice"), 2000),
+  );
+  await assertFails(
+    set(ref(malloryDb, "chats/group/groupReadCursors/mallory"), 2000),
+  );
+});
+
 test("group members can read their group, non-members cannot", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
   const malloryDb = testEnv.authenticatedContext("mallory").database();
