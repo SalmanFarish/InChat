@@ -2216,6 +2216,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         "InChat user";
 
     let notificationSent = notificationAlreadySent;
+    let notificationReason = "";
 
     if (isGroup) {
       // Keep inbox/unread synchronization independent from the push path.
@@ -2461,6 +2462,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         ]);
 
         if (senderBlockedReceiver || receiverBlockedSender) {
+          notificationReason = "Notification suppressed because the conversation is blocked.";
           return false;
         }
 
@@ -2468,6 +2470,11 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           typeof receiverToken !== "string" ||
           receiverToken.trim() === ""
         ) {
+          notificationReason = "Recipient has no registered FCM token.";
+          console.warn("Direct message push skipped because the recipient has no FCM token.", {
+            chatId: chatId,
+            messageId: messageId,
+          });
           return false;
         }
 
@@ -2506,6 +2513,11 @@ async function processMessageEvent(request, env, uid, adminAuth) {
             "privateUsers/" + receiverId + "/fcmToken",
             "DELETE",
           );
+          notificationReason = "Recipient FCM token is no longer registered.";
+          console.warn("Direct message push skipped because FCM rejected the recipient token.", {
+            chatId: chatId,
+            messageId: messageId,
+          });
           return false;
         }
 
@@ -2535,6 +2547,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       {
         success: true,
         notificationSent: notificationSent,
+        reason: notificationReason || undefined,
         chatId: chatId,
         messageId: messageId,
       },
