@@ -85,8 +85,8 @@ fun DeviceTransferScreen(
         DeviceIdentityTransferCoordinator(identityRepository, directoryRepository)
     }
     val transport = remember { FirebaseDeviceTransferTransport() }
-    val sourceProtocol = remember { DevicePairingProtocol() }
-    val destinationProtocol = remember { DevicePairingProtocol() }
+    val sourceProtocol = remember(context) { DevicePairingProtocol(context = context) }
+    val destinationProtocol = remember(context) { DevicePairingProtocol(context = context) }
 
     var mode by remember { mutableStateOf(TransferMode.CHOOSE) }
     var busy by remember { mutableStateOf(false) }
@@ -128,6 +128,34 @@ fun DeviceTransferScreen(
                             identityRepository.cancelIdentityTransfer()
                         }
                         notice = "An interrupted pairing that had not exported any identity data was safely cancelled. You can start again."
+                    }
+                }
+            } else {
+                val recovery = withContext(Dispatchers.IO) {
+                    destinationProtocol.pendingDestinationRecovery()
+                }
+                if (recovery != null && recovery.targetDeviceId == identityRepository.currentDeviceId()) {
+                    sourceDeviceId = recovery.sourceDeviceId
+                    targetDeviceId = recovery.targetDeviceId
+                    transactionId = recovery.transactionId
+                    requestQr = recovery.request
+                    responseQr = recovery.response
+                    confirmationQr = recovery.confirmation
+                    scannedCode = ""
+                    pairingPreview = DevicePairingProtocol.PairingPreview(
+                        targetDeviceId = recovery.targetDeviceId,
+                        sasCode = recovery.sasCode,
+                        expiresAtMillis = recovery.expiresAtMillis,
+                    )
+                    mode = when {
+                        recovery.identityImported -> TransferMode.DESTINATION_IMPORTED
+                        recovery.confirmation != null -> TransferMode.DESTINATION_CONFIRMATION
+                        else -> TransferMode.DESTINATION_RESPONSE
+                    }
+                    notice = if (recovery.identityImported) {
+                        "Recovered the imported identity. Publish the acknowledgement to finish the transfer."
+                    } else {
+                        "Recovered the pending pairing. Continue on this phone to complete the transfer."
                     }
                 }
             }
