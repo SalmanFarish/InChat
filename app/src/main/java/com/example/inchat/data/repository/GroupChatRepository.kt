@@ -13,6 +13,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -123,12 +125,13 @@ class GroupChatRepository {
                 object : com.google.firebase.database.ValueEventListener {
 
                     override fun onDataChange(snapshot: DataSnapshot) {
-                        trySend(
-                            snapshot.children
-                                .mapNotNull { it.key }
-                                .filter { it.isNotBlank() }
-                                .distinct()
-                        )
+                        val groupIds = snapshot.children
+                            .mapNotNull { it.key }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+
+                        trySend(groupIds)
+                        backfillGroupReadCursorMirrors(currentUserId, groupIds)
                     }
 
                     override fun onCancelled(
@@ -152,6 +155,79 @@ class GroupChatRepository {
                 ref.removeEventListener(listener)
             }
         }.distinctUntilChanged()
+
+    /**
+     * Backfill the Worker's lightweight group read-cursor mirror for accounts
+     * upgrading from versions that stored cursors only under groupReads.
+     *
+     * The source read happens once for the current account's group list. Each
+     * mirror is merged with a transaction so an older backfill result can never
+     * overwrite a newer markGroupRead write that races with this migration.
+     */
+    private fun backfillGroupReadCursorMirrors(
+        currentUserId: String,
+        groupIds: List<String>
+    ) {
+        if (
+            currentUserId.isBlank() ||
+            auth.currentUser?.uid != currentUserId ||
+            groupIds.isEmpty()
+        ) {
+            return
+        }
+
+        database.getReference("groupReads")
+            .child(currentUserId)
+            .get()
+            .addOnSuccessListener { readSnapshot ->
+                if (auth.currentUser?.uid != currentUserId) {
+                    return@addOnSuccessListener
+                }
+
+                groupIds.forEach { groupId ->
+                    val lastReadTimestamp =
+                        readSnapshot.child(groupId).getValue(Long::class.java) ?: 0L
+                    if (lastReadTimestamp <= 0L) return@forEach
+
+                    val cursorRef = database.getReference("chats")
+                        .child(groupId)
+                        .child("groupReadCursors")
+                        .child(currentUserId)
+
+                    cursorRef.runTransaction(object : Transaction.Handler {
+                        override fun doTransaction(currentData: MutableData): Transaction.Result {
+                            val currentTimestamp =
+                                currentData.getValue(Long::class.java) ?: 0L
+                            if (lastReadTimestamp > currentTimestamp) {
+                                currentData.value = lastReadTimestamp
+                            }
+                            return Transaction.success(currentData)
+                        }
+
+                        override fun onComplete(
+                            error: DatabaseError?,
+                            committed: Boolean,
+                            currentData: DataSnapshot?
+                        ) {
+                            if (error != null) {
+                                Log.w(
+                                    "GroupChatRepository",
+                                    "Could not backfill the group read cursor for $groupId",
+                                    error.toException()
+                                )
+                            }
+                        }
+                    }, false)
+                }
+            }
+            .addOnFailureListener { error ->
+                Log.w(
+                    "GroupChatRepository",
+                    "Could not load existing group read cursors for $currentUserId",
+                    error
+                )
+            }
+    }
 
     fun observeGroupConversations(
         currentUserId: String
