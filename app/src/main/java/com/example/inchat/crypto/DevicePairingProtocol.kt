@@ -25,8 +25,9 @@ import javax.crypto.spec.SecretKeySpec
  * QR-relayed proof that a destination installation controls a pairing key which
  * is independent of the identity key being transferred.
  *
- * The destination private key is generated and retained by Android Keystore.
- * Only its public key and a transaction-bound signature leave the device.
+ * The destination signing key is retained by Android Keystore. Ephemeral ECDH
+ * private keys are encrypted at rest with a device-bound Keystore key so an
+ * interrupted transfer can resume. Only public keys leave the device.
  * This is the authentication primitive; it deliberately does not transport
  * identity state or replace the user's visual SAS comparison.
  */
@@ -515,6 +516,12 @@ internal class DevicePairingProtocol(
         appContext?.let { CryptoStateStore(it, pairingStateId(transactionId)).delete() }
     }
 
+    fun isDestinationImportStarted(transactionId: String): Boolean =
+        getSession(transactionId)?.importStarted == true
+
+    fun isDestinationIdentityImported(transactionId: String): Boolean =
+        getSession(transactionId)?.identityImported == true
+
     /** Persist the start marker before native import so recovery can distinguish an interrupted import. */
     fun markDestinationImportStarted(transactionId: String) {
         val session = getSession(transactionId)
@@ -543,7 +550,6 @@ internal class DevicePairingProtocol(
             PAIRING_FILE_REGEX.matchEntire(file.name)?.groupValues?.get(1)
         }.distinct()
         return transactionIds.mapNotNull(::getSession)
-            .filter { it.targetDeviceId.isNotEmpty() }
             .filter { session ->
                 val expiry = if (session.destinationConfirmed) {
                     session.transferExpiresAtMillis
@@ -557,6 +563,7 @@ internal class DevicePairingProtocol(
                     true
                 }
             }
+            .filter { it.targetDeviceId.isNotEmpty() }
             .maxByOrNull { it.transferExpiresAtMillis }
             ?.let { session ->
                 val request = session.encodedRequest ?: return@let null
@@ -605,27 +612,36 @@ internal class DevicePairingProtocol(
             ephemeralSessions[session.transactionId] = session
         }
         val context = appContext ?: return
-        val json = JSONObject()
-            .put("version", 1)
-            .put("privateKey", encode(requireNotNull(session.keyPair.private.encoded)))
-            .put("publicKey", encode(session.keyPair.public.encoded))
-            .put("sourceDeviceId", session.sourceDeviceId)
-            .put("targetDeviceId", session.targetDeviceId)
-            .put("transactionId", session.transactionId)
-            .put("sourceNonce", session.sourceNonce)
-            .put("targetNonce", session.targetNonce)
-            .put("expiresAt", session.expiresAtMillis)
-            .put("peerEphemeralPublicKey", session.peerEphemeralPublicKey)
-            .put("destinationConfirmed", session.destinationConfirmed)
-            .put("transferExpiresAt", session.transferExpiresAtMillis)
-            .put("encodedRequest", session.encodedRequest)
-            .put("encodedResponse", session.encodedResponse)
-            .put("encodedConfirmation", session.encodedConfirmation)
-            .put("sasCode", session.sasCode)
-            .put("importStarted", session.importStarted)
-            .put("identityImported", session.identityImported)
-            .toString()
-            .toByteArray(StandardCharsets.UTF_8)
+        val privateBytes = requireNotNull(session.keyPair.private.encoded) {
+            "Ephemeral pairing key cannot be encoded for encrypted recovery"
+        }
+        val publicBytes = session.keyPair.public.encoded
+        val json = try {
+            JSONObject()
+                .put("version", 1)
+                .put("privateKey", encode(privateBytes))
+                .put("publicKey", encode(publicBytes))
+                .put("sourceDeviceId", session.sourceDeviceId)
+                .put("targetDeviceId", session.targetDeviceId)
+                .put("transactionId", session.transactionId)
+                .put("sourceNonce", session.sourceNonce)
+                .put("targetNonce", session.targetNonce)
+                .put("expiresAt", session.expiresAtMillis)
+                .put("peerEphemeralPublicKey", session.peerEphemeralPublicKey)
+                .put("destinationConfirmed", session.destinationConfirmed)
+                .put("transferExpiresAt", session.transferExpiresAtMillis)
+                .put("encodedRequest", session.encodedRequest)
+                .put("encodedResponse", session.encodedResponse)
+                .put("encodedConfirmation", session.encodedConfirmation)
+                .put("sasCode", session.sasCode)
+                .put("importStarted", session.importStarted)
+                .put("identityImported", session.identityImported)
+                .toString()
+                .toByteArray(StandardCharsets.UTF_8)
+        } finally {
+            privateBytes.fill(0)
+            publicBytes.fill(0)
+        }
         try {
             CryptoStateStore(context, pairingStateId(session.transactionId)).write(json)
         } finally {
