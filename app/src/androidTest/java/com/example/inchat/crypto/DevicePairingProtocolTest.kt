@@ -1,5 +1,7 @@
 package com.example.inchat.crypto
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -139,6 +141,74 @@ class DevicePairingProtocolTest {
         }
     }
 
+
+    @Test
+    fun destinationPairingCanResumeAfterProtocolInstanceRestart() {
+        var now = 1_800_000_000_000L
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val sourceProtocol = DevicePairingProtocol(clock = { now })
+        val destinationProtocol = DevicePairingProtocol(clock = { now }, context = context)
+        val suffix = UUID.randomUUID().toString().replace("-", "").take(12)
+        val sourceId = "source_$suffix"
+        val targetId = "target_$suffix"
+        val transactionId = UUID.randomUUID().toString().replace("-", "")
+
+        try {
+            val request = sourceProtocol.createRequest(sourceId, transactionId)
+            val response = destinationProtocol.respondToRequest(request, targetId)
+            val confirmation = destinationProtocol.confirmResponse(
+                response.encoded,
+                targetId,
+                response.sasCode,
+            )
+            val verified = sourceProtocol.verifyConfirmation(
+                request,
+                response.encoded,
+                confirmation,
+                sourceId,
+                transactionId,
+                response.sasCode,
+            )
+            val sourceKey = sourceProtocol.deriveSourceTransferKey(verified)
+
+            // Simulate Android recreating the screen/protocol object after process death.
+            val restartedDestination = DevicePairingProtocol(clock = { now }, context = context)
+            val recovery = requireNotNull(restartedDestination.pendingDestinationRecovery())
+            assertEquals(sourceId, recovery.sourceDeviceId)
+            assertEquals(targetId, recovery.targetDeviceId)
+            assertEquals(transactionId, recovery.transactionId)
+            assertEquals(request, recovery.request)
+            assertEquals(response.encoded, recovery.response)
+            assertEquals(confirmation, recovery.confirmation)
+            assertEquals(response.sasCode, recovery.sasCode)
+
+            val destinationKey = restartedDestination.deriveDestinationTransferKey(
+                targetId,
+                transactionId,
+            )
+            try {
+                assertEquals(
+                    true,
+                    java.security.MessageDigest.isEqual(sourceKey, destinationKey),
+                )
+            } finally {
+                sourceKey.fill(0)
+                destinationKey.fill(0)
+            }
+
+            restartedDestination.markDestinationImportStarted(transactionId)
+            restartedDestination.markDestinationIdentityImported(transactionId)
+            val afterImportRestart = DevicePairingProtocol(clock = { now }, context = context)
+                .pendingDestinationRecovery()
+            assertEquals(true, afterImportRestart?.importStarted)
+            assertEquals(true, afterImportRestart?.identityImported)
+        } finally {
+            sourceProtocol.clearEphemeralSession(transactionId)
+            destinationProtocol.clearEphemeralSession(transactionId)
+            DevicePairingProtocol(context = context).clearEphemeralSession(transactionId)
+            destinationProtocol.deletePairingKey(targetId)
+        }
+    }
 
     @Test
     fun expiredPairingRequestIsRejectedBeforeKeyDerivation() {
