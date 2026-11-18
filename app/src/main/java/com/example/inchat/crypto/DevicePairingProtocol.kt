@@ -608,10 +608,13 @@ internal class DevicePairingProtocol(
     }
 
     private fun saveSession(session: EphemeralSession) {
-        synchronized(ephemeralSessions) {
-            ephemeralSessions[session.transactionId] = session
+        val context = appContext
+        if (context == null) {
+            synchronized(ephemeralSessions) {
+                ephemeralSessions[session.transactionId] = session
+            }
+            return
         }
-        val context = appContext ?: return
         val privateBytes = requireNotNull(session.keyPair.private.encoded) {
             "Ephemeral pairing key cannot be encoded for encrypted recovery"
         }
@@ -644,6 +647,9 @@ internal class DevicePairingProtocol(
         }
         try {
             CryptoStateStore(context, pairingStateId(session.transactionId)).write(json)
+            synchronized(ephemeralSessions) {
+                ephemeralSessions[session.transactionId] = session
+            }
         } finally {
             json.fill(0)
         }
