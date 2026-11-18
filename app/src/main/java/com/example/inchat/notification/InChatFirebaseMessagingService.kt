@@ -11,13 +11,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.inchat.MainActivity
-import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class InChatFirebaseMessagingService :
     FirebaseMessagingService() {
@@ -151,12 +148,10 @@ class InChatFirebaseMessagingService :
     }
 
     /*
-     * Firebase may issue a new FCM token at any time.
-     *
-     * Token persistence is handled separately by the app's
-     * token-registration implementation.
+     * Firebase may rotate the registration token at any time. Queue durable
+     * work instead of launching an untracked coroutine; the worker fetches
+     * the latest token again when it runs and retries database/topic failures.
      */
-    @Suppress("DEPRECATION")
     override fun onNewToken(
         token: String
     ) {
@@ -168,15 +163,29 @@ class InChatFirebaseMessagingService :
                 .orEmpty()
 
         if (uid.isBlank()) {
+            Log.i(
+                "InChatFCM",
+                "FCM token refreshed while signed out; it will be registered after the next login."
+            )
             return
         }
 
-        CoroutineScope(Dispatchers.IO).launch {
-            UserRepository()
-                .saveFcmToken(
-                    uid = uid,
-                    token = token
-                )
+        Log.i(
+            "InChatFCM",
+            "FCM token refreshed; scheduling durable registration (length=${token.length})."
+        )
+
+        try {
+            FcmTokenRegistrationWorker.enqueue(
+                context = this,
+                uid = uid
+            )
+        } catch (error: Exception) {
+            Log.e(
+                "InChatFCM",
+                "Could not schedule refreshed FCM token registration.",
+                error
+            )
         }
     }
 
