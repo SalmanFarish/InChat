@@ -39,7 +39,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -71,7 +70,6 @@ fun SwipeableMessageBubble(
     onLongClick: () -> Unit,
     onQuotedReplyClick: (String) -> Unit,
     onReactionClick: (String) -> Unit,
-    chatSwipeOffsetPx: Float = 0f,
     isFirstInGroup: Boolean = true,
     isLastInGroup: Boolean = true,
     showSenderName: Boolean = false,
@@ -81,20 +79,6 @@ fun SwipeableMessageBubble(
     val density =
         LocalDensity.current
 
-    val timestampRevealDistancePx =
-        with(density) {
-            72.dp.toPx()
-        }
-
-    val timestampProgress =
-        (
-            chatSwipeOffsetPx /
-                    timestampRevealDistancePx
-            )
-            .coerceIn(
-                0f,
-                1f
-            )
 
     val replyTriggerDistancePx =
         with(density) {
@@ -142,9 +126,8 @@ fun SwipeableMessageBubble(
                 .padding(top = if (isFirstInGroup) 3.dp else 0.dp)
                 .animateContentSize()
                 /*
-                 * This detector owns only the message's
-                 * center-directed swipe. The timestamp detector
-                 * is on LazyColumn, so both can coexist.
+                 * This detector handles only the message's
+                 * center-directed reply swipe.
                  */
                 .pointerInput(
                     message.id,
@@ -208,10 +191,7 @@ fun SwipeableMessageBubble(
                     )
                 }
     ) {
-        /*
-         * Keep enough room for the timestamp at full reveal,
-         * while still allowing large bubbles on normal screens.
-         */
+        /* Keep message bubbles comfortably sized on normal screens. */
         val maxBubbleWidth =
             (maxWidth * 0.84f)
                 .coerceAtLeast(68.dp)
@@ -460,50 +440,6 @@ fun SwipeableMessageBubble(
                 }
             }
 
-            /*
-             * The slot grows with the page-level swipe. Because it is
-             * after the bubble, outgoing messages move inward when the
-             * timestamp appears while incoming messages stay left aligned.
-             */
-            Box(
-                modifier =
-                    Modifier
-                        .width(
-                            70.dp *
-                                    timestampProgress
-                        )
-                        .padding(
-                            start =
-                                6.dp
-                        )
-                        .alpha(
-                            timestampProgress
-                        ),
-                contentAlignment =
-                    Alignment.Center
-            ) {
-                Text(
-                    text =
-                        formatMessageTime(
-                            message.timestamp
-                        ),
-                    style =
-                        MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 9.sp,
-                            lineHeight = 12.sp,
-                            letterSpacing = 0.35.sp
-                        ),
-                    fontWeight =
-                        FontWeight.Medium,
-                    textAlign =
-                        TextAlign.Center,
-                    maxLines =
-                        1,
-                    color =
-                        chatTheme.secondaryTextColor
-                )
-            }
         }
 
         /*

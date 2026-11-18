@@ -1,6 +1,5 @@
 package com.example.inchat.ui.chat
 
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -76,10 +73,6 @@ fun ChatMessageList(
     val imeBottom = WindowInsets.ime.getBottom(density)
     val imeVisible = imeBottom > 0
 
-    var chatSwipeOffsetPx by
-    remember {
-        mutableFloatStateOf(0f)
-    }
 
     var initialMessagesPositioned by
     remember {
@@ -472,49 +465,6 @@ fun ChatMessageList(
                                 horizontal =
                                     12.dp
                             )
-                            .pointerInput(Unit) {
-                                detectHorizontalDragGestures(
-                                    onDragStart = {
-                                        chatSwipeOffsetPx =
-                                            0f
-                                    },
-                                    onHorizontalDrag = {
-                                            change,
-                                            dragAmount ->
-
-                                        /*
-                                         * A sent-message LEFT swipe is owned
-                                         * by the message reply detector. Only
-                                         * handle an unclaimed LEFT swipe here
-                                         * for the global timestamp reveal.
-                                         */
-                                        if (
-                                            !change.isConsumed &&
-                                            dragAmount < 0f
-                                        ) {
-                                            chatSwipeOffsetPx =
-                                                (
-                                                    chatSwipeOffsetPx -
-                                                            dragAmount
-                                                    )
-                                                    .coerceIn(
-                                                        0f,
-                                                        with(density) {
-                                                            72.dp.toPx()
-                                                        }
-                                                    )
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        chatSwipeOffsetPx =
-                                            0f
-                                    },
-                                    onDragCancel = {
-                                        chatSwipeOffsetPx =
-                                            0f
-                                    }
-                                )
-                            },
 
                     verticalArrangement =
                         Arrangement.spacedBy(
@@ -703,8 +653,6 @@ fun ChatMessageList(
                                 chatTheme =
                                     chatTheme,
 
-                                chatSwipeOffsetPx =
-                                    chatSwipeOffsetPx,
 
                                 isFirstInGroup =
                                     isFirstInGroup,
