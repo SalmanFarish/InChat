@@ -192,6 +192,125 @@ test("a user cannot send a direct message using someone else's sender ID", async
   );
 });
 
+test("senders cannot seed Worker-owned message receipt markers", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const baseMessage = {
+    id: "reserved-marker",
+    senderId: "alice",
+    senderNickname: "alice",
+    text: "A normal message",
+    timestamp: 2000,
+  };
+
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/forged-worker-receipt"), {
+      ...baseMessage,
+      id: "forged-worker-receipt",
+      workerProcessed: {
+        status: "sent",
+        notificationSent: true,
+      },
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/forged-inbox-marker"), {
+      ...baseMessage,
+      id: "forged-inbox-marker",
+      workerInboxSynced: true,
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/forged-extra-field"), {
+      ...baseMessage,
+      id: "forged-extra-field",
+      clientControlledMetadata: true,
+    }),
+  );
+});
+
+test("valid message replies and attachments remain writable without extra metadata", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertSucceeds(
+    set(ref(aliceDb, "chats/dm/messages/valid-reply-attachment"), {
+      id: "valid-reply-attachment",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "Reply with a voice note",
+      timestamp: 2000,
+      replyTo: {
+        messageId: "aliceMessage",
+        senderId: "alice",
+        senderNickname: "alice",
+        text: "Hello",
+      },
+      attachment: {
+        type: "voice",
+        storageKey: "attachments/dm/valid-reply-attachment",
+        fileName: "voice.m4a",
+        mimeType: "audio/mp4",
+        sizeBytes: 1000,
+      },
+    }),
+  );
+});
+
+test("reply and attachment objects reject unexpected client metadata", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/reply-extra-field"), {
+      id: "reply-extra-field",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "A reply",
+      timestamp: 2000,
+      replyTo: {
+        messageId: "aliceMessage",
+        senderId: "alice",
+        senderNickname: "alice",
+        text: "Hello",
+        admin: true,
+      },
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/attachment-extra-field"), {
+      id: "attachment-extra-field",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "An attachment",
+      timestamp: 2000,
+      attachment: {
+        type: "voice",
+        storageKey: "attachments/dm/attachment-extra-field",
+        fileName: "voice.m4a",
+        mimeType: "audio/mp4",
+        sizeBytes: 1000,
+        trusted: true,
+      },
+    }),
+  );
+});
+
+test("group admins can still create approved group activity messages", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertSucceeds(
+    set(ref(aliceDb, "chats/group/messages/group-rename-event"), {
+      id: "group-rename-event",
+      senderId: "alice",
+      senderNickname: "SYSTEM",
+      text: "@alice renamed the group",
+      timestamp: 2000,
+      systemEvent: "group_renamed",
+    }),
+  );
+});
+
 test("a recipient cannot delete another user's message", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
 
