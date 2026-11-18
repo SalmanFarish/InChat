@@ -156,50 +156,38 @@ class MainActivity :
                 ?.removePrefix("@")
                 .orEmpty()
 
+        val isGroupNotification =
+            notificationType ==
+                    InChatFirebaseMessagingService
+                        .NOTIFICATION_TYPE_GROUP
+
         val isChatNotification =
             notificationType ==
                     InChatFirebaseMessagingService
-                        .NOTIFICATION_TYPE_CHAT ||
-                    (
-                            chatId.isNotBlank() &&
-                                    otherUserId.isNotBlank()
-                            )
+                        .NOTIFICATION_TYPE_CHAT
 
-        if (
-            !isChatNotification
-        ) {
-
+        if (!isGroupNotification && !isChatNotification) {
             return
         }
 
         if (
             chatId.isBlank() ||
-            otherUserId.isBlank()
+            (isChatNotification && otherUserId.isBlank())
         ) {
-
             return
         }
 
         notificationTarget.value =
             NotificationChatTarget(
-
-                chatId =
-                    chatId,
-
-                otherUserId =
-                    otherUserId,
-
+                chatId = chatId,
+                otherUserId = otherUserId,
                 otherUserNickname =
-                    if (
-                        otherUserNickname.isNotBlank()
-                    ) {
-
+                    if (otherUserNickname.isNotBlank()) {
                         otherUserNickname
-
                     } else {
-
                         "InChat user"
-                    }
+                    },
+                isGroup = isGroupNotification
             )
     }
 
