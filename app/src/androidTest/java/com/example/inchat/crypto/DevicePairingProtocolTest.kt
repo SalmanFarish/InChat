@@ -76,8 +76,8 @@ class DevicePairingProtocolTest {
             assertEquals(destination.sasCode, verified.sasCode)
             assertEquals(6, verified.sasCode.length)
 
-            // Reject tampering while the source's one-time ECDH session is still
-            // available; successful derivation below deliberately consumes it.
+            // Reject tampering while the source's ECDH session remains available.
+            // The session is cleared only after encrypted export completes.
             val alteredSourceEphemeral = JSONObject(destination.encoded)
                 .put("sourceEphemeralPublicKey", "YWJj")
                 .toString()
