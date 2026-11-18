@@ -87,14 +87,13 @@ import com.example.inchat.ui.settings.SettingsScreen
 import com.example.inchat.ui.settings.DeviceVerificationScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
 import com.example.inchat.ui.theme.JetBrainsMono
-import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 data class NotificationChatTarget(
     val chatId: String,
     val otherUserId: String,
-    val otherUserNickname: String
+    val otherUserNickname: String,
+    val isGroup: Boolean
 )
 
 private data class BottomNavItem(
@@ -244,6 +243,7 @@ fun InChatApp(
     LaunchedEffect(
         notificationTarget?.chatId,
         notificationTarget?.otherUserId,
+        notificationTarget?.isGroup,
         uid
     ) {
 
@@ -251,42 +251,21 @@ fun InChatApp(
             notificationTarget
                 ?: return@LaunchedEffect
 
-        val encodedUsername =
-            Uri.encode(
-                target.otherUserNickname
-            )
-
-        val chatType =
-            runCatching {
-                FirebaseDatabase
-                    .getInstance()
-                    .getReference("chats")
-                    .child(target.chatId)
-                    .child("type")
-                    .get()
-                    .await()
-                    .getValue(String::class.java)
-            }.getOrNull()
-
-        if (chatType == "group") {
-
+        if (target.isGroup) {
             navController.navigate(
                 "group_chat/${target.chatId}"
             ) {
-
-                launchSingleTop =
-                    true
+                launchSingleTop = true
             }
-
         } else {
+            val encodedUsername =
+                Uri.encode(target.otherUserNickname)
 
             navController.navigate(
                 "chat/${target.otherUserId}" +
                         "?otherUserNickname=$encodedUsername"
             ) {
-
-                launchSingleTop =
-                    true
+                launchSingleTop = true
             }
         }
 
