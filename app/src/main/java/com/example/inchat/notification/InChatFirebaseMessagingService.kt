@@ -252,42 +252,32 @@ class InChatFirebaseMessagingService :
             }
 
         /*
-         * Give every message its own PendingIntent request code
-         * so tapping one notification does not reuse another
-         * message's intent.
+         * Reuse one notification and PendingIntent per conversation.
+         * New messages update that conversation instead of creating
+         * another notification for every incoming message.
          */
-        val requestCode =
-            if (
-                messageId.isNotBlank()
-            ) {
-                messageId.hashCode()
-            } else {
-                DEFAULT_NOTIFICATION_ID
-            }
+        val notificationId =
+            chatId.hashCode().takeIf { chatId.isNotBlank() }
+                ?: DEFAULT_NOTIFICATION_ID
 
         val pendingIntent =
             PendingIntent.getActivity(
                 this,
-                requestCode,
+                notificationId,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or
                         PendingIntent.FLAG_IMMUTABLE
             )
 
-        /*
-         * Give every message its own notification ID.
-         *
-         * This prevents a new message from replacing an older
-         * notification.
-         */
-        val notificationId =
-            if (
-                messageId.isNotBlank()
-            ) {
-                messageId.hashCode()
-            } else {
-                DEFAULT_NOTIFICATION_ID
-            }
+        val messagingStyle =
+            buildMessagingStyle(
+                chatId = chatId,
+                senderName = senderName,
+                messageText = messageText,
+                messageId = messageId,
+                isGroupMessage = notificationType == NOTIFICATION_TYPE_GROUP,
+                groupName = notificationTitle
+            )
 
         val notification =
             NotificationCompat
@@ -304,13 +294,7 @@ class InChatFirebaseMessagingService :
                 .setContentText(
                     notificationBody
                 )
-                .setStyle(
-                    NotificationCompat
-                        .BigTextStyle()
-                        .bigText(
-                            notificationBody
-                        )
-                )
+                .setStyle(messagingStyle)
                 .setPriority(
                     NotificationCompat
                         .PRIORITY_HIGH
@@ -346,6 +330,98 @@ class InChatFirebaseMessagingService :
         ) {
             Log.e("InChatFCM", "Android rejected the notification post.", e)
         }
+    }
+
+
+    /**
+     * Retains a short, recent message history for each conversation so
+     * repeated pushes update one Android MessagingStyle notification.
+     * Message IDs prevent duplicate entries if FCM redelivers a push.
+     */
+    private fun buildMessagingStyle(
+        chatId: String,
+        senderName: String,
+        messageText: String,
+        messageId: String,
+        isGroupMessage: Boolean,
+        groupName: String
+    ): NotificationCompat.MessagingStyle {
+        val preferences =
+            getSharedPreferences(
+                "inchat_notification_history",
+                MODE_PRIVATE
+            )
+
+        val historyKey = "messages_$chatId"
+        val now = System.currentTimeMillis()
+        val cutoff = now - 24L * 60L * 60L * 1000L
+
+        val storedHistory =
+            runCatching {
+                org.json.JSONArray(
+                    preferences.getString(historyKey, "[]")
+                )
+            }.getOrElse {
+                org.json.JSONArray()
+            }
+
+        val recentHistory = org.json.JSONArray()
+        var alreadyStored = false
+
+        for (index in 0 until storedHistory.length()) {
+            val item = storedHistory.optJSONObject(index) ?: continue
+            if (item.optLong("timestamp") < cutoff) continue
+
+            recentHistory.put(item)
+            if (messageId.isNotBlank() && item.optString("id") == messageId) {
+                alreadyStored = true
+            }
+        }
+
+        if (!alreadyStored) {
+            recentHistory.put(
+                org.json.JSONObject()
+                    .put("id", messageId)
+                    .put("sender", senderName)
+                    .put("text", messageText)
+                    .put("timestamp", now)
+            )
+        }
+
+        while (recentHistory.length() > 8) {
+            recentHistory.remove(0)
+        }
+
+        preferences.edit()
+            .putString(historyKey, recentHistory.toString())
+            .apply()
+
+        val style =
+            NotificationCompat.MessagingStyle(
+                androidx.core.app.Person.Builder()
+                    .setName("You")
+                    .build()
+            ).setGroupConversation(isGroupMessage)
+
+        if (isGroupMessage) {
+            style.setConversationTitle(groupName)
+        }
+
+        for (index in 0 until recentHistory.length()) {
+            val item = recentHistory.optJSONObject(index) ?: continue
+            val person =
+                androidx.core.app.Person.Builder()
+                    .setName(item.optString("sender", senderName))
+                    .build()
+
+            style.addMessage(
+                item.optString("text"),
+                item.optLong("timestamp"),
+                person
+            )
+        }
+
+        return style
     }
 
     private fun createNotificationChannel() {
