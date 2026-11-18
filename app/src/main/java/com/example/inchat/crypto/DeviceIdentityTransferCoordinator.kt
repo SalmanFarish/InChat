@@ -121,39 +121,42 @@ internal class DeviceIdentityTransferCoordinator(
         transactionId: String,
         encryptedPayload: ByteArray,
     ) {
-        require(encryptedPayload.size in 1..MAX_TRANSFER_PAYLOAD_BYTES) {
-            "Encrypted device transfer has an invalid size"
-        }
-        val targetDeviceId = identityRepository.currentDeviceId()
-        if (pairingProtocol.isDestinationIdentityImported(transactionId)) return
-        if (pairingProtocol.isDestinationImportStarted(transactionId) &&
-            identityRepository.hasLocalIdentityState()
-        ) {
-            // The process may have died after native import committed but before
-            // the completion marker was written. Recover that completed import.
-            pairingProtocol.markDestinationIdentityImported(transactionId)
-            return
-        }
-        check(!identityRepository.hasLocalIdentityState()) {
-            "This phone already has an InChat identity. Identity transfer can only be received by a phone without one."
-        }
-        pairingProtocol.markDestinationImportStarted(transactionId)
-        val transferKey = pairingProtocol.deriveDestinationTransferKey(
-            targetDeviceId,
-            transactionId,
-        )
         try {
-            identityRepository.importEncryptedIdentity(
-                sourceDeviceId = sourceDeviceId,
-                transactionId = transactionId,
-                transferKey = transferKey,
-                encryptedPayload = encryptedPayload,
+            require(encryptedPayload.size in 1..MAX_TRANSFER_PAYLOAD_BYTES) {
+                "Encrypted device transfer has an invalid size"
+            }
+            val targetDeviceId = identityRepository.currentDeviceId()
+            if (pairingProtocol.isDestinationIdentityImported(transactionId)) return
+            if (pairingProtocol.isDestinationImportStarted(transactionId) &&
+                identityRepository.hasLocalIdentityState()
+            ) {
+                // The process may have died after native import committed but before
+                // the completion marker was written. Recover that completed import.
+                pairingProtocol.markDestinationIdentityImported(transactionId)
+                return
+            }
+            check(!identityRepository.hasLocalIdentityState()) {
+                "This phone already has an InChat identity. Identity transfer can only be received by a phone without one."
+            }
+            pairingProtocol.markDestinationImportStarted(transactionId)
+            val transferKey = pairingProtocol.deriveDestinationTransferKey(
+                targetDeviceId,
+                transactionId,
             )
-            pairingProtocol.markDestinationIdentityImported(transactionId)
-        } catch (failure: Throwable) {
-            transferKey.fill(0)
+            try {
+                identityRepository.importEncryptedIdentity(
+                    sourceDeviceId = sourceDeviceId,
+                    transactionId = transactionId,
+                    transferKey = transferKey,
+                    encryptedPayload = encryptedPayload,
+                )
+                pairingProtocol.markDestinationIdentityImported(transactionId)
+            } catch (failure: Throwable) {
+                transferKey.fill(0)
+                throw failure
+            }
+        } finally {
             encryptedPayload.fill(0)
-            throw failure
         }
     }
 
