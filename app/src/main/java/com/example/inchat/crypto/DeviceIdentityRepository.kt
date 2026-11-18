@@ -68,6 +68,14 @@ internal class DeviceIdentityRepository(context: Context) {
         return parsePublicBundle(encodedBundle, deviceId)
     }
 
+    /** Check for an existing local identity without creating a new one. */
+    fun hasLocalIdentityState(): Boolean {
+        val deviceId = getOrCreateDeviceId()
+        val state = CryptoStateStore(appContext, "device-$deviceId").read() ?: return false
+        state.fill(0)
+        return true
+    }
+
     /** Return this installation's stable device ID without exposing private state. */
     fun currentDeviceId(): String = getOrCreateDeviceId()
 
