@@ -466,6 +466,11 @@ fun DeviceTransferScreen(
                         "Paste the pairing code copied from the old phone. The request expires after two minutes, so keep both screens ready.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    CodeInputField(
+                        scannedCode,
+                        { scannedCode = it },
+                        "Paste pairing code from old phone",
+                    )
                     Button(
                         onClick = {
                             runTask {
