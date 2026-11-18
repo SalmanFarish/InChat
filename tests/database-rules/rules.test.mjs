@@ -396,13 +396,13 @@ test("read receipts are written by their owner and respect read-receipt privacy"
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
 
-  await assertSucceeds(set(ref(bobDb, "chats/dm/readBy/bob"), 2000));
-  await assertFails(set(ref(bobDb, "chats/dm/readBy/alice"), 2000));
-  await assertSucceeds(get(ref(aliceDb, "chats/dm/readBy/bob")));
+  await assertSucceeds(set(ref(bobDb, "chatReadReceipts/dm/bob"), 2000));
+  await assertFails(set(ref(bobDb, "chatReadReceipts/dm/alice"), 2000));
+  await assertSucceeds(get(ref(aliceDb, "chatReadReceipts/dm/bob")));
   await assertSucceeds(set(ref(bobDb, "users/bob/readReceiptsVisible"), false));
-  await assertFails(get(ref(aliceDb, "chats/dm/readBy/bob")));
-  await assertFails(set(ref(bobDb, "chats/dm/readBy/bob"), 3000));
-  await assertSucceeds(remove(ref(bobDb, "chats/dm/readBy/bob")));
+  await assertFails(get(ref(aliceDb, "chatReadReceipts/dm/bob")));
+  await assertFails(set(ref(bobDb, "chatReadReceipts/dm/bob"), 3000));
+  await assertSucceeds(remove(ref(bobDb, "chatReadReceipts/dm/bob")));
 });
 
 test("a non-participant cannot read a direct conversation", async () => {

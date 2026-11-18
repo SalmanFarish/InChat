@@ -1210,19 +1210,9 @@ class ChatRepository {
         callbackFlow {
 
             val readRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "readBy"
-                    )
-                    .child(
-                        otherUserId
-                    )
+                database.getReference("chatReadReceipts")
+                    .child(chatId)
+                    .child(otherUserId)
 
 
             val listener =
@@ -1281,6 +1271,9 @@ class ChatRepository {
             ) {
                 return Result.failure(IllegalStateException("Invalid read-receipt owner or chat."))
             }
+            database.getReference("chatReadReceipts")
+                .child(chatId).child(currentUserId).removeValue().await()
+            // Remove the legacy in-chat receipt value during migration.
             database.getReference("chats").child(chatId)
                 .child("readBy").child(currentUserId).removeValue().await()
             Result.success(Unit)
@@ -1337,7 +1330,7 @@ class ChatRepository {
                 )
 
             updates[
-                "chats/$chatId/readBy/$currentUserId"
+                "chatReadReceipts/$chatId/$currentUserId"
             ] =
                 if (
                     sendReadReceipt
@@ -1346,6 +1339,10 @@ class ChatRepository {
                 } else {
                     null
                 }
+
+            // Remove any pre-migration receipt; new receipts live outside
+            // the broadly readable chat subtree so privacy rules can apply.
+            updates["chats/$chatId/readBy/$currentUserId"] = null
 
             // Store read state separately from the inbox entry. A brand-new
             // direct conversation may not have a complete userChats record yet.
