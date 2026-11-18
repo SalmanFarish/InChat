@@ -57,6 +57,7 @@ internal class DevicePairingProtocol(
         val encodedResponse: String? = null,
         val encodedConfirmation: String? = null,
         val sasCode: String? = null,
+        val importStarted: Boolean = false,
         val identityImported: Boolean = false,
     )
 
@@ -69,6 +70,7 @@ internal class DevicePairingProtocol(
         val confirmation: String?,
         val sasCode: String,
         val expiresAtMillis: Long,
+        val importStarted: Boolean,
         val identityImported: Boolean,
     )
 
@@ -513,12 +515,22 @@ internal class DevicePairingProtocol(
         appContext?.let { CryptoStateStore(it, pairingStateId(transactionId)).delete() }
     }
 
+    /** Persist the start marker before native import so recovery can distinguish an interrupted import. */
+    fun markDestinationImportStarted(transactionId: String) {
+        val session = getSession(transactionId)
+            ?: throw IllegalStateException("Destination pairing session is unavailable")
+        require(session.targetDeviceId.isNotEmpty() && session.destinationConfirmed) {
+            "Only a confirmed destination pairing can start an import"
+        }
+        saveSession(session.copy(importStarted = true))
+    }
+
     /** Mark the destination import durable so the UI can resume acknowledgement after process death. */
     fun markDestinationIdentityImported(transactionId: String) {
         val session = getSession(transactionId)
             ?: throw IllegalStateException("Destination pairing session is unavailable")
-        require(session.targetDeviceId.isNotEmpty() && session.destinationConfirmed) {
-            "Only a confirmed destination pairing can record an imported identity"
+        require(session.targetDeviceId.isNotEmpty() && session.destinationConfirmed && session.importStarted) {
+            "Only a started destination import can be marked complete"
         }
         saveSession(session.copy(identityImported = true))
     }
@@ -559,6 +571,7 @@ internal class DevicePairingProtocol(
                     confirmation = session.encodedConfirmation,
                     sasCode = sas,
                     expiresAtMillis = session.expiresAtMillis,
+                    importStarted = session.importStarted,
                     identityImported = session.identityImported,
                 )
             }
@@ -609,6 +622,7 @@ internal class DevicePairingProtocol(
             .put("encodedResponse", session.encodedResponse)
             .put("encodedConfirmation", session.encodedConfirmation)
             .put("sasCode", session.sasCode)
+            .put("importStarted", session.importStarted)
             .put("identityImported", session.identityImported)
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
@@ -649,6 +663,7 @@ internal class DevicePairingProtocol(
                     encodedResponse = json.optString("encodedResponse").takeIf { it.isNotBlank() },
                     encodedConfirmation = json.optString("encodedConfirmation").takeIf { it.isNotBlank() },
                     sasCode = json.optString("sasCode").takeIf { it.isNotBlank() },
+                    importStarted = json.optBoolean("importStarted", false),
                     identityImported = json.optBoolean("identityImported", false),
                 ).also { session ->
                     require(session.transactionId == transactionId)
