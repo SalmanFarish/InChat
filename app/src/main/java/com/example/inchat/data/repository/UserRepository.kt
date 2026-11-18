@@ -1908,15 +1908,22 @@ class UserRepository {
                 )
                 .await()
 
-            CloudflareNotificationRepository()
-                .syncMyGroupSubscriptions(uid)
-                .onFailure { notificationError ->
-                    Log.w(
-                        "UserRepository",
-                        "FCM token was saved, but group topics could not be synchronized.",
-                        notificationError
-                    )
-                }
+            val groupSyncResult =
+                CloudflareNotificationRepository()
+                    .syncMyGroupSubscriptions(uid)
+
+            groupSyncResult.onFailure { notificationError ->
+                Log.w(
+                    "UserRepository",
+                    "FCM token was saved, but group topics could not be synchronized.",
+                    notificationError
+                )
+            }
+
+            // Do not report registration as complete while group device/topic
+            // reconciliation is still failing. The registration worker retries
+            // this idempotent operation with the latest FCM token.
+            groupSyncResult.getOrThrow()
 
             Result.success(
                 Unit
