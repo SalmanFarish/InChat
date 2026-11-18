@@ -478,14 +478,16 @@ internal class DevicePairingProtocol(
 
     /**
      * Derive the one-time transfer key on the source after verified SAS and
-     * destination confirmation. The source ephemeral private key is consumed.
+     * destination confirmation. The coordinator clears the persisted session
+     * after encrypted export has completed.
      */
     fun deriveSourceTransferKey(pairing: VerifiedPairing): ByteArray =
         deriveTransferKey(pairing)
 
     /**
      * Derive the same one-time transfer key on the destination after its user
-     * confirmed the SAS. The destination ephemeral private key is consumed.
+     * confirmed the SAS. The encrypted session is retained until import and
+     * acknowledgement finish so interrupted transfers can resume.
      */
     fun deriveDestinationTransferKey(targetDeviceId: String, transactionId: String): ByteArray {
         val session = getSession(transactionId)
