@@ -451,25 +451,27 @@ class ChatRepository {
             // Direct-chat preview metadata is owned by this user. Group preview
             // fields are maintained by the group sync path, so only unreadCount
             // is updated there.
-            try {
-                val chatSnapshot = database.getReference("chats")
-                    .child(chatId)
-                    .get()
-                    .await()
-                if (chatSnapshot.child("type").getValue(String::class.java) == "group") {
-                    // Treat cleared group history as read through the clear
-                    // cutoff. Keep the cursor and unread badge in one atomic
-                    // multi-location update so delayed Worker events cannot
-                    // restore unread for messages that were just cleared.
-                    database.reference.updateChildren(
-                        mapOf(
-                            "groupReads/$ownerUserId/$chatId" to clearedAt,
-                            "chats/$chatId/groupReadCursors/$ownerUserId" to clearedAt,
-                            "userChats/$ownerUserId/$chatId/unreadCount" to 0L
-                        )
-                    ).await()
-                    unreadResetWithGroupCursor = true
-                } else {
+            val chatSnapshot = database.getReference("chats")
+                .child(chatId)
+                .get()
+                .await()
+            if (chatSnapshot.child("type").getValue(String::class.java) == "group") {
+                // This cursor update is correctness-critical: let failures
+                // propagate instead of reporting a successful clear with no
+                // read cursor, which would allow delayed Worker events to
+                // restore the unread badge.
+                database.reference.updateChildren(
+                    mapOf(
+                        "groupReads/$ownerUserId/$chatId" to clearedAt,
+                        "chats/$chatId/groupReadCursors/$ownerUserId" to clearedAt,
+                        "userChats/$ownerUserId/$chatId/unreadCount" to 0L
+                    )
+                ).await()
+                unreadResetWithGroupCursor = true
+            } else {
+                // Direct-chat preview metadata is best-effort. Its existing
+                // private read cursor is maintained separately below.
+                try {
                     database.getReference("userChats")
                         .child(ownerUserId)
                         .child(chatId)
@@ -482,17 +484,14 @@ class ChatRepository {
                         )
                         .await()
 
-                    // Clearing direct history also clears unread state. Advance
-                    // the private read cursor so delayed Worker events for older
-                    // messages cannot restore an unread badge.
                     database.getReference("chatReadState")
                         .child(ownerUserId)
                         .child(chatId)
                         .setValue(clearedAt)
                         .await()
+                } catch (previewError: Exception) {
+                    Log.w(TAG, "Chat history cleared, but the direct inbox preview could not be refreshed.", previewError)
                 }
-            } catch (previewError: Exception) {
-                Log.w(TAG, "Chat history cleared, but the inbox preview could not be refreshed.", previewError)
             }
 
             // Direct chats keep their existing separate read-cursor update;
