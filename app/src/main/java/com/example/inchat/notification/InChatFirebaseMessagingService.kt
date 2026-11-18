@@ -136,6 +136,7 @@ class InChatFirebaseMessagingService :
             senderName = senderName,
             notificationTitle = notificationTitle,
             notificationBody = notificationBody,
+            messageText = messageText,
             notificationType = if (isGroupMessage) {
                 NOTIFICATION_TYPE_GROUP
             } else {
@@ -193,6 +194,7 @@ class InChatFirebaseMessagingService :
         senderName: String,
         notificationTitle: String,
         notificationBody: String,
+        messageText: String,
         notificationType: String,
         chatId: String,
         otherUserId: String,
