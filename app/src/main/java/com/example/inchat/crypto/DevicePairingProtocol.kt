@@ -900,6 +900,6 @@ internal class DevicePairingProtocol(
         const val LIFETIME_MILLIS = 2 * 60 * 1000L
         const val DESTINATION_TRANSFER_LIFETIME_MILLIS = 20 * 60 * 1000L
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
-        val TRANSACTION_ID = Regex("[A-Za-z0-9_-]{16,64}")
+        val TRANSACTION_ID = Regex("[0-9a-f]{32}")
     }
 }
