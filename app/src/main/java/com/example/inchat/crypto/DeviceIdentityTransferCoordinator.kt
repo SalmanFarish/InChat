@@ -125,6 +125,15 @@ internal class DeviceIdentityTransferCoordinator(
             "Encrypted device transfer has an invalid size"
         }
         val targetDeviceId = identityRepository.currentDeviceId()
+        if (pairingProtocol.isDestinationIdentityImported(transactionId)) return
+        if (pairingProtocol.isDestinationImportStarted(transactionId) &&
+            identityRepository.hasLocalIdentityState()
+        ) {
+            // The process may have died after native import committed but before
+            // the completion marker was written. Recover that completed import.
+            pairingProtocol.markDestinationIdentityImported(transactionId)
+            return
+        }
         check(!identityRepository.hasLocalIdentityState()) {
             "This phone already has an InChat identity. Identity transfer can only be received by a phone without one."
         }
