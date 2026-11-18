@@ -135,6 +135,15 @@ fun DeviceTransferScreen(
                     destinationProtocol.pendingDestinationRecovery()
                 }
                 if (recovery != null && recovery.targetDeviceId == identityRepository.currentDeviceId()) {
+                    val imported = recovery.identityImported ||
+                        (recovery.importStarted && withContext(Dispatchers.IO) {
+                            identityRepository.hasLocalIdentityState()
+                        })
+                    if (imported && !recovery.identityImported) {
+                        withContext(Dispatchers.IO) {
+                            destinationProtocol.markDestinationIdentityImported(recovery.transactionId)
+                        }
+                    }
                     sourceDeviceId = recovery.sourceDeviceId
                     targetDeviceId = recovery.targetDeviceId
                     transactionId = recovery.transactionId
@@ -148,11 +157,11 @@ fun DeviceTransferScreen(
                         expiresAtMillis = recovery.expiresAtMillis,
                     )
                     mode = when {
-                        recovery.identityImported -> TransferMode.DESTINATION_IMPORTED
+                        imported -> TransferMode.DESTINATION_IMPORTED
                         recovery.confirmation != null -> TransferMode.DESTINATION_CONFIRMATION
                         else -> TransferMode.DESTINATION_RESPONSE
                     }
-                    notice = if (recovery.identityImported) {
+                    notice = if (imported) {
                         "Recovered the imported identity. Publish the acknowledgement to finish the transfer."
                     } else {
                         "Recovered the pending pairing. Continue on this phone to complete the transfer."
@@ -510,6 +519,9 @@ fun DeviceTransferScreen(
                                 val source = JSONObject(scanned).getString("sourceDeviceId")
                                 val tx = JSONObject(scanned).getString("transactionId")
                                 val target = withContext(Dispatchers.IO) {
+                                    check(!identityRepository.hasLocalIdentityState()) {
+                                        "This phone already has an InChat identity and cannot receive another one."
+                                    }
                                     identityRepository.currentDeviceId()
                                 }
                                 val response = withContext(Dispatchers.IO) {
