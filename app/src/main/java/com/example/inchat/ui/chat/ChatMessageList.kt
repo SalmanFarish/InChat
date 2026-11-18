@@ -441,17 +441,6 @@ fun ChatMessageList(
 
             } else {
 
-                val latestOwnMessageId = remember(
-                    messages.size,
-                    messages.lastOrNull()?.id,
-                    currentUserId
-                ) {
-                    messages.lastOrNull {
-                        it.senderId == currentUserId &&
-                            it.systemEvent.isBlank()
-                    }?.id
-                }
-
                 /*
                  * Read the clock so Compose tracks it.
                  */
@@ -662,11 +651,7 @@ fun ChatMessageList(
                                         currentUserId
 
                             val deliveryStatus =
-                                if (
-                                    isMe &&
-                                    message.id ==
-                                    latestOwnMessageId
-                                ) {
+                                if (isMe) {
 
                                     getMessageDeliveryStatus(
 

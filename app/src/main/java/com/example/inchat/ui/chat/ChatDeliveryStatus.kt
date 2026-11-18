@@ -1,11 +1,19 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.FirebaseServerClock
@@ -135,34 +143,28 @@ fun MessageDeliveryIndicator(
     status: MessageDeliveryStatus,
     tint: androidx.compose.ui.graphics.Color
 ) {
-    val indicatorText =
-        when (status) {
-            MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
-                "!"
-
-            MessageDeliveryStatus.SENDING ->
-                "…"
-
-            MessageDeliveryStatus.SENT ->
-                "✓"
-
-            MessageDeliveryStatus.DELIVERED ->
-                "✓✓"
-
-            MessageDeliveryStatus.SEEN_JUST_NOW,
-            MessageDeliveryStatus.SEEN ->
-                "✓✓"
-
-            MessageDeliveryStatus.NONE ->
-                ""
-        }
-
-    androidx.compose.material3.Text(
-        text = indicatorText,
-        fontSize = 12.sp,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        color = tint,
-        modifier = androidx.compose.ui.Modifier,
-        maxLines = 1
-    )
+    when (status) {
+        MessageDeliveryStatus.SENT -> Icon(
+            imageVector = Icons.Filled.Done,
+            contentDescription = "Sent",
+            modifier = Modifier.size(14.dp),
+            tint = tint
+        )
+        MessageDeliveryStatus.DELIVERED -> Icon(
+            imageVector = Icons.Filled.DoneAll,
+            contentDescription = "Delivered",
+            modifier = Modifier.size(14.dp),
+            tint = tint
+        )
+        MessageDeliveryStatus.SEEN_JUST_NOW,
+        MessageDeliveryStatus.SEEN -> Icon(
+            imageVector = Icons.Filled.DoneAll,
+            contentDescription = "Read",
+            modifier = Modifier.size(14.dp),
+            tint = tint
+        )
+        MessageDeliveryStatus.SENDING -> Text(text = "…", fontSize = 12.sp, color = tint, maxLines = 1)
+        MessageDeliveryStatus.WAITING_FOR_CONNECTION -> Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
+        MessageDeliveryStatus.NONE -> Unit
+    }
 }

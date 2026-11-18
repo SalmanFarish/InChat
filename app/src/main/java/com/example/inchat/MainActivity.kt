@@ -54,12 +54,21 @@ class MainActivity :
             null
         )
 
+    private var isActivityStarted = false
+    private var presenceUid: String? = null
+
     override fun onStart() {
         super.onStart()
+        isActivityStarted = true
         ActiveConversationTracker.setAppInForeground(true)
+        presenceUid?.let(PresenceRepository::startPresence)
     }
 
     override fun onStop() {
+        isActivityStarted = false
+        if (!isChangingConfigurations) {
+            PresenceRepository.stopPresence()
+        }
         ActiveConversationTracker.setAppInForeground(false)
         super.onStop()
     }
@@ -236,6 +245,8 @@ class MainActivity :
                 is AuthUiState.NeedsUsernameSetup,
                 is AuthUiState.NeedsEmailVerification -> {
 
+                    presenceUid = null
+
                     FirebaseServerClock
                         .stop()
 
@@ -245,13 +256,14 @@ class MainActivity :
 
                 is AuthUiState.LoggedIn -> {
 
+                    presenceUid = state.uid
+
                     FirebaseServerClock
                         .start()
 
-                    PresenceRepository
-                        .startPresence(
-                            state.uid
-                        )
+                    if (isActivityStarted) {
+                        PresenceRepository.startPresence(state.uid)
+                    }
                 }
             }
         }

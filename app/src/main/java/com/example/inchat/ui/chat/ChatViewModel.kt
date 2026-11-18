@@ -737,6 +737,9 @@ class ChatViewModel : ViewModel() {
                 timestamp = timestamp
             )
             if (result.isFailure) {
+                if (currentChatId == chatId && lastMarkedDeliveredTimestamp == timestamp) {
+                    lastMarkedDeliveredTimestamp = 0L
+                }
                 Log.w(
                     "ChatViewModel",
                     "Could not update delivery cursor for $chatId",
@@ -807,12 +810,19 @@ class ChatViewModel : ViewModel() {
                                 enabled
 
                             if (!enabled) {
+                                val chatId = currentChatId
                                 viewModelScope.launch {
                                     chatRepository.clearReadReceipt(
                                         currentUserId,
-                                        currentChatId
+                                        chatId
                                     )
                                 }
+                            } else if (
+                                isChatVisible &&
+                                _chatReady.value &&
+                                _readyChatId.value == currentChatId
+                            ) {
+                                markConversationRead(currentUserId)
                             }
                         }
 
@@ -1891,6 +1901,8 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        val chatId = currentChatId
+
         viewModelScope.launch {
 
             chatRepository
@@ -1899,13 +1911,15 @@ class ChatViewModel : ViewModel() {
                         currentUserId,
 
                     chatId =
-                        currentChatId,
+                        chatId,
 
                     sendReadReceipt =
                         _readReceiptsEnabled.value
                 )
                 .onFailure { error ->
-
+                    if (currentChatId == chatId) {
+                        lastMarkedReadTimestamp = 0L
+                    }
                     Log.e(
                         "ChatViewModel",
                         "Mark read failed",

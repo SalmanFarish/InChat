@@ -408,38 +408,18 @@ fun SwipeableMessageBubble(
                             isMe &&
                             deliveryStatus != MessageDeliveryStatus.NONE
                         ) {
-                            val receiptText = when (deliveryStatus) {
-                                MessageDeliveryStatus.SEEN_JUST_NOW,
-                                MessageDeliveryStatus.SEEN -> "READ"
-                                MessageDeliveryStatus.SENT -> "SENT"
-                                MessageDeliveryStatus.DELIVERED -> "DELIVERED"
-                                MessageDeliveryStatus.SENDING -> "SENDING…"
-                                MessageDeliveryStatus.WAITING_FOR_CONNECTION -> "SAVING…"
-                                MessageDeliveryStatus.NONE -> ""
-                            }
-
-                            if (receiptText.isNotBlank()) {
-                                Spacer(Modifier.width(7.dp))
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(4.dp)
-                                        .background(
-                                            color = chatTheme.statusAccentColor,
-                                            shape = CircleShape
-                                        )
-                                )
-
-                                Spacer(Modifier.width(4.dp))
-
-                                Text(
-                                    text = receiptText,
-                                    style = metadataStyle.copy(letterSpacing = 0.45.sp),
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = chatTheme.statusAccentColor,
-                                    maxLines = 1
-                                )
-                            }
+                            Spacer(Modifier.width(7.dp))
+                            MessageDeliveryIndicator(
+                                status = deliveryStatus,
+                                tint = if (
+                                    deliveryStatus == MessageDeliveryStatus.SEEN_JUST_NOW ||
+                                    deliveryStatus == MessageDeliveryStatus.SEEN
+                                ) {
+                                    chatTheme.statusAccentColor
+                                } else {
+                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                                }
+                            )
                         }
                     }
                 }

@@ -348,8 +348,13 @@ fun GroupChatScreen(
                 blockState = BlockState.NONE,
                 messagingBlocked = false,
                 otherUserDeliveredTimestamp = 0L,
-                otherUserReadTimestamp =
-                    groupReadTimestamps.values.maxOrNull() ?: 0L,
+                otherUserReadTimestamp = group?.members?.keys
+                    .orEmpty()
+                    .filter { it != currentUserId }
+                    .map { memberId -> groupReadTimestamps[memberId] ?: 0L }
+                    .takeIf { it.isNotEmpty() }
+                    ?.minOrNull()
+                    ?: 0L,
                 pendingMessageIds = pendingMessageIds,
                 isConnected = isConnected,
                 showSenderNames = true,

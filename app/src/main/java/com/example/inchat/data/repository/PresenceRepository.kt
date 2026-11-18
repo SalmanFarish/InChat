@@ -1,5 +1,6 @@
 package com.example.inchat.data.repository
 
+import android.util.Log
 import com.example.inchat.data.model.Presence
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -7,9 +8,12 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 object PresenceRepository {
@@ -36,6 +40,10 @@ object PresenceRepository {
     private var activeConnectionRef:
             com.google.firebase.database.DatabaseReference? = null
 
+    private var sessionGeneration = 0L
+    private var connectionAttemptGeneration = 0L
+    private var connectionSetupInFlight = false
+
     /*
      * The /.info/connected listener below intentionally stays
      * registered for the lifetime of the signed-in session.
@@ -47,7 +55,6 @@ object PresenceRepository {
     fun observePresence(
         uid: String
     ): Flow<Presence> = callbackFlow {
-
         if (uid.isBlank()) {
             trySend(Presence())
             close()
@@ -58,204 +65,131 @@ object PresenceRepository {
         var lastSeen = 0L
         var onlineVisible = true
         var lastSeenVisible = true
+        val isOwner = auth.currentUser?.uid == uid
+
+        val presenceRef = database.getReference("presence").child(uid)
+        val connectionsRef = presenceRef.child("connections")
+        val lastSeenRef = presenceRef.child("lastSeen")
+
+        var connectionsListener: ValueEventListener? = null
+        var lastSeenListener: ValueEventListener? = null
+        var onlineVisibilityListener: ValueEventListener? = null
+        var lastSeenVisibilityListener: ValueEventListener? = null
+        var connectionsRetryJob: Job? = null
+        var lastSeenRetryJob: Job? = null
+        lateinit var attachConnectionsListener: () -> Unit
+        lateinit var attachLastSeenListener: () -> Unit
 
         fun emitPresence() {
             trySend(
                 Presence(
-                    online =
-                        hasActiveConnection &&
-                                onlineVisible,
-
-                    lastSeen =
-                        if (lastSeenVisible) {
-                            lastSeen
-                        } else {
-                            0L
-                        },
-
-                    onlineVisible =
-                        onlineVisible,
-
-                    lastSeenVisible =
-                        lastSeenVisible
+                    online = hasActiveConnection && onlineVisible,
+                    lastSeen = if (lastSeenVisible) lastSeen else 0L,
+                    onlineVisible = onlineVisible,
+                    lastSeenVisible = lastSeenVisible
                 )
             )
         }
 
-        val presenceRef =
-            database
-                .getReference("presence")
-                .child(uid)
+        fun scheduleConnectionsRetry() {
+            if (connectionsRetryJob?.isActive == true) return
+            connectionsRetryJob = launch {
+                delay(30_000L)
+                connectionsRetryJob = null
+                attachConnectionsListener()
+            }
+        }
 
-        /*
-         * The connections collection is the authoritative online
-         * state. Any remaining connection node means the account
-         * has at least one active realtime connection.
-         */
-        val connectionsListener =
-            object : ValueEventListener {
+        fun scheduleLastSeenRetry() {
+            if (lastSeenRetryJob?.isActive == true) return
+            lastSeenRetryJob = launch {
+                delay(30_000L)
+                lastSeenRetryJob = null
+                attachLastSeenListener()
+            }
+        }
 
-                override fun onDataChange(
-                    snapshot: DataSnapshot
-                ) {
-                    hasActiveConnection =
-                        snapshot
-                            .children
-                            .any {
-                                it.getValue(
-                                    Boolean::class.java
-                                ) == true
-                            }
+        attachConnectionsListener = {
+            if (connectionsListener == null) {
+                val listener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        if (!isOwner) onlineVisible = true
+                        hasActiveConnection = snapshot.children.any {
+                            it.getValue(Boolean::class.java) == true
+                        }
+                        emitPresence()
+                    }
 
+                    override fun onCancelled(error: DatabaseError) {
+                        connectionsListener = null
+                        hasActiveConnection = false
+                        if (!isOwner) onlineVisible = false
+                        emitPresence()
+                        scheduleConnectionsRetry()
+                    }
+                }
+                connectionsListener = listener
+                connectionsRef.addValueEventListener(listener)
+            }
+        }
+
+        attachLastSeenListener = {
+            if (lastSeenListener == null) {
+                val listener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        if (!isOwner) lastSeenVisible = true
+                        lastSeen = snapshot.getValue(Long::class.java) ?: 0L
+                        emitPresence()
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        lastSeenListener = null
+                        lastSeen = 0L
+                        if (!isOwner) lastSeenVisible = false
+                        emitPresence()
+                        scheduleLastSeenRetry()
+                    }
+                }
+                lastSeenListener = listener
+                lastSeenRef.addValueEventListener(listener)
+            }
+        }
+
+        attachConnectionsListener()
+        attachLastSeenListener()
+
+        if (isOwner) {
+            onlineVisibilityListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    onlineVisible = snapshot.getValue(Boolean::class.java) ?: true
                     emitPresence()
                 }
 
-                override fun onCancelled(
-                    error: DatabaseError
-                ) {
-                    /*
-                     * A denied read here normally means the owner
-                     * has hidden online status from this viewer.
-                     */
-                    hasActiveConnection = false
-                    onlineVisible = false
-                    emitPresence()
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w("PresenceRepository", "Could not observe own online visibility", error.toException())
                 }
             }
-
-        val lastSeenListener =
-            object : ValueEventListener {
-
-                override fun onDataChange(
-                    snapshot: DataSnapshot
-                ) {
-                    lastSeen =
-                        snapshot
-                            .getValue(Long::class.java)
-                            ?: 0L
-
+            lastSeenVisibilityListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    lastSeenVisible = snapshot.getValue(Boolean::class.java) ?: true
                     emitPresence()
                 }
 
-                override fun onCancelled(
-                    error: DatabaseError
-                ) {
-                    lastSeen = 0L
-                    lastSeenVisible = false
-                    emitPresence()
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w("PresenceRepository", "Could not observe own last-seen visibility", error.toException())
                 }
             }
-
-        presenceRef
-            .child("connections")
-            .addValueEventListener(
-                connectionsListener
-            )
-
-        presenceRef
-            .child("lastSeen")
-            .addValueEventListener(
-                lastSeenListener
-            )
-
-        var onlineVisibilityListener:
-                ValueEventListener? = null
-
-        var lastSeenVisibilityListener:
-                ValueEventListener? = null
-
-        if (
-            auth.currentUser?.uid == uid
-        ) {
-            onlineVisibilityListener =
-                object :
-                    ValueEventListener {
-
-                    override fun onDataChange(
-                        snapshot: DataSnapshot
-                    ) {
-                        onlineVisible =
-                            snapshot
-                                .getValue(
-                                    Boolean::class.java
-                                )
-                                ?: true
-
-                        emitPresence()
-                    }
-
-                    override fun onCancelled(
-                        error: DatabaseError
-                    ) {
-                        emitPresence()
-                    }
-                }
-
-            lastSeenVisibilityListener =
-                object :
-                    ValueEventListener {
-
-                    override fun onDataChange(
-                        snapshot: DataSnapshot
-                    ) {
-                        lastSeenVisible =
-                            snapshot
-                                .getValue(
-                                    Boolean::class.java
-                                )
-                                ?: true
-
-                        emitPresence()
-                    }
-
-                    override fun onCancelled(
-                        error: DatabaseError
-                    ) {
-                        emitPresence()
-                    }
-                }
-
-            presenceRef
-                .child("onlineVisible")
-                .addValueEventListener(
-                    onlineVisibilityListener
-                )
-
-            presenceRef
-                .child("lastSeenVisible")
-                .addValueEventListener(
-                    lastSeenVisibilityListener
-                )
+            presenceRef.child("onlineVisible").addValueEventListener(onlineVisibilityListener!!)
+            presenceRef.child("lastSeenVisible").addValueEventListener(lastSeenVisibilityListener!!)
         }
 
         awaitClose {
-            presenceRef
-                .child("connections")
-                .removeEventListener(
-                    connectionsListener
-                )
-
-            presenceRef
-                .child("lastSeen")
-                .removeEventListener(
-                    lastSeenListener
-                )
-
-            onlineVisibilityListener?.let {
-                presenceRef
-                    .child("onlineVisible")
-                    .removeEventListener(
-                        it
-                    )
-            }
-
-            lastSeenVisibilityListener?.let {
-                presenceRef
-                    .child("lastSeenVisible")
-                    .removeEventListener(
-                        it
-                    )
-            }
+            connectionsRetryJob?.cancel()
+            lastSeenRetryJob?.cancel()
+            connectionsListener?.let { connectionsRef.removeEventListener(it) }
+            lastSeenListener?.let { lastSeenRef.removeEventListener(it) }
+            onlineVisibilityListener?.let { presenceRef.child("onlineVisible").removeEventListener(it) }
+            lastSeenVisibilityListener?.let { presenceRef.child("lastSeenVisible").removeEventListener(it) }
         }
     }
 
@@ -320,212 +254,139 @@ object PresenceRepository {
     fun startPresence(
         uid: String
     ) {
-        if (uid.isBlank()) {
-            return
-        }
+        if (uid.isBlank()) return
+        if (currentUid == uid && connectionListener != null) return
 
-        if (
-            currentUid == uid &&
-            connectionListener != null
-        ) {
-            return
-        }
-
-        stopPresence(
-            markOffline = false
-        )
-
+        stopPresence(markOffline = false)
+        val sessionId = ++sessionGeneration
         currentUid = uid
 
-        val connectedRef =
-            database
-                .getReference(
-                    ".info/connected"
-                )
+        val connectedRef = database.getReference(".info/connected")
+        val presenceRef = database.getReference("presence").child(uid)
+        val connectionsRef = presenceRef.child("connections")
+        val lastSeenRef = presenceRef.child("lastSeen")
 
-        val presenceRef =
-            database
-                .getReference("presence")
-                .child(uid)
-
-        val connectionsRef =
-            presenceRef
-                .child("connections")
-
-        val lastSeenRef =
-            presenceRef
-                .child("lastSeen")
-
-        val listener =
-            object :
-                ValueEventListener {
-
-                override fun onDataChange(
-                    snapshot: DataSnapshot
-                ) {
-                    val connected =
-                        snapshot.getValue(
-                            Boolean::class.java
-                        ) ?: false
-
-                    if (!connected) {
-                        /*
-                         * Firebase removes the previous connection
-                         * node server-side through onDisconnect().
-                         * Clear our local reference so the next
-                         * connected event creates a fresh node.
-                         */
-                        activeConnectionRef = null
-                        return
-                    }
-
-                    /*
-                     * A single Firebase connection can trigger the
-                     * .info/connected listener more than once. Do
-                     * not create duplicate connection nodes.
-                     */
-                    if (
-                        activeConnectionRef != null
-                    ) {
-                        return
-                    }
-
-                    val connectionRef =
-                        connectionsRef.push()
-
-                    /*
-                     * Firebase's documented presence pattern is:
-                     * 1. create a unique connection node
-                     * 2. queue its disconnect removal
-                     * 3. queue lastSeen timestamp on disconnect
-                     * 4. mark this connection active
-                     *
-                     * Both disconnect operations are registered
-                     * before the connection node is written.
-                     */
-                    connectionRef
-                        .onDisconnect()
-                        .removeValue()
-                        .addOnCompleteListener { removeTask ->
-
-                            if (
-                                !removeTask.isSuccessful
-                            ) {
-                                activeConnectionRef = null
-                                return@addOnCompleteListener
-                            }
-
-                            lastSeenRef
-                                .onDisconnect()
-                                .setValue(
-                                    ServerValue.TIMESTAMP
-                                )
-                                .addOnCompleteListener { lastSeenTask ->
-
-                                    if (
-                                        !lastSeenTask.isSuccessful
-                                    ) {
-                                        activeConnectionRef = null
-                                        return@addOnCompleteListener
-                                    }
-
-                                    connectionRef
-                                        .setValue(
-                                            true
-                                        )
-                                        .addOnSuccessListener {
-                                            activeConnectionRef =
-                                                connectionRef
-                                        }
-                                        .addOnFailureListener {
-                                            activeConnectionRef = null
-                                        }
-                                }
-                        }
-                }
-
-                override fun onCancelled(
-                    error: DatabaseError
-                ) {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (sessionGeneration != sessionId || currentUid != uid) return
+                val connected = snapshot.getValue(Boolean::class.java) ?: false
+                if (!connected) {
+                    connectionAttemptGeneration += 1L
+                    connectionSetupInFlight = false
                     activeConnectionRef = null
+                    return
                 }
+                if (activeConnectionRef != null || connectionSetupInFlight) return
+
+                connectionSetupInFlight = true
+                val attemptId = ++connectionAttemptGeneration
+                val connectionRef = connectionsRef.push()
+
+                fun isCurrentAttempt(): Boolean =
+                    sessionGeneration == sessionId &&
+                        currentUid == uid &&
+                        connectionAttemptGeneration == attemptId
+
+                connectionRef.onDisconnect().removeValue()
+                    .addOnCompleteListener { removeTask ->
+                        if (!isCurrentAttempt()) return@addOnCompleteListener
+                        if (!removeTask.isSuccessful) {
+                            connectionSetupInFlight = false
+                            Log.w("PresenceRepository", "Could not register connection cleanup for $uid", removeTask.exception)
+                            return@addOnCompleteListener
+                        }
+
+                        lastSeenRef.onDisconnect().setValue(ServerValue.TIMESTAMP)
+                            .addOnCompleteListener { lastSeenTask ->
+                                if (!isCurrentAttempt()) return@addOnCompleteListener
+                                if (!lastSeenTask.isSuccessful) {
+                                    connectionSetupInFlight = false
+                                    Log.w("PresenceRepository", "Could not register last-seen cleanup for $uid", lastSeenTask.exception)
+                                    return@addOnCompleteListener
+                                }
+
+                                activeConnectionRef = connectionRef
+                                connectionSetupInFlight = false
+                                connectionRef.setValue(true)
+                                    .addOnSuccessListener {
+                                        if (!isCurrentAttempt()) connectionRef.removeValue()
+                                    }
+                                    .addOnFailureListener { error ->
+                                        if (isCurrentAttempt()) {
+                                            activeConnectionRef = null
+                                            connectionSetupInFlight = false
+                                        }
+                                        Log.w("PresenceRepository", "Could not publish presence connection for $uid", error)
+                                    }
+                            }
+                    }
             }
 
-        connectionListener =
-            listener
+            override fun onCancelled(error: DatabaseError) {
+                if (sessionGeneration == sessionId && currentUid == uid) {
+                    connectionAttemptGeneration += 1L
+                    connectionSetupInFlight = false
+                    activeConnectionRef = null
+                }
+                Log.w("PresenceRepository", "Presence connection listener cancelled for $uid", error.toException())
+            }
+        }
 
-        connectedRef
-            .addValueEventListener(
-                listener
-            )
+        connectionListener = listener
+        connectedRef.addValueEventListener(listener)
     }
 
     fun stopPresence(
         markOffline: Boolean = true
     ) {
-        val uid =
-            currentUid
+        sessionGeneration += 1L
+        connectionAttemptGeneration += 1L
+        connectionSetupInFlight = false
+        val stoppedSession = sessionGeneration
 
-        val listener =
-            connectionListener
+        val uid = currentUid
+        val listener = connectionListener
+        val connectionRef = activeConnectionRef
 
-        val connectionRef =
-            activeConnectionRef
-
-
-        if (
-            listener != null
-        ) {
-            database
-                .getReference(
-                    ".info/connected"
-                )
-                .removeEventListener(
-                    listener
-                )
+        if (listener != null) {
+            database.getReference(".info/connected").removeEventListener(listener)
         }
 
         connectionListener = null
         activeConnectionRef = null
         currentUid = null
+        if (uid.isNullOrBlank()) return
 
-        if (
-            uid.isNullOrBlank()
-        ) {
-            return
+        val lastSeenRef = database.getReference("presence").child(uid).child("lastSeen")
+        fun cancelLastSeenDisconnectIfStillStopped() {
+            if (sessionGeneration == stoppedSession && currentUid == null) {
+                lastSeenRef.onDisconnect().cancel()
+                    .addOnFailureListener { error ->
+                        Log.w("PresenceRepository", "Could not cancel last-seen disconnect update for $uid", error)
+                    }
+            }
         }
 
-        /*
-         * Remove only this device's connection. Other signed-in
-         * devices keep their own connection nodes alive, so the
-         * account remains online until the final connection ends.
-         */
-        if (
-            connectionRef != null
-        ) {
-            connectionRef
-                .onDisconnect()
-                .cancel()
-
-            connectionRef
-                .removeValue()
-        }
-
-        /*
-         * On a deliberate logout, record the current time. This
-         * does not determine online state; the connection collection
-         * does. The final disconnect handler also updates lastSeen.
-         */
-        if (
-            markOffline
-        ) {
-            database
-                .getReference("presence")
-                .child(uid)
-                .child("lastSeen")
-                .setValue(
-                    ServerValue.TIMESTAMP
-                )
+        if (markOffline) {
+            val updates = mutableMapOf<String, Any?>(
+                "presence/$uid/lastSeen" to ServerValue.TIMESTAMP
+            )
+            connectionRef?.key?.let { connectionId ->
+                updates["presence/$uid/connections/$connectionId"] = null
+            }
+            database.reference.updateChildren(updates)
+                .addOnSuccessListener { cancelLastSeenDisconnectIfStillStopped() }
+                .addOnFailureListener { error ->
+                    // Keep the onDisconnect fallback armed when foreground cleanup fails.
+                    Log.w("PresenceRepository", "Could not atomically stop presence for $uid", error)
+                }
+        } else if (connectionRef != null) {
+            connectionRef.removeValue()
+                .addOnSuccessListener { cancelLastSeenDisconnectIfStillStopped() }
+                .addOnFailureListener { error ->
+                    Log.w("PresenceRepository", "Could not remove this session's presence node for $uid", error)
+                }
         }
     }
+
 }

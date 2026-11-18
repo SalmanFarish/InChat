@@ -9,6 +9,7 @@ import {
 import {
   get,
   ref,
+  remove,
   runTransaction,
   set,
   update,
@@ -58,6 +59,20 @@ beforeEach(async () => {
         mallory: {
           uid: "mallory",
           username: "mallory",
+        },
+      },
+      presence: {
+        alice: {
+          onlineVisible: true,
+          lastSeenVisible: true,
+          lastSeen: 1000,
+          connections: { alicePhone: true },
+        },
+        bob: {
+          onlineVisible: true,
+          lastSeenVisible: true,
+          lastSeen: 1000,
+          connections: { bobPhone: true },
         },
       },
       chats: {
@@ -348,6 +363,46 @@ test("privacy preferences must be booleans", async () => {
   await assertFails(
     set(ref(aliceDb, "users/alice/typingIndicatorVisible"), "disabled"),
   );
+});
+
+test("online status and last-seen visibility are enforced independently", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  await assertSucceeds(get(ref(bobDb, "presence/alice/connections")));
+  await assertSucceeds(get(ref(bobDb, "presence/alice/lastSeen")));
+  await assertSucceeds(set(ref(aliceDb, "presence/alice/onlineVisible"), false));
+  await assertFails(get(ref(bobDb, "presence/alice/connections")));
+  await assertSucceeds(get(ref(bobDb, "presence/alice/lastSeen")));
+  await assertSucceeds(set(ref(aliceDb, "presence/alice/onlineVisible"), true));
+  await assertSucceeds(set(ref(aliceDb, "presence/alice/lastSeenVisible"), false));
+  await assertSucceeds(get(ref(bobDb, "presence/alice/connections")));
+  await assertFails(get(ref(bobDb, "presence/alice/lastSeen")));
+  await assertSucceeds(get(ref(aliceDb, "presence/alice/connections")));
+  await assertSucceeds(get(ref(aliceDb, "presence/alice/lastSeen")));
+});
+
+test("users can only create or remove their own presence connection nodes", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  await assertSucceeds(set(ref(aliceDb, "presence/alice/connections/secondPhone"), true));
+  await assertSucceeds(remove(ref(aliceDb, "presence/alice/connections/secondPhone")));
+  await assertFails(set(ref(bobDb, "presence/alice/connections/forged"), true));
+  await assertFails(set(ref(aliceDb, "presence/bob/connections/forged"), true));
+});
+
+test("read receipts are written by their owner and respect read-receipt privacy", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  await assertSucceeds(set(ref(bobDb, "chats/dm/readBy/bob"), 2000));
+  await assertFails(set(ref(bobDb, "chats/dm/readBy/alice"), 2000));
+  await assertSucceeds(get(ref(aliceDb, "chats/dm/readBy/bob")));
+  await assertSucceeds(set(ref(bobDb, "users/bob/readReceiptsVisible"), false));
+  await assertFails(get(ref(aliceDb, "chats/dm/readBy/bob")));
+  await assertFails(set(ref(bobDb, "chats/dm/readBy/bob"), 3000));
+  await assertSucceeds(remove(ref(bobDb, "chats/dm/readBy/bob")));
 });
 
 test("a non-participant cannot read a direct conversation", async () => {
