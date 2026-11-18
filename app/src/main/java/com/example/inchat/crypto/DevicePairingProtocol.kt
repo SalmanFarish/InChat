@@ -123,7 +123,7 @@ internal class DevicePairingProtocol(
                 sourceDeviceId = sourceDeviceId,
                 targetDeviceId = "",
                 transactionId = transactionId,
-                sourceNonce = encode(decode(parseObject(encodedRequest).getString("sourceNonce"), NONCE_BYTES)),
+                sourceNonce = JSONObject(encodedRequest).getString("sourceNonce"),
                 targetNonce = "",
                 expiresAtMillis = now + LIFETIME_MILLIS,
                 peerEphemeralPublicKey = "",
