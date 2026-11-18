@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.UsernameAlreadyTakenException
+import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -1534,48 +1535,21 @@ class AuthViewModel(
     private fun registerFcmToken(
         uid: String
     ) {
+        if (uid.isBlank()) return
 
-        if (
-            uid.isBlank()
-        ) {
-
-            return
-        }
-
-        viewModelScope.launch {
-
-            try {
-
-                val token =
-                    messaging
-                        .token
-                        .await()
-
-                userRepository
-                    .saveFcmToken(
-                        uid =
-                            uid,
-
-                        token =
-                            token
-                    )
-                    .onFailure { error ->
-
-                        Log.e(
-                            "AuthViewModel",
-                            "Failed to save FCM token",
-                            error
-                        )
-                    }
-
-            } catch (e: Exception) {
-
-                Log.e(
-                    "AuthViewModel",
-                    "Could not obtain FCM token",
-                    e
-                )
-            }
+        try {
+            // Persist registration as unique WorkManager work. The worker
+            // obtains the latest token and retries token/topic sync failures.
+            FcmTokenRegistrationWorker.enqueue(
+                context = getApplication<Application>(),
+                uid = uid
+            )
+        } catch (error: Exception) {
+            Log.e(
+                "AuthViewModel",
+                "Could not schedule FCM token registration.",
+                error
+            )
         }
     }
 
@@ -1902,6 +1876,13 @@ class AuthViewModel(
 
         viewModelScope.launch {
             if (uid.isNotBlank()) {
+                // Prevent a queued token-refresh worker from restoring the
+                // account's private token after logout cleanup has started.
+                FcmTokenRegistrationWorker.cancel(
+                    context = getApplication<Application>(),
+                    uid = uid
+                )
+
                 userRepository
                     .clearFcmToken(uid)
                     .onFailure { error ->
