@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class RoomOlmDeliveryQueueConcurrencyTest {
     @Test
@@ -171,6 +172,136 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 pool.shutdownNow()
             }
         } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun lateWorkerFailureCannotReleaseAReclaimedRoomLease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-worker-stale-failure-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val queue = OlmDeliveryQueue(
+            RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()),
+            leaseDurationMillis = 100L,
+        )
+        val firstWorkerClock = AtomicLong(1_000L)
+        val firstUploadStarted = CountDownLatch(1)
+        val releaseFirstUpload = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                "msg-stale-worker",
+                listOf(prepared("device-only")),
+            )
+
+            val firstTransport = object : OlmOutgoingDeliveryTransport {
+                override suspend fun upload(
+                    delivery: QueuedOlmDeviceDelivery,
+                    senderDeviceId: String,
+                ): FirebaseOlmUploadResult {
+                    assertEquals(1, delivery.attemptCount)
+                    firstUploadStarted.countDown()
+                    check(releaseFirstUpload.await(10, TimeUnit.SECONDS)) {
+                        "First upload barrier was not released"
+                    }
+                    throw IllegalStateException("late first-attempt failure")
+                }
+
+                override suspend fun readMyDeliveryAcknowledgements(
+                    senderDeviceId: String,
+                ): List<OlmDeliveryAcknowledgement> = emptyList()
+
+                override suspend fun removeMyDeliveryAcknowledgement(
+                    senderDeviceId: String,
+                    deliveryId: String,
+                ) = Unit
+            }
+            val firstRunner = OlmDeliveryWorkerRunner(
+                queue = queue,
+                transport = firstTransport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                clock = { firstWorkerClock.get() },
+            )
+            val firstFuture = pool.submit<OlmDeliveryWorkerRunResult> {
+                runBlocking { firstRunner.run() }
+            }
+
+            assertTrue(
+                "The first worker should hold its lease while the upload is suspended",
+                firstUploadStarted.await(10, TimeUnit.SECONDS),
+            )
+
+            val secondTransport = object : OlmOutgoingDeliveryTransport {
+                override suspend fun upload(
+                    delivery: QueuedOlmDeviceDelivery,
+                    senderDeviceId: String,
+                ): FirebaseOlmUploadResult {
+                    assertEquals(2, delivery.attemptCount)
+                    return FirebaseOlmUploadResult.STORED
+                }
+
+                override suspend fun readMyDeliveryAcknowledgements(
+                    senderDeviceId: String,
+                ): List<OlmDeliveryAcknowledgement> = emptyList()
+
+                override suspend fun removeMyDeliveryAcknowledgement(
+                    senderDeviceId: String,
+                    deliveryId: String,
+                ) = Unit
+            }
+            val secondResult = pool.submit<OlmDeliveryWorkerRunResult> {
+                runBlocking {
+                    OlmDeliveryWorkerRunner(
+                        queue = queue,
+                        transport = secondTransport,
+                        senderUserId = "alice",
+                        senderDeviceId = "sender-device",
+                        clock = { 1_100L },
+                    ).run()
+                }
+            }.get(10, TimeUnit.SECONDS)
+
+            assertEquals(1, secondResult.uploaded)
+            assertFalse(secondResult.retryRequired)
+            val reclaimed = db.olmDeliveryQueueDao().getByDeliveryId(
+                OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+                    .let { queueForIdentity -> 
+                        // The delivery ID is stable for this sender/message/device tuple.
+                        queueForIdentity.claimNext("alice", "sender-device", 1_100L - 1L)
+                            ?.deliveryId
+                    }
+            )
+            // Read the current row by its message identity; the second worker's
+            // successful upload must still own attempt 2's unexpired lease.
+            val current = db.olmDeliveryQueueDao().findNextDue("alice", "sender-device", 1_100L)
+            assertEquals(null, current)
+            assertEquals("msg-stale-worker", reclaimed?.messageId)
+            assertEquals(2, reclaimed?.attemptCount)
+            assertEquals(1_200L, reclaimed?.leaseUntilMillis)
+
+            // Simulate a late first worker with a stale clock. Its local lease
+            // check passes, but Room's attempt/lease generation fence rejects it.
+            firstWorkerClock.set(1_050L)
+            releaseFirstUpload.countDown()
+            val firstResult = firstFuture.get(10, TimeUnit.SECONDS)
+            assertEquals(0, firstResult.uploaded)
+            assertTrue(firstResult.retryRequired)
+
+            val persisted = db.olmDeliveryQueueDao().getByDeliveryId(reclaimed!!.deliveryId)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, persisted?.status)
+            assertEquals(2, persisted?.attemptCount)
+            assertEquals(1_200L, persisted?.leaseUntilMillis)
+            assertEquals(null, persisted?.lastError)
+        } finally {
+            releaseFirstUpload.countDown()
+            pool.shutdownNow()
             db.close()
             context.deleteDatabase(name)
         }
