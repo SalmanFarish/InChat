@@ -95,6 +95,79 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
+    fun retryBackoffSurvivesDatabaseReopenAndReclaimsTheSameDelivery() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-retry-persistence-test.db"
+        context.deleteDatabase(name)
+        var deliveryId = ""
+
+        try {
+            val firstDatabase = Room.databaseBuilder(
+                context,
+                LocalChatDatabase::class.java,
+                name,
+            ).allowMainThreadQueries().build()
+            try {
+                val firstQueue = OlmDeliveryQueue(
+                    RoomOlmDeliveryQueueStore(firstDatabase, firstDatabase.olmDeliveryQueueDao()),
+                )
+                assertEquals(
+                    1,
+                    firstQueue.enqueue(
+                        "alice",
+                        "sender-device",
+                        "retry-after-restart",
+                        listOf(prepared("device-phone")),
+                    ),
+                )
+                val firstClaim = firstQueue.claimNext("alice", "sender-device", 10_000L)!!
+                deliveryId = firstClaim.deliveryId
+                assertEquals(1, firstClaim.attemptCount)
+                assertTrue(
+                    firstQueue.retry(
+                        deliveryId = firstClaim.deliveryId,
+                        messageId = firstClaim.messageId,
+                        nowMillis = 10_000L,
+                        errorCode = "relay_upload_failed",
+                        ownerUserId = "alice",
+                        senderDeviceId = "sender-device",
+                    ),
+                )
+                val queued = firstDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)
+                assertEquals(OlmDeliveryStatus.QUEUED.name, queued?.status)
+                assertEquals(12_000L, queued?.nextAttemptAtMillis)
+                assertEquals("relay_upload_failed", queued?.lastError)
+            } finally {
+                firstDatabase.close()
+            }
+
+            val reopenedDatabase = Room.databaseBuilder(
+                context,
+                LocalChatDatabase::class.java,
+                name,
+            ).allowMainThreadQueries().build()
+            try {
+                val reopenedQueue = OlmDeliveryQueue(
+                    RoomOlmDeliveryQueueStore(reopenedDatabase, reopenedDatabase.olmDeliveryQueueDao()),
+                )
+                assertNull(reopenedQueue.claimNext("alice", "sender-device", 11_999L))
+
+                val recovered = reopenedQueue.claimNext("alice", "sender-device", 12_000L)
+                assertNotNull(recovered)
+                assertEquals(deliveryId, recovered?.deliveryId)
+                assertEquals("retry-after-restart", recovered?.messageId)
+                assertEquals(2, recovered?.attemptCount)
+                assertEquals(OlmDeliveryStatus.IN_FLIGHT, recovered?.status)
+                assertEquals("relay_upload_failed", recovered?.lastError)
+            } finally {
+                reopenedDatabase.close()
+            }
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun acknowledgementDeletesOnlyTheExactQueuedDelivery() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-acknowledgement-test.db"

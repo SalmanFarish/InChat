@@ -631,8 +631,10 @@ test("only the addressed recipient device can acknowledge an existing encrypted 
   await assertSucceeds(set(ref(aliceDb, inboxPath), encryptedInboxRecord()));
   await assertSucceeds(set(ref(bobDb, ackPath), acknowledgement));
   await assertFails(get(ref(bobDb, ackPath)));
+  await assertFails(set(ref(bobDb, ackPath), null));
   await assertSucceeds(get(ref(aliceDb, ackPath)));
   await assertFails(set(ref(malloryDb, ackPath), acknowledgement));
+  await assertFails(set(ref(malloryDb, ackPath), null));
   await assertSucceeds(set(ref(aliceDb, ackPath), null));
 });
 
@@ -677,6 +679,8 @@ test("only the recipient can read and remove an encrypted device inbox item", as
   });
   await assertFails(get(ref(aliceDb, path)));
   await assertFails(get(ref(malloryDb, path)));
+  await assertFails(set(ref(aliceDb, path), null));
+  await assertFails(set(ref(malloryDb, path), null));
   await assertSucceeds(get(ref(bobDb, path)));
   await assertSucceeds(set(ref(bobDb, path), null));
 });
@@ -715,6 +719,98 @@ test("blocked users cannot send encrypted inbox deliveries in either direction",
     ref(aliceDb, "olmInbox/bob/device-bob-1/" + "f".repeat(64)),
     encryptedInboxRecord(),
   ));
+});
+
+
+test("encrypted inbox IDs and records reject malformed or forged metadata", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/not-a-delivery-hash"),
+    encryptedInboxRecord(),
+  ));
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "1".repeat(64)),
+    {
+      ...encryptedInboxRecord(),
+      injectedMetadata: true,
+    },
+  ));
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "2".repeat(64)),
+    encryptedInboxRecord("mallory", "device-alice-1"),
+  ));
+});
+
+test("recipient acknowledgements can be retried but cannot change delivery identity", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const deliveryId = "3".repeat(64);
+  const inboxPath = `olmInbox/bob/device-bob-1/${deliveryId}`;
+  const ackPath = `olmDeliveryAcks/alice/device-alice-1/${deliveryId}`;
+  const acknowledgement = {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-1",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: Date.now(),
+  };
+
+  await assertSucceeds(set(ref(aliceDb, inboxPath), encryptedInboxRecord()));
+  await assertSucceeds(set(ref(bobDb, ackPath), acknowledgement));
+
+  // A retry may refresh only its timestamp while retaining the same identity.
+  await assertSucceeds(set(ref(bobDb, ackPath), {
+    ...acknowledgement,
+    acknowledgedAt: acknowledgement.acknowledgedAt + 1,
+  }));
+  await assertFails(set(ref(bobDb, ackPath), {
+    ...acknowledgement,
+    messageId: "different-message",
+  }));
+  await assertFails(set(ref(bobDb, ackPath), {
+    ...acknowledgement,
+    recipientUid: "mallory",
+  }));
+  await assertFails(set(ref(bobDb, ackPath), {
+    ...acknowledgement,
+    injectedMetadata: true,
+  }));
+  await assertFails(set(ref(aliceDb, ackPath), {
+    ...acknowledgement,
+    acknowledgedAt: acknowledgement.acknowledgedAt + 2,
+  }));
+  await assertFails(set(ref(malloryDb, ackPath), null));
+  await assertFails(set(ref(bobDb, ackPath), null));
+  await assertSucceeds(set(ref(aliceDb, ackPath), null));
+});
+
+test("acknowledgements must name the exact recipient device addressed by the inbox path", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const deliveryId = "4".repeat(64);
+  const inboxPath = `olmInbox/bob/device-bob-1/${deliveryId}`;
+  const ackPath = `olmDeliveryAcks/alice/device-alice-1/${deliveryId}`;
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(
+      ref(context.database(), "deviceKeys/bob/device-bob-2"),
+      publicDeviceBundle("device-bob-2"),
+    );
+  });
+  await assertSucceeds(set(ref(aliceDb, inboxPath), encryptedInboxRecord()));
+  await assertFails(set(ref(bobDb, ackPath), {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-2",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: Date.now(),
+  }));
+  await assertSucceeds(set(ref(bobDb, ackPath), {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-1",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: Date.now(),
+  }));
 });
 
 
