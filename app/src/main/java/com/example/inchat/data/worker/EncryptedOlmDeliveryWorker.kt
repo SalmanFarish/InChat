@@ -59,21 +59,33 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
         }
 
-        val activeDeviceId = try {
+        val identityLookup = runCatching {
             DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-        } catch (error: Exception) {
-            // Preserve the schedule for transient storage failures or a temporary
-            // identity-transfer lock; a later pass can recover after the lock clears.
-            Log.e(TAG, "The local encrypted device identity is unavailable; delivery is paused.", error)
-            return Result.success()
         }
-
-        if (!isEncryptedOlmScheduledDeviceActive(senderDeviceId, activeDeviceId)) {
-            // A missing/retired native identity cannot ever service this schedule.
-            // Cancel only its WorkManager jobs; keep durable Room deliveries intact.
-            Log.i(TAG, "Retiring encrypted delivery for a missing or inactive device identity.")
-            cancel(applicationContext, ownerUserId, senderDeviceId)
-            return Result.success()
+        val deviceScopeDecision = evaluateEncryptedOlmDeviceScope(
+            scheduledSenderDeviceId = senderDeviceId,
+            activeDeviceId = identityLookup.getOrNull(),
+            lookupFailed = identityLookup.isFailure,
+        )
+        when (deviceScopeDecision) {
+            EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> {
+                // Preserve the schedule for transient storage failures or a temporary
+                // identity-transfer lock; a later pass can recover after the lock clears.
+                Log.e(
+                    TAG,
+                    "The local encrypted device identity is unavailable; delivery is paused.",
+                    identityLookup.exceptionOrNull(),
+                )
+                return Result.success()
+            }
+            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> {
+                // A missing/retired native identity cannot ever service this schedule.
+                // Cancel only its WorkManager jobs; keep durable Room deliveries intact.
+                Log.i(TAG, "Retiring encrypted delivery for a missing or inactive device identity.")
+                cancel(applicationContext, ownerUserId, senderDeviceId)
+                return Result.success()
+            }
+            EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> Unit
         }
 
         return try {
