@@ -73,7 +73,11 @@ class OlmInboundDeliveryLedgerTest {
                 assertEquals(1, results.count { it == OlmInboundRegistration.PENDING_RETRY })
 
                 val receiptId = MessageDigest.getInstance("SHA-256")
-                    .digest("alice\\u0000sender-device\\u0000$messageId\\u0000receiver-device".toByteArray())
+                    .digest(
+                        listOf("alice", "sender-device", messageId, "receiver-device")
+                            .joinToString(0.toChar().toString())
+                            .toByteArray(),
+                    )
                     .joinToString("") { "%02x".format(it) }
                 val stored = db.olmInboundReceiptDao().getByReceiptId(receiptId)
                 assertEquals(encoded, stored?.envelope)
@@ -120,7 +124,11 @@ class OlmInboundDeliveryLedgerTest {
                 assertEquals(1, results.count { it == OlmInboundRegistration.CONFLICT })
 
                 val receiptId = MessageDigest.getInstance("SHA-256")
-                    .digest("alice\\u0000sender-device\\u0000$messageId\\u0000receiver-device".toByteArray())
+                    .digest(
+                        listOf("alice", "sender-device", messageId, "receiver-device")
+                            .joinToString(0.toChar().toString())
+                            .toByteArray(),
+                    )
                     .joinToString("") { "%02x".format(it) }
                 val stored = db.olmInboundReceiptDao().getByReceiptId(receiptId)
                 assertTrue(stored?.envelope == firstEnvelope || stored?.envelope == secondEnvelope)
