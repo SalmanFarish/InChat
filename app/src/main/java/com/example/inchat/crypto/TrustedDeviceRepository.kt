@@ -18,13 +18,13 @@ internal fun interface OlmDeviceTrustVerifier {
  * Stores verified peer-device identities locally in an Android Keystore AES-GCM
  * encrypted file. Firebase is not used as an authority for trust decisions.
  */
-internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifier {
+internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifier, SasVerificationTrustStore {
     private val stateStore = CryptoStateStore(
         context.applicationContext,
         STATE_ID,
     )
 
-    fun markVerified(
+    override fun markVerified(
         peerUserId: String,
         peerDeviceId: String,
         peerEd25519IdentityKey: String,
