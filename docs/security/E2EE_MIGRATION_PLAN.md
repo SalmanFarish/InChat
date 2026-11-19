@@ -145,9 +145,3 @@ This is coordinator-level protocol coverage, not yet a two-physical-device
 Firebase emulator or real-network recovery test. The SAS screen and protocol
 remain separate from live chat sending and receiving.
 
-A two-account Kotlin coordinator instrumentation test now drives the real native SAS
-state machines through a deterministic in-memory relay and Room replay ledgers. It
-verifies both sides derive the same three decimal values, neither side writes trust
-before peer-MAC verification, both local trust stores are updated after explicit
-confirmation, and every relay message is acknowledged. This test does not require
-Firebase credentials and does not connect the prototype to live chats.
