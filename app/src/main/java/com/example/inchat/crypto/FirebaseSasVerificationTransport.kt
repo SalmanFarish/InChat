@@ -11,7 +11,100 @@ internal data class SasVerificationInboxItem(
     val message: SasVerificationMessage,
 )
 
+internal data class SasVerificationRelayRecord(
+    val deliveryId: String?,
+    val fields: Map<String, Any?>,
+)
+
+internal interface SasVerificationRelayStore {
+    suspend fun put(
+        recipientUserId: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    )
+
+    suspend fun readInbox(
+        recipientUserId: String,
+        recipientDeviceId: String,
+    ): List<SasVerificationRelayRecord>
+
+    suspend fun remove(
+        recipientUserId: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+    )
+}
+
+/** Firebase adapter kept separate from transport validation so the latter can be failure-tested locally. */
+internal class FirebaseSasVerificationRelayStore(
+    private val database: FirebaseDatabase,
+) : SasVerificationRelayStore {
+    override suspend fun put(
+        recipientUserId: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    ) {
+        inboxReference(recipientUserId, recipientDeviceId, deliveryId)
+            .setValue(fields).await()
+    }
+
+    override suspend fun readInbox(
+        recipientUserId: String,
+        recipientDeviceId: String,
+    ): List<SasVerificationRelayRecord> {
+        val snapshot = inboxReference(recipientUserId, recipientDeviceId).parent!!.get().await()
+        return snapshot.children.map { child ->
+            val fields = child.children.mapNotNull { field ->
+                field.key?.let { key -> key to field.value }
+            }.toMap()
+            SasVerificationRelayRecord(child.key, fields)
+        }
+    }
+
+    override suspend fun remove(
+        recipientUserId: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+    ) {
+        inboxReference(recipientUserId, recipientDeviceId, deliveryId)
+            .removeValue().await()
+    }
+
+    private fun inboxReference(
+        recipientUserId: String,
+        recipientDeviceId: String,
+        deliveryId: String? = null,
+    ) = database.reference.child(INBOX_NODE)
+        .child(recipientUserId)
+        .child(recipientDeviceId)
+        .let { reference -> deliveryId?.let(reference::child) ?: reference }
+
+    private companion object {
+        const val INBOX_NODE = "sasVerificationInbox"
+    }
+}
+
 private val SAS_DELIVERY_PATTERN = Regex("[A-Fa-f0-9]{64}")
+private val SAS_RELAY_FIELDS = setOf(
+    "senderUid",
+    "senderDeviceId",
+    "transactionId",
+    "type",
+    "payload",
+    "createdAtMillis",
+    "expiresAtMillis",
+    "canonicalMessage",
+)
+
+private fun Map<String, Any?>.longField(name: String): Long? {
+    val number = this[name] as? Number ?: return null
+    val doubleValue = number.toDouble()
+    if (!doubleValue.isFinite() || doubleValue % 1.0 != 0.0) return null
+    val longValue = number.toLong()
+    return longValue.takeIf { it.toDouble() == doubleValue }
+}
 
 internal fun isExpiredSasRelayEntry(
     deliveryId: String?,
@@ -36,8 +129,11 @@ internal interface SasVerificationTransport {
 internal class FirebaseSasVerificationTransport(
     private val localUserId: String,
     private val localDeviceId: String,
-    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val relayStore: SasVerificationRelayStore =
+        FirebaseSasVerificationRelayStore(FirebaseDatabase.getInstance()),
+    private val currentAuthenticatedUserId: () -> String? = {
+        FirebaseAuth.getInstance().currentUser?.uid
+    },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : SasVerificationTransport {
     init {
@@ -51,7 +147,7 @@ internal class FirebaseSasVerificationTransport(
      * must fail closed rather than redirect a stale coordinator to another inbox.
      */
     private fun requireAuthenticatedLocalUser(): String {
-        val uid = requireNotNull(auth.currentUser?.uid) {
+        val uid = requireNotNull(currentAuthenticatedUserId()) {
             "Sign in before using the verification transport"
         }
         require(uid == localUserId) {
@@ -71,7 +167,6 @@ internal class FirebaseSasVerificationTransport(
         val now = clock().coerceAtLeast(0L)
         require(message.expiresAtMillis > now) { "SAS verification transaction has expired" }
         val encoded = SasVerificationMessageCodec.encode(message)
-        val reference = inboxReference(message.recipientUserId, message.recipientDeviceId, message.deliveryId)
         val payload = mapOf(
             "senderUid" to uid,
             "senderDeviceId" to message.senderDeviceId,
@@ -82,33 +177,40 @@ internal class FirebaseSasVerificationTransport(
             "expiresAtMillis" to message.expiresAtMillis,
             "canonicalMessage" to encoded,
         )
-        reference.setValue(payload).await()
+        relayStore.put(
+            message.recipientUserId,
+            message.recipientDeviceId,
+            message.deliveryId,
+            payload,
+        )
     }
 
     override suspend fun readInbox(deviceId: String): List<SasVerificationInboxItem> {
         requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "SAS inbox must be read for this installation" }
         val now = clock().coerceAtLeast(0L)
-        val inbox = database.reference.child(INBOX_NODE).child(localUserId).child(deviceId)
-        val snapshot = inbox.get().await()
+        val records = relayStore.readInbox(localUserId, deviceId)
         // Auth can change while the database read is in flight. Do not return
         // messages to a coordinator after its owning account has signed out.
         requireAuthenticatedLocalUser()
 
         val pending = mutableListOf<SasVerificationInboxItem>()
-        for (entry in snapshot.children) {
-            val deliveryId = entry.key
-            val expiresAtMillis = entry.child("expiresAtMillis").getValue(Long::class.java)
-            if (isExpiredSasRelayEntry(deliveryId, expiresAtMillis, now)) {
+        for (record in records) {
+            if (isExpiredSasRelayEntry(
+                    record.deliveryId,
+                    record.fields.longField("expiresAtMillis"),
+                    now,
+                )
+            ) {
                 // SAS relay rows are immutable after creation. The addressed
                 // recipient is allowed to delete its own rows, so remove expired
                 // entries instead of rereading the same stale rows on every poll.
-                // Recheck auth immediately before the destructive operation.
+                // Recheck auth immediately before each destructive operation.
                 requireAuthenticatedLocalUser()
-                entry.ref.removeValue().await()
+                relayStore.remove(localUserId, deviceId, requireNotNull(record.deliveryId))
                 continue
             }
-            parse(entry, localUserId, deviceId, now)?.let(pending::add)
+            parse(record, localUserId, deviceId, now)?.let(pending::add)
         }
         return pending.sortedBy { it.message.createdAtMillis }
     }
@@ -117,43 +219,45 @@ internal class FirebaseSasVerificationTransport(
         requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "Only this installation can acknowledge its SAS inbox" }
         require(SAS_DELIVERY_PATTERN.matches(deliveryId))
-        database.reference.child(INBOX_NODE).child(localUserId).child(deviceId).child(deliveryId)
-            .removeValue().await()
+        relayStore.remove(localUserId, deviceId, deliveryId)
     }
 
     private fun parse(
-        snapshot: DataSnapshot,
+        record: SasVerificationRelayRecord,
         recipientUid: String,
         recipientDeviceId: String,
         now: Long,
     ): SasVerificationInboxItem? = runCatching {
-        val deliveryId = requireNotNull(snapshot.key)
+        val deliveryId = requireNotNull(record.deliveryId)
         require(SAS_DELIVERY_PATTERN.matches(deliveryId))
-        val senderUid = requireNotNull(snapshot.child("senderUid").getValue(String::class.java))
-        val senderDeviceId = requireNotNull(snapshot.child("senderDeviceId").getValue(String::class.java))
-        val transactionId = requireNotNull(snapshot.child("transactionId").getValue(String::class.java))
-        val type = SasVerificationMessageType.fromWire(
-            requireNotNull(snapshot.child("type").getValue(String::class.java))
-        )
-        val payload = requireNotNull(snapshot.child("payload").getValue(String::class.java))
-        val createdAt = requireNotNull(snapshot.child("createdAtMillis").getValue(Long::class.java))
-        val expiresAt = requireNotNull(snapshot.child("expiresAtMillis").getValue(Long::class.java))
+        val fields = record.fields
+        require(fields.keys == SAS_RELAY_FIELDS) {
+            "SAS relay record has missing or unexpected fields"
+        }
+        fun requiredString(name: String): String =
+            requireNotNull(fields[name] as? String) { "SAS relay field $name is invalid" }
+        fun requiredLong(name: String): Long =
+            requireNotNull(fields.longField(name)) { "SAS relay field $name is invalid" }
+
+        val senderUid = requiredString("senderUid")
+        val senderDeviceId = requiredString("senderDeviceId")
+        val transactionId = requiredString("transactionId")
+        val type = SasVerificationMessageType.fromWire(requiredString("type"))
+        val payload = requiredString("payload")
+        val createdAt = requiredLong("createdAtMillis")
+        val expiresAt = requiredLong("expiresAtMillis")
         val message = SasVerificationMessage(
             transactionId, senderUid, senderDeviceId, recipientUid, recipientDeviceId,
             type, payload, createdAt, expiresAt,
         )
         require(message.deliveryId == deliveryId)
         val canonical = SasVerificationMessageCodec.encode(message)
-        require(snapshot.child("canonicalMessage").getValue(String::class.java) == canonical)
+        require(requiredString("canonicalMessage") == canonical)
         SasVerificationMessageCodec.decode(canonical, recipientUid, recipientDeviceId, now)
         SasVerificationInboxItem(deliveryId, senderUid, message)
     }.getOrNull()
 
-    private fun inboxReference(uid: String, deviceId: String, deliveryId: String) =
-        database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
-
     private companion object {
-        const val INBOX_NODE = "sasVerificationInbox"
         val USER_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     }
