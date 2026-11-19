@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class RoomOlmDeliveryQueueConcurrencyTest {
@@ -298,6 +299,90 @@ class RoomOlmDeliveryQueueConcurrencyTest {
             assertEquals(null, persisted?.lastError)
         } finally {
             releaseFirstUpload.countDown()
+            pool.shutdownNow()
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun concurrentAcknowledgementProcessorsRemoveOneRoomRowOnly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-concurrent-ack-processors-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val dao = db.olmDeliveryQueueDao()
+        val firstQueue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+        val secondQueue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+        val removalBarrier = CountDownLatch(2)
+        val acknowledgementReads = AtomicInteger()
+        val acknowledgementRemovals = AtomicInteger()
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            assertEquals(
+                1,
+                firstQueue.enqueue(
+                    "alice",
+                    "sender-device",
+                    "concurrent-ack-message",
+                    listOf(prepared("recipient-device")),
+                ),
+            )
+            val row = requireNotNull(dao.findNextDue("alice", "sender-device", 0L))
+            val acknowledgement = OlmDeliveryAcknowledgement(
+                deliveryId = row.deliveryId,
+                recipientUserId = row.recipientUserId,
+                recipientDeviceId = row.recipientDeviceId,
+                messageId = row.messageId,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+            )
+            val transport = object : OlmDeliveryAckTransport {
+                override suspend fun readMyDeliveryAcknowledgements(
+                    senderDeviceId: String,
+                ): List<OlmDeliveryAcknowledgement> {
+                    assertEquals("sender-device", senderDeviceId)
+                    acknowledgementReads.incrementAndGet()
+                    return listOf(acknowledgement)
+                }
+
+                override suspend fun removeMyDeliveryAcknowledgement(
+                    senderDeviceId: String,
+                    deliveryId: String,
+                ) {
+                    assertEquals("sender-device", senderDeviceId)
+                    assertEquals(row.deliveryId, deliveryId)
+                    acknowledgementRemovals.incrementAndGet()
+                    // Both processors must have matched the same persisted row
+                    // before either is allowed to delete it from Room.
+                    removalBarrier.countDown()
+                    check(removalBarrier.await(10, TimeUnit.SECONDS)) {
+                        "Both acknowledgement processors did not reach relay deletion"
+                    }
+                }
+            }
+
+            val futures = listOf(firstQueue, secondQueue).map { queue ->
+                pool.submit<OlmDeliveryAckProcessingResult> {
+                    runBlocking {
+                        OlmDeliveryAckProcessor(
+                            queue = queue,
+                            transport = transport,
+                            senderUserId = "alice",
+                            senderDeviceId = "sender-device",
+                        ).processPending()
+                    }
+                }
+            }
+            val results = futures.map { it.get(10, TimeUnit.SECONDS) }
+
+            assertEquals(2, acknowledgementReads.get())
+            assertEquals(2, acknowledgementRemovals.get())
+            assertEquals(1, results.sumOf { it.removed })
+            assertEquals(1, results.sumOf { it.unmatched })
+            assertNull(dao.getByDeliveryId(row.deliveryId))
+        } finally {
             pool.shutdownNow()
             db.close()
             context.deleteDatabase(name)
