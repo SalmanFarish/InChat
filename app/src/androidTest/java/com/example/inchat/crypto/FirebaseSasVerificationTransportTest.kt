@@ -36,6 +36,25 @@ class FirebaseSasVerificationTransportTest {
     }
 
     @Test
+    fun messageExpiringDuringInboxReadIsNotReturnedOrRetained() = runBlocking {
+        val store = InMemoryRelayStore()
+        var now = 800L
+        val expiresDuringRead = message(
+            "expires-during-read",
+            createdAt = 100L,
+            expiresAt = 900L,
+        )
+        store.enqueue("bob", "device-bob", relayRecord(expiresDuringRead))
+        store.afterRead = { now = 900L }
+
+        val received = transport(store, clock = { now }).readInbox("device-bob")
+
+        assertTrue(received.isEmpty())
+        assertEquals(listOf(expiresDuringRead.deliveryId), store.removedDeliveryIds)
+        assertTrue(!store.contains("bob", "device-bob", expiresDuringRead.deliveryId))
+    }
+
+    @Test
     fun accountSwitchDuringInboxReadFailsClosedBeforeReturningOrDeletingRows() = runBlocking {
         val store = InMemoryRelayStore()
         val expired = message("expired-during-read", createdAt = 100L, expiresAt = 900L)
@@ -197,12 +216,13 @@ class FirebaseSasVerificationTransportTest {
         localUser: String = "bob",
         localDevice: String = "device-bob",
         currentUser: () -> String? = { localUser },
+        clock: () -> Long = { NOW },
     ) = FirebaseSasVerificationTransport(
         localUserId = localUser,
         localDeviceId = localDevice,
         relayStore = store,
         currentAuthenticatedUserId = currentUser,
-        clock = { NOW },
+        clock = clock,
     )
 
     private fun relayRecord(message: SasVerificationMessage): SasVerificationRelayRecord =
