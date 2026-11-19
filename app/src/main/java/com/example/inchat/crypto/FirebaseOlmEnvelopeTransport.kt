@@ -46,9 +46,11 @@ internal enum class FirebaseOlmUploadResult {
  * is an untrusted relay: the receiver must still authenticate the Olm envelope.
  */
 internal class FirebaseOlmEnvelopeTransport(
+    private val trustVerifier: OlmDeviceTrustVerifier,
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
 ) : OlmInboxTransport, OlmOutgoingDeliveryTransport {
+    private val deviceDirectory = DeviceKeyDirectoryRepository(database, auth)
     override suspend fun upload(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
@@ -69,6 +71,22 @@ internal class FirebaseOlmEnvelopeTransport(
         require(DEVICE_PATTERN.matches(delivery.recipientDeviceId)) { "Recipient device ID has an invalid format" }
         require(DELIVERY_PATTERN.matches(delivery.deliveryId)) { "Delivery ID has an invalid format" }
         require(MESSAGE_PATTERN.matches(delivery.messageId)) { "Message ID has an invalid format" }
+
+        // Re-read and signature-verify the current public bundle immediately
+        // before relay upload. This prevents a queued copy from being delivered
+        // after its pinned identity has changed or local trust was revoked.
+        val currentRecipientDevice = deviceDirectory.getUserDevices(delivery.recipientUserId)
+            .firstOrNull { it.deviceId == delivery.recipientDeviceId }
+            ?: throw IllegalStateException("Recipient device is no longer published")
+        check(
+            trustVerifier.isVerified(
+                peerUserId = delivery.recipientUserId,
+                peerDeviceId = currentRecipientDevice.deviceId,
+                peerEd25519IdentityKey = currentRecipientDevice.ed25519IdentityKey,
+            )
+        ) {
+            "Recipient device is no longer trusted on this installation"
+        }
 
         val envelope = EncryptedOlmEnvelopeCodec.decode(delivery.envelope)
         require(envelope.senderDeviceId == senderDeviceId) {
