@@ -191,3 +191,9 @@ upload fields, strict rejection of unknown relay fields, and that malformed
 unexpired rows are retained rather than destructively guessed away. These tests
 exercise transport control flow; Firebase emulator/real-network transport
 failure injection remains a separate verification step.
+
+The SAS inbox expiry check now captures its clock immediately after the asynchronous
+relay read completes. This prevents a message that expires while a network read is
+in flight from being returned using a pre-request timestamp. A clock-advancing
+transport test verifies the expired row is neither delivered to the coordinator
+nor retained in the recipient inbox.
