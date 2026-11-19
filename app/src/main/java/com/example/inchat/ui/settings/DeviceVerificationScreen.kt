@@ -234,14 +234,12 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             notice = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val user = requireNotNull(UserRepository().getUserByUsername(username)) {
-                        "No InChat account was found for that username."
+                    val user = UserRepository().getUserByUsername(username)
+                    check(user != null && user.discoverableByUsername) {
+                        "No discoverable InChat account was found for that username."
                     }
                     require(user.uid != uid) {
                         "Use the Other devices section to verify another phone on your own account."
-                    }
-                    check(user.discoverableByUsername) {
-                        "This account is not discoverable by username."
                     }
                     user to directoryRepository.getUserDevices(user.uid)
                 }
