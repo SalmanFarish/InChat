@@ -234,6 +234,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             notice = null
             try {
                 val result = withContext(Dispatchers.IO) {
+                    check(directoryRepository.authenticatedUserId == uid) {
+                        "The signed-in account changed. Sign in again."
+                    }
                     val user = UserRepository().getUserByUsername(username)
                     check(user != null && user.discoverableByUsername) {
                         "No discoverable InChat account was found for that username."
