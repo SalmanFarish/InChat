@@ -129,7 +129,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             initializationReady = true
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Exception) {
+        } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
             error = failure.message ?: "Could not restore this device."
         } finally {
             isInitializing = false
@@ -141,6 +143,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         while (isActive) {
             try {
                 withContext(Dispatchers.IO) { directoryRepository.touchMyDevice(deviceId) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -173,7 +177,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (failure: Exception) {
+                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                     error = failure.message ?: "Could not receive verification messages."
                 }
                 delay(1_500)
@@ -190,6 +196,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             try {
                 devices = withContext(Dispatchers.IO) { directoryRepository.getUserDevices(uid) }
                 notice = "Device list updated."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
                 error = failure.message ?: "Could not load registered devices."
             } finally {
@@ -232,6 +240,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 coordinator = result.second.first
                 devices = result.second.second
                 notice = "This device is published. You can now verify another device on this account."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
                 error = failure.message ?: "Could not publish this device."
             } finally {
@@ -326,7 +336,11 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     )
                 }
                 otherDevices.forEach { device ->
-                    val state = states.values.firstOrNull { it.peerDeviceId == device.deviceId && it.peerUserId == uid }
+                    val state = latestDeviceVerificationState(
+                        states = states,
+                        peerUserId = uid,
+                        peerDeviceId = device.deviceId,
+                    )
                     val lastSeen = device.lastSeenAtMillis
                     val isLegacyEntry = lastSeen == null
                     DeviceVerificationAttemptCard(
@@ -342,6 +356,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         canRemove = isLegacyEntry,
                         onRemove = { devicePendingRemoval = device },
                         trustedAtMillis = trustedAtByDevice[device.deviceId],
+                        trustStatusLoaded = trustedAtByDevice.containsKey(device.deviceId),
                         onRevoke = {
                             scope.launch {
                                 try {
@@ -350,7 +365,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                     }
                                     trustedAtByDevice = trustedAtByDevice + (device.deviceId to null)
                                     notice = "Trust revoked on this device."
-                                } catch (failure: Exception) {
+                                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                                     error = failure.message ?: "Could not revoke device trust."
                                 }
                             }
@@ -362,7 +379,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                     withContext(Dispatchers.IO) {
                                         requireNotNull(coordinator).startVerification(uid, device.deviceId)
                                     }
-                                } catch (failure: Exception) {
+                                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                                     error = failure.message ?: "Could not start verification."
                                 }
                             }
@@ -374,7 +393,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                     withContext(Dispatchers.IO) {
                                         requireNotNull(coordinator).confirmSasMatch(requireNotNull(state).transactionId)
                                     }
-                                } catch (failure: Exception) {
+                                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                                     error = failure.message ?: "Could not confirm verification."
                                 }
                             }
@@ -385,7 +406,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                     withContext(Dispatchers.IO) {
                                         coordinator?.cancel(requireNotNull(state).transactionId)
                                     }
-                                } catch (failure: Exception) {
+                                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                                     error = failure.message ?: "Could not cancel verification."
                                 }
                             }
@@ -422,7 +445,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                             trustedAtByDevice = trustedAtByDevice - device.deviceId
                             notice = "Old device entry removed from this account."
                             error = null
-                        } catch (failure: Exception) {
+                        } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                             error = failure.message ?: "Could not remove the device entry."
                         }
                     }
@@ -443,6 +468,7 @@ private fun DeviceVerificationAttemptCard(
     canRemove: Boolean,
     onRemove: () -> Unit,
     trustedAtMillis: Long?,
+    trustStatusLoaded: Boolean,
     onRevoke: () -> Unit,
     onStart: () -> Unit,
     onConfirm: () -> Unit,
@@ -508,6 +534,21 @@ private fun DeviceVerificationAttemptCard(
                     if (trustedAtMillis != null) {
                         OutlinedButton(onClick = onRevoke, modifier = Modifier.fillMaxWidth()) {
                             Text("Remove trust on this phone")
+                        }
+                    } else {
+                        Text(
+                            if (trustStatusLoaded) {
+                                "This device is not currently trusted on this phone."
+                            } else {
+                                "Checking this phone's saved trust decision…"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (shouldOfferDeviceReverification(state, trustedAtMillis, trustStatusLoaded)) {
+                            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+                                Text("Verify this device again")
+                            }
                         }
                     }
                 }
