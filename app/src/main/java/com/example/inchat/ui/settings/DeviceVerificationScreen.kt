@@ -139,7 +139,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             initializationReady = true
         } catch (cancelled: CancellationException) {
             throw cancelled
-            } catch (failure: Exception) {
+        } catch (failure: Exception) {
             error = failure.message ?: "Could not restore this device."
         } finally {
             isInitializing = false
@@ -192,7 +192,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-            } catch (failure: Exception) {
+                } catch (failure: Exception) {
                     error = failure.message ?: "Could not receive verification messages."
                 }
                 delay(1_500)
@@ -427,8 +427,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                         (deviceTrustMapKey(uid, device.deviceId) to null)
                                     notice = "Trust revoked on this device."
                                 } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
                                     error = failure.message ?: "Could not revoke device trust."
                                 }
                             }
@@ -441,8 +441,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                         requireNotNull(coordinator).startVerification(uid, device.deviceId)
                                     }
                                 } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
                                     error = failure.message ?: "Could not start verification."
                                 }
                             }
@@ -455,8 +455,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                         requireNotNull(coordinator).confirmSasMatch(requireNotNull(state).transactionId)
                                     }
                                 } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
                                     error = failure.message ?: "Could not confirm verification."
                                 }
                             }
@@ -468,8 +468,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                         coordinator?.cancel(requireNotNull(state).transactionId)
                                     }
                                 } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
                                     error = failure.message ?: "Could not cancel verification."
                                 }
                             }
@@ -644,8 +644,8 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                             notice = "Old device entry removed from this account."
                             error = null
                         } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
+                            throw cancelled
+                        } catch (failure: Exception) {
                             error = failure.message ?: "Could not remove the device entry."
                         }
                     }
