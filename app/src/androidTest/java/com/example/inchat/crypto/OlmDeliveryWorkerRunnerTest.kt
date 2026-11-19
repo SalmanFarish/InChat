@@ -186,6 +186,60 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun fullBatchRequestsAnotherPassAndNextPassDrainsOnlyRemainingScopedRows() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "batch-first", listOf(prepared("sender-device", "phone-1")))
+        queue.enqueue("alice", "sender-device", "batch-second", listOf(prepared("sender-device", "phone-2")))
+        queue.enqueue("alice", "sender-device", "batch-third", listOf(prepared("sender-device", "phone-3")))
+        queue.enqueue("alice", "retired-device", "retired-device-row", listOf(prepared("retired-device", "phone-4")))
+
+        val firstPassEvents = mutableListOf<String>()
+        val firstPass = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(firstPassEvents, mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_000L },
+            maxDeliveriesPerRun = 2,
+        ).run()
+
+        assertEquals(2, firstPass.uploaded)
+        assertTrue(firstPass.retryRequired)
+        assertEquals(
+            listOf("read-acks", "upload:batch-first", "upload:batch-second"),
+            firstPassEvents,
+        )
+        assertEquals(
+            OlmDeliveryStatus.QUEUED,
+            store.rows.values.single { it.messageId == "batch-third" }.status,
+        )
+        assertTrue(store.rows.values.any { it.messageId == "retired-device-row" })
+
+        val secondPassEvents = mutableListOf<String>()
+        val secondPass = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(secondPassEvents, mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_001L },
+            maxDeliveriesPerRun = 2,
+        ).run()
+
+        assertEquals(1, secondPass.uploaded)
+        assertFalse(secondPass.retryRequired)
+        assertEquals(
+            listOf("read-acks", "upload:batch-third"),
+            secondPassEvents,
+        )
+        assertTrue(store.rows.values.any { it.messageId == "retired-device-row" })
+        assertEquals(
+            3,
+            store.rows.values.count { it.ownerUserId == "alice" && it.senderDeviceId == "sender-device" },
+        )
+    }
+
+    @Test
     fun failedUploadPersistsRetryStateInTheScopedOutbox() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
