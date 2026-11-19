@@ -7,6 +7,7 @@ import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
@@ -111,9 +112,12 @@ class InChatApplication : Application() {
                     }
 
                     synchronized(encryptedDeliveryWorkLock) {
-                        val authStillMatches =
-                            generation == encryptedDeliveryAuthGeneration &&
-                                FirebaseAuth.getInstance().currentUser?.uid == ownerUserId
+                        val authStillMatches = isEncryptedOlmAuthResolutionCurrent(
+                            requestGeneration = generation,
+                            currentGeneration = encryptedDeliveryAuthGeneration,
+                            requestedOwnerUserId = ownerUserId,
+                            authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid,
+                        )
                         if (authStillMatches) {
                             if (identityLookup.isSuccess) {
                                 // Cancel the previous account/device scope, then
