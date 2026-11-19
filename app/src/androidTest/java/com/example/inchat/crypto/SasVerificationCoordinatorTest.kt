@@ -120,6 +120,78 @@ class SasVerificationCoordinatorTest {
     }
 
     @Test
+    fun duplicatePeerMacRetriesTrustPersistenceAfterTransientStoreFailure() = runBlocking {
+        val fixture = Fixture()
+        var transactionId: String? = null
+        try {
+            val started = fixture.alice.coordinator.startVerification(
+                peerUserId = fixture.bob.userId,
+                peerDeviceId = fixture.bob.bundle.deviceId,
+            )
+            transactionId = started.transactionId
+            assertEquals(1, fixture.bob.coordinator.receivePending().received)
+            assertEquals(2, fixture.alice.coordinator.receivePending().received)
+            assertEquals(1, fixture.bob.coordinator.receivePending().received)
+
+            fixture.alice.coordinator.confirmSasMatch(started.transactionId)
+            fixture.bob.coordinator.confirmSasMatch(started.transactionId)
+            fixture.alice.trust.failNextMarkVerified = true
+
+            val firstDelivery = runCatching { fixture.alice.coordinator.receivePending() }
+            assertTrue("A simulated local trust-store failure should leave the delivery pending", firstDelivery.isFailure)
+            assertFalse(
+                fixture.alice.trust.contains(
+                    Triple(
+                        fixture.bob.userId,
+                        fixture.bob.bundle.deviceId,
+                        fixture.bob.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
+            assertEquals(
+                SasVerificationPhase.CONFIRMING,
+                fixture.alice.coordinator.states.value[started.transactionId]?.phase,
+            )
+
+            // The receiver sees the same durable inbox row again. The coordinator
+            // must retry the trust write after the peer MAC was already verified.
+            assertEquals(1, fixture.alice.coordinator.receivePending().received)
+            assertEquals(
+                SasVerificationPhase.COMPLETE,
+                fixture.alice.coordinator.states.value[started.transactionId]?.phase,
+            )
+            assertTrue(
+                fixture.alice.trust.contains(
+                    Triple(
+                        fixture.bob.userId,
+                        fixture.bob.bundle.deviceId,
+                        fixture.bob.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
+
+            assertEquals(1, fixture.bob.coordinator.receivePending().received)
+            assertEquals(
+                SasVerificationPhase.COMPLETE,
+                fixture.bob.coordinator.states.value[started.transactionId]?.phase,
+            )
+            assertTrue(
+                fixture.bob.trust.contains(
+                    Triple(
+                        fixture.alice.userId,
+                        fixture.alice.bundle.deviceId,
+                        fixture.alice.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
+            assertTrue(fixture.relay.isEmpty())
+        } finally {
+            transactionId?.let { fixture.cancelBoth(it) }
+            fixture.close()
+        }
+    }
+
+    @Test
     fun cancelFromAnotherAccountAndDeviceCannotTerminateTheActiveAttempt() = runBlocking {
         val fixture = Fixture()
         var transactionId: String? = null
@@ -282,6 +354,7 @@ class SasVerificationCoordinatorTest {
 
     private class RecordingTrustStore : SasVerificationTrustStore {
         private val records = mutableSetOf<Triple<String, String, String>>()
+        var failNextMarkVerified = false
 
         override fun markVerified(
             peerUserId: String,
@@ -289,6 +362,10 @@ class SasVerificationCoordinatorTest {
             peerEd25519IdentityKey: String,
             verifiedAtMillis: Long,
         ) {
+            if (failNextMarkVerified) {
+                failNextMarkVerified = false
+                throw IllegalStateException("Simulated temporary trusted-device storage failure")
+            }
             records += Triple(peerUserId, peerDeviceId, peerEd25519IdentityKey)
         }
 
