@@ -40,6 +40,54 @@ class EncryptedOlmDeliveryWorkerScopeTest {
     }
 
     @Test
+    fun latestAuthLookupCanApplyForTheCurrentAccount() {
+        assertTrue(
+            isEncryptedOlmAuthResolutionCurrent(
+                requestGeneration = 7L,
+                currentGeneration = 7L,
+                requestedOwnerUserId = "alice",
+                authenticatedUserId = "alice",
+            ),
+        )
+    }
+
+    @Test
+    fun lateAuthLookupCannotRestoreWorkAfterSignOut() {
+        assertFalse(
+            isEncryptedOlmAuthResolutionCurrent(
+                requestGeneration = 6L,
+                currentGeneration = 7L,
+                requestedOwnerUserId = "alice",
+                authenticatedUserId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun lateAuthLookupCannotRestorePreviousAccountAfterSwitch() {
+        assertFalse(
+            isEncryptedOlmAuthResolutionCurrent(
+                requestGeneration = 6L,
+                currentGeneration = 7L,
+                requestedOwnerUserId = "alice",
+                authenticatedUserId = "bob",
+            ),
+        )
+    }
+
+    @Test
+    fun sameGenerationStillRejectsUnexpectedAuthenticatedAccount() {
+        assertFalse(
+            isEncryptedOlmAuthResolutionCurrent(
+                requestGeneration = 7L,
+                currentGeneration = 7L,
+                requestedOwnerUserId = "alice",
+                authenticatedUserId = "bob",
+            ),
+        )
+    }
+
+    @Test
     fun onlyTheExactActiveDeviceKeepsItsSchedule() {
         assertTrue(isEncryptedOlmScheduledDeviceActive("device-a", "device-a"))
         assertFalse(isEncryptedOlmScheduledDeviceActive("device-a", "device-b"))
