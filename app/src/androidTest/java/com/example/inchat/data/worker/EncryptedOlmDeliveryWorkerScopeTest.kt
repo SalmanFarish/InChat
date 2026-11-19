@@ -76,6 +76,18 @@ class EncryptedOlmDeliveryWorkerScopeTest {
     }
 
     @Test
+    fun oldLookupCannotApplyAfterSignOutAndSignInToSameAccount() {
+        assertFalse(
+            isEncryptedOlmAuthResolutionCurrent(
+                requestGeneration = 6L,
+                currentGeneration = 8L,
+                requestedOwnerUserId = "alice",
+                authenticatedUserId = "alice",
+            ),
+        )
+    }
+
+    @Test
     fun sameGenerationStillRejectsUnexpectedAuthenticatedAccount() {
         assertFalse(
             isEncryptedOlmAuthResolutionCurrent(
