@@ -49,6 +49,49 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun interruptedUploadIsReclaimedAfterLeaseExpiryWithTheSameDeliveryId() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
+        queue.enqueue("alice", "sender-device", "interrupted-upload", listOf(prepared("sender-device", "phone")))
+
+        // Simulate process death after the queue claim. The row is still IN_FLIGHT,
+        // but the remote write's completion was never observed by this process.
+        val interruptedClaim = queue.claimNext("alice", "sender-device", 1_000L)!!
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, interruptedClaim.status)
+        assertEquals(1, interruptedClaim.attemptCount)
+
+        val beforeLeaseExpiry = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(mutableListOf(), mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 1_099L },
+        ).run()
+        assertEquals(0, beforeLeaseExpiry.uploaded)
+        assertFalse(beforeLeaseExpiry.retryRequired)
+
+        val uploadedDeliveryIds = mutableListOf<String>()
+        val recovered = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(
+                events = mutableListOf(),
+                acknowledgements = mutableListOf(),
+                uploadedDeliveryIds = uploadedDeliveryIds,
+            ),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 1_100L },
+        ).run()
+
+        assertEquals(1, recovered.uploaded)
+        assertFalse(recovered.retryRequired)
+        assertEquals(listOf(interruptedClaim.deliveryId), uploadedDeliveryIds)
+        val stored = store.rows.getValue(interruptedClaim.deliveryId)
+        assertEquals(2, stored.attemptCount)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, stored.status)
+    }
+
+    @Test
     fun failedUploadPersistsRetryStateInTheScopedOutbox() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
@@ -165,12 +208,14 @@ class OlmDeliveryWorkerRunnerTest {
         private val events: MutableList<String>,
         private val acknowledgements: MutableList<OlmDeliveryAcknowledgement>,
         private val failUploads: Boolean = false,
+        private val uploadedDeliveryIds: MutableList<String> = mutableListOf(),
     ) : OlmOutgoingDeliveryTransport {
         override suspend fun upload(
             delivery: QueuedOlmDeviceDelivery,
             senderDeviceId: String,
         ): FirebaseOlmUploadResult {
             events += "upload:" + delivery.messageId
+            uploadedDeliveryIds += delivery.deliveryId
             check(delivery.senderDeviceId == senderDeviceId)
             if (failUploads) throw IllegalStateException("temporary relay failure")
             return FirebaseOlmUploadResult.STORED

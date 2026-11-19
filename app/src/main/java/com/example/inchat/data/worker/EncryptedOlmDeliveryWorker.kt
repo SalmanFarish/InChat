@@ -101,6 +101,7 @@ class EncryptedOlmDeliveryWorker(
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_SENDER_DEVICE_ID = "sender_device_id"
         private const val PERIODIC_INTERVAL_MINUTES = 15L
+        private const val WORK_TAG = "encrypted_olm_delivery"
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
 
@@ -123,6 +124,7 @@ class EncryptedOlmDeliveryWorker(
 
             val immediate = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
                 .setInputData(data)
+                .addTag(WORK_TAG)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
                 .build()
@@ -132,6 +134,7 @@ class EncryptedOlmDeliveryWorker(
                 TimeUnit.MINUTES,
             )
                 .setInputData(data)
+                .addTag(WORK_TAG)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
                 .build()
@@ -147,6 +150,21 @@ class EncryptedOlmDeliveryWorker(
                 ExistingPeriodicWorkPolicy.KEEP,
                 periodic,
             )
+        }
+
+        /** Cancel both recovery jobs for one account/device without touching its Room outbox. */
+        fun cancel(context: Context, ownerUserId: String, senderDeviceId: String) {
+            require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
+            require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
+
+            val workManager = WorkManager.getInstance(context.applicationContext)
+            workManager.cancelUniqueWork(immediateWorkName(ownerUserId, senderDeviceId))
+            workManager.cancelUniqueWork(periodicWorkName(ownerUserId, senderDeviceId))
+        }
+
+        /** Cancel only encrypted delivery jobs when the Firebase auth scope changes. */
+        fun cancelAll(context: Context) {
+            WorkManager.getInstance(context.applicationContext).cancelAllWorkByTag(WORK_TAG)
         }
 
         private fun immediateWorkName(ownerUserId: String, senderDeviceId: String): String =

@@ -30,10 +30,33 @@ class InChatApplication : Application() {
 
         private const val MESSAGE_CHANNEL_DESCRIPTION =
             "Notifications for new InChat messages"
+
+        private const val ENCRYPTED_DELIVERY_PREFS = "encrypted_olm_delivery_scope"
+        private const val KEY_ENCRYPTED_DELIVERY_OWNER = "owner_user_id"
+        private const val KEY_ENCRYPTED_DELIVERY_DEVICE = "sender_device_id"
     }
 
     private val backgroundScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Auth callbacks and background identity checks must not resurrect stale
+    // account/device work after a sign-out or account switch.
+    private val encryptedDeliveryWorkLock = Any()
+    private var encryptedDeliveryAuthGeneration = 0L
+
+    private fun cancelRememberedEncryptedDeliveryWork() {
+        val preferences = getSharedPreferences(ENCRYPTED_DELIVERY_PREFS, MODE_PRIVATE)
+        val ownerUserId = preferences.getString(KEY_ENCRYPTED_DELIVERY_OWNER, null)
+        val senderDeviceId = preferences.getString(KEY_ENCRYPTED_DELIVERY_DEVICE, null)
+        if (!ownerUserId.isNullOrBlank() && !senderDeviceId.isNullOrBlank()) {
+            EncryptedOlmDeliveryWorker.cancel(
+                context = applicationContext,
+                ownerUserId = ownerUserId,
+                senderDeviceId = senderDeviceId,
+            )
+        }
+        preferences.edit().clear().apply()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,22 +80,87 @@ class InChatApplication : Application() {
          * account's durable Room outbox and recreate any missing jobs.
          */
         FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
-            val ownerUserId = firebaseAuth.currentUser?.uid ?: return@addAuthStateListener
+            val ownerUserId = firebaseAuth.currentUser?.uid
+            val generation = synchronized(encryptedDeliveryWorkLock) {
+                encryptedDeliveryAuthGeneration += 1
+                encryptedDeliveryAuthGeneration
+            }
+
+            if (ownerUserId == null) {
+                synchronized(encryptedDeliveryWorkLock) {
+                    cancelRememberedEncryptedDeliveryWork()
+                    EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                }
+                return@addAuthStateListener
+            }
+
             backgroundScope.launch {
                 try {
-                    // Restore the isolated encrypted-device relay worker only when
-                    // this installation already has a usable local Olm identity.
-                    // This lookup never creates a new device ID or crypto identity.
-                    val senderDeviceId = DeviceIdentityRepository(applicationContext)
-                        .existingDeviceIdForDelivery()
-                    if (senderDeviceId != null &&
-                        FirebaseAuth.getInstance().currentUser?.uid == ownerUserId
-                    ) {
-                        EncryptedOlmDeliveryWorker.schedule(
-                            context = applicationContext,
-                            ownerUserId = ownerUserId,
-                            senderDeviceId = senderDeviceId,
+                    // This lookup never creates a device ID or native identity.
+                    // A failed read keeps the current account's existing schedule;
+                    // an account change still retires the previous account's work.
+                    val identityLookup = runCatching {
+                        DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+                    }
+                    identityLookup.exceptionOrNull()?.let { error ->
+                        Log.w(
+                            "InChatApplication",
+                            "Could not inspect the existing encrypted device identity.",
+                            error,
                         )
+                    }
+
+                    synchronized(encryptedDeliveryWorkLock) {
+                        val authStillMatches =
+                            generation == encryptedDeliveryAuthGeneration &&
+                                FirebaseAuth.getInstance().currentUser?.uid == ownerUserId
+                        if (authStillMatches) {
+                            if (identityLookup.isSuccess) {
+                                // Cancel the previous account/device scope, then
+                                // cancel any tagged jobs left by an interrupted
+                                // preference update. Neither operation deletes Room rows.
+                                cancelRememberedEncryptedDeliveryWork()
+                                EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+
+                                val senderDeviceId = identityLookup.getOrNull()
+                                if (senderDeviceId != null) {
+                                    // Also retire legacy untagged work from an earlier
+                                    // app version before installing the current schedule.
+                                    EncryptedOlmDeliveryWorker.cancel(
+                                        context = applicationContext,
+                                        ownerUserId = ownerUserId,
+                                        senderDeviceId = senderDeviceId,
+                                    )
+                                    EncryptedOlmDeliveryWorker.schedule(
+                                        context = applicationContext,
+                                        ownerUserId = ownerUserId,
+                                        senderDeviceId = senderDeviceId,
+                                    )
+                                    val saved = getSharedPreferences(
+                                        ENCRYPTED_DELIVERY_PREFS,
+                                        MODE_PRIVATE,
+                                    ).edit()
+                                        .putString(KEY_ENCRYPTED_DELIVERY_OWNER, ownerUserId)
+                                        .putString(KEY_ENCRYPTED_DELIVERY_DEVICE, senderDeviceId)
+                                        .commit()
+                                    if (!saved) {
+                                        Log.w(
+                                            "InChatApplication",
+                                            "Could not persist the encrypted delivery work scope.",
+                                        )
+                                    }
+                                }
+                            } else {
+                                val rememberedOwner = getSharedPreferences(
+                                    ENCRYPTED_DELIVERY_PREFS,
+                                    MODE_PRIVATE,
+                                ).getString(KEY_ENCRYPTED_DELIVERY_OWNER, null)
+                                if (rememberedOwner != null && rememberedOwner != ownerUserId) {
+                                    cancelRememberedEncryptedDeliveryWork()
+                                    EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                                }
+                            }
+                        }
                     }
 
                     val pendingMessages = LocalChatDatabase
