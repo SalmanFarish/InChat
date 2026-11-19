@@ -76,7 +76,10 @@ death discards the ephemeral secret and requires a fresh transaction. This is
 safer than persisting an unfinished ephemeral exchange. A narrow JNI bridge now
 exposes the state machine through opaque process-local handles, and an Android
 instrumentation test exercises a complete two-device exchange through native
-code. The bridge still does not persist trust.
+code. The native bridge itself does not persist trust; the Kotlin coordinator
+writes the locally encrypted trust record only after native completion.
+Completed attempts release their native handle and active-attempt slot, and
+incoming cancellation messages must match the exact peer account and device.
 
 The isolated `sasVerificationInbox` Realtime Database transport carries only
 short-lived SAS protocol messages and is separate from both `olmInbox` and the
@@ -96,12 +99,12 @@ implemented, including account/device binding, explicit local SAS confirmation,
 peer MAC verification, expiry/cancellation handling, and tests for durable
 trust, key rotation, and cancellation-peer binding. A user-facing verification
 screen and application navigation are not yet implemented or connected. The
-isolated outbound direct-text coordinator now refuses to prepare or enqueue
+isolated outbound direct-text coordinator refuses to prepare or enqueue
 ciphertext unless every recipient and sender-owned target device has a local
-trust record matching its currently published Ed25519 identity key. This is
-still not wired into live chat sending. The new database rules have passed
-emulator tests but have not been deployed to Firebase. Before enabling a live
-encrypted path, complete the user-facing trust workflow, require equivalent
-trust checks on inbound processing, test the full two-device flow through the
-real UI and transport, and complete notification privacy and delivery-status
-reconciliation.
+trust record matching its currently published Ed25519 identity key. The inbound
+handoff enforces the same trust rule before native receive-state mutation. Both
+remain disconnected from live chat sending and receiving. The new database
+rules have passed emulator tests but have not been deployed to Firebase. Before
+enabling a live encrypted path, complete the user-facing trust workflow, test
+the full two-device flow through the real UI and transport, and complete
+notification privacy and delivery-status reconciliation.
