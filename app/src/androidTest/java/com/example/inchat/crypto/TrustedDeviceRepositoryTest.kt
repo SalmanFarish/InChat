@@ -30,6 +30,12 @@ class TrustedDeviceRepositoryTest {
 
         val reopened = TrustedDeviceRepository(context)
         assertEquals(verifiedAt, reopened.verifiedAtMillis(userId, deviceId, identityKey))
+        assertTrue(reopened.isVerified(userId, deviceId, identityKey))
+        assertFalse(
+            reopened.isVerified(
+                userId, deviceId, "different-ed25519-public-key-$suffix"
+            )
+        )
         assertNull(
             reopened.verifiedAtMillis(
                 userId, deviceId, "different-ed25519-public-key-$suffix"
@@ -39,6 +45,7 @@ class TrustedDeviceRepositoryTest {
 
         assertTrue(reopened.revoke(userId, deviceId))
         assertNull(reopened.verifiedAtMillis(userId, deviceId, identityKey))
+        assertFalse(reopened.isVerified(userId, deviceId, identityKey))
         assertFalse(reopened.revoke(userId, deviceId))
     }
 }
