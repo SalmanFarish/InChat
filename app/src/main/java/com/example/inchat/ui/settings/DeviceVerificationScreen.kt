@@ -225,6 +225,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             error = "Enter an InChat username."
             return
         }
+        peerAccountUserId = null
+        peerAccountUsername = null
+        peerDevices = emptyList()
         scope.launch {
             isLoadingPeerDevices = true
             error = null
@@ -488,6 +491,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     value = peerUsernameQuery,
                     onValueChange = {
                         peerUsernameQuery = it
+                        peerAccountUserId = null
+                        peerAccountUsername = null
+                        peerDevices = emptyList()
                         error = null
                     },
                     modifier = Modifier.fillMaxWidth(),
