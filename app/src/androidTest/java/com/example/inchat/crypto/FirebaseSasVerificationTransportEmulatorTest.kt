@@ -101,7 +101,7 @@ class FirebaseSasVerificationTransportEmulatorTest {
             .setApplicationId("1:123456789012:android:1234567890abcdef")
             .setApiKey("emulator-only-api-key")
             .setProjectId(EMULATOR_PROJECT_ID)
-            .setDatabaseUrl("https://$EMULATOR_PROJECT_ID-default-rtdb.firebaseio.com")
+            .setDatabaseUrl("https://$EMULATOR_PROJECT_ID.firebaseio.com")
             .build()
         val app = requireNotNull(
             FirebaseApp.initializeApp(
