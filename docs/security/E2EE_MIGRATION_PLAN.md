@@ -97,9 +97,17 @@ these rule boundaries.
 The SAS transaction coordinator and encrypted local trust repository are now
 implemented, including account/device binding, explicit local SAS confirmation,
 peer MAC verification, expiry/cancellation handling, and tests for durable
-trust, key rotation, and cancellation-peer binding. A user-facing verification
-screen and application navigation are not yet implemented or connected. The
-isolated outbound direct-text coordinator refuses to prepare or enqueue
+trust, key rotation, and cancellation-peer binding. The Compose
+`DeviceVerificationScreen` is reachable from Settings and supports verifying
+other devices on the same account as well as devices belonging to another
+discoverable InChat username. It loads the peer's signature-verified public
+device bundles, displays the three SAS decimal codes, supports local trust
+revocation, and requires the user to compare the codes through an independent
+trusted channel. The screen also allows a fresh verification after trust is
+revoked or a device identity key changes; UI-state helper tests cover retry and
+account/device isolation.
+
+The isolated outbound direct-text coordinator refuses to prepare or enqueue
 ciphertext unless every recipient and sender-owned target device has a local
 trust record matching its currently published Ed25519 identity key. The
 first-message preparer re-checks the freshly fetched directory key before
@@ -107,8 +115,7 @@ claiming a one-time prekey, and the Firebase relay transport reloads and
 signature-verifies the current target bundle and re-checks local trust before
 upload. The inbound handoff enforces the same trust rule before native
 receive-state mutation. All of these components remain disconnected from live
-chat sending and receiving. The new database
-rules have passed emulator tests but have not been deployed to Firebase. Before
-enabling a live encrypted path, complete the user-facing trust workflow, test
-the full two-device flow through the real UI and transport, and complete
-notification privacy and delivery-status reconciliation.
+chat sending and receiving. The new database rules have passed emulator tests
+but have not been deployed to Firebase. Before enabling a live encrypted path,
+complete real-device two-account SAS and transport recovery tests, notification
+privacy, and delivery-status reconciliation.
