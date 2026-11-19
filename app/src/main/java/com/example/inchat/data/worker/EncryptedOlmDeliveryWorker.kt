@@ -47,9 +47,8 @@ class EncryptedOlmDeliveryWorker(
         val auth = FirebaseAuth.getInstance()
         val authenticatedUserId = auth.currentUser?.uid
         if (authenticatedUserId == null) {
-            // Do not keep retrying while Firebase restores a signed-out or starting session.
-            // The Application auth listener schedules fresh work once a user is available.
-            cancel(applicationContext, ownerUserId, senderDeviceId)
+            // The Application auth listener cancels remembered/tagged jobs on sign-out
+            // and schedules fresh work after Firebase restores an authenticated session.
             return Result.success()
         }
         if (authenticatedUserId != ownerUserId) {
