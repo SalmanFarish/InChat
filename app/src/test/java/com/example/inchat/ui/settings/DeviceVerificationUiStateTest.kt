@@ -33,6 +33,12 @@ class DeviceVerificationUiStateTest {
     }
 
     @Test
+    fun trustLookupKeysIncludeBothAccountAndDevice() {
+        assertTrue(deviceTrustMapKey("alice", "shared-id") != deviceTrustMapKey("bob", "shared-id"))
+        assertEquals("alice::phone", deviceTrustMapKey("alice", "phone"))
+    }
+
+    @Test
     fun activeAttemptDoesNotOfferAnotherVerification() {
         val waiting = state("waiting", SasVerificationPhase.WAITING_FOR_PEER)
         val comparing = state("comparing", SasVerificationPhase.CONFIRMING)
