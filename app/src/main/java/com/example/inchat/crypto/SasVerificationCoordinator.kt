@@ -121,9 +121,7 @@ internal class SasVerificationCoordinator(
         peerUserId: String,
         peerDeviceId: String,
     ): SasVerificationUiState = mutex.withLock {
-        check(directoryRepository.authenticatedUserId == localUserId) {
-            "The signed-in account does not match this local identity"
-        }
+        requireAuthenticatedLocalAccount()
         require(peerUserId.matches(Regex("[A-Za-z0-9_-]{1,128}")))
         require(peerDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")))
         require(peerUserId != localUserId || peerDeviceId != localDeviceId) {
@@ -167,8 +165,9 @@ internal class SasVerificationCoordinator(
 
     /** Poll the dedicated inbox. Each delivery is acknowledged only after this coordinator handles it. */
     suspend fun receivePending(): SasVerificationInboxReceiveResult {
-        // The inbox receiver caches the device ID; re-check the durable lock
-        // before allowing it to process another message after a transfer starts.
+        // The inbox receiver caches the device ID; re-check both the authenticated
+        // account and durable transfer lock before reading this device's inbox.
+        requireAuthenticatedLocalAccount()
         identityRepository.requireIdentityUsable()
         return withContext(Dispatchers.IO) {
             receiver.receivePending { message -> handleIncoming(message) }
@@ -177,6 +176,7 @@ internal class SasVerificationCoordinator(
 
     /** Call only after the user has visually compared both devices and selected “They match”. */
     suspend fun confirmSasMatch(transactionId: String) = mutex.withLock {
+        requireAuthenticatedLocalAccount()
         val attempt = requireAttempt(transactionId)
         ensureNotExpired(attempt)
         check(mutableStates.value[transactionId]?.phase == SasVerificationPhase.CONFIRMING) {
@@ -219,8 +219,8 @@ internal class SasVerificationCoordinator(
 
     private suspend fun handleIncoming(message: SasVerificationMessage) = mutex.withLock {
         identityRepository.requireIdentityUsable()
+        requireAuthenticatedLocalAccount()
         check(message.recipientUserId == localUserId && message.recipientDeviceId == localDeviceId)
-        check(directoryRepository.authenticatedUserId == localUserId)
         var attempt = attempts[message.transactionId]
         if (attempt != null) {
             check(
@@ -440,6 +440,12 @@ internal class SasVerificationCoordinator(
             attempt.received.clear()
             attempt.pendingPeerMac = null
             mutableStates.value = mutableStates.value + (attempt.transactionId to completedState)
+        }
+    }
+
+    private fun requireAuthenticatedLocalAccount() {
+        check(directoryRepository.authenticatedUserId == localUserId) {
+            "The signed-in account does not match this local identity"
         }
     }
 
