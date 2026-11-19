@@ -92,6 +92,7 @@ class OlmInboundHandoffCoordinatorTest {
                 receiptDao = db.olmInboundReceiptDao(),
                 sessionRepository = reopenedRepository,
                 authenticatedLocalUserId = { "local-user" },
+                trustVerifier = trustedDevice("alice", senderBundle),
                 messageDao = db.messageDao(),
             )
             assertEquals(
@@ -182,6 +183,7 @@ class OlmInboundHandoffCoordinatorTest {
                 receiptDao = db.olmInboundReceiptDao(),
                 sessionRepository = repository,
                 authenticatedLocalUserId = { "local-user" },
+                trustVerifier = trustedDevice("alice", senderBundle),
                 messageDao = db.messageDao(),
                 clock = { 400L },
             )
@@ -191,6 +193,7 @@ class OlmInboundHandoffCoordinatorTest {
                 receiptDao = db.olmInboundReceiptDao(),
                 sessionRepository = repository,
                 authenticatedLocalUserId = { "different-local-account" },
+                trustVerifier = trustedDevice("alice", senderBundle),
                 messageDao = db.messageDao(),
             )
             var localAccountMismatchRejected = false
@@ -223,6 +226,59 @@ class OlmInboundHandoffCoordinatorTest {
                 "A verified device loaded under another account must be rejected",
                 senderAccountMismatchRejected,
             )
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+
+            val untrustedCoordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = { "local-user" },
+                trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> false },
+                messageDao = db.messageDao(),
+            )
+            var untrustedSenderRejected = false
+            try {
+                untrustedCoordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> cachedMessage(payload) }
+            } catch (expected: IllegalStateException) {
+                untrustedSenderRejected = expected.message.orEmpty().contains("has not been verified")
+            }
+            assertTrue("Unverified senders must not advance the Olm receive state", untrustedSenderRejected)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(null, db.messageDao().getMessage("local-user", "alice", messageId))
+
+            val rotatedIdentityCoordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = { "local-user" },
+                trustVerifier = trustedDevice("alice", senderBundle),
+                messageDao = db.messageDao(),
+            )
+            var rotatedIdentityRejected = false
+            try {
+                rotatedIdentityCoordinator.process(
+                    receiptId,
+                    senderBundle.copy(ed25519IdentityKey = "rotated-ed25519-key"),
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> cachedMessage(payload) }
+            } catch (expected: IllegalStateException) {
+                rotatedIdentityRejected = expected.message.orEmpty().contains("has not been verified")
+            }
+            assertTrue("A changed sender identity key must be re-verified", rotatedIdentityRejected)
             assertEquals(
                 OlmInboundReceiptStatus.PENDING.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
@@ -434,6 +490,15 @@ class OlmInboundHandoffCoordinatorTest {
             db.close()
             context.deleteDatabase(databaseName)
         }
+    }
+
+    private fun trustedDevice(
+        userId: String,
+        device: PublicDeviceKeyBundle,
+    ): OlmDeviceTrustVerifier = OlmDeviceTrustVerifier { actualUserId, actualDeviceId, identityKey ->
+        actualUserId == userId &&
+            actualDeviceId == device.deviceId &&
+            identityKey == device.ed25519IdentityKey
     }
 
     private fun parseBundle(deviceId: String, json: JSONObject): PublicDeviceKeyBundle {
