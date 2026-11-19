@@ -16,6 +16,11 @@ class OlmOutboundDeliveryCoordinatorTest {
         val coordinator = OlmOutboundDeliveryCoordinator(
             preparer = preparer,
             queue = queue,
+            trustVerifier = trusted(
+                trustKey("bob", "recipient-phone"),
+                trustKey("bob", "recipient-tablet"),
+                trustKey("alice", "sender-tablet"),
+            ),
             scheduleDelivery = { owner, device ->
                 assertEquals("alice", owner)
                 assertEquals("sender-phone", device)
@@ -60,6 +65,11 @@ class OlmOutboundDeliveryCoordinatorTest {
         val coordinator = OlmOutboundDeliveryCoordinator(
             preparer = preparer,
             queue = OlmDeliveryQueue(store),
+            trustVerifier = trusted(
+                trustKey("bob", "recipient-phone"),
+                trustKey("bob", "recipient-tablet"),
+                trustKey("alice", "sender-tablet"),
+            ),
             scheduleDelivery = { _, _ -> scheduled = true },
         )
 
@@ -95,6 +105,7 @@ class OlmOutboundDeliveryCoordinatorTest {
         val coordinator = OlmOutboundDeliveryCoordinator(
             preparer = preparer,
             queue = OlmDeliveryQueue(store),
+            trustVerifier = trusted(trustKey("bob", "recipient-phone")),
             scheduleDelivery = { _, _ -> scheduled = true },
         )
 
@@ -130,6 +141,7 @@ class OlmOutboundDeliveryCoordinatorTest {
         val coordinator = OlmOutboundDeliveryCoordinator(
             preparer = preparer,
             queue = OlmDeliveryQueue(store),
+            trustVerifier = trusted(trustKey("bob", "recipient-phone")),
             scheduleDelivery = { owner, device ->
                 assertEquals("alice", owner)
                 assertEquals("sender-phone", device)
@@ -179,6 +191,50 @@ class OlmOutboundDeliveryCoordinatorTest {
         assertEquals(listOf("insert:1", "insert:0"), events)
     }
 
+    @Test
+    fun unverifiedOrRotatedDeviceBlocksFanOutBeforePrekeyPreparation() = runBlocking {
+        val events = mutableListOf<String>()
+        val store = RecordingStore(events)
+        val preparer = FakePreparer("sender-phone")
+        var scheduled = false
+        val originalRecipient = bundle("recipient-phone")
+        val rotatedRecipient = originalRecipient.copy(
+            ed25519IdentityKey = "rotated-ed25519-recipient-phone",
+        )
+        val coordinator = OlmOutboundDeliveryCoordinator(
+            preparer = preparer,
+            queue = OlmDeliveryQueue(store),
+            // Only the old key was SAS-verified. The newly published key must
+            // be treated as a new, unverified device identity.
+            trustVerifier = trusted(
+                trustKey("bob", "recipient-phone", originalRecipient.ed25519IdentityKey),
+            ),
+            scheduleDelivery = { _, _ -> scheduled = true },
+        )
+
+        var rejected = false
+        try {
+            coordinator.enqueueDirectTextMessage(
+                senderUserId = "alice",
+                senderDeviceId = "sender-phone",
+                recipientUserId = "bob",
+                messageId = "untrusted-message",
+                sentAtMillis = 50_000L,
+                text = "must not prepare",
+                recipientDevices = listOf(rotatedRecipient),
+                senderDevices = listOf(bundle("sender-phone")),
+            )
+        } catch (expected: IllegalStateException) {
+            rejected = expected.message.orEmpty().contains("has not been verified")
+        }
+
+        assertTrue(rejected)
+        assertTrue(preparer.payloads.isEmpty())
+        assertTrue(store.rows.isEmpty())
+        assertTrue(events.isEmpty())
+        assertFalse(scheduled)
+    }
+
     private fun bundle(deviceId: String) = PublicDeviceKeyBundle(
         deviceId = deviceId,
         ed25519IdentityKey = "ed25519-$deviceId",
@@ -199,6 +255,25 @@ class OlmOutboundDeliveryCoordinatorTest {
             ),
         ),
     )
+
+    private fun trustKey(
+        userId: String,
+        deviceId: String,
+        identityKey: String = "ed25519-$deviceId",
+    ): String = "$userId::$deviceId::$identityKey"
+
+    private fun trusted(vararg entries: String): OlmDeviceTrustVerifier =
+        FakeTrustVerifier(entries.toSet())
+
+    private class FakeTrustVerifier(
+        private val trustedIdentities: Set<String>,
+    ) : OlmDeviceTrustVerifier {
+        override fun isVerified(
+            peerUserId: String,
+            peerDeviceId: String,
+            peerEd25519IdentityKey: String,
+        ): Boolean = trustKey(peerUserId, peerDeviceId, peerEd25519IdentityKey) in trustedIdentities
+    }
 
     private class FakePreparer(
         private val senderDeviceId: String,
