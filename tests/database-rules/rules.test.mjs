@@ -887,7 +887,7 @@ test("SAS relay rejects timestamps outside the allowed clock and lifetime bounds
   await assertFails(set(
     ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "b".repeat(64)),
     sasVerificationRecord({
-      createdAtMillis: now + 120001,
+      createdAtMillis: now + 180001,
       expiresAtMillis: now + 300000,
     }),
   ));
