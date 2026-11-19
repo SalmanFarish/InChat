@@ -19,7 +19,7 @@ internal fun isExpiredSasRelayEntry(
     nowMillis: Long,
 ): Boolean =
     deliveryId != null &&
-        SAS_SAS_DELIVERY_PATTERN.matches(deliveryId) &&
+        SAS_DELIVERY_PATTERN.matches(deliveryId) &&
         expiresAtMillis != null &&
         expiresAtMillis <= nowMillis
 
