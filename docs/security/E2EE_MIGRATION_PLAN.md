@@ -197,3 +197,8 @@ relay read completes. This prevents a message that expires while a network read 
 in flight from being returned using a pre-request timestamp. A clock-advancing
 transport test verifies the expired row is neither delivered to the coordinator
 nor retained in the recipient inbox.
+
+The SAS sender also rechecks transaction expiry immediately before the relay
+write, after payload preparation. This avoids submitting an upload whose
+transaction expired during local preparation; an advancing-clock instrumentation
+test verifies that no relay write occurs at the expiry boundary.
