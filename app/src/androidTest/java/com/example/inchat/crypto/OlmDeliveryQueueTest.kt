@@ -51,6 +51,32 @@ class OlmDeliveryQueueTest {
     }
 
     @Test
+    fun acknowledgementMustMatchEveryDeliveryIdentityFieldBeforeRemoval() {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("message-1", listOf(prepared("phone")))
+        val row = store.rows.values.single()
+        val acknowledgement = OlmDeliveryAcknowledgement(
+            deliveryId = row.deliveryId,
+            recipientUserId = row.recipientUserId,
+            recipientDeviceId = row.recipientDeviceId,
+            messageId = row.messageId,
+        )
+
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(messageId = "other-message")))
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientUserId = "mallory")))
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientDeviceId = "other-device")))
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(deliveryId = "f".repeat(64))))
+        assertFalse(queue.removeAcknowledgedDelivery(acknowledgement.copy(recipientUserId = "mallory")))
+        assertEquals(1, store.rows.size)
+
+        assertTrue(queue.hasMatchingDelivery(acknowledgement))
+        assertTrue(queue.removeAcknowledgedDelivery(acknowledgement))
+        assertFalse(queue.removeAcknowledgedDelivery(acknowledgement))
+        assertTrue(store.rows.isEmpty())
+    }
+
+    @Test
     fun retryUsesBackoffAndStopsAfterConfiguredAttempts() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, maxAttempts = 2)
@@ -112,6 +138,19 @@ class OlmDeliveryQueueTest {
                 inserted++
             } }
             return inserted
+        }
+
+        override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
+            rows[acknowledgement.deliveryId]?.let { row ->
+                row.messageId == acknowledgement.messageId &&
+                    row.recipientUserId == acknowledgement.recipientUserId &&
+                    row.recipientDeviceId == acknowledgement.recipientDeviceId
+            } ?: false
+
+        override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean {
+            if (!hasMatchingDelivery(acknowledgement)) return false
+            rows.remove(acknowledgement.deliveryId)
+            return true
         }
 
         override fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery? {

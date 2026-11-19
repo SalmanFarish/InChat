@@ -22,6 +22,24 @@ internal class RoomOlmDeliveryQueueStore(
         })
     }
 
+    override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
+        dao.hasMatchingDelivery(
+            deliveryId = acknowledgement.deliveryId,
+            messageId = acknowledgement.messageId,
+            recipientUserId = acknowledgement.recipientUserId,
+            recipientDeviceId = acknowledgement.recipientDeviceId,
+        )
+
+    override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
+        database.runInTransaction(Callable {
+            dao.removeAcknowledgedDelivery(
+                deliveryId = acknowledgement.deliveryId,
+                messageId = acknowledgement.messageId,
+                recipientUserId = acknowledgement.recipientUserId,
+                recipientDeviceId = acknowledgement.recipientDeviceId,
+            ) == 1
+        })
+
     override fun claimNextDue(
         nowMillis: Long,
         leaseDurationMillis: Long,

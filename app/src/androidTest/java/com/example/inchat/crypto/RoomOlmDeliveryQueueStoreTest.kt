@@ -7,7 +7,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.LocalChatDatabase
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomOlmDeliveryQueueStoreTest {
@@ -43,6 +45,41 @@ class RoomOlmDeliveryQueueStoreTest {
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, claimed?.status)
         secondDatabase.close()
         context.deleteDatabase(databaseName)
+    }
+
+    @Test
+    fun acknowledgementDeletesOnlyTheExactQueuedDelivery() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-acknowledgement-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+            queue.enqueue("ack-message", listOf(prepared("device-phone")))
+            val queued = db.olmDeliveryQueueDao().findNextDue(10_000)!!
+            val acknowledgement = OlmDeliveryAcknowledgement(
+                deliveryId = queued.deliveryId,
+                recipientUserId = queued.recipientUserId,
+                recipientDeviceId = queued.recipientDeviceId,
+                messageId = queued.messageId,
+            )
+
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(messageId = "wrong-message")))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientUserId = "wrong-user")))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientDeviceId = "wrong-device")))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(deliveryId = "0".repeat(64))))
+            assertFalse(queue.removeAcknowledgedDelivery(acknowledgement.copy(messageId = "wrong-message")))
+            assertTrue(queue.hasMatchingDelivery(acknowledgement))
+
+            // An ack can only remove the exact delivery, even while it is still QUEUED.
+            assertTrue(queue.removeAcknowledgedDelivery(acknowledgement))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement))
+            assertFalse(queue.removeAcknowledgedDelivery(acknowledgement))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
     }
 
     private fun prepared(deviceId: String): PreparedOlmDelivery {

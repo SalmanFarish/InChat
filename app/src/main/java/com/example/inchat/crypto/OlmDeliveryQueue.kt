@@ -27,6 +27,14 @@ internal data class QueuedOlmDeviceDelivery(
     val lastError: String? = null,
 )
 
+/** A recipient-device acknowledgement returned by the authenticated sender's relay path. */
+internal data class OlmDeliveryAcknowledgement(
+    val deliveryId: String,
+    val recipientUserId: String,
+    val recipientDeviceId: String,
+    val messageId: String,
+)
+
 /**
  * Atomic persistence boundary for the outbox.
  *
@@ -38,6 +46,12 @@ internal data class QueuedOlmDeviceDelivery(
 internal interface OlmDeliveryQueueStore {
     /** Insert all rows idempotently; an existing deliveryId must never be replaced. */
     fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int
+
+    /** Check all immutable delivery identity fields, independent of queue status. */
+    fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
+
+    /** Delete only the row matching all immutable delivery identity fields. */
+    fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
 
     /**
      * Atomically lease the oldest due QUEUED row or expired IN_FLIGHT row.
@@ -109,6 +123,14 @@ internal class OlmDeliveryQueue(
         }
         return store.insertIfAbsent(rows)
     }
+
+    /** Check that an acknowledgement exactly identifies a durable outbox row. */
+    fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
+        store.hasMatchingDelivery(acknowledgement)
+
+    /** Remove an exactly matched row after its remote acknowledgement has been deleted. */
+    fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
+        store.removeAcknowledgedDelivery(acknowledgement)
 
     /** Claim one due row. The caller must send the returned ciphertext envelope. */
     fun claimNext(nowMillis: Long): QueuedOlmDeviceDelivery? {

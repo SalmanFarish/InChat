@@ -20,6 +20,11 @@ internal interface OlmInboxTransport {
     suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String)
 }
 
+internal interface OlmDeliveryAckTransport {
+    suspend fun readMyDeliveryAcknowledgements(senderDeviceId: String): List<OlmDeliveryAcknowledgement>
+    suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String)
+}
+
 internal enum class FirebaseOlmUploadResult {
     STORED,
 }
@@ -35,7 +40,7 @@ internal enum class FirebaseOlmUploadResult {
 internal class FirebaseOlmEnvelopeTransport(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-) : OlmInboxTransport {
+) : OlmInboxTransport, OlmDeliveryAckTransport {
     suspend fun upload(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
@@ -128,6 +133,60 @@ internal class FirebaseOlmEnvelopeTransport(
         require(DELIVERY_PATTERN.matches(deliveryId))
         database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
             .removeValue().await()
+    }
+
+    /**
+     * Read only acknowledgements under the authenticated sender user/device path.
+     * Invalid or incomplete records are ignored rather than used for queue mutation.
+     */
+    override suspend fun readMyDeliveryAcknowledgements(
+        senderDeviceId: String,
+    ): List<OlmDeliveryAcknowledgement> {
+        val uid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before reading encrypted delivery acknowledgements"
+        }
+        require(UID_PATTERN.matches(uid)) { "Authenticated user ID has an invalid format" }
+        require(DEVICE_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
+
+        return database.reference.child(ACK_NODE).child(uid).child(senderDeviceId).get().await()
+            .children.mapNotNull(::parseAcknowledgement)
+            .sortedBy { it.deliveryId }
+    }
+
+    /** Delete only an acknowledgement in the authenticated user's own sender-device path. */
+    override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
+        val uid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before deleting an encrypted delivery acknowledgement"
+        }
+        require(UID_PATTERN.matches(uid))
+        require(DEVICE_PATTERN.matches(senderDeviceId))
+        require(DELIVERY_PATTERN.matches(deliveryId))
+        database.reference.child(ACK_NODE).child(uid).child(senderDeviceId).child(deliveryId)
+            .removeValue().await()
+    }
+
+    private fun parseAcknowledgement(snapshot: DataSnapshot): OlmDeliveryAcknowledgement? {
+        val deliveryId = snapshot.key ?: return null
+        val recipientUid = snapshot.child("recipientUid").getValue(String::class.java) ?: return null
+        val recipientDeviceId = snapshot.child("recipientDeviceId").getValue(String::class.java) ?: return null
+        val messageId = snapshot.child("messageId").getValue(String::class.java) ?: return null
+        val acknowledgedAt = snapshot.child("acknowledgedAt").value as? Number ?: return null
+        val timestamp = acknowledgedAt.toDouble()
+        if (!DELIVERY_PATTERN.matches(deliveryId) ||
+            !UID_PATTERN.matches(recipientUid) ||
+            !DEVICE_PATTERN.matches(recipientDeviceId) ||
+            !MESSAGE_PATTERN.matches(messageId) ||
+            !timestamp.isFinite() ||
+            timestamp <= 0.0 ||
+            timestamp % 1.0 != 0.0
+        ) return null
+
+        return OlmDeliveryAcknowledgement(
+            deliveryId = deliveryId,
+            recipientUserId = recipientUid,
+            recipientDeviceId = recipientDeviceId,
+            messageId = messageId,
+        )
     }
 
     private fun inboxReference(uid: String, deviceId: String, deliveryId: String) =

@@ -10,6 +10,29 @@ interface OlmDeliveryQueueDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertIfAbsent(rows: List<OlmDeviceDeliveryEntity>): List<Long>
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM olm_device_deliveries " +
+            "WHERE deliveryId = :deliveryId AND messageId = :messageId " +
+            "AND recipientUserId = :recipientUserId AND recipientDeviceId = :recipientDeviceId)"
+    )
+    fun hasMatchingDelivery(
+        deliveryId: String,
+        messageId: String,
+        recipientUserId: String,
+        recipientDeviceId: String,
+    ): Boolean
+
+    @Query(
+        "DELETE FROM olm_device_deliveries WHERE deliveryId = :deliveryId AND messageId = :messageId " +
+            "AND recipientUserId = :recipientUserId AND recipientDeviceId = :recipientDeviceId"
+    )
+    fun removeAcknowledgedDelivery(
+        deliveryId: String,
+        messageId: String,
+        recipientUserId: String,
+        recipientDeviceId: String,
+    ): Int
+
     @Query("SELECT * FROM olm_device_deliveries WHERE deliveryId = :deliveryId LIMIT 1")
     fun getByDeliveryId(deliveryId: String): OlmDeviceDeliveryEntity?
 
