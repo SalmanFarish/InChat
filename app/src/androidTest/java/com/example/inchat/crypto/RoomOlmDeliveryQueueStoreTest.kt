@@ -165,6 +165,90 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
+    fun duplicateEnqueueCannotReplaceCiphertextOrResetRetryState() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-immutable-duplicate-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+            val original = prepared("device-phone")
+            assertEquals(
+                1,
+                queue.enqueue("alice", "sender-device", "immutable-message", listOf(original)),
+            )
+
+            val firstClaim = queue.claimNext("alice", "sender-device", 10_000L)!!
+            assertTrue(queue.retry(firstClaim, 10_000L, "temporary_relay_failure"))
+            val originalRow = dao.getByDeliveryId(firstClaim.deliveryId)!!
+            assertEquals(OlmDeliveryStatus.QUEUED.name, originalRow.status)
+            assertEquals(12_000L, originalRow.nextAttemptAtMillis)
+            assertEquals(1, originalRow.attemptCount)
+
+            // A resumed producer may prepare the same message again and produce
+            // different ciphertext. The established delivery ID must keep the
+            // first durable envelope and retry metadata unchanged.
+            val regenerated = original.copy(
+                envelope = JSONObject(original.envelope)
+                    .put(
+                        "ciphertext",
+                        Base64.encodeToString(
+                            byteArrayOf(9, 8, 7),
+                            Base64.URL_SAFE or Base64.NO_WRAP,
+                        ),
+                    )
+                    .toString(),
+            )
+            assertTrue(regenerated.envelope != original.envelope)
+
+            // The same enqueue batch also contains a previously unseen device.
+            // The existing phone copy must be ignored while the tablet is inserted.
+            assertEquals(
+                1,
+                queue.enqueue(
+                    "alice",
+                    "sender-device",
+                    "immutable-message",
+                    listOf(regenerated, prepared("device-tablet")),
+                ),
+            )
+
+            val preserved = dao.getByDeliveryId(firstClaim.deliveryId)!!
+            assertEquals(original.envelope, preserved.envelope)
+            assertEquals(OlmDeliveryStatus.QUEUED.name, preserved.status)
+            assertEquals(1, preserved.attemptCount)
+            assertEquals(12_000L, preserved.nextAttemptAtMillis)
+            assertEquals("temporary_relay_failure", preserved.lastError)
+
+            val newlyInserted = dao.findNextDue("alice", "sender-device", 10_000L)
+            assertNotNull(newlyInserted)
+            assertEquals("device-tablet", newlyInserted?.recipientDeviceId)
+            assertEquals("immutable-message", newlyInserted?.messageId)
+            assertFalse(firstClaim.deliveryId == newlyInserted?.deliveryId)
+
+            // Replaying the complete producer batch again is a no-op.
+            assertEquals(
+                0,
+                queue.enqueue(
+                    "alice",
+                    "sender-device",
+                    "immutable-message",
+                    listOf(regenerated, prepared("device-tablet")),
+                ),
+            )
+            val stillPreserved = dao.getByDeliveryId(firstClaim.deliveryId)!!
+            assertEquals(original.envelope, stillPreserved.envelope)
+            assertEquals(12_000L, stillPreserved.nextAttemptAtMillis)
+            assertEquals(1, stillPreserved.attemptCount)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun acknowledgementDeletesOnlyTheExactQueuedDelivery() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-acknowledgement-test.db"
