@@ -121,7 +121,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         localUserId = uid,
                         identityRepository = identityRepository,
                         directoryRepository = directoryRepository,
-                        transport = FirebaseSasVerificationTransport(localDeviceId = bundle.deviceId),
+                        transport = FirebaseSasVerificationTransport(localUserId = uid, localDeviceId = bundle.deviceId),
                         ledger = ledger,
                         trustedDeviceRepository = trustedDeviceRepository,
                     )
@@ -285,7 +285,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         localUserId = uid,
                         localDeviceId = bundle.deviceId
                     )
-                    val transport = FirebaseSasVerificationTransport(localDeviceId = bundle.deviceId)
+                    val transport = FirebaseSasVerificationTransport(localUserId = uid, localDeviceId = bundle.deviceId)
                     val newCoordinator = SasVerificationCoordinator(
                         localUserId = uid,
                         identityRepository = identityRepository,
