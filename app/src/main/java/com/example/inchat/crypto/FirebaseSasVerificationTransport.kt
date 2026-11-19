@@ -181,9 +181,13 @@ internal class FirebaseSasVerificationTransport(
             "expiresAtMillis" to message.expiresAtMillis,
             "canonicalMessage" to encoded,
         )
-        // Recheck immediately before issuing the remote write. Firebase rules
-        // remain the authoritative boundary if the account changes in flight.
+        // Recheck account ownership and expiry immediately before the remote
+        // write. Firebase rules remain the authoritative boundary if either
+        // changes while the payload is being prepared.
         requireAuthenticatedLocalUser()
+        require(message.expiresAtMillis > clock().coerceAtLeast(0L)) {
+            "SAS verification transaction expired before upload"
+        }
         relayStore.put(
             message.recipientUserId,
             message.recipientDeviceId,
