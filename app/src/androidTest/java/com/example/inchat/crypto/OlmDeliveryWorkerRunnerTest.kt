@@ -50,6 +50,45 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun acknowledgementDeletionFailurePreservesRowsAndBlocksFurtherUploads() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "already-received", listOf(prepared("sender-device", "phone")))
+        queue.enqueue("alice", "sender-device", "still-pending", listOf(prepared("sender-device", "tablet")))
+
+        val acknowledgedRow = store.rows.values.first { it.messageId == "already-received" }
+        val acknowledgement = acknowledgedRow.toAcknowledgement()
+        val remoteAcknowledgements = mutableListOf(acknowledgement)
+        val events = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = events,
+            acknowledgements = remoteAcknowledgements,
+            failAcknowledgementRemoval = true,
+        )
+
+        var deletionFailureObserved = false
+        try {
+            OlmDeliveryWorkerRunner(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                clock = { 10_000L },
+            ).run()
+        } catch (expected: IllegalStateException) {
+            deletionFailureObserved = expected.message.orEmpty().contains("acknowledgement deletion")
+        }
+
+        assertTrue(deletionFailureObserved)
+        assertEquals(listOf("read-acks", "delete-ack:" + acknowledgedRow.deliveryId), events)
+        assertEquals(listOf(acknowledgement), remoteAcknowledgements)
+        assertEquals(2, store.rows.size)
+        assertEquals(OlmDeliveryStatus.QUEUED, store.rows.getValue(acknowledgedRow.deliveryId).status)
+        assertTrue(store.rows.values.any { it.messageId == "still-pending" })
+        assertFalse(events.any { it.startsWith("upload:") })
+    }
+
+    @Test
     fun interruptedUploadIsReclaimedAfterLeaseExpiryWithTheSameDeliveryId() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
@@ -357,6 +396,7 @@ class OlmDeliveryWorkerRunnerTest {
         private val acknowledgements: MutableList<OlmDeliveryAcknowledgement>,
         private val failUploads: Boolean = false,
         private val uploadedDeliveryIds: MutableList<String> = mutableListOf(),
+        private val failAcknowledgementRemoval: Boolean = false,
     ) : OlmOutgoingDeliveryTransport {
         override suspend fun upload(
             delivery: QueuedOlmDeviceDelivery,
@@ -378,6 +418,9 @@ class OlmDeliveryWorkerRunnerTest {
 
         override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
             events += "delete-ack:" + deliveryId
+            if (failAcknowledgementRemoval) {
+                throw IllegalStateException("temporary acknowledgement deletion failure")
+            }
             acknowledgements.removeAll { it.deliveryId == deliveryId }
         }
     }
