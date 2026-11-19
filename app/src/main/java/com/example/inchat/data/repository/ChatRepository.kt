@@ -766,7 +766,23 @@ class ChatRepository {
                                 it.toCachedEntity(ownerUserId, chatId)
                             }
                         )
+
+                        // Update in-memory fast paths only after the Room
+                        // transaction has committed. The Room Flow below is
+                        // the only path that publishes these messages to UI.
+                        if (snapshotMessages.isNotEmpty()) {
+                            val firstLatestTimestamp = snapshotMessages.first().timestamp
+                            olderMessageCache.computeIfPresent(key) { _, cachedOlder ->
+                                cachedOlder.filter { it.timestamp < firstLatestTimestamp }
+                            }
+                            latestMessageCache[key] = snapshotMessages
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
                     } catch (error: Exception) {
+                        // Do not emit or acknowledge remote messages when their
+                        // local persistence failed. A later Firebase snapshot or
+                        // listener restart will offer the snapshot again.
                         Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
                     }
                 }
@@ -806,29 +822,15 @@ class ChatRepository {
                     }
 
                     val immutableLatestMessages = latestMessages.toList()
-                    latestMessageCache[key] = immutableLatestMessages
-
-                    val cachedOlderMessages = if (immutableLatestMessages.isEmpty()) {
-                        olderMessageCache.remove(key)
-                        emptyList()
-                    } else {
-                        val firstLatestTimestamp = immutableLatestMessages.first().timestamp
-                        olderMessageCache[key].orEmpty()
-                            .filter { it.timestamp < firstLatestTimestamp }
-                    }
-
-                    // Older pages are already sorted and are strictly earlier
-                    // than the first latest-page timestamp. Concatenation therefore
-                    // preserves chronological order without sorting the full history.
-                    val combinedMessages = (cachedOlderMessages + immutableLatestMessages)
-                        .distinctBy { it.id }
-
-                    messageCache[key] = combinedMessages
-                    trySend(combinedMessages)
 
                     // Queue only the newest pending snapshot for Room. The
                     // conflated worker serializes writes and skips obsolete
                     // intermediate snapshots when Firebase emits rapidly.
+                    //
+                    // Do not send this snapshot directly to the flow: delivery
+                    // and read receipts are derived from that flow, so exposing
+                    // it here would acknowledge a message before its Room write
+                    // has completed. The Room observer emits after commit.
                     snapshotPersistenceChannel.trySend(immutableLatestMessages)
                 }
 
