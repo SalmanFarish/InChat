@@ -89,6 +89,66 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun acknowledgementDeletionRecoveryCompletesBeforeRemainingUploads() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "already-received", listOf(prepared("sender-device", "phone")))
+        queue.enqueue("alice", "sender-device", "still-pending", listOf(prepared("sender-device", "tablet")))
+
+        val acknowledgedRow = store.rows.values.first { it.messageId == "already-received" }
+        val acknowledgement = acknowledgedRow.toAcknowledgement()
+        val remoteAcknowledgements = mutableListOf(acknowledgement)
+        val events = mutableListOf<String>()
+        val uploadedDeliveryIds = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = events,
+            acknowledgements = remoteAcknowledgements,
+            uploadedDeliveryIds = uploadedDeliveryIds,
+            failAcknowledgementRemoval = true,
+        )
+        val runner = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_000L },
+        )
+
+        try {
+            runner.run()
+            throw AssertionError("Expected the first acknowledgement deletion to fail")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message.orEmpty().contains("acknowledgement deletion"))
+        }
+
+        assertEquals(2, store.rows.size)
+        assertEquals(listOf(acknowledgement), remoteAcknowledgements)
+        assertTrue(uploadedDeliveryIds.isEmpty())
+
+        transport.failAcknowledgementRemoval = false
+        val recovered = runner.run()
+
+        assertEquals(1, recovered.acknowledged)
+        assertEquals(1, recovered.uploaded)
+        assertFalse(recovered.retryRequired)
+        assertTrue(remoteAcknowledgements.isEmpty())
+        assertFalse(store.rows.containsKey(acknowledgedRow.deliveryId))
+        assertEquals(listOf("still-pending"), uploadedDeliveryIds.map { id ->
+            store.rows.values.first { it.deliveryId == id }.messageId
+        })
+        assertEquals(
+            listOf(
+                "read-acks",
+                "delete-ack:" + acknowledgedRow.deliveryId,
+                "read-acks",
+                "delete-ack:" + acknowledgedRow.deliveryId,
+                "upload:still-pending",
+            ),
+            events,
+        )
+    }
+
+    @Test
     fun interruptedUploadIsReclaimedAfterLeaseExpiryWithTheSameDeliveryId() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
@@ -396,7 +456,7 @@ class OlmDeliveryWorkerRunnerTest {
         private val acknowledgements: MutableList<OlmDeliveryAcknowledgement>,
         private val failUploads: Boolean = false,
         private val uploadedDeliveryIds: MutableList<String> = mutableListOf(),
-        private val failAcknowledgementRemoval: Boolean = false,
+        var failAcknowledgementRemoval: Boolean = false,
     ) : OlmOutgoingDeliveryTransport {
         override suspend fun upload(
             delivery: QueuedOlmDeviceDelivery,
