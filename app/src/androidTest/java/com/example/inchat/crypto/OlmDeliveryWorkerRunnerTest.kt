@@ -60,6 +60,18 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, interruptedClaim.status)
         assertEquals(1, interruptedClaim.attemptCount)
 
+        // The relay accepted the ciphertext, but the process died before it could
+        // observe the write completion or process a recipient acknowledgement.
+        val uploadedDeliveryIds = mutableListOf<String>()
+        assertEquals(
+            FirebaseOlmUploadResult.STORED,
+            FakeTransport(
+                events = mutableListOf(),
+                acknowledgements = mutableListOf(),
+                uploadedDeliveryIds = uploadedDeliveryIds,
+            ).upload(interruptedClaim, "sender-device"),
+        )
+
         val beforeLeaseExpiry = OlmDeliveryWorkerRunner(
             queue = queue,
             transport = FakeTransport(mutableListOf(), mutableListOf()),
@@ -70,7 +82,6 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(0, beforeLeaseExpiry.uploaded)
         assertFalse(beforeLeaseExpiry.retryRequired)
 
-        val uploadedDeliveryIds = mutableListOf<String>()
         val recovered = OlmDeliveryWorkerRunner(
             queue = queue,
             transport = FakeTransport(
@@ -85,7 +96,10 @@ class OlmDeliveryWorkerRunnerTest {
 
         assertEquals(1, recovered.uploaded)
         assertFalse(recovered.retryRequired)
-        assertEquals(listOf(interruptedClaim.deliveryId), uploadedDeliveryIds)
+        assertEquals(
+            listOf(interruptedClaim.deliveryId, interruptedClaim.deliveryId),
+            uploadedDeliveryIds,
+        )
         val stored = store.rows.getValue(interruptedClaim.deliveryId)
         assertEquals(2, stored.attemptCount)
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, stored.status)
