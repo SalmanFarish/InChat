@@ -40,6 +40,30 @@ class EncryptedOlmDeliveryWorkerScopeTest {
     }
 
     @Test
+    fun transientIdentityReadFailureDefersRetirement() {
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP,
+            evaluateEncryptedOlmDeviceScope(
+                scheduledSenderDeviceId = "device-a",
+                activeDeviceId = null,
+                lookupFailed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedMissingIdentityRetiresOnlyTheStaleDeviceScope() {
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE,
+            evaluateEncryptedOlmDeviceScope(
+                scheduledSenderDeviceId = "device-a",
+                activeDeviceId = null,
+                lookupFailed = false,
+            ),
+        )
+    }
+
+    @Test
     fun latestAuthLookupCanApplyForTheCurrentAccount() {
         assertTrue(
             isEncryptedOlmAuthResolutionCurrent(
@@ -101,8 +125,21 @@ class EncryptedOlmDeliveryWorkerScopeTest {
 
     @Test
     fun onlyTheExactActiveDeviceKeepsItsSchedule() {
-        assertTrue(isEncryptedOlmScheduledDeviceActive("device-a", "device-a"))
-        assertFalse(isEncryptedOlmScheduledDeviceActive("device-a", "device-b"))
-        assertFalse(isEncryptedOlmScheduledDeviceActive("device-a", null))
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE,
+            evaluateEncryptedOlmDeviceScope("device-a", "device-a", lookupFailed = false),
+        )
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE,
+            evaluateEncryptedOlmDeviceScope("device-a", "device-b", lookupFailed = false),
+        )
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE,
+            evaluateEncryptedOlmDeviceScope("device-a", null, lookupFailed = false),
+        )
+        assertEquals(
+            EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP,
+            evaluateEncryptedOlmDeviceScope("device-a", null, lookupFailed = true),
+        )
     }
 }
