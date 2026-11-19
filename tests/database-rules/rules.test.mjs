@@ -859,8 +859,71 @@ test("only the recipient can read and acknowledge a SAS verification message", a
   });
   await assertFails(get(ref(aliceDb, path)));
   await assertFails(get(ref(malloryDb, path)));
+  await assertFails(set(ref(aliceDb, path), null));
   await assertSucceeds(get(ref(bobDb, path)));
   await assertSucceeds(set(ref(bobDb, path), null));
+});
+
+test("SAS sender cannot spoof its account identity or add unrecognized fields", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const spoofedPath = "sasVerificationInbox/bob/device-bob-1/" + "9".repeat(64);
+  const extraFieldPath = "sasVerificationInbox/bob/device-bob-1/" + "a".repeat(64);
+  const record = sasVerificationRecord();
+
+  await assertFails(set(ref(aliceDb, spoofedPath), {
+    ...record,
+    senderUid: "mallory",
+  }));
+  await assertFails(set(ref(aliceDb, extraFieldPath), {
+    ...record,
+    unexpected: "must-not-be-stored",
+  }));
+});
+
+test("SAS relay rejects timestamps outside the allowed clock and lifetime bounds", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const now = Date.now();
+
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "b".repeat(64)),
+    sasVerificationRecord({
+      createdAtMillis: now + 120001,
+      expiresAtMillis: now + 300000,
+    }),
+  ));
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "c".repeat(64)),
+    sasVerificationRecord({
+      createdAtMillis: now,
+      expiresAtMillis: now + 600001,
+    }),
+  ));
+});
+
+test("a sender cannot delete a delivered SAS message", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "sasVerificationInbox/bob/device-bob-1/" + "d".repeat(64);
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), path), sasVerificationRecord());
+  });
+  await assertFails(set(ref(aliceDb, path), null));
+  await assertSucceeds(set(ref(bobDb, path), null));
+});
+
+test("a block in the reverse direction also prevents SAS message creation", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "blockedUsers/bob/alice"), {
+      uid: "alice", username: "alice", blockedAt: 1000,
+    });
+  });
+
+  await assertFails(set(
+    ref(aliceDb, "sasVerificationInbox/bob/device-bob-1/" + "e".repeat(64)),
+    sasVerificationRecord(),
+  ));
 });
 
 test("SAS verification messages are immutable and exact retries are idempotent", async () => {
