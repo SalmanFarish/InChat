@@ -25,6 +25,7 @@ internal fun interface OlmFirstMessagePreparer {
 internal class OlmOutboundDeliveryPreparer(
     private val directory: DeviceKeyDirectoryRepository,
     private val sessions: OlmSessionRepository,
+    private val trustVerifier: OlmDeviceTrustVerifier,
 ) : OlmFirstMessagePreparer {
     /** Prepare an initial prekey envelope for exactly one target device. */
     override suspend fun prepareFirstMessage(
@@ -46,6 +47,18 @@ internal class OlmOutboundDeliveryPreparer(
         val remoteDevice = directory.getUserDevices(recipientUserId)
             .firstOrNull { it.deviceId == recipientDeviceId }
             ?: throw IllegalStateException("Recipient device is not present in the public key directory")
+        // Re-check the exact bundle just fetched from Firebase. The coordinator's
+        // earlier trust check is not sufficient by itself because the directory
+        // could change between planning and prekey preparation.
+        check(
+            trustVerifier.isVerified(
+                peerUserId = recipientUserId,
+                peerDeviceId = recipientDeviceId,
+                peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+            )
+        ) {
+            "Recipient device identity changed or has not been verified"
+        }
 
         var claimedPreKey: SignedOlmPreKey? = null
         for (candidate in remoteDevice.oneTimeKeys) {
