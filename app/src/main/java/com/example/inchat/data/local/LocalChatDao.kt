@@ -44,6 +44,13 @@ interface LocalChatDao {
     suspend fun getPendingMessages(ownerUserId: String, chatId: String): List<CachedMessageEntity>
 
     @Query(
+        "SELECT * FROM cached_messages " +
+            "WHERE ownerUserId = :ownerUserId AND isPending = 1 " +
+            "ORDER BY timestamp ASC, messageId ASC"
+    )
+    suspend fun getAllPendingMessages(ownerUserId: String): List<CachedMessageEntity>
+
+    @Query(
         "SELECT messageId FROM cached_messages " +
             "WHERE ownerUserId = :ownerUserId AND chatId = :chatId AND isPending = 1"
     )

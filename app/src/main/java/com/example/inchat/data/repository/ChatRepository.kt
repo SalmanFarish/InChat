@@ -6,6 +6,7 @@ import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.local.toCachedEntity
 import com.example.inchat.data.local.toMessage
 import com.example.inchat.data.worker.MessageNotificationWorker
+import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -564,6 +565,22 @@ class ChatRepository {
                 isPending = true
             )
         )
+
+        // WorkManager persists this per-message fallback independently of the
+        // chat screen. If the process dies before the RTDB write is acknowledged,
+        // the worker can deliver the Room copy after connectivity returns.
+        try {
+            PendingMessageDeliveryWorker.enqueue(
+                context = InChatApplication.instance,
+                ownerUserId = ownerUserId,
+                chatId = chatId,
+                messageId = message.id
+            )
+        } catch (queueError: Exception) {
+            // Application startup also scans Room for pending rows, so a
+            // transient WorkManager scheduling failure does not lose the message.
+            Log.e(TAG, "Could not schedule background delivery for ${message.id}", queueError)
+        }
     }
 
     suspend fun markOutgoingMessageSent(chatId: String, messageId: String) {
