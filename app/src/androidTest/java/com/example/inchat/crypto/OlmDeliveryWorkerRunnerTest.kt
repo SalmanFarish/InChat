@@ -449,6 +449,98 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun uploadAcceptedBeforeCompletionFailureRetriesSameDeliveryIdAfterBackoff() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "ambiguous-upload", listOf(prepared("sender-device", "phone")))
+
+        var nowMillis = 10_000L
+        var failCompletionOnce = true
+        val events = mutableListOf<String>()
+        val attemptedDeliveryIds = mutableListOf<String>()
+        val relayStoredDeliveryIds = mutableListOf<String>()
+        val transport = object : OlmOutgoingDeliveryTransport {
+            override suspend fun upload(
+                delivery: QueuedOlmDeviceDelivery,
+                senderDeviceId: String,
+            ): FirebaseOlmUploadResult {
+                assertEquals("sender-device", senderDeviceId)
+                assertEquals(OlmDeliveryStatus.IN_FLIGHT, delivery.status)
+                events += "upload:" + delivery.messageId
+                attemptedDeliveryIds += delivery.deliveryId
+
+                // The relay commits the immutable item, but this process loses the
+                // write completion. Retrying must address the same idempotency key.
+                if (delivery.deliveryId !in relayStoredDeliveryIds) {
+                    relayStoredDeliveryIds += delivery.deliveryId
+                }
+                if (failCompletionOnce) {
+                    failCompletionOnce = false
+                    throw IllegalStateException("upload completion lost after relay accepted ciphertext")
+                }
+                return FirebaseOlmUploadResult.STORED
+            }
+
+            override suspend fun readMyDeliveryAcknowledgements(
+                senderDeviceId: String,
+            ): List<OlmDeliveryAcknowledgement> {
+                events += "read-acks"
+                return emptyList()
+            }
+
+            override suspend fun removeMyDeliveryAcknowledgement(
+                senderDeviceId: String,
+                deliveryId: String,
+            ) = Unit
+        }
+        val runner = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { nowMillis },
+        )
+
+        val firstPass = runner.run()
+        val firstRow = store.rows.values.single()
+        assertEquals(0, firstPass.uploaded)
+        assertTrue(firstPass.retryRequired)
+        assertEquals(OlmDeliveryStatus.QUEUED, firstRow.status)
+        assertEquals(12_000L, firstRow.nextAttemptAtMillis)
+        assertEquals(listOf(firstRow.deliveryId), relayStoredDeliveryIds)
+
+        nowMillis = 11_999L
+        val beforeBackoffExpires = runner.run()
+        assertEquals(0, beforeBackoffExpires.uploaded)
+        assertFalse(beforeBackoffExpires.retryRequired)
+        assertEquals(listOf(firstRow.deliveryId), attemptedDeliveryIds)
+
+        nowMillis = 12_000L
+        val recovered = runner.run()
+        val recoveredRow = store.rows.values.single()
+
+        assertEquals(1, recovered.uploaded)
+        assertFalse(recovered.retryRequired)
+        assertEquals(
+            listOf(firstRow.deliveryId, firstRow.deliveryId),
+            attemptedDeliveryIds,
+        )
+        assertEquals(listOf(firstRow.deliveryId), relayStoredDeliveryIds)
+        assertEquals(2, recoveredRow.attemptCount)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, recoveredRow.status)
+        assertEquals(
+            listOf(
+                "read-acks",
+                "upload:ambiguous-upload",
+                "read-acks",
+                "read-acks",
+                "upload:ambiguous-upload",
+            ),
+            events,
+        )
+    }
+
+    @Test
     fun failedUploadPersistsRetryStateInTheScopedOutbox() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
