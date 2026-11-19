@@ -15,7 +15,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -96,13 +96,29 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE olm_device_deliveries ADD COLUMN ownerUserId TEXT")
+                database.execSQL("ALTER TABLE olm_device_deliveries ADD COLUMN senderDeviceId TEXT")
+                database.execSQL("DROP INDEX IF EXISTS index_olm_device_deliveries_messageId_recipientUserId_recipientDeviceId")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_olm_device_deliveries_ownerUserId_senderDeviceId_status_nextAttemptAtMillis_leaseUntilMillis " +
+                        "ON olm_device_deliveries(ownerUserId, senderDeviceId, status, nextAttemptAtMillis, leaseUntilMillis)"
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_olm_device_deliveries_ownerUserId_senderDeviceId_messageId_recipientUserId_recipientDeviceId " +
+                        "ON olm_device_deliveries(ownerUserId, senderDeviceId, messageId, recipientUserId, recipientDeviceId)"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build().also { INSTANCE = it }
             }
     }

@@ -13,12 +13,12 @@ class OlmDeliveryAckProcessorTest {
     fun matchingAcknowledgementRemovesRelayAckThenExactLocalRow() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-1", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared()))
         val row = store.rows.values.single()
         val acknowledgement = row.toAcknowledgement()
         val transport = FakeAckTransport(listOf(acknowledgement))
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
 
         assertEquals(1, result.removed)
         assertEquals(0, result.unmatched)
@@ -30,12 +30,12 @@ class OlmDeliveryAckProcessorTest {
     fun remoteAckDeletionFailurePreservesLocalCiphertextRow() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-2", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "message-2", listOf(prepared()))
         val row = store.rows.values.single()
         val transport = FakeAckTransport(listOf(row.toAcknowledgement()), failRemoval = true)
 
         try {
-            OlmDeliveryAckProcessor(queue, transport, "sender-device").processPending()
+            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
             throw AssertionError("Expected remote acknowledgement deletion to fail")
         } catch (expected: IllegalStateException) {
             assertTrue(expected.message.orEmpty().contains("temporary"))
@@ -49,16 +49,21 @@ class OlmDeliveryAckProcessorTest {
     fun mismatchedAcknowledgementDoesNotDeleteRemoteAckOrLocalRow() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-3", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "message-3", listOf(prepared()))
         val row = store.rows.values.single()
+        val acknowledgement = row.toAcknowledgement()
         val transport = FakeAckTransport(
-            listOf(row.toAcknowledgement().copy(recipientUserId = "mallory")),
+            listOf(
+                acknowledgement.copy(recipientUserId = "mallory"),
+                acknowledgement.copy(senderUserId = "mallory"),
+                acknowledgement.copy(senderDeviceId = "other-sender-device"),
+            ),
         )
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
 
         assertEquals(0, result.removed)
-        assertEquals(1, result.unmatched)
+        assertEquals(3, result.unmatched)
         assertEquals(row, store.rows[row.deliveryId])
         assertTrue(transport.removedDeliveryIds.isEmpty())
     }
@@ -67,12 +72,12 @@ class OlmDeliveryAckProcessorTest {
     fun duplicateAcknowledgementsAreIdempotent() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-4", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "message-4", listOf(prepared()))
         val row = store.rows.values.single()
         val acknowledgement = row.toAcknowledgement()
         val transport = FakeAckTransport(listOf(acknowledgement, acknowledgement))
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
 
         assertEquals(1, result.removed)
         assertEquals(1, result.unmatched)
@@ -85,6 +90,8 @@ class OlmDeliveryAckProcessorTest {
         recipientUserId = recipientUserId,
         recipientDeviceId = recipientDeviceId,
         messageId = messageId,
+        senderUserId = requireNotNull(ownerUserId),
+        senderDeviceId = requireNotNull(senderDeviceId),
     )
 
     private fun prepared(): PreparedOlmDelivery {
@@ -116,7 +123,9 @@ class OlmDeliveryAckProcessorTest {
             rows[acknowledgement.deliveryId]?.let { row ->
                 row.messageId == acknowledgement.messageId &&
                     row.recipientUserId == acknowledgement.recipientUserId &&
-                    row.recipientDeviceId == acknowledgement.recipientDeviceId
+                    row.recipientDeviceId == acknowledgement.recipientDeviceId &&
+                    row.ownerUserId == acknowledgement.senderUserId &&
+                    row.senderDeviceId == acknowledgement.senderDeviceId
             } ?: false
 
         override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean {
@@ -126,14 +135,17 @@ class OlmDeliveryAckProcessorTest {
         }
 
         override fun claimNextDue(
+            ownerUserId: String,
+            senderDeviceId: String,
             nowMillis: Long,
             leaseDurationMillis: Long,
             maxAttempts: Int,
         ): QueuedOlmDeviceDelivery? {
             val candidate = rows.values
                 .filter {
-                    (it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
-                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis)
+                    it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
+                        ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
                 }
                 .minByOrNull { it.nextAttemptAtMillis }
                 ?: return null
@@ -149,10 +161,14 @@ class OlmDeliveryAckProcessorTest {
         override fun updateInFlight(
             deliveryId: String,
             messageId: String,
+            ownerUserId: String,
+            senderDeviceId: String,
             update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
         ): Boolean {
             val row = rows[deliveryId] ?: return false
-            if (row.messageId != messageId || row.status != OlmDeliveryStatus.IN_FLIGHT) return false
+            if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT
+            ) return false
             rows[deliveryId] = update(row)
             return true
         }

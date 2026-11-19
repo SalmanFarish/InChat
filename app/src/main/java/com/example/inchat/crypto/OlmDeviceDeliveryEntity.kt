@@ -10,7 +10,8 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["status", "nextAttemptAtMillis", "leaseUntilMillis"]),
         Index(value = ["messageId"]),
-        Index(value = ["messageId", "recipientUserId", "recipientDeviceId"], unique = true),
+        Index(value = ["ownerUserId", "senderDeviceId", "status", "nextAttemptAtMillis", "leaseUntilMillis"]),
+        Index(value = ["ownerUserId", "senderDeviceId", "messageId", "recipientUserId", "recipientDeviceId"], unique = true),
     ],
 )
 data class OlmDeviceDeliveryEntity(
@@ -18,6 +19,8 @@ data class OlmDeviceDeliveryEntity(
     val messageId: String,
     val recipientUserId: String,
     val recipientDeviceId: String,
+    val ownerUserId: String?,
+    val senderDeviceId: String?,
     val envelope: String,
     val status: String,
     val attemptCount: Int,
@@ -31,6 +34,8 @@ internal fun QueuedOlmDeviceDelivery.toEntity() = OlmDeviceDeliveryEntity(
     messageId = messageId,
     recipientUserId = recipientUserId,
     recipientDeviceId = recipientDeviceId,
+    ownerUserId = ownerUserId,
+    senderDeviceId = senderDeviceId,
     envelope = envelope,
     status = status.name,
     attemptCount = attemptCount,
@@ -44,6 +49,8 @@ internal fun OlmDeviceDeliveryEntity.toDelivery() = QueuedOlmDeviceDelivery(
     deliveryId = deliveryId,
     recipientUserId = recipientUserId,
     recipientDeviceId = recipientDeviceId,
+    ownerUserId = ownerUserId,
+    senderDeviceId = senderDeviceId,
     envelope = envelope,
     status = OlmDeliveryStatus.valueOf(status),
     attemptCount = attemptCount,

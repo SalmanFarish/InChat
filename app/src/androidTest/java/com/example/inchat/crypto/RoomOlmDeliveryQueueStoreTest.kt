@@ -38,7 +38,7 @@ class RoomOlmDeliveryQueueStoreTest {
         val secondQueue = OlmDeliveryQueue(
             RoomOlmDeliveryQueueStore(secondDatabase, secondDatabase.olmDeliveryQueueDao()),
         )
-        val claimed = secondQueue.claimNext(10_000)
+        val claimed = secondQueue.claimNext("alice", "sender-device", 10_000)
         assertNotNull(claimed)
         assertEquals("persistent-message", claimed?.messageId)
         assertEquals(1, claimed?.attemptCount)
@@ -56,18 +56,22 @@ class RoomOlmDeliveryQueueStoreTest {
             .allowMainThreadQueries().build()
         try {
             val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
-            queue.enqueue("ack-message", listOf(prepared("device-phone")))
-            val queued = db.olmDeliveryQueueDao().findNextDue(10_000)!!
+            queue.enqueue("alice", "sender-device", "ack-message", listOf(prepared("device-phone")))
+            val queued = db.olmDeliveryQueueDao().findNextDue("alice", "sender-device", 10_000)!!
             val acknowledgement = OlmDeliveryAcknowledgement(
                 deliveryId = queued.deliveryId,
                 recipientUserId = queued.recipientUserId,
                 recipientDeviceId = queued.recipientDeviceId,
                 messageId = queued.messageId,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
             )
 
             assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(messageId = "wrong-message")))
             assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientUserId = "wrong-user")))
             assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientDeviceId = "wrong-device")))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(senderUserId = "wrong-user")))
+            assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(senderDeviceId = "wrong-sender-device")))
             assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(deliveryId = "0".repeat(64))))
             assertFalse(queue.removeAcknowledgedDelivery(acknowledgement.copy(messageId = "wrong-message")))
             assertTrue(queue.hasMatchingDelivery(acknowledgement))

@@ -11,6 +11,7 @@ package com.example.inchat.crypto
 internal class OlmDeliveryAckProcessor(
     private val queue: OlmDeliveryQueue,
     private val transport: OlmDeliveryAckTransport,
+    private val senderUserId: String,
     private val senderDeviceId: String,
 ) {
     suspend fun processPending(): OlmDeliveryAckProcessingResult {
@@ -19,7 +20,10 @@ internal class OlmDeliveryAckProcessor(
         var unmatched = 0
 
         for (acknowledgement in acknowledgements) {
-            if (!queue.hasMatchingDelivery(acknowledgement)) {
+            if (acknowledgement.senderUserId != senderUserId ||
+                acknowledgement.senderDeviceId != senderDeviceId ||
+                !queue.hasMatchingDelivery(acknowledgement)
+            ) {
                 unmatched++
                 continue
             }

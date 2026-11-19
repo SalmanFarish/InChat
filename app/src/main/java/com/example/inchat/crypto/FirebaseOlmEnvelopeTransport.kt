@@ -149,7 +149,7 @@ internal class FirebaseOlmEnvelopeTransport(
         require(DEVICE_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
 
         return database.reference.child(ACK_NODE).child(uid).child(senderDeviceId).get().await()
-            .children.mapNotNull(::parseAcknowledgement)
+            .children.mapNotNull { parseAcknowledgement(it, uid, senderDeviceId) }
             .sortedBy { it.deliveryId }
     }
 
@@ -165,7 +165,7 @@ internal class FirebaseOlmEnvelopeTransport(
             .removeValue().await()
     }
 
-    private fun parseAcknowledgement(snapshot: DataSnapshot): OlmDeliveryAcknowledgement? {
+    private fun parseAcknowledgement(snapshot: DataSnapshot, senderUserId: String, senderDeviceId: String): OlmDeliveryAcknowledgement? {
         val deliveryId = snapshot.key ?: return null
         val recipientUid = snapshot.child("recipientUid").getValue(String::class.java) ?: return null
         val recipientDeviceId = snapshot.child("recipientDeviceId").getValue(String::class.java) ?: return null
@@ -186,6 +186,8 @@ internal class FirebaseOlmEnvelopeTransport(
             recipientUserId = recipientUid,
             recipientDeviceId = recipientDeviceId,
             messageId = messageId,
+            senderUserId = senderUserId,
+            senderDeviceId = senderDeviceId,
         )
     }
 

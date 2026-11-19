@@ -23,13 +23,13 @@ class RoomOlmDeliveryQueueConcurrencyTest {
             .allowMainThreadQueries().build()
         try {
             val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
-            queue.enqueue("msg-concurrent", listOf(prepared("device-a"), prepared("device-b")))
+            queue.enqueue("alice", "sender-device", "msg-concurrent", listOf(prepared("device-a"), prepared("device-b")))
             val pool = Executors.newFixedThreadPool(2)
             val gate = CountDownLatch(1)
             val futures = (1..2).map {
                 pool.submit<QueuedOlmDeviceDelivery?> {
                     gate.await()
-                    queue.claimNext(5_000)
+                    queue.claimNext("alice", "sender-device", 5_000)
                 }
             }
             gate.countDown()
@@ -55,9 +55,9 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 maxAttempts = 1,
                 leaseDurationMillis = 100,
             )
-            queue.enqueue("msg-final", listOf(prepared("device-final")))
-            val first = queue.claimNext(1_000)!!
-            assertNull(queue.claimNext(1_100))
+            queue.enqueue("alice", "sender-device", "msg-final", listOf(prepared("device-final")))
+            val first = queue.claimNext("alice", "sender-device", 1_000)!!
+            assertNull(queue.claimNext("alice", "sender-device", 1_100))
             val stored = db.olmDeliveryQueueDao().getByDeliveryId(first.deliveryId)
             assertEquals(OlmDeliveryStatus.FAILED.name, stored?.status)
             assertEquals("attempt_limit_reached", stored?.lastError)

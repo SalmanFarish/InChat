@@ -19,6 +19,8 @@ internal data class QueuedOlmDeviceDelivery(
     val deliveryId: String,
     val recipientUserId: String,
     val recipientDeviceId: String,
+    val ownerUserId: String? = null,
+    val senderDeviceId: String? = null,
     val envelope: String,
     val status: OlmDeliveryStatus = OlmDeliveryStatus.QUEUED,
     val attemptCount: Int = 0,
@@ -33,6 +35,8 @@ internal data class OlmDeliveryAcknowledgement(
     val recipientUserId: String,
     val recipientDeviceId: String,
     val messageId: String,
+    val senderUserId: String,
+    val senderDeviceId: String,
 )
 
 /**
@@ -57,12 +61,14 @@ internal interface OlmDeliveryQueueStore {
      * Atomically lease the oldest due QUEUED row or expired IN_FLIGHT row.
      * The returned row must have attemptCount incremented and a new lease.
      */
-    fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
+    fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
     /** Atomically update a matching IN_FLIGHT row; return false if it is no longer leased. */
     fun updateInFlight(
         deliveryId: String,
         messageId: String,
+        ownerUserId: String,
+        senderDeviceId: String,
         update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
     ): Boolean
 }
@@ -87,9 +93,13 @@ internal class OlmDeliveryQueue(
 
     /** Enqueue one already-encrypted envelope per planned target, idempotently. */
     fun enqueue(
+        ownerUserId: String,
+        senderDeviceId: String,
         messageId: String,
         prepared: List<PreparedOlmDelivery>,
     ): Int {
+        require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
+        require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
         require(messageId.isNotBlank() && messageId.length <= MAX_MESSAGE_ID_LENGTH) {
             "Message ID has an invalid format"
         }
@@ -104,6 +114,9 @@ internal class OlmDeliveryQueue(
                 "Encrypted envelope has an invalid size"
             }
             val decoded = EncryptedOlmEnvelopeCodec.decode(item.envelope)
+            require(decoded.senderDeviceId == senderDeviceId) {
+                "Encrypted envelope sender does not match the outbox owner device"
+            }
             require(decoded.recipientDeviceId == item.recipientDeviceId) {
                 "Encrypted envelope recipient does not match its delivery target"
             }
@@ -112,9 +125,11 @@ internal class OlmDeliveryQueue(
             }
             QueuedOlmDeviceDelivery(
                 messageId = messageId,
-                deliveryId = deliveryId(messageId, item.recipientUserId, item.recipientDeviceId),
+                deliveryId = deliveryId(ownerUserId, senderDeviceId, messageId, item.recipientUserId, item.recipientDeviceId),
                 recipientUserId = item.recipientUserId,
                 recipientDeviceId = item.recipientDeviceId,
+                ownerUserId = ownerUserId,
+                senderDeviceId = senderDeviceId,
                 envelope = item.envelope,
             )
         }
@@ -133,14 +148,16 @@ internal class OlmDeliveryQueue(
         store.removeAcknowledgedDelivery(acknowledgement)
 
     /** Claim one due row. The caller must send the returned ciphertext envelope. */
-    fun claimNext(nowMillis: Long): QueuedOlmDeviceDelivery? {
+    fun claimNext(ownerUserId: String, senderDeviceId: String, nowMillis: Long): QueuedOlmDeviceDelivery? {
+        require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
+        require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
         require(nowMillis >= 0) { "nowMillis must not be negative" }
-        return store.claimNextDue(nowMillis, leaseDurationMillis, maxAttempts)
+        return store.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
     }
 
     /** Mark a delivery acknowledged; duplicate acknowledgements are harmless. */
-    fun acknowledge(deliveryId: String, messageId: String): Boolean =
-        store.updateInFlight(deliveryId, messageId) { row ->
+    fun acknowledge(deliveryId: String, messageId: String, ownerUserId: String, senderDeviceId: String): Boolean =
+        store.updateInFlight(deliveryId, messageId, ownerUserId, senderDeviceId) { row ->
             row.copy(
                 status = OlmDeliveryStatus.ACKNOWLEDGED,
                 leaseUntilMillis = 0,
@@ -157,12 +174,14 @@ internal class OlmDeliveryQueue(
         messageId: String,
         nowMillis: Long,
         errorCode: String,
+        ownerUserId: String,
+        senderDeviceId: String,
     ): Boolean {
         require(nowMillis >= 0) { "nowMillis must not be negative" }
         require(errorCode.isNotBlank() && errorCode.length <= MAX_ERROR_LENGTH) {
             "Error code has an invalid format"
         }
-        return store.updateInFlight(deliveryId, messageId) { row ->
+        return store.updateInFlight(deliveryId, messageId, ownerUserId, senderDeviceId) { row ->
             if (row.attemptCount >= maxAttempts) {
                 row.copy(
                     status = OlmDeliveryStatus.FAILED,
@@ -182,8 +201,8 @@ internal class OlmDeliveryQueue(
         }
     }
 
-    private fun deliveryId(messageId: String, userId: String, deviceId: String): String {
-        val input = "$messageId\u0000$userId\u0000$deviceId".toByteArray(Charsets.UTF_8)
+    private fun deliveryId(ownerUserId: String, senderDeviceId: String, messageId: String, userId: String, deviceId: String): String {
+        val input = "$ownerUserId\u0000$senderDeviceId\u0000$messageId\u0000$userId\u0000$deviceId".toByteArray(Charsets.UTF_8)
         return MessageDigest.getInstance("SHA-256").digest(input).joinToString("") {
             "%02x".format(it)
         }

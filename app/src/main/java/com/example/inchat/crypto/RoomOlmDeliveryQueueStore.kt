@@ -28,6 +28,8 @@ internal class RoomOlmDeliveryQueueStore(
             messageId = acknowledgement.messageId,
             recipientUserId = acknowledgement.recipientUserId,
             recipientDeviceId = acknowledgement.recipientDeviceId,
+            ownerUserId = acknowledgement.senderUserId,
+            senderDeviceId = acknowledgement.senderDeviceId,
         )
 
     override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
@@ -37,18 +39,22 @@ internal class RoomOlmDeliveryQueueStore(
                 messageId = acknowledgement.messageId,
                 recipientUserId = acknowledgement.recipientUserId,
                 recipientDeviceId = acknowledgement.recipientDeviceId,
+                ownerUserId = acknowledgement.senderUserId,
+                senderDeviceId = acknowledgement.senderDeviceId,
             ) == 1
         })
 
     override fun claimNextDue(
+        ownerUserId: String,
+        senderDeviceId: String,
         nowMillis: Long,
         leaseDurationMillis: Long,
         maxAttempts: Int,
     ): QueuedOlmDeviceDelivery? = database.runInTransaction(Callable {
-        dao.failExhaustedDue(nowMillis, maxAttempts)
-        val candidate = dao.findNextDue(nowMillis) ?: return@Callable null
+        dao.failExhaustedDue(ownerUserId, senderDeviceId, nowMillis, maxAttempts)
+        val candidate = dao.findNextDue(ownerUserId, senderDeviceId, nowMillis) ?: return@Callable null
         val leaseUntil = safeAdd(nowMillis, leaseDurationMillis)
-        if (dao.leaseIfDue(candidate.deliveryId, nowMillis, leaseUntil, maxAttempts) != 1) {
+        if (dao.leaseIfDue(candidate.deliveryId, ownerUserId, senderDeviceId, nowMillis, leaseUntil, maxAttempts) != 1) {
             return@Callable null
         }
         dao.getByDeliveryId(candidate.deliveryId)?.toDelivery()
@@ -57,6 +63,8 @@ internal class RoomOlmDeliveryQueueStore(
     override fun updateInFlight(
         deliveryId: String,
         messageId: String,
+        ownerUserId: String,
+        senderDeviceId: String,
         update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
     ): Boolean = database.runInTransaction(Callable {
         val current = dao.getByDeliveryId(deliveryId) ?: return@Callable false
@@ -70,6 +78,8 @@ internal class RoomOlmDeliveryQueueStore(
         dao.updateInFlight(
             deliveryId = deliveryId,
             messageId = messageId,
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
             status = changed.status.name,
             nextAttemptAtMillis = changed.nextAttemptAtMillis,
             leaseUntilMillis = changed.leaseUntilMillis,

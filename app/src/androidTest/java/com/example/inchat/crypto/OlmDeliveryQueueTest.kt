@@ -16,8 +16,8 @@ class OlmDeliveryQueueTest {
         val queue = OlmDeliveryQueue(store)
         val prepared = listOf(prepared("phone"), prepared("tablet"))
 
-        assertEquals(2, queue.enqueue("message-1", prepared))
-        assertEquals(0, queue.enqueue("message-1", prepared))
+        assertEquals(2, queue.enqueue("alice", "sender-device", "message-1", prepared))
+        assertEquals(0, queue.enqueue("alice", "sender-device", "message-1", prepared))
         assertEquals(2, store.rows.size)
         assertEquals(2, store.rows.values.map { it.deliveryId }.distinct().size)
     }
@@ -29,7 +29,7 @@ class OlmDeliveryQueueTest {
             recipientDeviceId = "tablet",
         )
         try {
-            queue.enqueue("message-1", listOf(wrongTarget))
+            queue.enqueue("alice", "sender-device", "message-1", listOf(wrongTarget))
             throw AssertionError("Expected mismatched recipient to be rejected")
         } catch (_: IllegalArgumentException) {
             // Expected.
@@ -40,33 +40,37 @@ class OlmDeliveryQueueTest {
     fun claimAckAndDuplicateAckAreSafe() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-1", listOf(prepared("phone")))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
 
-        val claimed = queue.claimNext(10_000)!!
+        val claimed = queue.claimNext("alice", "sender-device", 10_000)!!
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, claimed.status)
         assertEquals(1, claimed.attemptCount)
-        assertTrue(queue.acknowledge(claimed.deliveryId, claimed.messageId))
-        assertFalse(queue.acknowledge(claimed.deliveryId, claimed.messageId))
-        assertNull(queue.claimNext(20_000))
+        assertTrue(queue.acknowledge(claimed.deliveryId, claimed.messageId, "alice", "sender-device"))
+        assertFalse(queue.acknowledge(claimed.deliveryId, claimed.messageId, "alice", "sender-device"))
+        assertNull(queue.claimNext("alice", "sender-device", 20_000))
     }
 
     @Test
     fun acknowledgementMustMatchEveryDeliveryIdentityFieldBeforeRemoval() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-1", listOf(prepared("phone")))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
         val row = store.rows.values.single()
         val acknowledgement = OlmDeliveryAcknowledgement(
             deliveryId = row.deliveryId,
             recipientUserId = row.recipientUserId,
             recipientDeviceId = row.recipientDeviceId,
             messageId = row.messageId,
+            senderUserId = requireNotNull(row.ownerUserId),
+            senderDeviceId = requireNotNull(row.senderDeviceId),
         )
 
         assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(messageId = "other-message")))
         assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientUserId = "mallory")))
         assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(recipientDeviceId = "other-device")))
         assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(deliveryId = "f".repeat(64))))
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(senderUserId = "mallory")))
+        assertFalse(queue.hasMatchingDelivery(acknowledgement.copy(senderDeviceId = "other-sender-device")))
         assertFalse(queue.removeAcknowledgedDelivery(acknowledgement.copy(recipientUserId = "mallory")))
         assertEquals(1, store.rows.size)
 
@@ -80,28 +84,28 @@ class OlmDeliveryQueueTest {
     fun retryUsesBackoffAndStopsAfterConfiguredAttempts() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, maxAttempts = 2)
-        queue.enqueue("message-1", listOf(prepared("phone")))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
 
-        val first = queue.claimNext(10_000)!!
-        assertTrue(queue.retry(first.deliveryId, first.messageId, 10_000, "network"))
-        assertNull(queue.claimNext(11_999))
-        val second = queue.claimNext(12_000)!!
+        val first = queue.claimNext("alice", "sender-device", 10_000)!!
+        assertTrue(queue.retry(first.deliveryId, first.messageId, 10_000, "network", "alice", "sender-device"))
+        assertNull(queue.claimNext("alice", "sender-device", 11_999))
+        val second = queue.claimNext("alice", "sender-device", 12_000)!!
         assertEquals(2, second.attemptCount)
-        assertTrue(queue.retry(second.deliveryId, second.messageId, 12_000, "network"))
+        assertTrue(queue.retry(second.deliveryId, second.messageId, 12_000, "network", "alice", "sender-device"))
 
         assertEquals(OlmDeliveryStatus.FAILED, store.rows.getValue(first.deliveryId).status)
-        assertNull(queue.claimNext(Long.MAX_VALUE))
+        assertNull(queue.claimNext("alice", "sender-device", Long.MAX_VALUE))
     }
 
     @Test
     fun expiredLeaseCanBeReclaimedAfterProcessInterruption() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100)
-        queue.enqueue("message-1", listOf(prepared("phone")))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
 
-        val first = queue.claimNext(1_000)!!
-        assertNull(queue.claimNext(1_050))
-        val reclaimed = queue.claimNext(1_100)!!
+        val first = queue.claimNext("alice", "sender-device", 1_000)!!
+        assertNull(queue.claimNext("alice", "sender-device", 1_050))
+        val reclaimed = queue.claimNext("alice", "sender-device", 1_100)!!
         assertEquals(first.deliveryId, reclaimed.deliveryId)
         assertEquals(2, reclaimed.attemptCount)
     }
@@ -110,9 +114,9 @@ class OlmDeliveryQueueTest {
     fun rejectsAckForWrongMessageId() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
-        queue.enqueue("message-1", listOf(prepared("phone")))
-        val claimed = queue.claimNext(1_000)!!
-        assertFalse(queue.acknowledge(claimed.deliveryId, "different-message"))
+        queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
+        val claimed = queue.claimNext("alice", "sender-device", 1_000)!!
+        assertFalse(queue.acknowledge(claimed.deliveryId, "different-message", "alice", "sender-device"))
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(claimed.deliveryId).status)
     }
 
@@ -144,7 +148,9 @@ class OlmDeliveryQueueTest {
             rows[acknowledgement.deliveryId]?.let { row ->
                 row.messageId == acknowledgement.messageId &&
                     row.recipientUserId == acknowledgement.recipientUserId &&
-                    row.recipientDeviceId == acknowledgement.recipientDeviceId
+                    row.recipientDeviceId == acknowledgement.recipientDeviceId &&
+                    row.ownerUserId == acknowledgement.senderUserId &&
+                    row.senderDeviceId == acknowledgement.senderDeviceId
             } ?: false
 
         override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean {
@@ -153,11 +159,12 @@ class OlmDeliveryQueueTest {
             return true
         }
 
-        override fun claimNextDue(nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery? {
+        override fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery? {
             val candidate = rows.values
                 .filter {
-                    (it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
-                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis)
+                    it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
+                        ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
                 }
                 .minByOrNull { it.nextAttemptAtMillis }
                 ?: return null
@@ -173,10 +180,14 @@ class OlmDeliveryQueueTest {
         override fun updateInFlight(
             deliveryId: String,
             messageId: String,
+            ownerUserId: String,
+            senderDeviceId: String,
             update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
         ): Boolean {
             val row = rows[deliveryId] ?: return false
-            if (row.messageId != messageId || row.status != OlmDeliveryStatus.IN_FLIGHT) return false
+            if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT
+            ) return false
             rows[deliveryId] = update(row)
             return true
         }
