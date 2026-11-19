@@ -5,11 +5,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
+/** Checks an identity-key-bound SAS trust decision for one published device. */
+internal fun interface OlmDeviceTrustVerifier {
+    fun isVerified(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+    ): Boolean
+}
+
 /**
  * Stores verified peer-device identities locally in an Android Keystore AES-GCM
  * encrypted file. Firebase is not used as an authority for trust decisions.
  */
-internal class TrustedDeviceRepository(context: Context) {
+internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifier {
     private val stateStore = CryptoStateStore(
         context.applicationContext,
         STATE_ID,
@@ -53,6 +62,13 @@ internal class TrustedDeviceRepository(context: Context) {
                 it.identityKeyFingerprint == expectedFingerprint
         }?.verifiedAtMillis
     }
+
+    /** A changed directory identity key is untrusted until the user verifies it again. */
+    override fun isVerified(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+    ): Boolean = verifiedAtMillis(peerUserId, peerDeviceId, peerEd25519IdentityKey) != null
 
     /** Revocation is local to this installation and removes the stored trust decision. */
     fun revoke(peerUserId: String, peerDeviceId: String): Boolean = synchronized(LOCK) {
