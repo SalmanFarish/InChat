@@ -203,12 +203,11 @@ internal class FirebaseSasVerificationTransport(
         // Auth can change while the database read is in flight. Do not return
         // messages to a coordinator after its owning account has signed out.
         requireAuthenticatedLocalUser()
-        // Capture time after the asynchronous read so an entry expiring while
-        // the request is in flight cannot be accepted using a stale timestamp.
-        val now = clock().coerceAtLeast(0L)
-
         val pending = mutableListOf<SasVerificationInboxItem>()
         for (record in records) {
+            // The read and each preceding expiry deletion may suspend. Refresh
+            // time per row so neither can make a later expiry check stale.
+            val now = clock().coerceAtLeast(0L)
             if (isExpiredSasRelayEntry(
                     record.deliveryId,
                     record.fields.longField("expiresAtMillis"),
