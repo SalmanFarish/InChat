@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.PendingMessageDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.crypto.DeviceIdentityRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +60,21 @@ class InChatApplication : Application() {
             val ownerUserId = firebaseAuth.currentUser?.uid ?: return@addAuthStateListener
             backgroundScope.launch {
                 try {
+                    // Restore the isolated encrypted-device relay worker only when
+                    // this installation already has a usable local Olm identity.
+                    // This lookup never creates a new device ID or crypto identity.
+                    val senderDeviceId = DeviceIdentityRepository(applicationContext)
+                        .existingDeviceIdForDelivery()
+                    if (senderDeviceId != null &&
+                        FirebaseAuth.getInstance().currentUser?.uid == ownerUserId
+                    ) {
+                        EncryptedOlmDeliveryWorker.schedule(
+                            context = applicationContext,
+                            ownerUserId = ownerUserId,
+                            senderDeviceId = senderDeviceId,
+                        )
+                    }
+
                     val pendingMessages = LocalChatDatabase
                         .getInstance(applicationContext)
                         .messageDao()

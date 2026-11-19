@@ -79,6 +79,28 @@ internal class DeviceIdentityRepository(context: Context) {
     /** Return this installation's stable device ID without exposing private state. */
     fun currentDeviceId(): String = getOrCreateDeviceId()
 
+    /**
+     * Return an already-created, usable device identity for background delivery.
+     * Unlike currentDeviceId(), this never creates a device ID or native identity.
+     * The returned ID is accepted only when the encrypted native state can be
+     * opened and the transfer journal does not lock this installation.
+     */
+    fun existingDeviceIdForDelivery(): String? {
+        val savedId = try {
+            deviceIdFile.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: FileNotFoundException) {
+            return null
+        }
+        if (!DEVICE_ID_REGEX.matches(savedId)) {
+            throw IOException("Saved InChat device ID is malformed")
+        }
+
+        val state = CryptoStateStore(appContext, "device-" + savedId).read() ?: return null
+        state.fill(0)
+        transferJournal.requireUnlocked(savedId)
+        return savedId
+    }
+
     /** Re-check the transfer lock even when a caller has cached this identity. */
     fun requireIdentityUsable() {
         transferJournal.requireUnlocked(getOrCreateDeviceId())

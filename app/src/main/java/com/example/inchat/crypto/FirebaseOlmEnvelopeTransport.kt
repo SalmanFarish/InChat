@@ -25,6 +25,14 @@ internal interface OlmDeliveryAckTransport {
     suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String)
 }
 
+/** Sender-side transport used only by the isolated encrypted device outbox. */
+internal interface OlmOutgoingDeliveryTransport : OlmDeliveryAckTransport {
+    suspend fun upload(
+        delivery: QueuedOlmDeviceDelivery,
+        senderDeviceId: String,
+    ): FirebaseOlmUploadResult
+}
+
 internal enum class FirebaseOlmUploadResult {
     STORED,
 }
@@ -40,8 +48,8 @@ internal enum class FirebaseOlmUploadResult {
 internal class FirebaseOlmEnvelopeTransport(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-) : OlmInboxTransport, OlmDeliveryAckTransport {
-    suspend fun upload(
+) : OlmInboxTransport, OlmOutgoingDeliveryTransport {
+    override suspend fun upload(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
     ): FirebaseOlmUploadResult {
@@ -50,6 +58,12 @@ internal class FirebaseOlmEnvelopeTransport(
             "Sign in before uploading an encrypted delivery"
         }
         require(UID_PATTERN.matches(senderUid)) { "Authenticated user ID has an invalid format" }
+        require(delivery.ownerUserId == senderUid) {
+            "Outbox row does not belong to the authenticated sender account"
+        }
+        require(delivery.senderDeviceId == senderDeviceId) {
+            "Outbox row does not belong to the active sender device"
+        }
         require(UID_PATTERN.matches(delivery.recipientUserId)) { "Recipient user ID has an invalid format" }
         require(DEVICE_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
         require(DEVICE_PATTERN.matches(delivery.recipientDeviceId)) { "Recipient device ID has an invalid format" }
