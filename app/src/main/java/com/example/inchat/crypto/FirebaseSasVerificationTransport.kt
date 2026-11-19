@@ -195,11 +195,13 @@ internal class FirebaseSasVerificationTransport(
     override suspend fun readInbox(deviceId: String): List<SasVerificationInboxItem> {
         requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "SAS inbox must be read for this installation" }
-        val now = clock().coerceAtLeast(0L)
         val records = relayStore.readInbox(localUserId, deviceId)
         // Auth can change while the database read is in flight. Do not return
         // messages to a coordinator after its owning account has signed out.
         requireAuthenticatedLocalUser()
+        // Capture time after the asynchronous read so an entry expiring while
+        // the request is in flight cannot be accepted using a stale timestamp.
+        val now = clock().coerceAtLeast(0L)
 
         val pending = mutableListOf<SasVerificationInboxItem>()
         for (record in records) {
