@@ -39,6 +39,22 @@ internal fun sasVerificationMessageMatchesPeer(
 ): Boolean =
     message.senderUserId == peerUserId && message.senderDeviceId == peerDeviceId
 
+/** Narrow seam for the local device identity used by a SAS attempt. */
+internal interface SasVerificationLocalIdentity {
+    fun ensurePublicKeyBundle(): PublicDeviceKeyBundle
+    fun requireIdentityUsable()
+}
+
+/** Persists a successful SAS decision in this installation's local trust store. */
+internal interface SasVerificationTrustStore {
+    fun markVerified(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+        verifiedAtMillis: Long,
+    )
+}
+
 /**
  * Orchestrates the isolated two-device SAS protocol. Successful verification
  * writes only a device-local, Keystore-encrypted trust record; it is not
@@ -49,11 +65,11 @@ internal fun sasVerificationMessageMatchesPeer(
  */
 internal class SasVerificationCoordinator(
     private val localUserId: String,
-    private val identityRepository: DeviceIdentityRepository,
-    private val directoryRepository: DeviceKeyDirectoryRepository,
+    private val identityRepository: SasVerificationLocalIdentity,
+    private val directoryRepository: DeviceIdentityTransferDirectory,
     private val transport: SasVerificationTransport,
     ledger: SasVerificationMessageLedger,
-    private val trustedDeviceRepository: TrustedDeviceRepository,
+    private val trustedDeviceRepository: SasVerificationTrustStore,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private data class Attempt(
