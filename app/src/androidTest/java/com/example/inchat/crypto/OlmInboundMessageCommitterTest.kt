@@ -7,6 +7,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +33,68 @@ class OlmInboundMessageCommitterTest {
                 OlmInboundReceiptStatus.PROCESSED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status,
             )
+        }
+    }
+
+    @Test
+    fun concurrentCommittersCannotOverwriteTheFirstCommittedMessage() = runBlocking {
+        withDatabase("olm-inbound-concurrent-commit.db") { db ->
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "concurrent-commit", envelope(), 100L),
+            )
+            val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("concurrent-commit"))!!
+            val firstCommitter = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val secondCommitter = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(2)
+
+            try {
+                val attempts = listOf(
+                    firstCommitter to "first concurrent plaintext",
+                    secondCommitter to "second concurrent plaintext",
+                ).map { (committer, plaintext) ->
+                    pool.submit(Callable {
+                        start.await()
+                        runBlocking {
+                            runCatching {
+                                committer.commit(
+                                    receipt.receiptId,
+                                    message(
+                                        messageId = "concurrent-commit",
+                                        text = plaintext,
+                                    ),
+                                    200L,
+                                )
+                            }
+                        }
+                    })
+                }
+                start.countDown()
+                val results = attempts.map { it.get(10, TimeUnit.SECONDS) }
+
+                assertEquals(1, results.count { it.getOrNull() == true })
+                assertEquals(1, results.count { it.isFailure })
+                assertTrue(
+                    results.filter { it.isFailure }.all {
+                        it.exceptionOrNull() is IllegalStateException
+                    },
+                )
+
+                val stored = db.messageDao().getMessage("local-user", "alice", "concurrent-commit")
+                assertNotNull(stored)
+                assertTrue(
+                    stored?.text == "first concurrent plaintext" ||
+                        stored?.text == "second concurrent plaintext",
+                )
+                assertEquals(
+                    OlmInboundReceiptStatus.PROCESSED.name,
+                    db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status,
+                )
+            } finally {
+                pool.shutdownNow()
+            }
         }
     }
 

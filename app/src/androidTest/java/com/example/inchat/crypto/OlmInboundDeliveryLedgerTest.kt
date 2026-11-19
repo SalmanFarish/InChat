@@ -9,6 +9,11 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class OlmInboundDeliveryLedgerTest {
     @Test
@@ -36,6 +41,101 @@ class OlmInboundDeliveryLedgerTest {
             )
         } finally {
             second.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun concurrentDuplicateRegistrationProducesOneNewAndOnePendingRetry() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-concurrent-duplicate-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val messageId = "concurrent-message"
+        val encoded = envelope("receiver-device", "sender-device", 11)
+        try {
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(2)
+            try {
+                val futures = listOf(firstLedger, secondLedger).mapIndexed { index, ledger ->
+                    pool.submit(Callable {
+                        start.await()
+                        ledger.register("alice", messageId, encoded, 1_000L + index)
+                    })
+                }
+                start.countDown()
+                val results = futures.map { it.get(10, TimeUnit.SECONDS) }
+
+                assertEquals(1, results.count { it == OlmInboundRegistration.NEW })
+                assertEquals(1, results.count { it == OlmInboundRegistration.PENDING_RETRY })
+
+                val receiptId = MessageDigest.getInstance("SHA-256")
+                    .digest("alice\\u0000sender-device\\u0000$messageId\\u0000receiver-device".toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                val stored = db.olmInboundReceiptDao().getByReceiptId(receiptId)
+                assertEquals(encoded, stored?.envelope)
+                assertEquals(OlmInboundReceiptStatus.PENDING.name, stored?.status)
+            } finally {
+                pool.shutdownNow()
+            }
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun concurrentConflictingRegistrationKeepsTheFirstEnvelopeImmutable() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-concurrent-conflict-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val messageId = "concurrent-conflict"
+        val firstEnvelope = envelope("receiver-device", "sender-device", 21)
+        val secondEnvelope = envelope("receiver-device", "sender-device", 22)
+        try {
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(2)
+            try {
+                val futures = listOf(
+                    Callable {
+                        start.await()
+                        firstLedger.register("alice", messageId, firstEnvelope, 2_000L)
+                    },
+                    Callable {
+                        start.await()
+                        secondLedger.register("alice", messageId, secondEnvelope, 2_001L)
+                    },
+                ).map { pool.submit(it) }
+                start.countDown()
+                val results = futures.map { it.get(10, TimeUnit.SECONDS) }
+
+                assertEquals(1, results.count { it == OlmInboundRegistration.NEW })
+                assertEquals(1, results.count { it == OlmInboundRegistration.CONFLICT })
+
+                val receiptId = MessageDigest.getInstance("SHA-256")
+                    .digest("alice\\u0000sender-device\\u0000$messageId\\u0000receiver-device".toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                val stored = db.olmInboundReceiptDao().getByReceiptId(receiptId)
+                assertTrue(stored?.envelope == firstEnvelope || stored?.envelope == secondEnvelope)
+                val conflictingEnvelope =
+                    if (stored?.envelope == firstEnvelope) secondEnvelope else firstEnvelope
+                assertEquals(
+                    OlmInboundRegistration.CONFLICT,
+                    firstLedger.register("alice", messageId, conflictingEnvelope, 2_002L),
+                )
+                assertEquals(OlmInboundReceiptStatus.PENDING.name, stored?.status)
+            } finally {
+                pool.shutdownNow()
+            }
+        } finally {
+            db.close()
             context.deleteDatabase(name)
         }
     }
