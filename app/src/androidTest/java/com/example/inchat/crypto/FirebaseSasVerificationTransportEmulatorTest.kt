@@ -42,18 +42,19 @@ class FirebaseSasVerificationTransportEmulatorTest {
         var deliveryId: String? = null
 
         try {
-            bob = createAccount(emulatorHost, "bob-$runId")
+            val bobAccount = createAccount(emulatorHost, "bob-$runId")
+            bob = bobAccount
             registerDevice(alice, aliceDeviceId)
-            registerDevice(bob, bobDeviceId)
+            registerDevice(bobAccount, bobDeviceId)
 
             val aliceTransport = transport(alice, aliceDeviceId)
-            val bobTransport = transport(bob, bobDeviceId)
+            val bobTransport = transport(bobAccount, bobDeviceId)
             val now = System.currentTimeMillis()
             val message = SasVerificationMessage(
                 transactionId = "emulator-$runId",
                 senderUserId = alice.uid,
                 senderDeviceId = aliceDeviceId,
-                recipientUserId = bob.uid,
+                recipientUserId = bobAccount.uid,
                 recipientDeviceId = bobDeviceId,
                 type = SasVerificationMessageType.COMMITMENT,
                 payload = "a".repeat(64),
@@ -73,13 +74,13 @@ class FirebaseSasVerificationTransportEmulatorTest {
 
             val senderRead = runCatching {
                 FirebaseSasVerificationRelayStore(alice.database)
-                    .readInbox(bob.uid, bobDeviceId)
+                    .readInbox(bobAccount.uid, bobDeviceId)
             }
             assertTrue("A sender must not read the recipient's SAS inbox", senderRead.isFailure)
 
             val senderDelete = runCatching {
                 FirebaseSasVerificationRelayStore(alice.database)
-                    .remove(bob.uid, bobDeviceId, message.deliveryId)
+                    .remove(bobAccount.uid, bobDeviceId, message.deliveryId)
             }
             assertTrue("A sender must not acknowledge/delete the recipient's SAS row", senderDelete.isFailure)
 
