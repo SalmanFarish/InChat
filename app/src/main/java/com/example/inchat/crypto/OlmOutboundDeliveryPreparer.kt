@@ -18,12 +18,16 @@ internal data class PreparedOlmDelivery(
  * This is an isolated crypto primitive: it does not enqueue, transmit, or persist
  * application messages and is not wired into live chat sending.
  */
+internal fun interface OlmFirstMessagePreparer {
+    suspend fun prepareFirstMessage(payload: OlmAuthenticatedMessagePayload): PreparedOlmDelivery
+}
+
 internal class OlmOutboundDeliveryPreparer(
     private val directory: DeviceKeyDirectoryRepository,
     private val sessions: OlmSessionRepository,
-) {
-    /** Prepare an initial prekey envelope for exactly one remote device. */
-    suspend fun prepareFirstMessage(
+) : OlmFirstMessagePreparer {
+    /** Prepare an initial prekey envelope for exactly one target device. */
+    override suspend fun prepareFirstMessage(
         payload: OlmAuthenticatedMessagePayload,
     ): PreparedOlmDelivery {
         require(USER_ID_PATTERN.matches(payload.recipientUserId)) { "Recipient user ID has an invalid format" }
