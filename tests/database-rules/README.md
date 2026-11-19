@@ -32,7 +32,7 @@ npm run emulators
 Then, from the repository root in another terminal, run the focused test:
 
 ```powershell
-.\\gradlew :app:connectedDebugAndroidTest `
+.\gradlew :app:connectedDebugAndroidTest `
   -Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseSasVerificationTransportEmulatorTest `
   -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2
 ```
