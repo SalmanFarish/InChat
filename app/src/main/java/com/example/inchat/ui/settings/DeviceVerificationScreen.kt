@@ -129,8 +129,6 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             initializationReady = true
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (cancelled: CancellationException) {
-                throw cancelled
             } catch (failure: Exception) {
             error = failure.message ?: "Could not restore this device."
         } finally {
@@ -143,8 +141,6 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         while (isActive) {
             try {
                 withContext(Dispatchers.IO) { directoryRepository.touchMyDevice(deviceId) }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -177,8 +173,6 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (cancelled: CancellationException) {
-                throw cancelled
             } catch (failure: Exception) {
                     error = failure.message ?: "Could not receive verification messages."
                 }
