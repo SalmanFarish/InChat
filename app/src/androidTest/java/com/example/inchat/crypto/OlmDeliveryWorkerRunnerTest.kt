@@ -1,6 +1,7 @@
 package com.example.inchat.crypto
 
 import android.util.Base64
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -103,6 +104,85 @@ class OlmDeliveryWorkerRunnerTest {
         val stored = store.rows.getValue(interruptedClaim.deliveryId)
         assertEquals(2, stored.attemptCount)
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, stored.status)
+    }
+
+    @Test
+    fun cancellationDuringUploadKeepsLeaseAndReclaimsSameDeliveryAfterExpiry() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "cancelled-upload",
+            listOf(prepared("sender-device", "phone")),
+        )
+        val original = store.rows.values.single()
+
+        val cancellingTransport = object : OlmOutgoingDeliveryTransport {
+            override suspend fun upload(
+                delivery: QueuedOlmDeviceDelivery,
+                senderDeviceId: String,
+            ): FirebaseOlmUploadResult {
+                assertEquals(original.deliveryId, delivery.deliveryId)
+                assertEquals(OlmDeliveryStatus.IN_FLIGHT, delivery.status)
+                throw CancellationException("worker stopped")
+            }
+
+            override suspend fun readMyDeliveryAcknowledgements(
+                senderDeviceId: String,
+            ): List<OlmDeliveryAcknowledgement> = emptyList()
+
+            override suspend fun removeMyDeliveryAcknowledgement(
+                senderDeviceId: String,
+                deliveryId: String,
+            ) = Unit
+        }
+
+        var cancellationPropagated = false
+        try {
+            OlmDeliveryWorkerRunner(
+                queue = queue,
+                transport = cancellingTransport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                clock = { 1_000L },
+            ).run()
+        } catch (cancelled: CancellationException) {
+            cancellationPropagated = true
+        }
+
+        assertTrue(cancellationPropagated)
+        val interrupted = store.rows.getValue(original.deliveryId)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, interrupted.status)
+        assertEquals(1, interrupted.attemptCount)
+
+        val beforeLeaseExpiry = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(mutableListOf(), mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 1_099L },
+        ).run()
+        assertEquals(0, beforeLeaseExpiry.uploaded)
+        assertFalse(beforeLeaseExpiry.retryRequired)
+
+        val uploadedIds = mutableListOf<String>()
+        val recovered = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(
+                events = mutableListOf(),
+                acknowledgements = mutableListOf(),
+                uploadedDeliveryIds = uploadedIds,
+            ),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 1_100L },
+        ).run()
+
+        assertEquals(1, recovered.uploaded)
+        assertEquals(listOf(original.deliveryId), uploadedIds)
+        assertEquals(2, store.rows.getValue(original.deliveryId).attemptCount)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(original.deliveryId).status)
     }
 
     @Test
