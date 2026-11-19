@@ -24,6 +24,29 @@ class DeviceVerificationUiStateTest {
     }
 
     @Test
+    fun stateLookupSeparatesAccountsWithTheSameDeviceId() {
+        val aliceState = state(
+            "alice-attempt",
+            SasVerificationPhase.COMPLETE,
+            peerUserId = "alice",
+            peerDeviceId = "shared-device-id",
+        )
+        val bobState = state(
+            "bob-attempt",
+            SasVerificationPhase.CONFIRMING,
+            peerUserId = "bob",
+            peerDeviceId = "shared-device-id",
+        )
+        val states = linkedMapOf(
+            aliceState.transactionId to aliceState,
+            bobState.transactionId to bobState,
+        )
+
+        assertEquals(aliceState, latestDeviceVerificationState(states, "alice", "shared-device-id"))
+        assertEquals(bobState, latestDeviceVerificationState(states, "bob", "shared-device-id"))
+    }
+
+    @Test
     fun completedUntrustedDeviceCanBeVerifiedAgainOnlyAfterTrustLookup() {
         val completed = state("completed", SasVerificationPhase.COMPLETE)
 
@@ -50,10 +73,12 @@ class DeviceVerificationUiStateTest {
     private fun state(
         transactionId: String,
         phase: SasVerificationPhase,
+        peerUserId: String = "alice",
+        peerDeviceId: String = "alice-tablet",
     ) = SasVerificationUiState(
         transactionId = transactionId,
-        peerUserId = "alice",
-        peerDeviceId = "alice-tablet",
+        peerUserId = peerUserId,
+        peerDeviceId = peerDeviceId,
         phase = phase,
     )
 }
