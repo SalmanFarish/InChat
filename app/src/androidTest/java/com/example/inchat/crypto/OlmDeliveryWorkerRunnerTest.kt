@@ -402,6 +402,53 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun uploadFailureAtAttemptLimitMarksDeliveryFailedAndPreventsFurtherUploads() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, maxAttempts = 1)
+        queue.enqueue("alice", "sender-device", "retry-terminal", listOf(prepared("sender-device", "phone")))
+
+        val events = mutableListOf<String>()
+        val attemptedDeliveryIds = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = events,
+            acknowledgements = mutableListOf(),
+            failUploads = true,
+            uploadedDeliveryIds = attemptedDeliveryIds,
+        )
+        val runner = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_000L },
+        )
+
+        val failedAttempt = runner.run()
+
+        assertEquals(0, failedAttempt.uploaded)
+        assertTrue(failedAttempt.retryRequired)
+        val failedRow = store.rows.values.single()
+        assertEquals(OlmDeliveryStatus.FAILED, failedRow.status)
+        assertEquals(1, failedRow.attemptCount)
+        assertEquals("relay_upload_failed", failedRow.lastError)
+
+        val nextPass = runner.run()
+
+        assertEquals(0, nextPass.uploaded)
+        assertFalse(nextPass.retryRequired)
+        assertEquals(
+            listOf(
+                "read-acks",
+                "upload:retry-terminal",
+                "read-acks",
+            ),
+            events,
+        )
+        assertEquals(listOf(failedRow.deliveryId), attemptedDeliveryIds)
+        assertEquals(failedRow, store.rows.values.single())
+    }
+
+    @Test
     fun failedUploadPersistsRetryStateInTheScopedOutbox() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
