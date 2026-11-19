@@ -27,7 +27,7 @@ class RoomOlmDeliveryQueueStoreTest {
         val firstQueue = OlmDeliveryQueue(
             RoomOlmDeliveryQueueStore(firstDatabase, firstDatabase.olmDeliveryQueueDao()),
         )
-        assertEquals(1, firstQueue.enqueue("persistent-message", listOf(prepared("device-phone"))))
+        assertEquals(1, firstQueue.enqueue("alice", "sender-device", "persistent-message", listOf(prepared("device-phone"))))
         firstDatabase.close()
 
         val secondDatabase = Room.databaseBuilder(
