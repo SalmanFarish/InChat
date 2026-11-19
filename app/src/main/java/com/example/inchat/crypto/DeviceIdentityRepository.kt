@@ -52,14 +52,14 @@ internal data class PendingDeviceIdentityTransfer(
  *
  * This repository is not connected to login, Firebase, or live conversations yet.
  */
-internal class DeviceIdentityRepository(context: Context) {
+internal class DeviceIdentityRepository(context: Context) : SasVerificationLocalIdentity {
     private val appContext = context.applicationContext
     private val identityDirectory = File(appContext.noBackupFilesDir, DIRECTORY_NAME)
     private val deviceIdFile = AtomicFile(File(identityDirectory, DEVICE_ID_FILE))
     private val transferJournal = DeviceTransferJournal(appContext)
 
     /** Create the local native identity if needed and return its public key bundle. */
-    fun ensurePublicKeyBundle(): PublicDeviceKeyBundle {
+    override fun ensurePublicKeyBundle(): PublicDeviceKeyBundle {
         val deviceId = getOrCreateDeviceId()
         transferJournal.requireUnlocked(deviceId)
         val stateStore = CryptoStateStore(appContext, "device-$deviceId")
@@ -103,7 +103,7 @@ internal class DeviceIdentityRepository(context: Context) {
     }
 
     /** Re-check the transfer lock even when a caller has cached this identity. */
-    fun requireIdentityUsable() {
+    override fun requireIdentityUsable() {
         transferJournal.requireUnlocked(getOrCreateDeviceId())
     }
 
