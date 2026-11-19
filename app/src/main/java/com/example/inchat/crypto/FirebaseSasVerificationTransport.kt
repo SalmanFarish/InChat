@@ -155,6 +155,9 @@ internal class SasVerificationInboxReceiver(
         var conflicts = 0
         val now = clock().coerceAtLeast(0L)
         for (item in items) {
+            require(item.deliveryId == item.message.deliveryId) {
+                "SAS inbox delivery key does not match its canonical message"
+            }
             require(item.senderUid == item.message.senderUserId) {
                 "SAS inbox sender does not match the authenticated message sender"
             }
