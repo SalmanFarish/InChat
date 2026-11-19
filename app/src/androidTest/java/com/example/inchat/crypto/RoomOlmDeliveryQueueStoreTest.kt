@@ -206,11 +206,151 @@ class RoomOlmDeliveryQueueStoreTest {
         }
     }
 
-    private fun prepared(deviceId: String): PreparedOlmDelivery {
+    @Test
+    fun claimsRemainIsolatedAcrossAccountsAndSenderDevices() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-scope-isolation-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+            assertEquals(
+                1,
+                queue.enqueue(
+                    "alice",
+                    "sender-device",
+                    "same-message-id",
+                    listOf(prepared("device-phone", "sender-device")),
+                ),
+            )
+            assertEquals(
+                1,
+                queue.enqueue(
+                    "alice",
+                    "sender-device-b",
+                    "same-message-id",
+                    listOf(prepared("device-phone", "sender-device-b")),
+                ),
+            )
+            assertEquals(
+                1,
+                queue.enqueue(
+                    "bob",
+                    "sender-device",
+                    "same-message-id",
+                    listOf(prepared("device-phone", "sender-device")),
+                ),
+            )
+
+            val aliceDeviceA = queue.claimNext("alice", "sender-device", 10_000L)
+            assertNotNull(aliceDeviceA)
+            assertEquals("alice", aliceDeviceA?.ownerUserId)
+            assertEquals("sender-device", aliceDeviceA?.senderDeviceId)
+            assertNull(queue.claimNext("alice", "sender-device", 10_000L))
+
+            val aliceDeviceB = queue.claimNext("alice", "sender-device-b", 10_000L)
+            assertNotNull(aliceDeviceB)
+            assertEquals("alice", aliceDeviceB?.ownerUserId)
+            assertEquals("sender-device-b", aliceDeviceB?.senderDeviceId)
+
+            val bobDeviceA = queue.claimNext("bob", "sender-device", 10_000L)
+            assertNotNull(bobDeviceA)
+            assertEquals("bob", bobDeviceA?.ownerUserId)
+            assertEquals("sender-device", bobDeviceA?.senderDeviceId)
+
+            assertFalse(aliceDeviceA?.deliveryId == aliceDeviceB?.deliveryId)
+            assertFalse(aliceDeviceA?.deliveryId == bobDeviceA?.deliveryId)
+            assertFalse(aliceDeviceB?.deliveryId == bobDeviceA?.deliveryId)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun wrongAccountOrDeviceCannotAcknowledgeOrRetryAnotherRoomLease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-scope-transition-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                "scope-transition-message",
+                listOf(prepared("device-phone")),
+            )
+            val claimed = queue.claimNext("alice", "sender-device", 10_000L)!!
+            assertEquals(1, claimed.attemptCount)
+
+            assertFalse(
+                queue.acknowledge(
+                    claimed.deliveryId,
+                    claimed.messageId,
+                    "mallory",
+                    "sender-device",
+                ),
+            )
+            assertFalse(
+                queue.acknowledge(
+                    claimed.deliveryId,
+                    claimed.messageId,
+                    "alice",
+                    "other-device",
+                ),
+            )
+            assertFalse(
+                queue.retry(
+                    claimed.deliveryId,
+                    claimed.messageId,
+                    10_000L,
+                    "wrong_account_retry",
+                    "mallory",
+                    "sender-device",
+                ),
+            )
+            assertFalse(
+                queue.retry(
+                    claimed.deliveryId,
+                    claimed.messageId,
+                    10_000L,
+                    "wrong_device_retry",
+                    "alice",
+                    "other-device",
+                ),
+            )
+
+            val unchanged = dao.getByDeliveryId(claimed.deliveryId)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, unchanged?.status)
+            assertEquals(1, unchanged?.attemptCount)
+            assertEquals(claimed.leaseUntilMillis, unchanged?.leaseUntilMillis)
+            assertEquals(0L, unchanged?.nextAttemptAtMillis)
+            assertNull(unchanged?.lastError)
+
+            assertTrue(
+                queue.acknowledge(
+                    claimed.deliveryId,
+                    claimed.messageId,
+                    "alice",
+                    "sender-device",
+                ),
+            )
+            assertNull(queue.claimNext("alice", "sender-device", 20_000L))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    private fun prepared(deviceId: String, senderDeviceId: String = "sender-device"): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)
             .put("algorithm", "olm")
-            .put("senderDeviceId", "sender-device")
+            .put("senderDeviceId", senderDeviceId)
             .put("recipientDeviceId", deviceId)
             .put("sessionId", "session-$deviceId")
             .put(
