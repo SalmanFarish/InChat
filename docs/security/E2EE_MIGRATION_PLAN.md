@@ -163,3 +163,12 @@ of conflicting duplicate content without acknowledgement. The production
 ordering remains: register, run the coordinator callback, mark processed, then
 acknowledge the relay. These tests use the in-memory transport and Room ledger;
 Firebase emulator/real-network failure injection remains outstanding.
+
+The Realtime Database SAS rules regression suite additionally verifies that
+senders cannot spoof the authenticated account or add unrecognized record
+fields, timestamps outside the two-minute future-clock tolerance and ten-minute
+maximum lifetime are rejected, only the recipient can delete a delivered
+message, and blocking in either direction prevents creation. These checks run
+against the local Realtime Database emulator through the repository's
+ tests/database-rules workflow; they do not deploy rules or require a paid
+Firebase plan.
