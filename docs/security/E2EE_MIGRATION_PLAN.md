@@ -45,13 +45,14 @@ the device ID, exact 32-byte public-key length, and canonical unpadded Base64
 encoding, then formats the full 256-bit digest in four-character groups for
 human comparison.
 
-This helper is only a display/verification primitive. It does not mark a device
-as trusted, persist a trust decision, or make a self-signed directory entry
-authentic. Users must compare the complete fingerprint through an independent
-trusted channel. The next required work is an authenticated SAS verification
-exchange and durable local identity-pin state; until those exist, directory
-bundles must not be treated as verified people and no encrypted send path may
-be enabled.
+The fingerprint helper remains a display and manual-verification aid; by itself
+it does not establish trust. The Kotlin SAS verification coordinator now
+orchestrates the commitment/public-key/SAS/MAC exchange, and after both devices
+confirm the comparison and authenticate their expected Ed25519 identity keys,
+it stores a device-local trust record in the Keystore-encrypted trusted-device
+store. Trust is bound to account ID, device ID, and the Ed25519 identity-key
+fingerprint. A changed published identity key therefore does not inherit the
+old trust decision and must be verified again.
 
 
 ## Authenticated SAS verification protocol groundwork
@@ -90,12 +91,17 @@ delivery to registered recipient devices, immutable exact retries, recipient-
 only reads/deletes, expiry, and blocked-account checks. Emulator tests cover
 these rule boundaries.
 
-This is transport and replay groundwork, not yet the complete verification
-orchestration: no UI or transaction coordinator currently enforces the ordered
-commitment/public-key/MAC state transitions across these messages, and no
-durable trusted-device pin is written. The new database rules have passed
-emulator tests but have not been deployed to Firebase. Do not enable a live
-verification or encrypted messaging path until orchestration, account/device
-binding to authenticated local state and signature-verified remote bundles,
-transaction cancellation/timeout handling, and durable trust-pin tests are
-complete.
+The SAS transaction coordinator and encrypted local trust repository are now
+implemented, including account/device binding, explicit local SAS confirmation,
+peer MAC verification, expiry/cancellation handling, and tests for durable
+trust, key rotation, and cancellation-peer binding. A user-facing verification
+screen and application navigation are not yet implemented or connected. The
+isolated outbound direct-text coordinator now refuses to prepare or enqueue
+ciphertext unless every recipient and sender-owned target device has a local
+trust record matching its currently published Ed25519 identity key. This is
+still not wired into live chat sending. The new database rules have passed
+emulator tests but have not been deployed to Firebase. Before enabling a live
+encrypted path, complete the user-facing trust workflow, require equivalent
+trust checks on inbound processing, test the full two-device flow through the
+real UI and transport, and complete notification privacy and delivery-status
+reconciliation.
