@@ -180,3 +180,14 @@ clock time. The transport revalidates the authenticated account immediately
 before each delete; unexpired entries and entries without a trustworthy expiry
 are left untouched. This avoids repeatedly reading expired SAS traffic without
 broadening cleanup to normal chats or the Olm inbox.
+
+The Firebase transport's relay access is now behind a narrow store interface,
+with Firebase Realtime Database remaining the production adapter. Instrumentation
+tests use a failure-injecting store to verify that transient inbox-read failures
+leave messages available for the next poll, failed acknowledgements preserve the
+relay row for retry, and account changes immediately before upload, read return,
+expiry cleanup, or acknowledgement fail closed. They also verify canonical
+upload fields, strict rejection of unknown relay fields, and that malformed
+unexpired rows are retained rather than destructively guessed away. These tests
+exercise transport control flow; Firebase emulator/real-network transport
+failure injection remains a separate verification step.
