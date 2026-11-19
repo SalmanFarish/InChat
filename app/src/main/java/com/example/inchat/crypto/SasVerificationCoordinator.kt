@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +30,14 @@ internal data class SasVerificationUiState(
     val decimalCodes: List<Int> = emptyList(),
     val error: String? = null,
 )
+
+/** Bind every protocol message, including CANCEL, to the active peer device. */
+internal fun sasVerificationMessageMatchesPeer(
+    message: SasVerificationMessage,
+    peerUserId: String,
+    peerDeviceId: String,
+): Boolean =
+    message.senderUserId == peerUserId && message.senderDeviceId == peerDeviceId
 
 /**
  * Orchestrates the isolated two-device SAS protocol. Successful verification
@@ -174,7 +183,13 @@ internal class SasVerificationCoordinator(
     /** Cancel locally and notify the peer when the relay is still available. */
     suspend fun cancel(transactionId: String) = mutex.withLock {
         val attempt = attempts[transactionId] ?: return@withLock
-        runCatching { send(attempt, SasVerificationMessageType.CANCEL, "") }
+        try {
+            send(attempt, SasVerificationMessageType.CANCEL, "")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Local cancellation must still complete if the relay is unavailable.
+        }
         discard(attempt, SasVerificationPhase.CANCELLED, null)
     }
 
@@ -191,6 +206,17 @@ internal class SasVerificationCoordinator(
         check(message.recipientUserId == localUserId && message.recipientDeviceId == localDeviceId)
         check(directoryRepository.authenticatedUserId == localUserId)
         var attempt = attempts[message.transactionId]
+        if (attempt != null) {
+            check(
+                sasVerificationMessageMatchesPeer(
+                    message,
+                    peerUserId = attempt.peerUserId,
+                    peerDeviceId = attempt.peerDeviceId,
+                )
+            ) {
+                "Verification message came from a different device"
+            }
+        }
 
         if (message.type == SasVerificationMessageType.CANCEL) {
             if (attempt != null) discard(attempt, SasVerificationPhase.CANCELLED, "The other device cancelled verification.")
@@ -221,7 +247,13 @@ internal class SasVerificationCoordinator(
             attempt = createResponderAttempt(message)
         }
 
-        check(message.senderUserId == attempt.peerUserId && message.senderDeviceId == attempt.peerDeviceId) {
+        check(
+            sasVerificationMessageMatchesPeer(
+                message,
+                peerUserId = attempt.peerUserId,
+                peerDeviceId = attempt.peerDeviceId,
+            )
+        ) {
             "Verification message came from a different device"
         }
         ensureNotExpired(attempt)
@@ -379,8 +411,19 @@ internal class SasVerificationCoordinator(
                 peerEd25519IdentityKey = attempt.peerEd25519IdentityKey,
                 verifiedAtMillis = clock().coerceAtLeast(0L),
             )
-            mutableStates.value = mutableStates.value + (attempt.transactionId to
-                stateFor(attempt).copy(phase = SasVerificationPhase.COMPLETE))
+            val completedState = stateFor(attempt).copy(
+                phase = SasVerificationPhase.COMPLETE,
+                error = null,
+            )
+            // A completed exchange no longer needs its ephemeral DH state or
+            // an active-attempt slot. Releasing both permits a later re-verification
+            // after key rotation and bounds the native registry for app lifetime.
+            NativeCryptoBridge.nativeSasCancel(attempt.handle)
+            attempts.remove(attempt.transactionId)
+            commitments.remove(attempt.transactionId)
+            attempt.received.clear()
+            attempt.pendingPeerMac = null
+            mutableStates.value = mutableStates.value + (attempt.transactionId to completedState)
         }
     }
 
@@ -394,13 +437,17 @@ internal class SasVerificationCoordinator(
     private fun requireAttempt(transactionId: String): Attempt =
         requireNotNull(attempts[transactionId]) { "Verification attempt is no longer active" }
 
-    private fun stateFor(attempt: Attempt) = SasVerificationUiState(
-        transactionId = attempt.transactionId,
-        peerUserId = attempt.peerUserId,
-        peerDeviceId = attempt.peerDeviceId,
-        phase = mutableStates.value[attempt.transactionId]?.phase
-            ?: SasVerificationPhase.WAITING_FOR_PEER,
-    )
+    private fun stateFor(attempt: Attempt): SasVerificationUiState =
+        mutableStates.value[attempt.transactionId]?.copy(
+            transactionId = attempt.transactionId,
+            peerUserId = attempt.peerUserId,
+            peerDeviceId = attempt.peerDeviceId,
+        ) ?: SasVerificationUiState(
+            transactionId = attempt.transactionId,
+            peerUserId = attempt.peerUserId,
+            peerDeviceId = attempt.peerDeviceId,
+            phase = SasVerificationPhase.WAITING_FOR_PEER,
+        )
 
     private fun publishState(attempt: Attempt, phase: SasVerificationPhase) {
         mutableStates.value = mutableStates.value +
