@@ -164,6 +164,37 @@ class FirebaseSasVerificationTransportTest {
     }
 
     @Test
+    fun uploadThatExpiresDuringPreparationIsNotWritten() = runBlocking {
+        val store = InMemoryRelayStore()
+        var clockReads = 0
+        val outbound = message(
+            transactionId = "expires-during-upload",
+            senderUserId = "alice",
+            senderDeviceId = "device-alice",
+            recipientUserId = "bob",
+            recipientDeviceId = "device-bob",
+            createdAt = 500L,
+            expiresAt = 1_000L,
+        )
+
+        val result = runCatching {
+            transport(
+                store,
+                localUser = "alice",
+                localDevice = "device-alice",
+                clock = {
+                    clockReads++
+                    if (clockReads == 1) 999L else 1_000L
+                },
+            ).upload(outbound)
+        }
+
+        assertTrue(result.isFailure)
+        assertTrue(store.rows.isEmpty())
+        assertEquals(2, clockReads)
+    }
+
+    @Test
     fun accountSwitchImmediatelyBeforeUploadPreventsRemoteWrite() = runBlocking {
         val store = InMemoryRelayStore()
         var authCheck = 0
