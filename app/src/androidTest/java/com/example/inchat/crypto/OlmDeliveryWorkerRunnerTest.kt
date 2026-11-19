@@ -719,7 +719,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, persisted.status)
         assertEquals(2, persisted.attemptCount)
         assertEquals(current.leaseUntilMillis, persisted.leaseUntilMillis)
-        assertNull(persisted.lastError)
+        assertEquals(null, persisted.lastError)
     }
 
     @Test
