@@ -181,6 +181,9 @@ internal class FirebaseSasVerificationTransport(
             "expiresAtMillis" to message.expiresAtMillis,
             "canonicalMessage" to encoded,
         )
+        // Recheck immediately before issuing the remote write. Firebase rules
+        // remain the authoritative boundary if the account changes in flight.
+        requireAuthenticatedLocalUser()
         relayStore.put(
             message.recipientUserId,
             message.recipientDeviceId,
@@ -223,6 +226,8 @@ internal class FirebaseSasVerificationTransport(
         requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "Only this installation can acknowledge its SAS inbox" }
         require(SAS_DELIVERY_PATTERN.matches(deliveryId))
+        // Keep account-bound ownership explicit immediately before the delete.
+        requireAuthenticatedLocalUser()
         relayStore.remove(localUserId, deviceId, deliveryId)
     }
 
