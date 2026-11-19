@@ -122,36 +122,46 @@ class OlmOutboundDeliveryCoordinatorTest {
     }
 
     @Test
-    fun idempotentReplayPreservesFirstCiphertextAndRepairsWorkerScheduling() = runBlocking {
+    fun schedulingFailureAfterDurableInsertIsRepairedByIdempotentReplay() = runBlocking {
         val events = mutableListOf<String>()
         val store = RecordingStore(events)
         val preparer = FakePreparer("sender-phone")
-        var scheduleCount = 0
+        var scheduleAttempts = 0
         val coordinator = OlmOutboundDeliveryCoordinator(
             preparer = preparer,
             queue = OlmDeliveryQueue(store),
             scheduleDelivery = { owner, device ->
                 assertEquals("alice", owner)
                 assertEquals("sender-phone", device)
-                scheduleCount++
+                scheduleAttempts++
+                if (scheduleAttempts == 1) {
+                    throw IllegalStateException("simulated WorkManager scheduling failure")
+                }
             },
         )
 
-        val firstInserted = coordinator.enqueueDirectTextMessage(
-            senderUserId = "alice",
-            senderDeviceId = "sender-phone",
-            recipientUserId = "bob",
-            messageId = "message-replay",
-            sentAtMillis = 40_000L,
-            text = "same authenticated message",
-            recipientDevices = listOf(bundle("recipient-phone")),
-            senderDevices = listOf(bundle("sender-phone")),
-        )
+        // The durable queue insert succeeds before the scheduling callback fails.
+        var schedulingFailureObserved = false
+        try {
+            coordinator.enqueueDirectTextMessage(
+                senderUserId = "alice",
+                senderDeviceId = "sender-phone",
+                recipientUserId = "bob",
+                messageId = "message-replay",
+                sentAtMillis = 40_000L,
+                text = "same authenticated message",
+                recipientDevices = listOf(bundle("recipient-phone")),
+                senderDevices = listOf(bundle("sender-phone")),
+            )
+        } catch (expected: IllegalStateException) {
+            schedulingFailureObserved = expected.message.orEmpty().contains("scheduling failure")
+        }
+        assertTrue(schedulingFailureObserved)
+        assertEquals(1, store.rows.size)
         val firstEnvelopes = store.rows.mapValues { it.value.envelope }
 
-        // Simulates a producer retry after Room committed but before WorkManager
-        // scheduling was durably observed. New Olm ciphertext must not replace
-        // the first envelope for the stable delivery identity.
+        // Retry after the durable insert. New Olm ciphertext must not replace
+        // the first envelope, but scheduling must be requested again.
         val replayInserted = coordinator.enqueueDirectTextMessage(
             senderUserId = "alice",
             senderDeviceId = "sender-phone",
@@ -163,10 +173,9 @@ class OlmOutboundDeliveryCoordinatorTest {
             senderDevices = listOf(bundle("sender-phone")),
         )
 
-        assertEquals(1, firstInserted)
         assertEquals(0, replayInserted)
         assertEquals(firstEnvelopes, store.rows.mapValues { it.value.envelope })
-        assertEquals(2, scheduleCount)
+        assertEquals(2, scheduleAttempts)
         assertEquals(listOf("insert:1", "insert:0"), events)
     }
 
