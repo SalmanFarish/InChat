@@ -16,11 +16,22 @@ internal fun evaluateEncryptedOlmAuthScope(
     else -> EncryptedOlmAuthScopeDecision.CHECK_DEVICE
 }
 
-/** A missing or changed native identity makes a device-scoped schedule obsolete. */
-internal fun isEncryptedOlmScheduledDeviceActive(
+/** Distinguishes a confirmed retired identity from a temporary storage read failure. */
+internal enum class EncryptedOlmDeviceScopeDecision {
+    KEEP_ACTIVE,
+    RETIRE_STALE_SCOPE,
+    DEFER_LOOKUP,
+}
+
+internal fun evaluateEncryptedOlmDeviceScope(
     scheduledSenderDeviceId: String,
     activeDeviceId: String?,
-): Boolean = activeDeviceId != null && activeDeviceId == scheduledSenderDeviceId
+    lookupFailed: Boolean,
+): EncryptedOlmDeviceScopeDecision = when {
+    lookupFailed -> EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP
+    activeDeviceId == scheduledSenderDeviceId -> EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE
+    else -> EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE
+}
 
 /**
  * Reject a device-identity lookup that completed after a newer auth callback.
