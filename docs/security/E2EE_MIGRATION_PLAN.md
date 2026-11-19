@@ -101,9 +101,13 @@ trust, key rotation, and cancellation-peer binding. A user-facing verification
 screen and application navigation are not yet implemented or connected. The
 isolated outbound direct-text coordinator refuses to prepare or enqueue
 ciphertext unless every recipient and sender-owned target device has a local
-trust record matching its currently published Ed25519 identity key. The inbound
-handoff enforces the same trust rule before native receive-state mutation. Both
-remain disconnected from live chat sending and receiving. The new database
+trust record matching its currently published Ed25519 identity key. The
+first-message preparer re-checks the freshly fetched directory key before
+claiming a one-time prekey, and the Firebase relay transport reloads and
+signature-verifies the current target bundle and re-checks local trust before
+upload. The inbound handoff enforces the same trust rule before native
+receive-state mutation. All of these components remain disconnected from live
+chat sending and receiving. The new database
 rules have passed emulator tests but have not been deployed to Firebase. Before
 enabling a live encrypted path, complete the user-facing trust workflow, test
 the full two-device flow through the real UI and transport, and complete
