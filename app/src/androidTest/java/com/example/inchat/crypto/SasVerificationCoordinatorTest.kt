@@ -207,7 +207,7 @@ class SasVerificationCoordinatorTest {
         private val databaseName: String,
     ) : AutoCloseable {
         private val stateStore = CryptoStateStore(context, storeId)
-        val bundle: PublicDeviceKeyBundle = createBundle(stateStore, deviceId)
+        val bundle: PublicDeviceKeyBundle = SasVerificationCoordinatorTest.createBundle(stateStore, deviceId)
         val identity = TestIdentity(bundle)
         val trust = RecordingTrustStore()
         private val database = Room.databaseBuilder(
