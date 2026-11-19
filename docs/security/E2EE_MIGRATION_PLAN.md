@@ -172,3 +172,11 @@ message, and blocking in either direction prevents creation. These checks run
 against the local Realtime Database emulator through the repository's
  tests/database-rules workflow; they do not deploy rules or require a paid
 Firebase plan.
+
+The Firebase SAS inbox transport now prunes expired relay rows during recipient
+polling. Cleanup is limited to entries with a valid 64-character hexadecimal
+delivery key and an explicit numeric expiry at or before the poll's captured
+clock time. The transport revalidates the authenticated account immediately
+before each delete; unexpired entries and entries without a trustworthy expiry
+are left untouched. This avoids repeatedly reading expired SAS traffic without
+broadening cleanup to normal chats or the Olm inbox.
