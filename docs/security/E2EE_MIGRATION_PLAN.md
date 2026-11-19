@@ -136,7 +136,9 @@ both sides, exchanges identity MACs, and checks that each local trust store
 records the expected peer account/device/Ed25519 key only after completion.
 Additional cases reject a CANCEL from a different account/device without
 acknowledging it and reject a directory whose authenticated account differs
-from the local identity. The relay is test-only; production SAS messages still
+from the local identity. Starting, polling, and confirming also re-check that
+the authenticated account still matches the coordinator's local account. The
+relay is test-only; production SAS messages still
 use the existing Firebase Realtime Database transport and replay ledger.
 
 This is coordinator-level protocol coverage, not yet a two-physical-device
