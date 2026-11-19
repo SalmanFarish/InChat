@@ -109,8 +109,8 @@ class SasVerificationCoordinatorTest {
                 recipientDeviceId = fixture.alice.bundle.deviceId,
                 type = SasVerificationMessageType.CANCEL,
                 payload = "",
-                createdAtMillis = FIXED_NOW,
-                expiresAtMillis = FIXED_NOW + 60_000L,
+                createdAtMillis = SasVerificationCoordinatorTest.FIXED_NOW,
+                expiresAtMillis = SasVerificationCoordinatorTest.FIXED_NOW + 60_000L,
             )
             fixture.relay.inject(forgedCancel)
 
@@ -143,7 +143,7 @@ class SasVerificationCoordinatorTest {
                 transport = fixture.relay.client(fixture.alice.userId),
                 ledger = fixture.alice.ledger,
                 trustedDeviceRepository = fixture.alice.trust,
-                clock = { FIXED_NOW },
+                clock = { SasVerificationCoordinatorTest.FIXED_NOW },
             )
             val rejected = runCatching {
                 mismatchedCoordinator.startVerification(
@@ -152,6 +152,9 @@ class SasVerificationCoordinatorTest {
                 )
             }
             assertTrue("A different authenticated account must fail closed", rejected.isFailure)
+
+            val pollingRejected = runCatching { mismatchedCoordinator.receivePending() }
+            assertTrue("Polling must not read another account's device inbox", pollingRejected.isFailure)
             assertTrue(fixture.relay.isEmpty())
         } finally {
             fixture.close()
