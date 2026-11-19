@@ -154,3 +154,12 @@ This is coordinator-level protocol coverage, not yet a two-physical-device
 Firebase emulator or real-network recovery test. The SAS screen and protocol
 remain separate from live chat sending and receiving.
 
+The SAS inbox receiver also verifies that each transport delivery key equals
+the canonical message's derived delivery ID before registering or acknowledging
+it. Instrumentation coverage now exercises callback failure followed by successful
+redelivery, acknowledgement failure after the Room processed marker (without
+replaying the callback), rejection of a mismatched transport key, and retention
+of conflicting duplicate content without acknowledgement. The production
+ordering remains: register, run the coordinator callback, mark processed, then
+acknowledge the relay. These tests use the in-memory transport and Room ledger;
+Firebase emulator/real-network failure injection remains outstanding.
