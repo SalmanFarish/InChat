@@ -119,3 +119,26 @@ chat sending and receiving. The new database rules have passed emulator tests
 but have not been deployed to Firebase. Before enabling a live encrypted path,
 complete real-device two-account SAS and transport recovery tests, notification
 privacy, and delivery-status reconciliation.
+
+## Two-account SAS coordinator verification coverage
+
+The Kotlin SAS coordinator now depends on narrow local-identity and trust-store
+interfaces, while production continues to use `DeviceIdentityRepository`,
+`DeviceIdentityTransferDirectory`, and `TrustedDeviceRepository`. This seam
+allows instrumentation tests to run two independent coordinator instances with
+separate native identities, Room replay ledgers, authenticated account-scoped
+directory views, and an in-memory SAS relay.
+
+The new coordinator instrumentation suite exercises the complete native
+commitment/public-key exchange, verifies that both installations derive the
+same decimal and emoji comparison values, requires an explicit confirmation on
+both sides, exchanges identity MACs, and checks that each local trust store
+records the expected peer account/device/Ed25519 key only after completion.
+Additional cases reject a CANCEL from a different account/device without
+acknowledging it and reject a directory whose authenticated account differs
+from the local identity. The relay is test-only; production SAS messages still
+use the existing Firebase Realtime Database transport and replay ledger.
+
+This is coordinator-level protocol coverage, not yet a two-physical-device
+Firebase emulator or real-network recovery test. The SAS screen and protocol
+remain separate from live chat sending and receiving.
