@@ -1,6 +1,7 @@
 package com.example.inchat.crypto
 
 import android.util.Base64
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -43,6 +44,57 @@ class OlmDeliveryAckProcessorTest {
 
         assertEquals(row, store.rows[row.deliveryId])
         assertTrue(transport.removedDeliveryIds.isEmpty())
+    }
+
+    @Test
+    fun acknowledgementDeletionThenProcessDeathRecoversByResendingSameDeliveryId() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
+        queue.enqueue("alice", "sender-device", "ack-interruption", listOf(prepared()))
+        val firstClaim = queue.claimNext("alice", "sender-device", 1_000L)!!
+        val acknowledgement = firstClaim.toAcknowledgement()
+        val transport = FakeAckTransport(
+            acknowledgements = listOf(acknowledgement),
+            failAfterRemovalOnce = true,
+        )
+
+        var interruptionObserved = false
+        try {
+            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+        } catch (cancelled: CancellationException) {
+            interruptionObserved = true
+        }
+
+        assertTrue(interruptionObserved)
+        assertFalse(transport.hasPendingAcknowledgements())
+        assertEquals(firstClaim, store.rows[firstClaim.deliveryId])
+        assertEquals(listOf(firstClaim.deliveryId), transport.removedDeliveryIds)
+
+        assertNull(queue.claimNext("alice", "sender-device", 1_099L))
+        val recoveredClaim = queue.claimNext("alice", "sender-device", 1_100L)
+        assertTrue(recoveredClaim != null)
+        assertEquals(firstClaim.deliveryId, recoveredClaim?.deliveryId)
+        assertEquals(firstClaim.messageId, recoveredClaim?.messageId)
+        assertEquals(2, recoveredClaim?.attemptCount)
+
+        // The receiver recognizes the resent message in its durable receipt ledger
+        // and publishes the acknowledgement again under the same delivery ID.
+        transport.addAcknowledgement(acknowledgement)
+        val recoveredAck = OlmDeliveryAckProcessor(
+            queue,
+            transport,
+            "alice",
+            "sender-device",
+        ).processPending()
+
+        assertEquals(1, recoveredAck.removed)
+        assertEquals(0, recoveredAck.unmatched)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(transport.hasPendingAcknowledgements())
+        assertEquals(
+            listOf(firstClaim.deliveryId, firstClaim.deliveryId),
+            transport.removedDeliveryIds,
+        )
     }
 
     @Test
@@ -175,18 +227,32 @@ class OlmDeliveryAckProcessorTest {
     }
 
     private class FakeAckTransport(
-        private val acknowledgements: List<OlmDeliveryAcknowledgement>,
+        acknowledgements: List<OlmDeliveryAcknowledgement>,
         private val failRemoval: Boolean = false,
+        private val failAfterRemovalOnce: Boolean = false,
     ) : OlmDeliveryAckTransport {
+        private val acknowledgements = acknowledgements.toMutableList()
         val removedDeliveryIds = mutableListOf<String>()
+        private var interruptionSent = false
+
+        fun addAcknowledgement(acknowledgement: OlmDeliveryAcknowledgement) {
+            acknowledgements += acknowledgement
+        }
+
+        fun hasPendingAcknowledgements(): Boolean = acknowledgements.isNotEmpty()
 
         override suspend fun readMyDeliveryAcknowledgements(
             senderDeviceId: String,
-        ): List<OlmDeliveryAcknowledgement> = acknowledgements
+        ): List<OlmDeliveryAcknowledgement> = acknowledgements.toList()
 
         override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
             if (failRemoval) throw IllegalStateException("temporary ack deletion failure")
-            if (deliveryId !in removedDeliveryIds) removedDeliveryIds += deliveryId
+            val removed = acknowledgements.removeAll { it.deliveryId == deliveryId }
+            if (removed) removedDeliveryIds += deliveryId
+            if (removed && failAfterRemovalOnce && !interruptionSent) {
+                interruptionSent = true
+                throw CancellationException("process stopped after relay acknowledgement deletion")
+            }
         }
     }
 }
