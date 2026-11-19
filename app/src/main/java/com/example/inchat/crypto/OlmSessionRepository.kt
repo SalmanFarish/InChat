@@ -43,6 +43,12 @@ internal class OlmSessionRepository(context: Context) {
     private fun localStore(): CryptoStateStore =
         CryptoStateStore(appContext, "device-${localBundle.deviceId}")
 
+    /** Serialize complete native state transitions, not only their file I/O. */
+    private fun <T> withLocalStore(block: (CryptoStateStore) -> T): T {
+        val store = localStore()
+        return store.withExclusiveAccess { block(store) }
+    }
+
     /** Create and persist an outbound session using a verified remote prekey. */
     fun createOutboundSession(
         remoteDevice: PublicDeviceKeyBundle,
@@ -69,12 +75,14 @@ internal class OlmSessionRepository(context: Context) {
         }
 
         return requireNotNull(
-            NativeCryptoBridge.nativeCreateOutboundOlmSession(
-                localStore(),
-                localBundle.deviceId,
-                remoteDevice.curve25519IdentityKey,
-                remotePreKey.publicKey,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativeCreateOutboundOlmSession(
+                    store,
+                    localBundle.deviceId,
+                    remoteDevice.curve25519IdentityKey,
+                    remotePreKey.publicKey,
+                )
+            }
         ) {
             "Could not create the outbound Olm session"
         }
@@ -154,13 +162,15 @@ internal class OlmSessionRepository(context: Context) {
             "Envelope is addressed to a different device"
         }
         val encodedResult = requireNotNull(
-            NativeCryptoBridge.nativePrepareInboundOlmSession(
-                localStore(),
-                localBundle.deviceId,
-                receiptId,
-                remoteDevice.curve25519IdentityKey,
-                envelope.ciphertext,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativePrepareInboundOlmSession(
+                    store,
+                    localBundle.deviceId,
+                    receiptId,
+                    remoteDevice.curve25519IdentityKey,
+                    envelope.ciphertext,
+                )
+            }
         ) {
             "Could not stage the inbound pre-key message"
         }
@@ -185,13 +195,15 @@ internal class OlmSessionRepository(context: Context) {
             "Envelope is addressed to a different device"
         }
         val encodedResult = requireNotNull(
-            NativeCryptoBridge.nativePrepareOlmMessage(
-                localStore(),
-                localBundle.deviceId,
-                receiptId,
-                envelope.sessionId,
-                envelope.ciphertext,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativePrepareOlmMessage(
+                    store,
+                    localBundle.deviceId,
+                    receiptId,
+                    envelope.sessionId,
+                    envelope.ciphertext,
+                )
+            }
         ) {
             "Could not stage or recover the inbound Olm message"
         }
@@ -204,11 +216,13 @@ internal class OlmSessionRepository(context: Context) {
     /** Call only after OlmInboundMessageCommitter has committed message + receipt. */
     fun finalizeInboundDecryption(receiptId: String): Boolean {
         validateReceiptId(receiptId)
-        return NativeCryptoBridge.nativeFinalizeInboundDecryption(
-            localStore(),
-            localBundle.deviceId,
-            receiptId,
-        )
+        return withLocalStore { store ->
+            NativeCryptoBridge.nativeFinalizeInboundDecryption(
+                store,
+                localBundle.deviceId,
+                receiptId,
+            )
+        }
     }
 
     private fun parseStagedResult(
@@ -293,12 +307,14 @@ internal class OlmSessionRepository(context: Context) {
             "Olm plaintext exceeds the 64 KiB limit"
         }
         return requireNotNull(
-            NativeCryptoBridge.nativeEncryptOlmMessage(
-                localStore(),
-                localBundle.deviceId,
-                sessionId,
-                plaintext,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativeEncryptOlmMessage(
+                    store,
+                    localBundle.deviceId,
+                    sessionId,
+                    plaintext,
+                )
+            }
         ) {
             "Could not encrypt the Olm message"
         }
@@ -318,12 +334,14 @@ internal class OlmSessionRepository(context: Context) {
         }
         validateWireMessage(wireMessage)
         val encoded = requireNotNull(
-            NativeCryptoBridge.nativeCreateInboundOlmSession(
-                localStore(),
-                localBundle.deviceId,
-                remoteDevice.curve25519IdentityKey,
-                wireMessage,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativeCreateInboundOlmSession(
+                    store,
+                    localBundle.deviceId,
+                    remoteDevice.curve25519IdentityKey,
+                    wireMessage,
+                )
+            }
         ) {
             "Could not establish the inbound Olm session"
         }
@@ -341,12 +359,14 @@ internal class OlmSessionRepository(context: Context) {
         validateSessionId(sessionId)
         validateWireMessage(wireMessage)
         return requireNotNull(
-            NativeCryptoBridge.nativeDecryptOlmMessage(
-                localStore(),
-                localBundle.deviceId,
-                sessionId,
-                wireMessage,
-            )
+            withLocalStore { store ->
+                NativeCryptoBridge.nativeDecryptOlmMessage(
+                    store,
+                    localBundle.deviceId,
+                    sessionId,
+                    wireMessage,
+                )
+            }
         ) {
             "Could not decrypt the Olm message"
         }

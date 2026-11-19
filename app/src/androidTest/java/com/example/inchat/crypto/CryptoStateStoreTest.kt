@@ -5,6 +5,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.AEADBadTagException
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
@@ -51,6 +56,57 @@ class CryptoStateStoreTest {
             assertArrayEquals(plaintext, CryptoStateStore(context, stateId).read())
         } finally {
             store.delete()
+        }
+    }
+
+    @Test
+    fun completeStateTransitionsAreSerializedAcrossStoreInstances() {
+        val stateId = "concurrent-" + UUID.randomUUID().toString()
+        val firstStore = CryptoStateStore(context, stateId)
+        val secondStore = CryptoStateStore(context, stateId)
+        val activeOperations = AtomicInteger(0)
+        val maxConcurrentOperations = AtomicInteger(0)
+        val startGate = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+
+        try {
+            // JNI re-enters read/write on the same monitor while the complete
+            // operation lock is held. This must remain reentrant.
+            firstStore.withExclusiveAccess {
+                firstStore.write(byteArrayOf(1, 2, 3))
+                assertArrayEquals(byteArrayOf(1, 2, 3), firstStore.read())
+            }
+
+            val futures = listOf(firstStore, secondStore).map { store ->
+                pool.submit(Callable {
+                    startGate.await()
+                    repeat(12) {
+                        store.withExclusiveAccess {
+                            val active = activeOperations.incrementAndGet()
+                            maxConcurrentOperations.updateAndGet { previous ->
+                                maxOf(previous, active)
+                            }
+                            try {
+                                Thread.sleep(3L)
+                            } finally {
+                                activeOperations.decrementAndGet()
+                            }
+                        }
+                    }
+                    Unit
+                })
+            }
+            startGate.countDown()
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+
+            assertEquals(
+                "Two instances for one device state must not execute native transitions concurrently",
+                1,
+                maxConcurrentOperations.get(),
+            )
+        } finally {
+            pool.shutdownNow()
+            firstStore.delete()
         }
     }
 

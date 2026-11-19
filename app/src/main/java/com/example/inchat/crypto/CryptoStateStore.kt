@@ -41,6 +41,18 @@ internal class CryptoStateStore(
         }
     }
 
+    /**
+     * Run a complete native read-modify-write operation under the same process-wide
+     * monitor used by read/write/delete. Olm calls load a state snapshot, advance
+     * account/session ratchets, then persist it; locking only file I/O would allow
+     * concurrent callers to overwrite one another's state updates.
+     *
+     * The monitor is reentrant because JNI calls back into readForNative/writeForNative
+     * on this same thread.
+     */
+    internal fun <T> withExclusiveAccess(block: () -> T): T =
+        synchronized(KEYSTORE_LOCK) { block() }
+
     /** Encrypt and atomically persist an opaque state blob. */
     fun write(plaintext: ByteArray) {
         require(plaintext.isNotEmpty()) { "Crypto state must not be empty" }

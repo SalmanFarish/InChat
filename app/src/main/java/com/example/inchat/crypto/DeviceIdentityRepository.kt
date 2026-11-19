@@ -63,8 +63,9 @@ internal class DeviceIdentityRepository(context: Context) {
         val deviceId = getOrCreateDeviceId()
         transferJournal.requireUnlocked(deviceId)
         val stateStore = CryptoStateStore(appContext, "device-$deviceId")
-        val encodedBundle = NativeCryptoBridge.nativeEnsureDeviceIdentity(stateStore, deviceId)
-            ?: throw IllegalStateException("Native Olm device identity could not be loaded")
+        val encodedBundle = stateStore.withExclusiveAccess {
+            NativeCryptoBridge.nativeEnsureDeviceIdentity(stateStore, deviceId)
+        } ?: throw IllegalStateException("Native Olm device identity could not be loaded")
         return parsePublicBundle(encodedBundle, deviceId)
     }
 
@@ -189,14 +190,17 @@ internal class DeviceIdentityRepository(context: Context) {
                 "A device identity cannot be transferred to itself"
             }
             transferJournal.requirePendingTarget(sourceDeviceId, targetDeviceId, transactionId)
-            val payload = NativeCryptoBridge.nativeExportDeviceIdentity(
-                CryptoStateStore(appContext, "device-$sourceDeviceId"),
-                sourceDeviceId,
-                targetDeviceId,
-                transactionId,
-                transferKey,
-                nonce,
-            ) ?: throw IllegalStateException("Could not encrypt the device identity transfer")
+            val sourceStore = CryptoStateStore(appContext, "device-$sourceDeviceId")
+            val payload = sourceStore.withExclusiveAccess {
+                NativeCryptoBridge.nativeExportDeviceIdentity(
+                    sourceStore,
+                    sourceDeviceId,
+                    targetDeviceId,
+                    transactionId,
+                    transferKey,
+                    nonce,
+                )
+            } ?: throw IllegalStateException("Could not encrypt the device identity transfer")
 
             try {
                 // Persist this before returning bytes to any transport. After this
@@ -230,15 +234,18 @@ internal class DeviceIdentityRepository(context: Context) {
             require(sourceDeviceId != targetDeviceId) {
                 "A device identity cannot be transferred to itself"
             }
+            val targetStore = CryptoStateStore(appContext, "device-$targetDeviceId")
             check(
-                NativeCryptoBridge.nativeImportDeviceIdentity(
-                    CryptoStateStore(appContext, "device-$targetDeviceId"),
-                    sourceDeviceId,
-                    targetDeviceId,
-                    transactionId,
-                    transferKey,
-                    encryptedPayload,
-                ),
+                targetStore.withExclusiveAccess {
+                    NativeCryptoBridge.nativeImportDeviceIdentity(
+                        targetStore,
+                        sourceDeviceId,
+                        targetDeviceId,
+                        transactionId,
+                        transferKey,
+                        encryptedPayload,
+                    )
+                },
             ) {
                 "Could not authenticate or import the device identity transfer"
             }
@@ -261,12 +268,15 @@ internal class DeviceIdentityRepository(context: Context) {
         require(sourceDeviceId != targetDeviceId) {
             "A device identity cannot acknowledge its own transfer"
         }
-        return NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
-            CryptoStateStore(appContext, "device-$targetDeviceId"),
-            sourceDeviceId,
-            targetDeviceId,
-            transactionId,
-        ) ?: throw IllegalStateException(
+        val targetStore = CryptoStateStore(appContext, "device-$targetDeviceId")
+        return targetStore.withExclusiveAccess {
+            NativeCryptoBridge.nativeCreateDeviceTransferAcknowledgement(
+                targetStore,
+                sourceDeviceId,
+                targetDeviceId,
+                transactionId,
+            )
+        } ?: throw IllegalStateException(
             "Destination identity is not ready to acknowledge this transfer",
         )
     }
@@ -296,13 +306,16 @@ internal class DeviceIdentityRepository(context: Context) {
                 )
             }
             transferJournal.requirePending(sourceDeviceId, targetDeviceId, transactionId)
-            val verified = NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
-                CryptoStateStore(appContext, "device-$sourceDeviceId"),
-                sourceDeviceId,
-                targetDeviceId,
-                transactionId,
-                acknowledgement,
-            )
+            val sourceStore = CryptoStateStore(appContext, "device-$sourceDeviceId")
+            val verified = sourceStore.withExclusiveAccess {
+                NativeCryptoBridge.nativeVerifyDeviceTransferAcknowledgement(
+                    sourceStore,
+                    sourceDeviceId,
+                    targetDeviceId,
+                    transactionId,
+                    acknowledgement,
+                )
+            }
             if (verified) {
                 transferJournal.markAcknowledged(
                     sourceDeviceId,
@@ -352,7 +365,9 @@ internal class DeviceIdentityRepository(context: Context) {
         val deviceId = getOrCreateDeviceId()
         transferJournal.requireUnlocked(deviceId)
         val stateStore = CryptoStateStore(appContext, "device-$deviceId")
-        check(NativeCryptoBridge.nativeMarkDeviceKeysPublished(stateStore, deviceId)) {
+        check(stateStore.withExclusiveAccess {
+            NativeCryptoBridge.nativeMarkDeviceKeysPublished(stateStore, deviceId)
+        }) {
             "Native Olm device keys could not be marked as published"
         }
     }
