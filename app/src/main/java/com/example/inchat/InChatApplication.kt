@@ -11,6 +11,7 @@ import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -100,8 +101,12 @@ class InChatApplication : Application() {
                     // This lookup never creates a device ID or native identity.
                     // A failed read keeps the current account's existing schedule;
                     // an account change still retires the previous account's work.
-                    val identityLookup = runCatching {
-                        DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+                    val identityLookup = try {
+                        Result.success(DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery())
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Result.failure(error)
                     }
                     identityLookup.exceptionOrNull()?.let { error ->
                         Log.w(
