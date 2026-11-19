@@ -12,6 +12,7 @@ package com.example.inchat.crypto
 internal class OlmOutboundDeliveryCoordinator(
     private val preparer: OlmFirstMessagePreparer,
     private val queue: OlmDeliveryQueue,
+    private val trustVerifier: OlmDeviceTrustVerifier,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
 ) {
     /**
@@ -50,6 +51,20 @@ internal class OlmOutboundDeliveryCoordinator(
         )
         require(targets.any { it.userId == recipientUserId }) {
             "No recipient-device delivery targets are available"
+        }
+        // Signature-valid directory entries are not automatically trusted people.
+        // Every target (including another sender-owned device) must have a local
+        // SAS verification record bound to its current Ed25519 identity key.
+        targets.forEach { target ->
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = target.userId,
+                    peerDeviceId = target.device.deviceId,
+                    peerEd25519IdentityKey = target.device.ed25519IdentityKey,
+                )
+            ) {
+                "Device ${target.userId}/${target.device.deviceId} has not been verified on this installation"
+            }
         }
 
         // Validate every per-device payload before the first one-time prekey
