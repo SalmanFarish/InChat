@@ -306,6 +306,70 @@ class RoomOlmDeliveryQueueConcurrencyTest {
     }
 
     @Test
+    fun concurrentEnqueueProducersCreateOneImmutableDelivery() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-concurrent-enqueue-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val dao = db.olmDeliveryQueueDao()
+        val firstQueue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+        val secondQueue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao))
+        val original = prepared("recipient-device")
+        val regenerated = original.copy(
+            envelope = JSONObject(original.envelope)
+                .put(
+                    "ciphertext",
+                    Base64.encodeToString(
+                        byteArrayOf(9, 8, 7),
+                        Base64.URL_SAFE or Base64.NO_WRAP,
+                    ),
+                )
+                .toString(),
+        )
+        val startTogether = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            assertTrue(original.envelope != regenerated.envelope)
+            val futures = listOf(firstQueue to original, secondQueue to regenerated).map { (queue, delivery) ->
+                pool.submit<Int> {
+                    startTogether.await()
+                    queue.enqueue(
+                        "alice",
+                        "sender-device",
+                        "concurrent-producer-message",
+                        listOf(delivery),
+                    )
+                }
+            }
+            startTogether.countDown()
+            val insertCounts = futures.map { it.get(10, TimeUnit.SECONDS) }
+
+            assertEquals(1, insertCounts.sum())
+            val persisted = requireNotNull(
+                dao.findNextDue("alice", "sender-device", 0L),
+            )
+            assertEquals("concurrent-producer-message", persisted.messageId)
+            assertTrue(
+                persisted.envelope == original.envelope ||
+                    persisted.envelope == regenerated.envelope,
+            )
+
+            val claimed = requireNotNull(
+                firstQueue.claimNext("alice", "sender-device", 5_000L),
+            )
+            assertEquals(persisted.deliveryId, claimed.deliveryId)
+            assertEquals(persisted.envelope, claimed.envelope)
+            assertEquals(1, claimed.attemptCount)
+            assertNull(secondQueue.claimNext("alice", "sender-device", 5_000L))
+        } finally {
+            pool.shutdownNow()
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun concurrentAcknowledgementProcessorsRemoveOneRoomRowOnly() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-concurrent-ack-processors-test.db"
