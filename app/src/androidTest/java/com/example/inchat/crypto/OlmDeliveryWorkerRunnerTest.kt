@@ -34,7 +34,7 @@ class OlmDeliveryWorkerRunnerTest {
 
         assertEquals(1, result.acknowledged)
         assertEquals(1, result.uploaded)
-        assertTrue(result.retryRequired)
+        assertFalse(result.retryRequired)
         assertEquals(
             listOf(
                 "read-acks",
