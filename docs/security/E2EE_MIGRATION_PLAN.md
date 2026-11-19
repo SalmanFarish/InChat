@@ -202,3 +202,26 @@ The SAS sender also rechecks transaction expiry immediately before the relay
 write, after payload preparation. This avoids submitting an upload whose
 transaction expired during local preparation; an advancing-clock instrumentation
 test verifies that no relay write occurs at the expiry boundary.
+
+
+## Firebase SAS transport emulator integration
+
+A dedicated Android instrumentation test now exercises the production
+`FirebaseSasVerificationRelayStore` adapter against the local Firebase Auth
+and Realtime Database emulators. It creates two independent named Firebase
+apps with anonymous emulator accounts, registers a test device for each
+account, and drives an actual SAS relay upload, exact retry, recipient read,
+and acknowledgement/delete through the Android Firebase SDK.
+
+The integration test also verifies that the database rules reject a changed
+payload under an existing delivery ID and prevent the sender from reading or
+deleting the recipient's relay row. It is opt-in through the
+`firebaseEmulatorHost` instrumentation argument, so normal Android test runs
+do not silently depend on emulators being active. The test uses only the
+non-production `demo-inchat-rules` project and never deploys rules or contacts
+the production Firebase project.
+
+The in-memory transport suite continues to cover deterministic transient read
+and acknowledgement failures, account switching, and retry ordering. Real
+network interruption/reconnection on physical devices remains a separate
+validation step.
