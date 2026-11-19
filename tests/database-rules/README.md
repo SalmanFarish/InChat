@@ -8,7 +8,7 @@ InChat database.
 
 - Node.js 24.12 or later
 - Firebase CLI (`firebase-tools`)
-- Java 11 or later for the Realtime Database Emulator
+- Java 21 or later for the current Firebase CLI and emulator runtime
 
 ## Run
 
@@ -19,8 +19,32 @@ npm install
 npm test
 ```
 
-The test script starts the Realtime Database Emulator, runs the rules tests,
-and stops the emulator when the test process exits.
+The `npm test` script starts the Realtime Database Emulator, runs the rules tests,
+and stops the emulator when the test process exits. It never deploys rules.
+
+To run the Android SAS transport integration test against both local emulators,
+keep the emulators running in a separate terminal:
+
+```powershell
+npm run emulators
+```
+
+Then, from the repository root in another terminal, run the focused test:
+
+```powershell
+.\\gradlew :app:connectedDebugAndroidTest `
+  -Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseSasVerificationTransportEmulatorTest `
+  -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2
+```
+
+`10.0.2.2` is the host address from an Android Studio emulator. For a physical
+device connected over USB, first run `adb reverse tcp:9000 tcp:9000` and
+`adb reverse tcp:9099 tcp:9099`, then pass
+`-Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=127.0.0.1`.
+The test is skipped during ordinary instrumentation runs unless this host
+argument is supplied. The test creates two anonymous accounts in the local Auth
+emulator and uses only the `demo-inchat-rules` project; it does not access the
+production InChat Firebase project.
 
 ## Coverage
 
