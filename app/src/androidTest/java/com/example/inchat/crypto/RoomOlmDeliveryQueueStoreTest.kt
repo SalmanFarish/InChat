@@ -48,6 +48,52 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
+    fun inFlightDeliverySurvivesDatabaseReopenAndIsReclaimedAfterLeaseExpiry() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-inflight-recovery-test.db"
+        context.deleteDatabase(name)
+
+        val firstDatabase = Room.databaseBuilder(
+            context,
+            LocalChatDatabase::class.java,
+            name,
+        ).allowMainThreadQueries().build()
+        val firstQueue = OlmDeliveryQueue(
+            RoomOlmDeliveryQueueStore(firstDatabase, firstDatabase.olmDeliveryQueueDao()),
+            leaseDurationMillis = 100L,
+        )
+        firstQueue.enqueue("alice", "sender-device", "interrupted-message", listOf(prepared("device-phone")))
+        val interrupted = firstQueue.claimNext("alice", "sender-device", 1_000L)!!
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, interrupted.status)
+        assertEquals(1, interrupted.attemptCount)
+        firstDatabase.close()
+
+        val reopenedDatabase = Room.databaseBuilder(
+            context,
+            LocalChatDatabase::class.java,
+            name,
+        ).allowMainThreadQueries().build()
+        try {
+            val reopenedQueue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(reopenedDatabase, reopenedDatabase.olmDeliveryQueueDao()),
+                leaseDurationMillis = 100L,
+            )
+
+            assertNull(reopenedQueue.claimNext("alice", "sender-device", 1_099L))
+
+            val recovered = reopenedQueue.claimNext("alice", "sender-device", 1_100L)
+            assertNotNull(recovered)
+            assertEquals(interrupted.deliveryId, recovered?.deliveryId)
+            assertEquals(interrupted.envelope, recovered?.envelope)
+            assertEquals(2, recovered?.attemptCount)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT, recovered?.status)
+        } finally {
+            reopenedDatabase.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun acknowledgementDeletesOnlyTheExactQueuedDelivery() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-acknowledgement-test.db"
