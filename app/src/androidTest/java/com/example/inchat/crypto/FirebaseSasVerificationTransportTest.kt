@@ -16,9 +16,12 @@ class FirebaseSasVerificationTransportTest {
         val expired = message("expired-transaction", createdAt = 100L, expiresAt = 900L)
         val later = message("later-transaction", createdAt = 800L, expiresAt = 5_000L)
         val earlier = message("earlier-transaction", createdAt = 600L, expiresAt = 5_000L)
-        val malformed = relayRecord(message("malformed-transaction", createdAt = 700L, expiresAt = 5_000L))
-            .copy(fields = relayRecord(message("malformed-transaction", createdAt = 700L, expiresAt = 5_000L))
-                .fields + ("unexpected" to true))
+        val malformedBase = relayRecord(
+            message("malformed-transaction", createdAt = 700L, expiresAt = 5_000L),
+        )
+        val malformed = malformedBase.copy(
+            fields = malformedBase.fields + ("unexpected" to true),
+        )
 
         store.enqueue("bob", "device-bob", relayRecord(expired))
         store.enqueue("bob", "device-bob", relayRecord(later))
@@ -102,6 +105,43 @@ class FirebaseSasVerificationTransportTest {
         transport.acknowledge("device-bob", pending.deliveryId)
         assertTrue(!store.contains("bob", "device-bob", pending.deliveryId))
         assertEquals(listOf(pending.deliveryId), store.removedDeliveryIds)
+    }
+
+    @Test
+    fun uploadWritesTheCanonicalSasEnvelopeToTheTargetDeviceRelay() = runBlocking {
+        val store = InMemoryRelayStore()
+        val outbound = message(
+            transactionId = "successful-sas-upload",
+            senderUserId = "alice",
+            senderDeviceId = "device-alice",
+            recipientUserId = "bob",
+            recipientDeviceId = "device-bob",
+            createdAt = 800L,
+            expiresAt = 5_000L,
+        )
+
+        transport(
+            store,
+            localUser = "alice",
+            localDevice = "device-alice",
+        ).upload(outbound)
+
+        assertEquals(1, store.rows.size)
+        val stored = store.rows.single()
+        assertEquals("bob", stored.recipientUserId)
+        assertEquals("device-bob", stored.recipientDeviceId)
+        assertEquals(outbound.deliveryId, stored.record.deliveryId)
+        assertEquals(
+            setOf(
+                "senderUid", "senderDeviceId", "transactionId", "type",
+                "payload", "createdAtMillis", "expiresAtMillis", "canonicalMessage",
+            ),
+            stored.record.fields.keys,
+        )
+        assertEquals(
+            SasVerificationMessageCodec.encode(outbound),
+            stored.record.fields["canonicalMessage"],
+        )
     }
 
     @Test
