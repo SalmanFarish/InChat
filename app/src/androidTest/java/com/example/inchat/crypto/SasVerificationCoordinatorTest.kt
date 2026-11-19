@@ -47,7 +47,34 @@ class SasVerificationCoordinatorTest {
 
             // Both installations must explicitly confirm the same comparison.
             fixture.alice.coordinator.confirmSasMatch(started.transactionId)
+            assertFalse(
+                fixture.alice.trust.contains(
+                    Triple(
+                        fixture.bob.userId,
+                        fixture.bob.bundle.deviceId,
+                        fixture.bob.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
             fixture.bob.coordinator.confirmSasMatch(started.transactionId)
+            assertFalse(
+                fixture.alice.trust.contains(
+                    Triple(
+                        fixture.bob.userId,
+                        fixture.bob.bundle.deviceId,
+                        fixture.bob.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
+            assertFalse(
+                fixture.bob.trust.contains(
+                    Triple(
+                        fixture.alice.userId,
+                        fixture.alice.bundle.deviceId,
+                        fixture.alice.bundle.ed25519IdentityKey,
+                    )
+                )
+            )
             assertEquals(
                 SasVerificationPhase.CONFIRMING,
                 fixture.alice.coordinator.states.value[started.transactionId]?.phase,
@@ -85,6 +112,7 @@ class SasVerificationCoordinatorTest {
                     )
                 )
             )
+            assertTrue("Every SAS relay message should be acknowledged", fixture.relay.isEmpty())
         } finally {
             transactionId?.let { fixture.cancelBoth(it) }
             fixture.close()
