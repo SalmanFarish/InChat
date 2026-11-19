@@ -557,6 +557,9 @@ class ChatRepository {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         require(ownerUserId.isNotBlank()) { "You are not authenticated." }
         require(chatId.isNotBlank() && message.id.isNotBlank()) { "Invalid outgoing message." }
+        require(message.senderId == ownerUserId) {
+            "Outgoing message sender does not match the signed-in account."
+        }
 
         localMessageDao.upsertMessage(
             message.toCachedEntity(

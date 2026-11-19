@@ -80,6 +80,9 @@ class PendingMessageDeliveryWorker(
                 val remoteId = remoteSnapshot.child("id").getValue(String::class.java)
                 val remoteSender = remoteSnapshot.child("senderId").getValue(String::class.java)
                 if (remoteId == messageId && remoteSender == ownerUserId) {
+                    if (!enqueueMessageEvent(ownerUserId, chatId, messageId)) {
+                        return Result.retry()
+                    }
                     dao.markMessageSent(ownerUserId, chatId, messageId)
                     return Result.success()
                 }
@@ -96,25 +99,19 @@ class PendingMessageDeliveryWorker(
 
             val messageWrite = messageRef.setValue(localMessage.toFirebasePayload())
 
-            // Keep the existing trusted notification/inbox pipeline. It checks
-            // server visibility and retries independently if delivery is early.
-            try {
-                MessageNotificationWorker.enqueue(
-                    context = applicationContext,
-                    senderId = ownerUserId,
-                    chatId = chatId,
-                    messageId = messageId
-                )
-            } catch (queueError: Exception) {
-                Log.e(TAG, "Could not schedule the message event for $messageId.", queueError)
-            }
-
             messageWrite.await()
 
             if (auth.currentUser?.uid != ownerUserId) {
                 // The server write may have succeeded, but do not mutate the
                 // now inactive account's local delivery state from this session.
                 return Result.failure()
+            }
+
+            // The notification event is scheduled only after the message
+            // write is acknowledged. If scheduling fails, retrying this worker
+            // will find the existing message and repair the event.
+            if (!enqueueMessageEvent(ownerUserId, chatId, messageId)) {
+                return Result.retry()
             }
 
             dao.markMessageSent(ownerUserId, chatId, messageId)
@@ -127,6 +124,24 @@ class PendingMessageDeliveryWorker(
             Result.retry()
         }
     }
+
+    private fun enqueueMessageEvent(
+        ownerUserId: String,
+        chatId: String,
+        messageId: String
+    ): Boolean =
+        try {
+            MessageNotificationWorker.enqueue(
+                context = applicationContext,
+                senderId = ownerUserId,
+                chatId = chatId,
+                messageId = messageId
+            )
+            true
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not schedule the message event for $messageId.", error)
+            false
+        }
 
     companion object {
         private const val TAG = "PendingMessageDelivery"

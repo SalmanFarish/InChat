@@ -1983,60 +1983,28 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        val selectedReply =
-            _replyingTo.value
-
-        val replyTo =
-            selectedReply?.let { message ->
-
-                ReplyTo(
-
-                    messageId =
-                        message.id,
-
-                    senderId =
-                        message.senderId,
-
-                    senderNickname =
-                        message.senderNickname,
-
-                    text =
-                        message.text
-                )
-            }
+        val selectedReply = _replyingTo.value
+        val replyTo = selectedReply?.let { message ->
+            ReplyTo(
+                messageId = message.id,
+                senderId = message.senderId,
+                senderNickname = message.senderNickname,
+                text = message.text
+            )
+        }
 
         onTypingChanged(
-            currentUserId =
-                currentUserId,
-
-            isTyping =
-                false
+            currentUserId = currentUserId,
+            isTyping = false
         )
 
-        val messageId =
-            chatRepository
-                .generateMessageId(
-                    chatId
-                )
-
-        if (
-            messageId == null
-        ) {
-
-            Log.e(
-                "ChatViewModel",
-                "Could not generate message ID"
-            )
+        val messageId = chatRepository.generateMessageId(chatId)
+        if (messageId == null) {
+            Log.e("ChatViewModel", "Could not generate message ID")
             onResult(false, "Could not prepare this message. Please try again.")
             return
         }
 
-        /*
-         * Save the outgoing message to Room before Firebase is called.
-         * This makes it visible immediately and preserves its sending
-         * indicator if Android recreates the process while Firebase's
-         * own persistent write queue is waiting for a connection.
-         */
         val outgoingMessage = Message(
             id = messageId,
             senderId = currentUserId,
@@ -2046,13 +2014,13 @@ class ChatViewModel : ViewModel() {
             replyTo = replyTo
         )
 
-        _pendingMessageIds.value =
-            _pendingMessageIds.value + messageId
+        _pendingMessageIds.value = _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
+            var locallyQueued = false
             try {
-                // Room is the primary message store: do not hand the message
-                // to Firebase unless the local pending copy is durable first.
+                // Room is the source of truth for the sender's history.
+                // The composer is released only after this write succeeds.
                 try {
                     chatRepository.cacheOutgoingMessage(
                         chatId = chatId,
@@ -2061,8 +2029,7 @@ class ChatViewModel : ViewModel() {
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (cacheError: Exception) {
-                    _pendingMessageIds.value =
-                        _pendingMessageIds.value - messageId
+                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
                     Log.e(
                         "ChatViewModel",
                         "Outgoing message could not be saved locally; it was not sent.",
@@ -2075,6 +2042,15 @@ class ChatViewModel : ViewModel() {
                     return@launch
                 }
 
+                locallyQueued = true
+                onQueued()
+
+                if (_replyingTo.value?.id == selectedReply?.id) {
+                    _replyingTo.value = null
+                }
+
+                // Network delivery is best-effort here. WorkManager owns the
+                // durable retry path if this foreground attempt fails or dies.
                 val sendResult = chatRepository.sendMessage(
                     chatId = chatId,
                     messageId = messageId,
@@ -2083,95 +2059,55 @@ class ChatViewModel : ViewModel() {
                     senderNickname = senderNickname,
                     receiverId = otherUserId,
                     receiverNickname = otherUserNickname,
-                    replyTo = replyTo,
-                    onQueued = onQueued
+                    replyTo = replyTo
                 )
 
                 sendResult
                     .onSuccess {
-
-                        // The Firebase task completed successfully; clear Room's
-                        // persistent pending marker as well as the live indicator.
                         runCatching {
                             chatRepository.markOutgoingMessageSent(chatId, messageId)
                         }.onFailure { cacheError ->
-                            Log.e("ChatViewModel", "Message sent but local pending flag could not be cleared", cacheError)
+                            Log.e(
+                                "ChatViewModel",
+                                "Message sent but local pending flag could not be cleared",
+                                cacheError
+                            )
                         }
-                        _pendingMessageIds.value =
-                            _pendingMessageIds.value -
-                                    messageId
-
-                        if (
-                            _replyingTo.value?.id ==
-                            selectedReply?.id
-                        ) {
-
-                            _replyingTo.value =
-                                null
-                        }
-
-                        Log.d(
-                            "ChatViewModel",
-                            "Message sent successfully: $messageId"
-                        )
+                        _pendingMessageIds.value = _pendingMessageIds.value - messageId
+                        Log.d("ChatViewModel", "Message sent successfully: $messageId")
                         onResult(true, null)
                     }
                     .onFailure { error ->
-
-                        /*
-                         * The write failed. Remove the local optimistic
-                         * row; the composer restores the text for another try.
-                         */
-                        runCatching {
-                            chatRepository.removeFailedOutgoingMessage(chatId, messageId)
-                        }.onFailure { cacheError ->
-                            Log.e("ChatViewModel", "Failed message could not be removed from Room", cacheError)
-                        }
-                        _pendingMessageIds.value =
-                            _pendingMessageIds.value -
-                                    messageId
-
-                        Log.e(
+                        // The message remains in Room and its background job
+                        // retries with this same ID. Do not restore the draft:
+                        // it is already safely represented in the conversation.
+                        Log.w(
                             "ChatViewModel",
-                            "Message write failed",
+                            "Message remains queued locally after the foreground delivery attempt failed: $messageId",
                             error
                         )
-                        onResult(
-                            false,
-                            error.localizedMessage ?: "Firebase rejected the message. Your text has been kept."
-                        )
+                        onResult(true, null)
                     }
-
-            } catch (
-                e:
-                kotlinx.coroutines.CancellationException
-            ) {
-
-                _pendingMessageIds.value =
-                    _pendingMessageIds.value -
-                            messageId
-
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // A committed Room row and its WorkManager request outlive this
+                // ViewModel coroutine; never remove the queued message here.
                 throw e
-
             } catch (e: Exception) {
-
-                _pendingMessageIds.value =
-                    _pendingMessageIds.value -
-                            messageId
-
-                Log.e(
-                    "ChatViewModel",
-                    "Unexpected send error",
-                    e
-                )
-                onResult(
-                    false,
-                    e.localizedMessage ?: "Message could not be sent. Your text has been kept."
-                )
+                if (locallyQueued) {
+                    Log.w(
+                        "ChatViewModel",
+                        "Message remains queued locally after an unexpected delivery error: $messageId",
+                        e
+                    )
+                    onResult(true, null)
+                } else {
+                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
+                    Log.e("ChatViewModel", "Unexpected send error before local queueing.", e)
+                    onResult(false, e.localizedMessage ?: "Message could not be saved locally.")
+                }
             }
         }
     }
-
     fun deleteMessagesForMe(
         messageIds: Set<String>,
         onResult: (Boolean, String?) -> Unit

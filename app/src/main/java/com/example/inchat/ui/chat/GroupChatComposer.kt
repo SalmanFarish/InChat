@@ -57,6 +57,7 @@ fun GroupChatComposer(
         LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     var savingEdit by remember { mutableStateOf(false) }
+    var sendingMessage by remember { mutableStateOf(false) }
 
     LaunchedEffect(editingMessage?.id) {
         if (editingMessage == null) {
@@ -147,7 +148,7 @@ fun GroupChatComposer(
                     BasicTextField(
                         value = messageText,
                         onValueChange = onMessageTextChange,
-                        enabled = !savingEdit,
+                        enabled = !savingEdit && !sendingMessage,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -191,7 +192,7 @@ fun GroupChatComposer(
                     modifier = Modifier.width(8.dp)
                 )
 
-                val sendEnabled = messageText.isNotBlank() && !savingEdit
+                val sendEnabled = messageText.isNotBlank() && !savingEdit && !sendingMessage
                 ComposerSendButton(
                     enabled = sendEnabled,
                     isEditing = editingMessage != null,
@@ -220,26 +221,26 @@ fun GroupChatComposer(
                                 }
                             }
                         } else {
+                            sendingMessage = true
                             groupViewModel.sendMessage(
                                 text = text,
                                 currentUserId = currentUserId,
-                                senderNickname = currentNickname
+                                senderNickname = currentNickname,
+                                onQueued = {
+                                    // Clear only after Room confirms that the
+                                    // message is safely stored on this phone.
+                                    sendingMessage = false
+                                    onMessageSent()
+                                    keyboardController?.hide()
+                                }
                             ) { success, error ->
                                 if (!success) {
+                                    sendingMessage = false
                                     onActionMessage(
-                                        error ?: "Could not send message."
+                                        error ?: "Could not save message on this device."
                                     )
                                 }
                             }
-
-                            /*
-                             * Clear the composer immediately after handing
-                             * the message to Firebase. Realtime Database
-                             * writes are queued locally while offline, so
-                             * the input must not wait for server confirmation.
-                             */
-                            onMessageSent()
-                            keyboardController?.hide()
                         }
                     },
                 )

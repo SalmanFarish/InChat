@@ -399,12 +399,12 @@ class GroupChatViewModel : ViewModel() {
         text: String,
         currentUserId: String,
         senderNickname: String,
+        onQueued: () -> Unit = {},
         onResult: (Boolean, String?) -> Unit
     ) {
-
         val cleanText = text.trim()
-
         if (cleanText.isBlank() || listeningGroupId.isBlank()) {
+            onResult(false, "No group chat is open or the message is empty.")
             return
         }
 
@@ -420,7 +420,6 @@ class GroupChatViewModel : ViewModel() {
 
         val groupId = listeningGroupId
         val messageId = chatRepository.generateMessageId(groupId)
-
         if (messageId == null) {
             onResult(false, "Could not generate message ID.")
             return
@@ -435,13 +434,13 @@ class GroupChatViewModel : ViewModel() {
             replyTo = replyTo
         )
 
-        _pendingMessageIds.value =
-            _pendingMessageIds.value + messageId
+        _pendingMessageIds.value = _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
+            var locallyQueued = false
             try {
-                // Room is the primary message store: persist the group message
-                // before starting its Firebase delivery write.
+                // Do not clear the composer or start network delivery until
+                // Room has durably committed the outgoing group message.
                 try {
                     chatRepository.cacheOutgoingMessage(
                         chatId = groupId,
@@ -450,8 +449,7 @@ class GroupChatViewModel : ViewModel() {
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (cacheError: Exception) {
-                    _pendingMessageIds.value =
-                        _pendingMessageIds.value - messageId
+                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
                     Log.e(
                         "GroupChatViewModel",
                         "Outgoing group message could not be saved locally; it was not sent.",
@@ -462,6 +460,16 @@ class GroupChatViewModel : ViewModel() {
                         "Could not save the message on this device. It was not sent."
                     )
                     return@launch
+                }
+
+                locallyQueued = true
+                onQueued()
+
+                if (
+                    listeningGroupId == groupId &&
+                    _replyingTo.value?.id == selectedReply?.id
+                ) {
+                    _replyingTo.value = null
                 }
 
                 val sendResult = groupRepository.sendMessage(
@@ -483,47 +491,36 @@ class GroupChatViewModel : ViewModel() {
                             cacheError
                         )
                     }
-
-                    if (
-                        listeningGroupId == groupId &&
-                        _replyingTo.value?.id == selectedReply?.id
-                    ) {
-                        _replyingTo.value = null
-                    }
-
                     onResult(true, null)
                 }.onFailure { error ->
-                    runCatching {
-                        chatRepository.removeFailedOutgoingMessage(groupId, messageId)
-                    }.onFailure { cacheError ->
-                        Log.e(
-                            "GroupChatViewModel",
-                            "Failed group message could not be removed from Room",
-                            cacheError
-                        )
-                    }
-
-                    onResult(
-                        false,
-                        error.message ?: "Could not send message."
+                    // Preserve the committed Room row. The independent
+                    // WorkManager job retries delivery using the same ID.
+                    Log.w(
+                        "GroupChatViewModel",
+                        "Group message remains queued locally after the foreground delivery attempt failed: $messageId",
+                        error
                     )
+                    onResult(true, null)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Leave the Room row marked pending. The next group session
-                // will reconcile it with Firebase using the same message ID.
+                // Keep Room's pending row and WorkManager request intact.
                 throw e
             } catch (e: Exception) {
-                runCatching {
-                    chatRepository.removeFailedOutgoingMessage(groupId, messageId)
+                if (locallyQueued) {
+                    Log.w(
+                        "GroupChatViewModel",
+                        "Group message remains queued locally after an unexpected delivery error: $messageId",
+                        e
+                    )
+                    onResult(true, null)
+                } else {
+                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
+                    Log.e("GroupChatViewModel", "Unexpected group send error before local queueing.", e)
+                    onResult(false, e.message ?: "Could not save the message locally.")
                 }
-                onResult(
-                    false,
-                    e.message ?: "Could not send message."
-                )
             }
         }
     }
-
     fun editMessage(
         messageId: String,
         newText: String,
