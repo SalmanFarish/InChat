@@ -43,6 +43,50 @@ class RoomOlmDeliveryQueueConcurrencyTest {
     }
 
     @Test
+    fun competingClaimsCannotLeaseOneDeliveryTwice() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-single-claim-concurrency-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+        try {
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                "msg-single-claim",
+                listOf(prepared("device-only")),
+            )
+            val pool = Executors.newFixedThreadPool(2)
+            val gate = CountDownLatch(1)
+            try {
+                val futures = (1..2).map {
+                    pool.submit<QueuedOlmDeviceDelivery?> {
+                        gate.await()
+                        queue.claimNext("alice", "sender-device", 5_000)
+                    }
+                }
+                gate.countDown()
+                val claims = futures.map { it.get(10, TimeUnit.SECONDS) }
+                val successfulClaims = claims.filterNotNull()
+
+                assertEquals(1, successfulClaims.size)
+                assertEquals(1, successfulClaims.single().attemptCount)
+                assertNull(queue.claimNext("alice", "sender-device", 5_000))
+                val persisted = db.olmDeliveryQueueDao()
+                    .getByDeliveryId(successfulClaims.single().deliveryId)
+                assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, persisted?.status)
+                assertEquals(1, persisted?.attemptCount)
+            } finally {
+                pool.shutdownNow()
+            }
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun expiredFinalAttemptIsMarkedFailedAndNotClaimedAgain() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-attempt-limit-test.db"
