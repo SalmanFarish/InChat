@@ -63,7 +63,7 @@ internal class OlmOutboundDeliveryCoordinator(
                 recipientDeviceId = target.device.deviceId,
                 sentAtMillis = sentAtMillis,
                 text = text,
-            ).also(OlmAuthenticatedMessagePayloadCodec::encode)
+            ).also { OlmAuthenticatedMessagePayloadCodec.encode(it) }
         }
 
         // Do not enqueue a partial fan-out if any target cannot be prepared.
