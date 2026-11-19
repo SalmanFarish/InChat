@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.local.LocalChatDatabase
+import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.FirebaseSasVerificationTransport
@@ -73,6 +75,11 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     var trustedAtByDevice by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
     var localDeviceId by remember { mutableStateOf<String?>(null) }
     var devices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
+    var peerUsernameQuery by remember { mutableStateOf("") }
+    var peerAccountUserId by remember { mutableStateOf<String?>(null) }
+    var peerAccountUsername by remember { mutableStateOf<String?>(null) }
+    var peerDevices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
+    var isLoadingPeerDevices by remember { mutableStateOf(false) }
     var coordinator by remember { mutableStateOf<SasVerificationCoordinator?>(null) }
     var states by remember { mutableStateOf<Map<String, SasVerificationUiState>>(emptyMap()) }
     var isPublishing by remember { mutableStateOf(false) }
@@ -91,6 +98,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         localDeviceId = null
         coordinator = null
         devices = emptyList()
+        peerAccountUserId = null
+        peerAccountUsername = null
+        peerDevices = emptyList()
         error = null
         try {
             val restored = withContext(Dispatchers.IO) {
@@ -150,12 +160,21 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
         }
     }
 
-    LaunchedEffect(uid, devices, states) {
+    LaunchedEffect(uid, devices, peerAccountUserId, peerDevices, states) {
         trustedAtByDevice = withContext(Dispatchers.IO) {
-            devices.associate { device ->
-                device.deviceId to trustedDeviceRepository.verifiedAtMillis(
-                    uid, device.deviceId, device.ed25519IdentityKey
-                )
+            buildList {
+                devices.forEach { add(uid to it) }
+                val peerUid = peerAccountUserId
+                if (peerUid != null) {
+                    peerDevices.forEach { add(peerUid to it) }
+                }
+            }.associate { (ownerUserId, device) ->
+                deviceTrustMapKey(ownerUserId, device.deviceId) to
+                    trustedDeviceRepository.verifiedAtMillis(
+                        ownerUserId,
+                        device.deviceId,
+                        device.ed25519IdentityKey,
+                    )
             }
         }
     }
@@ -196,6 +215,50 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 error = failure.message ?: "Could not load registered devices."
             } finally {
                 isRefreshing = false
+            }
+        }
+    }
+
+    fun loadPeerDevices() {
+        val username = peerUsernameQuery.trim().removePrefix("@")
+        if (username.isBlank()) {
+            error = "Enter an InChat username."
+            return
+        }
+        scope.launch {
+            isLoadingPeerDevices = true
+            error = null
+            notice = null
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val user = requireNotNull(UserRepository().getUserByUsername(username)) {
+                        "No InChat account was found for that username."
+                    }
+                    require(user.uid != uid) {
+                        "Use the Other devices section to verify another phone on your own account."
+                    }
+                    check(user.discoverableByUsername) {
+                        "This account is not discoverable by username."
+                    }
+                    user to directoryRepository.getUserDevices(user.uid)
+                }
+                peerAccountUserId = result.first.uid
+                peerAccountUsername = result.first.username
+                peerDevices = result.second
+                notice = if (result.second.isEmpty()) {
+                    "That account has no published devices yet."
+                } else {
+                    "Loaded the published devices for @${result.first.username}."
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                peerAccountUserId = null
+                peerAccountUsername = null
+                peerDevices = emptyList()
+                error = failure.message ?: "Could not load that account's devices."
+            } finally {
+                isLoadingPeerDevices = false
             }
         }
     }
@@ -349,15 +412,16 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         },
                         canRemove = isLegacyEntry,
                         onRemove = { devicePendingRemoval = device },
-                        trustedAtMillis = trustedAtByDevice[device.deviceId],
-                        trustStatusLoaded = trustedAtByDevice.containsKey(device.deviceId),
+                        trustedAtMillis = trustedAtByDevice[deviceTrustMapKey(uid, device.deviceId)],
+                        trustStatusLoaded = trustedAtByDevice.containsKey(deviceTrustMapKey(uid, device.deviceId)),
                         onRevoke = {
                             scope.launch {
                                 try {
                                     withContext(Dispatchers.IO) {
                                         trustedDeviceRepository.revoke(uid, device.deviceId)
                                     }
-                                    trustedAtByDevice = trustedAtByDevice + (device.deviceId to null)
+                                    trustedAtByDevice = trustedAtByDevice +
+                                        (deviceTrustMapKey(uid, device.deviceId) to null)
                                     notice = "Trust revoked on this device."
                                 } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -409,6 +473,140 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                         }
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Verify another InChat account",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Enter the exact username of the person you want to verify. Only accounts discoverable by username can be loaded here. Compare the safety numbers in person or through another trusted channel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = peerUsernameQuery,
+                    onValueChange = {
+                        peerUsernameQuery = it
+                        error = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoadingPeerDevices,
+                    label = { Text("InChat username") },
+                    placeholder = { Text("@username") },
+                )
+                Button(
+                    onClick = ::loadPeerDevices,
+                    enabled = !isLoadingPeerDevices && peerUsernameQuery.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (isLoadingPeerDevices) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(if (peerAccountUserId == null) "Find published devices" else "Refresh account devices")
+                    }
+                }
+                val targetUserId = peerAccountUserId
+                if (targetUserId != null) {
+                    Text(
+                        "Devices for @${peerAccountUsername.orEmpty()}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (peerDevices.isEmpty()) {
+                        Text(
+                            "No devices have been published by this account yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    peerDevices.forEach { device ->
+                        val state = latestDeviceVerificationState(
+                            states = states,
+                            peerUserId = targetUserId,
+                            peerDeviceId = device.deviceId,
+                        )
+                        val trustKey = deviceTrustMapKey(targetUserId, device.deviceId)
+                        val lastSeen = device.lastSeenAtMillis
+                        DeviceVerificationAttemptCard(
+                            device = device,
+                            state = state,
+                            activityLabel = if (lastSeen == null) {
+                                "Activity not recorded yet"
+                            } else {
+                                "Last seen in verification " + DateUtils.getRelativeTimeSpanString(
+                                    lastSeen,
+                                    System.currentTimeMillis(),
+                                    DateUtils.MINUTE_IN_MILLIS,
+                                ).toString()
+                            },
+                            canRemove = false,
+                            onRemove = {},
+                            trustedAtMillis = trustedAtByDevice[trustKey],
+                            trustStatusLoaded = trustedAtByDevice.containsKey(trustKey),
+                            onRevoke = {
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            trustedDeviceRepository.revoke(targetUserId, device.deviceId)
+                                        }
+                                        trustedAtByDevice = trustedAtByDevice + (trustKey to null)
+                                        notice = "Trust for @${peerAccountUsername.orEmpty()} was revoked on this phone."
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        error = failure.message ?: "Could not revoke device trust."
+                                    }
+                                }
+                            },
+                            onStart = {
+                                scope.launch {
+                                    error = null
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            requireNotNull(coordinator).startVerification(targetUserId, device.deviceId)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        error = failure.message ?: "Could not start verification."
+                                    }
+                                }
+                            },
+                            onConfirm = {
+                                scope.launch {
+                                    error = null
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            requireNotNull(coordinator).confirmSasMatch(requireNotNull(state).transactionId)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        error = failure.message ?: "Could not confirm verification."
+                                    }
+                                }
+                            },
+                            onCancel = {
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            coordinator?.cancel(requireNotNull(state).transactionId)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        error = failure.message ?: "Could not cancel verification."
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
             }
             error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
@@ -436,7 +634,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                                 trustedDeviceRepository.revoke(uid, device.deviceId)
                             }
                             devices = devices.filterNot { it.deviceId == device.deviceId }
-                            trustedAtByDevice = trustedAtByDevice - device.deviceId
+                            trustedAtByDevice = trustedAtByDevice - deviceTrustMapKey(uid, device.deviceId)
                             notice = "Old device entry removed from this account."
                             error = null
                         } catch (cancelled: CancellationException) {
