@@ -272,7 +272,8 @@ class OlmOutboundDeliveryCoordinatorTest {
             peerUserId: String,
             peerDeviceId: String,
             peerEd25519IdentityKey: String,
-        ): Boolean = trustKey(peerUserId, peerDeviceId, peerEd25519IdentityKey) in trustedIdentities
+        ): Boolean =
+            "$peerUserId::$peerDeviceId::$peerEd25519IdentityKey" in trustedIdentities
     }
 
     private class FakePreparer(
