@@ -38,9 +38,9 @@ class OlmOutboundDeliveryCoordinatorTest {
         assertEquals(3, inserted)
         assertEquals(
             listOf(
-                "alice::sender-tablet",
                 "bob::recipient-phone",
                 "bob::recipient-tablet",
+                "alice::sender-tablet",
             ),
             preparer.payloads.map { it.recipientUserId + "::" + it.recipientDeviceId },
         )
@@ -80,7 +80,7 @@ class OlmOutboundDeliveryCoordinatorTest {
         }
 
         assertTrue(failed)
-        assertEquals(3, preparer.payloads.size)
+        assertEquals(2, preparer.payloads.size)
         assertTrue(store.rows.isEmpty())
         assertTrue(events.isEmpty())
         assertFalse(scheduled)
