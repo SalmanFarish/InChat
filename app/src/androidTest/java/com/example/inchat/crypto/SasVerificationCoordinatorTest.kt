@@ -262,6 +262,142 @@ class SasVerificationCoordinatorTest {
         }
     }
 
+    @Test
+    fun inboxReceiverRetriesHandlerFailureWithoutAcknowledgingTheDelivery() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val message = receiverTestMessage(fixture, "receiver-handler-retry")
+            fixture.relay.client(fixture.alice.userId).upload(message)
+            val receiver = receiverFor(fixture.bob, fixture.relay.client(fixture.bob.userId))
+            var callbackCount = 0
+
+            val first = runCatching {
+                receiver.receivePending {
+                    callbackCount++
+                    error("Simulated coordinator failure before processing is committed")
+                }
+            }
+            assertTrue("A failed callback must keep the delivery retryable", first.isFailure)
+            assertTrue(fixture.relay.contains(message.deliveryId))
+            assertFalse(fixture.bob.ledger.isProcessed(message.deliveryId))
+
+            val recovered = receiver.receivePending { callbackCount++ }
+            assertEquals(1, recovered.received)
+            assertEquals(2, callbackCount)
+            assertFalse(fixture.relay.contains(message.deliveryId))
+            assertTrue(fixture.bob.ledger.isProcessed(message.deliveryId))
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun inboxReceiverRetriesAcknowledgementWithoutReplayingProcessedCallback() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val message = receiverTestMessage(fixture, "receiver-ack-retry")
+            fixture.relay.client(fixture.alice.userId).upload(message)
+            fixture.relay.failNextAcknowledge()
+            val receiver = receiverFor(fixture.bob, fixture.relay.client(fixture.bob.userId))
+            var callbackCount = 0
+
+            val first = runCatching {
+                receiver.receivePending { callbackCount++ }
+            }
+            assertTrue("A failed relay acknowledgement must be retried", first.isFailure)
+            assertEquals(1, callbackCount)
+            assertTrue(fixture.bob.ledger.isProcessed(message.deliveryId))
+            assertTrue(fixture.relay.contains(message.deliveryId))
+
+            val recovered = receiver.receivePending { callbackCount++ }
+            assertEquals(1, recovered.duplicates)
+            assertEquals(1, callbackCount)
+            assertFalse(fixture.relay.contains(message.deliveryId))
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun inboxReceiverRejectsDeliveryKeyThatDoesNotMatchCanonicalMessage() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val message = receiverTestMessage(fixture, "receiver-key-mismatch")
+            var callbackInvoked = false
+            var acknowledged = false
+            val malformedTransport = object : SasVerificationTransport {
+                override suspend fun upload(message: SasVerificationMessage) = Unit
+                override suspend fun readInbox(deviceId: String) = listOf(
+                    SasVerificationInboxItem("f".repeat(64), fixture.alice.userId, message)
+                )
+                override suspend fun acknowledge(deviceId: String, deliveryId: String) {
+                    acknowledged = true
+                }
+            }
+            val receiver = receiverFor(fixture.bob, malformedTransport)
+
+            val rejected = runCatching {
+                receiver.receivePending { callbackInvoked = true }
+            }
+            assertTrue("A mismatched transport key must be rejected", rejected.isFailure)
+            assertFalse(callbackInvoked)
+            assertFalse(acknowledged)
+            assertFalse(fixture.bob.ledger.isProcessed(message.deliveryId))
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun inboxReceiverDoesNotAcknowledgeConflictingDuplicateContent() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val message = receiverTestMessage(fixture, "receiver-content-conflict")
+            fixture.relay.client(fixture.alice.userId).upload(message)
+            val receiver = receiverFor(fixture.bob, fixture.relay.client(fixture.bob.userId))
+            assertEquals(1, receiver.receivePending().received)
+            assertFalse(fixture.relay.contains(message.deliveryId))
+
+            // The delivery ID intentionally identifies the protocol slot rather
+            // than the payload. A conflicting payload must not be acknowledged.
+            val conflict = message.copy(payload = "b".repeat(64))
+            assertEquals(message.deliveryId, conflict.deliveryId)
+            fixture.relay.inject(conflict)
+
+            val result = receiver.receivePending()
+            assertEquals(1, result.conflicts)
+            assertTrue("Conflicting content must remain visible for diagnosis", fixture.relay.contains(conflict.deliveryId))
+        } finally {
+            fixture.close()
+        }
+    }
+
+    private fun receiverTestMessage(
+        fixture: Fixture,
+        transactionId: String,
+    ) = SasVerificationMessage(
+        transactionId = transactionId,
+        senderUserId = fixture.alice.userId,
+        senderDeviceId = fixture.alice.bundle.deviceId,
+        recipientUserId = fixture.bob.userId,
+        recipientDeviceId = fixture.bob.bundle.deviceId,
+        type = SasVerificationMessageType.COMMITMENT,
+        payload = "a".repeat(64),
+        createdAtMillis = FIXED_NOW,
+        expiresAtMillis = FIXED_NOW + 60_000L,
+    )
+
+    private fun receiverFor(
+        device: TestDevice,
+        transport: SasVerificationTransport,
+    ) = SasVerificationInboxReceiver(
+        transport = transport,
+        ledger = device.ledger,
+        localUserId = device.userId,
+        localDeviceId = device.bundle.deviceId,
+        clock = { FIXED_NOW },
+    )
+
     private class Fixture : AutoCloseable {
         private val context = ApplicationProvider.getApplicationContext<Context>()
         private val suffix = UUID.randomUUID().toString().replace("-", "")
@@ -414,6 +550,10 @@ class SasVerificationCoordinatorTest {
 
                 override suspend fun acknowledge(deviceId: String, deliveryId: String) {
                     synchronized(lock) {
+                        if (failNextAcknowledgement) {
+                            failNextAcknowledgement = false
+                            error("Simulated transient SAS relay acknowledgement failure")
+                        }
                         val matching = pending.firstOrNull {
                             it.deliveryId == deliveryId &&
                                 it.recipientUserId == accountId &&
@@ -426,6 +566,12 @@ class SasVerificationCoordinatorTest {
                     }
                 }
             }
+
+        private var failNextAcknowledgement = false
+
+        fun failNextAcknowledge() = synchronized(lock) {
+            failNextAcknowledgement = true
+        }
 
         fun inject(message: SasVerificationMessage) = synchronized(lock) {
             pending += message
