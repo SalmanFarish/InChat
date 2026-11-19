@@ -1,6 +1,6 @@
 # InChat end-to-end encryption migration plan
 
-Status: design and compatibility audit only. No message encryption is enabled by this document.
+Status: isolated E2EE prototype only. No live chat message encryption is enabled.
 
 ## Goals
 
@@ -23,13 +23,17 @@ The ledger is deliberately not connected to Firebase listeners, the existing cha
 
 The isolated inbox receiver now polls the authenticated device inbox, checks that the transport sender-device field matches the sender device embedded in the encrypted envelope, validates each envelope's routing metadata, and registers the ciphertext in the Room receipt ledger on an IO dispatcher. Instrumentation coverage also verifies that mismatched sender metadata is not acknowledged and that a failed remote acknowledgement is retried safely from the already-persisted pending receipt. It deletes the remote item only after the local receipt insert or duplicate check succeeds. A crash after local persistence but before remote deletion is safe: the next poll sees the same pending receipt and retries the acknowledgement. A reused sender/device/message identity with different ciphertext is treated as a conflict and is deliberately not acknowledged. This receiver only stages ciphertext; it does not decrypt, create plaintext messages, or connect to the live chat cache.
 
-The durable sender outbox remains at-least-once. An isolated Firebase Realtime Database transport now uploads immutable ciphertext envelopes to per-user, per-device `olmInbox` paths. Rules require authenticated sender and recipient device registrations, enforce create-once / exact-retry semantics, reject changed payloads, restrict reads and deletes to the recipient, and prevent delivery between mutually blocked accounts. The transport does not use `chats/{chatId}/messages` and has no live listener or WorkManager integration yet. The receiver receipt ledger provides local deduplication, but there is still no end-to-end transport worker or atomic decrypt-and-store transaction.
+The durable sender outbox remains at-least-once. Its isolated Firebase Realtime Database transport uploads immutable ciphertext envelopes to per-user, per-device `olmInbox` paths. Rules require authenticated sender and recipient device registrations, enforce create-once / exact-retry semantics, reject changed payloads, restrict reads and deletes to the recipient, and prevent delivery between mutually blocked accounts. The transport does not use `chats/{chatId}/messages`.
+
+An isolated `OlmOutboundDeliveryCoordinator` now joins the fan-out planner, first-message preparer, and durable queue for version-1 direct text messages. It includes every published recipient device and the sender's other published devices, validates all per-device authenticated payloads before attempting any prekey claim, prepares every ciphertext copy before inserting the complete batch, and asks the caller to schedule the account/device worker only after the Room enqueue. Replaying the same message is idempotent: the first stored ciphertext is retained and scheduling is requested again to repair a missed trigger. The schema is still direct-text only; it cannot be used for groups because it does not authenticate a conversation ID.
+
+The isolated `EncryptedOlmDeliveryWorker` now processes sender acknowledgements before uploading due ciphertext rows, validates the authenticated account and existing local device identity, uses durable leases and retry state, and runs with a network constraint plus periodic recovery scheduling. Startup auth restoration recreates the account/device schedule without creating a device identity. These components remain disconnected from `ChatRepository`, `GroupChatRepository`, ordinary message listeners, and the live UI. The receiver receipt ledger provides ciphertext deduplication and acknowledgement recovery, but it still stages ciphertext only; authenticated decryption and an atomic decrypt-and-store transaction are not complete.
 
 ## Rollout safety
 
 - Existing plaintext message history remains untouched.
 - Version 1 encrypted messages must never silently fall back to plaintext.
-- Do not connect the isolated prototype to live chats until sender transport, receiver authentication, deduplication, local persistence, notification privacy, and two-device tests are complete.
+- Do not connect the isolated prototype to live chats until durable trusted-device verification, authenticated receiver decryption, atomic decrypt-and-store, notification privacy, delivery-status reconciliation, and end-to-end two-device recovery tests are complete.
 - Keep all infrastructure within free Firebase Spark capabilities; no card-required or paid storage services.
 
 
