@@ -44,14 +44,17 @@ internal class FirebaseOlmInboxReceiver(
             when (registration) {
                 OlmInboundRegistration.CONFLICT -> conflicts++
                 OlmInboundRegistration.NEW -> {
+                    transport.acknowledgeStoredDelivery(deviceId, item)
                     transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
                     stored++
                 }
                 OlmInboundRegistration.PENDING_RETRY -> {
+                    transport.acknowledgeStoredDelivery(deviceId, item)
                     transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
                     pending++
                 }
                 OlmInboundRegistration.DUPLICATE_PROCESSED -> {
+                    transport.acknowledgeStoredDelivery(deviceId, item)
                     transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
                     processed++
                 }

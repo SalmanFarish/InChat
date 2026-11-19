@@ -614,6 +614,51 @@ const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alic
   }),
 });
 
+test("only the addressed recipient device can acknowledge an existing encrypted delivery", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const deliveryId = "9".repeat(64);
+  const inboxPath = `olmInbox/bob/device-bob-1/${deliveryId}`;
+  const ackPath = `olmDeliveryAcks/alice/device-alice-1/${deliveryId}`;
+  const acknowledgement = {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-1",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: Date.now(),
+  };
+
+  await assertSucceeds(set(ref(aliceDb, inboxPath), encryptedInboxRecord()));
+  await assertSucceeds(set(ref(bobDb, ackPath), acknowledgement));
+  await assertFails(get(ref(bobDb, ackPath)));
+  await assertSucceeds(get(ref(aliceDb, ackPath)));
+  await assertFails(set(ref(malloryDb, ackPath), acknowledgement));
+  await assertSucceeds(set(ref(aliceDb, ackPath), null));
+});
+
+test("a recipient cannot acknowledge a missing or mismatched encrypted delivery", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const deliveryId = "8".repeat(64);
+  const ackPath = `olmDeliveryAcks/alice/device-alice-1/${deliveryId}`;
+  const acknowledgement = {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-1",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: Date.now(),
+  };
+
+  await assertFails(set(ref(bobDb, ackPath), acknowledgement));
+  await assertSucceeds(set(
+    ref(aliceDb, `olmInbox/bob/device-bob-1/${deliveryId}`),
+    encryptedInboxRecord(),
+  ));
+  await assertFails(set(ref(bobDb, ackPath), {
+    ...acknowledgement,
+    messageId: "different-message",
+  }));
+});
+
 test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   await assertSucceeds(set(

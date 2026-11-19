@@ -342,6 +342,23 @@
         }
       }
     },
+    "olmDeliveryAcks": {
+      "$senderUid": {
+        ".read": "auth != null && auth.uid === $senderUid",
+        "$senderDeviceId": {
+          ".read": "auth != null && auth.uid === $senderUid",
+          "$deliveryId": {
+            ".write": "auth != null && $deliveryId.matches(/^[A-Fa-f0-9]{64}$/) && ((auth.uid === $senderUid && data.exists() && !newData.exists()) || (auth.uid === newData.child('recipientUid').val() && root.child('deviceKeys').child($senderUid).child($senderDeviceId).exists() && root.child('olmInbox').child(auth.uid).child(newData.child('recipientDeviceId').val()).child($deliveryId).child('senderUid').val() === $senderUid && root.child('olmInbox').child(auth.uid).child(newData.child('recipientDeviceId').val()).child($deliveryId).child('senderDeviceId').val() === $senderDeviceId && root.child('olmInbox').child(auth.uid).child(newData.child('recipientDeviceId').val()).child($deliveryId).child('messageId').val() === newData.child('messageId').val() && root.child('deviceKeys').child(auth.uid).child(newData.child('recipientDeviceId').val()).exists() && (!data.exists() || (data.child('recipientUid').val() === newData.child('recipientUid').val() && data.child('recipientDeviceId').val() === newData.child('recipientDeviceId').val() && data.child('messageId').val() === newData.child('messageId').val()))))",
+            ".validate": "newData.hasChildren(['recipientUid', 'recipientDeviceId', 'messageId', 'acknowledgedAt']) && newData.child('recipientUid').isString() && newData.child('recipientUid').val().length >= 1 && newData.child('recipientUid').val().length <= 128 && newData.child('recipientDeviceId').isString() && newData.child('recipientDeviceId').val().matches(/^[A-Za-z0-9_-]{1,64}$/) && newData.child('messageId').isString() && newData.child('messageId').val().matches(/^[A-Za-z0-9_-]{1,128}$/) && newData.child('acknowledgedAt').isNumber() && newData.child('acknowledgedAt').val() >= 0",
+            "recipientUid": { ".validate": "newData.isString()" },
+            "recipientDeviceId": { ".validate": "newData.isString()" },
+            "messageId": { ".validate": "newData.isString()" },
+            "acknowledgedAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": "false" }
+          }
+        }
+      }
+    },
     "sasVerificationInbox": {
       "$recipientUid": {
         ".read": "auth != null && auth.uid === $recipientUid",

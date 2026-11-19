@@ -3,6 +3,7 @@ package com.example.inchat.crypto
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.tasks.await
 
 internal data class FirebaseOlmInboxItem(
@@ -15,6 +16,7 @@ internal data class FirebaseOlmInboxItem(
 
 internal interface OlmInboxTransport {
     suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem>
+    suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem)
     suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String)
 }
 
@@ -81,6 +83,41 @@ internal class FirebaseOlmEnvelopeTransport(
             .sortedBy { it.deliveryId }
     }
 
+    /**
+     * Tell the originating device that this recipient device has durably
+     * registered the ciphertext in its local Room receipt ledger.
+     *
+     * The acknowledgement is written before removing the relay copy. If either
+     * operation is interrupted, the receiver can safely repeat both operations.
+     */
+    override suspend fun acknowledgeStoredDelivery(
+        deviceId: String,
+        item: FirebaseOlmInboxItem,
+    ) {
+        val recipientUid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before acknowledging an encrypted delivery"
+        }
+        require(UID_PATTERN.matches(recipientUid))
+        require(DEVICE_PATTERN.matches(deviceId))
+        require(UID_PATTERN.matches(item.senderUid))
+        require(DEVICE_PATTERN.matches(item.senderDeviceId))
+        require(DELIVERY_PATTERN.matches(item.deliveryId))
+        require(MESSAGE_PATTERN.matches(item.messageId))
+
+        val acknowledgement = mapOf(
+            "recipientUid" to recipientUid,
+            "recipientDeviceId" to deviceId,
+            "messageId" to item.messageId,
+            "acknowledgedAt" to ServerValue.TIMESTAMP,
+        )
+        database.reference.child(ACK_NODE)
+            .child(item.senderUid)
+            .child(item.senderDeviceId)
+            .child(item.deliveryId)
+            .setValue(acknowledgement)
+            .await()
+    }
+
     /** Delete only a delivery in the currently authenticated user's own device inbox. */
     override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
         val uid = requireNotNull(auth.currentUser?.uid) {
@@ -130,6 +167,7 @@ internal class FirebaseOlmEnvelopeTransport(
 
     private companion object {
         const val INBOX_NODE = "olmInbox"
+        const val ACK_NODE = "olmDeliveryAcks"
         val UID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val DELIVERY_PATTERN = Regex("[A-Fa-f0-9]{64}")

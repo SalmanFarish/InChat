@@ -30,6 +30,7 @@ class FirebaseOlmInboxReceiverTest {
 
             assertEquals(1, result.stored)
             assertEquals(0, result.conflicts)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
             assertTrue(transport.items.isEmpty())
             assertEquals(
                 OlmInboundRegistration.PENDING_RETRY,
@@ -58,7 +59,9 @@ class FirebaseOlmInboxReceiverTest {
             val result = receiver.receivePending()
 
             assertEquals(1, result.conflicts)
+            assertTrue(transport.acknowledgedDeliveryIds.isEmpty())
             assertEquals(1, transport.items.size)
+            assertTrue(transport.acknowledgedDeliveryIds.isEmpty())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -89,6 +92,7 @@ class FirebaseOlmInboxReceiverTest {
             }
 
             assertEquals(1, transport.items.size)
+            assertTrue(transport.acknowledgedDeliveryIds.isEmpty())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -116,6 +120,7 @@ class FirebaseOlmInboxReceiverTest {
             }
 
             assertEquals(1, transport.items.size)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
             assertEquals(
                 OlmInboundRegistration.PENDING_RETRY,
                 ledger.register("alice", "message-4", envelope(1), 201L),
@@ -124,6 +129,7 @@ class FirebaseOlmInboxReceiverTest {
             val retry = receiver.receivePending()
 
             assertEquals(1, retry.alreadyPending)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
             assertTrue(transport.items.isEmpty())
         } finally {
             db.close()
@@ -135,7 +141,15 @@ class FirebaseOlmInboxReceiverTest {
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,
     ) : OlmInboxTransport {
+        val acknowledgedDeliveryIds = mutableListOf<String>()
+
         override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> = items.toList()
+
+        override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) {
+            if (item.deliveryId !in acknowledgedDeliveryIds) {
+                acknowledgedDeliveryIds += item.deliveryId
+            }
+        }
 
         override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
             if (failFirstRemoval) {
