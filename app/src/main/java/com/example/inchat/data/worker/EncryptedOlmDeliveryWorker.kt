@@ -44,29 +44,35 @@ class EncryptedOlmDeliveryWorker(
             return Result.failure()
         }
 
-        val auth = FirebaseAuth.getInstance()
-        val authenticatedUserId = auth.currentUser?.uid
-        if (authenticatedUserId == null) {
-            // The Application auth listener cancels remembered/tagged jobs on sign-out
-            // and schedules fresh work after Firebase restores an authenticated session.
-            return Result.success()
-        }
-        if (authenticatedUserId != ownerUserId) {
-            // A stale account's immediate and periodic jobs must retire themselves.
-            Log.i(TAG, "Skipping encrypted delivery after the signed-in account changed.")
-            cancel(applicationContext, ownerUserId, senderDeviceId)
-            return Result.success()
+        val authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid
+        when (evaluateEncryptedOlmAuthScope(ownerUserId, authenticatedUserId)) {
+            EncryptedOlmAuthScopeDecision.WAIT_FOR_AUTH -> {
+                // The Application auth listener cancels stale jobs on sign-out
+                // and schedules a fresh scope after Firebase restores a session.
+                return Result.success()
+            }
+            EncryptedOlmAuthScopeDecision.RETIRE_STALE_SCOPE -> {
+                Log.i(TAG, "Retiring encrypted delivery after the signed-in account changed.")
+                cancel(applicationContext, ownerUserId, senderDeviceId)
+                return Result.success()
+            }
+            EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
         }
 
         val activeDeviceId = try {
             DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
         } catch (error: Exception) {
+            // Preserve the schedule for transient storage failures or a temporary
+            // identity-transfer lock; a later pass can recover after the lock clears.
             Log.e(TAG, "The local encrypted device identity is unavailable; delivery is paused.", error)
             return Result.success()
-        } ?: return Result.success()
+        }
 
-        if (activeDeviceId != senderDeviceId) {
-            Log.i(TAG, "Skipping encrypted delivery for a retired or inactive device identity.")
+        if (!isEncryptedOlmScheduledDeviceActive(senderDeviceId, activeDeviceId)) {
+            // A missing/retired native identity cannot ever service this schedule.
+            // Cancel only its WorkManager jobs; keep durable Room deliveries intact.
+            Log.i(TAG, "Retiring encrypted delivery for a missing or inactive device identity.")
+            cancel(applicationContext, ownerUserId, senderDeviceId)
             return Result.success()
         }
 
