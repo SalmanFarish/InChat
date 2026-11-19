@@ -59,8 +59,12 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
         }
 
-        val identityLookup = runCatching {
-            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+        val identityLookup = try {
+            Result.success(DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         }
         val deviceScopeDecision = evaluateEncryptedOlmDeviceScope(
             scheduledSenderDeviceId = senderDeviceId,
