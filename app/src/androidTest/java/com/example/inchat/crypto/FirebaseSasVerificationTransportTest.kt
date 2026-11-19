@@ -32,7 +32,7 @@ class FirebaseSasVerificationTransportTest {
 
         assertEquals(listOf(earlier.deliveryId, later.deliveryId), received.map { it.deliveryId })
         assertEquals(listOf(expired.deliveryId), store.removedDeliveryIds)
-        assertTrue(store.contains("bob", "device-bob", malformed.deliveryId))
+        assertTrue(store.contains("bob", "device-bob", requireNotNull(malformed.deliveryId)))
     }
 
     @Test
