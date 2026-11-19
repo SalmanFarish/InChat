@@ -25,3 +25,7 @@ internal fun shouldOfferDeviceReverification(
     state?.phase == SasVerificationPhase.COMPLETE &&
         trustedAtMillis == null &&
         trustStatusLoaded
+
+/** Namespaced key so two accounts cannot collide on an installation-local device ID. */
+internal fun deviceTrustMapKey(peerUserId: String, peerDeviceId: String): String =
+    "$peerUserId::$peerDeviceId"
