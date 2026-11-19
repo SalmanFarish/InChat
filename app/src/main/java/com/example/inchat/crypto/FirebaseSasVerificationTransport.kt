@@ -54,7 +54,11 @@ internal class FirebaseSasVerificationRelayStore(
         recipientUserId: String,
         recipientDeviceId: String,
     ): List<SasVerificationRelayRecord> {
-        val snapshot = inboxReference(recipientUserId, recipientDeviceId).parent!!.get().await()
+        val snapshot = database.reference.child(INBOX_NODE)
+            .child(recipientUserId)
+            .child(recipientDeviceId)
+            .get()
+            .await()
         return snapshot.children.map { child ->
             val fields = child.children.mapNotNull { field ->
                 field.key?.let { key -> key to field.value }
@@ -75,11 +79,11 @@ internal class FirebaseSasVerificationRelayStore(
     private fun inboxReference(
         recipientUserId: String,
         recipientDeviceId: String,
-        deliveryId: String? = null,
+        deliveryId: String,
     ) = database.reference.child(INBOX_NODE)
         .child(recipientUserId)
         .child(recipientDeviceId)
-        .let { reference -> deliveryId?.let(reference::child) ?: reference }
+        .child(deliveryId)
 
     private companion object {
         const val INBOX_NODE = "sasVerificationInbox"
