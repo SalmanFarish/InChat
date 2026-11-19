@@ -55,6 +55,33 @@ class FirebaseSasVerificationTransportTest {
     }
 
     @Test
+    fun laterRelayEntryIsExpiredAfterEarlierCleanupSuspends() = runBlocking {
+        val store = InMemoryRelayStore()
+        var now = 1_000L
+        val alreadyExpired = message(
+            "expired-before-cleanup",
+            createdAt = 100L,
+            expiresAt = 900L,
+        )
+        val expiresDuringCleanup = message(
+            "expires-during-cleanup",
+            createdAt = 800L,
+            expiresAt = 1_001L,
+        )
+        store.enqueue("bob", "device-bob", relayRecord(alreadyExpired))
+        store.enqueue("bob", "device-bob", relayRecord(expiresDuringCleanup))
+        store.afterRemove = { now = 1_001L }
+
+        val received = transport(store, clock = { now }).readInbox("device-bob")
+
+        assertTrue(received.isEmpty())
+        assertEquals(
+            listOf(alreadyExpired.deliveryId, expiresDuringCleanup.deliveryId),
+            store.removedDeliveryIds,
+        )
+    }
+
+    @Test
     fun accountSwitchDuringInboxReadFailsClosedBeforeReturningOrDeletingRows() = runBlocking {
         val store = InMemoryRelayStore()
         val expired = message("expired-during-read", createdAt = 100L, expiresAt = 900L)
@@ -304,6 +331,7 @@ class FirebaseSasVerificationTransportTest {
         var failNextRemove = false
         var readCount = 0
         var afterRead: (() -> Unit)? = null
+        var afterRemove: (() -> Unit)? = null
 
         override suspend fun put(
             recipientUserId: String,
@@ -355,6 +383,7 @@ class FirebaseSasVerificationTransportTest {
                     it.record.deliveryId == deliveryId
             }
             removedDeliveryIds += deliveryId
+            afterRemove?.invoke()
         }
 
         fun enqueue(
