@@ -21,3 +21,17 @@ internal fun isEncryptedOlmScheduledDeviceActive(
     scheduledSenderDeviceId: String,
     activeDeviceId: String?,
 ): Boolean = activeDeviceId != null && activeDeviceId == scheduledSenderDeviceId
+
+/**
+ * Reject a device-identity lookup that completed after a newer auth callback.
+ * This prevents a slow lookup for one account from recreating its work after
+ * a later sign-out or account switch.
+ */
+internal fun isEncryptedOlmAuthResolutionCurrent(
+    requestGeneration: Long,
+    currentGeneration: Long,
+    requestedOwnerUserId: String,
+    authenticatedUserId: String?,
+): Boolean =
+    requestGeneration == currentGeneration &&
+        authenticatedUserId == requestedOwnerUserId
