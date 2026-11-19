@@ -199,6 +199,9 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 "msg-stale-worker",
                 listOf(prepared("device-only")),
             )
+            val originalDeliveryId = requireNotNull(
+                db.olmDeliveryQueueDao().findNextDue("alice", "sender-device", 1_000L),
+            ).deliveryId
 
             val firstTransport = object : OlmOutgoingDeliveryTransport {
                 override suspend fun upload(
@@ -270,21 +273,14 @@ class RoomOlmDeliveryQueueConcurrencyTest {
 
             assertEquals(1, secondResult.uploaded)
             assertFalse(secondResult.retryRequired)
-            val reclaimed = db.olmDeliveryQueueDao().getByDeliveryId(
-                OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
-                    .let { queueForIdentity -> 
-                        // The delivery ID is stable for this sender/message/device tuple.
-                        queueForIdentity.claimNext("alice", "sender-device", 1_100L - 1L)
-                            ?.deliveryId
-                    }
+            val reclaimed = requireNotNull(
+                db.olmDeliveryQueueDao().getByDeliveryId(originalDeliveryId),
             )
-            // Read the current row by its message identity; the second worker's
-            // successful upload must still own attempt 2's unexpired lease.
-            val current = db.olmDeliveryQueueDao().findNextDue("alice", "sender-device", 1_100L)
-            assertEquals(null, current)
-            assertEquals("msg-stale-worker", reclaimed?.messageId)
-            assertEquals(2, reclaimed?.attemptCount)
-            assertEquals(1_200L, reclaimed?.leaseUntilMillis)
+            // The second worker's successful upload leaves attempt 2's lease active.
+            assertEquals(null, db.olmDeliveryQueueDao().findNextDue("alice", "sender-device", 1_100L))
+            assertEquals("msg-stale-worker", reclaimed.messageId)
+            assertEquals(2, reclaimed.attemptCount)
+            assertEquals(1_200L, reclaimed.leaseUntilMillis)
 
             // Simulate a late first worker with a stale clock. Its local lease
             // check passes, but Room's attempt/lease generation fence rejects it.
@@ -294,7 +290,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
             assertEquals(0, firstResult.uploaded)
             assertTrue(firstResult.retryRequired)
 
-            val persisted = db.olmDeliveryQueueDao().getByDeliveryId(reclaimed!!.deliveryId)
+            val persisted = db.olmDeliveryQueueDao().getByDeliveryId(originalDeliveryId)
             assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, persisted?.status)
             assertEquals(2, persisted?.attemptCount)
             assertEquals(1_200L, persisted?.leaseUntilMillis)
