@@ -59,12 +59,16 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
         }
 
-        val identityLookup: Result<String?> = try {
-            Result.success(DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery())
+        // Qualify Kotlin's Result: CoroutineWorker.Result is the WorkManager
+        // outcome type and shadows kotlin.Result inside this subclass.
+        val identityLookup: kotlin.Result<String?> = try {
+            kotlin.Result.success(
+                DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery(),
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            Result.failure(error)
+            kotlin.Result.failure(error)
         }
         val deviceScopeDecision = evaluateEncryptedOlmDeviceScope(
             scheduledSenderDeviceId = senderDeviceId,
