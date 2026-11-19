@@ -136,10 +136,19 @@ both sides, exchanges identity MACs, and checks that each local trust store
 records the expected peer account/device/Ed25519 key only after completion.
 Additional cases reject a CANCEL from a different account/device without
 acknowledging it and reject a directory whose authenticated account differs
-from the local identity. Starting, polling, and confirming also re-check that
-the authenticated account still matches the coordinator's local account. The
-relay is test-only; production SAS messages still
-use the existing Firebase Realtime Database transport and replay ledger.
+from the local identity. Starting, polling, and confirming re-check that the authenticated account
+still matches the coordinator's local account. The Firebase SAS transport is
+also bound to that original UID: inbox reads use a fixed account path and
+re-check authentication after the asynchronous read, while uploads and
+acknowledgements fail closed after an account switch. The relay used by the
+coordinator test is test-only; production SAS messages still use the existing
+Firebase Realtime Database transport and replay ledger.
+
+A transient local trusted-device storage failure leaves the SAS MAC delivery
+unprocessed. The coordinator now retries completion when the durable receiver
+redelivers the same MAC, allowing the trust write to succeed without requiring
+a new SAS attempt. An instrumentation case simulates a fail-once trust store and
+verifies retry, completion, and relay acknowledgement.
 
 This is coordinator-level protocol coverage, not yet a two-physical-device
 Firebase emulator or real-network recovery test. The SAS screen and protocol
