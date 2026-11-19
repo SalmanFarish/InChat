@@ -43,6 +43,59 @@ class FirebaseOlmInboxReceiverTest {
     }
 
     @Test
+    fun failedAcknowledgementWriteKeepsInboxCopyUntilRetrySucceeds() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-ack-write-retry-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "e".repeat(64), "alice", "sender-device", "message-ack-write", envelope(1),
+            )
+            val transport = FakeTransport(
+                items = mutableListOf(item),
+                failFirstAcknowledgement = true,
+            )
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val receiver = FirebaseOlmInboxReceiver(
+                transport,
+                ledger,
+                "receiver-device",
+                clock = { 250L },
+            )
+
+            try {
+                receiver.receivePending()
+                throw AssertionError("Expected the first acknowledgement write to fail")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("acknowledgement write"))
+            }
+
+            assertEquals(1, transport.items.size)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgementAttempts)
+            assertTrue(transport.acknowledgedDeliveryIds.isEmpty())
+            assertTrue(transport.removedDeliveryIds.isEmpty())
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", item.messageId, item.envelope, 251L),
+            )
+
+            val retry = receiver.receivePending()
+
+            assertEquals(1, retry.alreadyPending)
+            assertEquals(0, retry.stored)
+            assertEquals(listOf(item.deliveryId, item.deliveryId), transport.acknowledgementAttempts)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(listOf(item.deliveryId), transport.removedDeliveryIds)
+            assertTrue(transport.items.isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun conflictingCiphertextIsNotAcknowledged() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbox-conflict-receiver-test.db"
@@ -140,12 +193,20 @@ class FirebaseOlmInboxReceiverTest {
     private class FakeTransport(
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,
+        private var failFirstAcknowledgement: Boolean = false,
     ) : OlmInboxTransport {
+        val acknowledgementAttempts = mutableListOf<String>()
         val acknowledgedDeliveryIds = mutableListOf<String>()
+        val removedDeliveryIds = mutableListOf<String>()
 
         override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> = items.toList()
 
         override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) {
+            acknowledgementAttempts += item.deliveryId
+            if (failFirstAcknowledgement) {
+                failFirstAcknowledgement = false
+                throw IllegalStateException("temporary acknowledgement write failure")
+            }
             if (item.deliveryId !in acknowledgedDeliveryIds) {
                 acknowledgedDeliveryIds += item.deliveryId
             }
@@ -156,6 +217,7 @@ class FirebaseOlmInboxReceiverTest {
                 failFirstRemoval = false
                 throw IllegalStateException("temporary acknowledgement failure")
             }
+            removedDeliveryIds += deliveryId
             items.removeAll { it.deliveryId == deliveryId }
         }
     }
