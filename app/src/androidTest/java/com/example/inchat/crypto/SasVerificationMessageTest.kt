@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.LocalChatDatabase
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +19,32 @@ class SasVerificationMessageTest {
         )
         assertEquals(original, decoded)
         assertEquals(original.deliveryId, decoded.deliveryId)
+    }
+
+    @Test
+    fun activeAttemptAcceptsCancelOnlyFromTheExactPeerAccountAndDevice() {
+        val original = message().copy(type = SasVerificationMessageType.CANCEL, payload = "")
+        assertTrue(
+            sasVerificationMessageMatchesPeer(
+                original,
+                peerUserId = "alice-user",
+                peerDeviceId = "alice-device",
+            ),
+        )
+        assertFalse(
+            sasVerificationMessageMatchesPeer(
+                original.copy(senderUserId = "mallory-user"),
+                peerUserId = "alice-user",
+                peerDeviceId = "alice-device",
+            ),
+        )
+        assertFalse(
+            sasVerificationMessageMatchesPeer(
+                original.copy(senderDeviceId = "attacker-device"),
+                peerUserId = "alice-user",
+                peerDeviceId = "alice-device",
+            ),
+        )
     }
 
     @Test
