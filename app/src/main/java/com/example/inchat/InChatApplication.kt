@@ -101,7 +101,7 @@ class InChatApplication : Application() {
                     // This lookup never creates a device ID or native identity.
                     // A failed read keeps the current account's existing schedule;
                     // an account change still retires the previous account's work.
-                    val identityLookup = try {
+                    val identityLookup: Result<String?> = try {
                         Result.success(DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery())
                     } catch (cancelled: CancellationException) {
                         throw cancelled
