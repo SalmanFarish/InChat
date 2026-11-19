@@ -47,12 +47,15 @@ class EncryptedOlmDeliveryWorker(
         val auth = FirebaseAuth.getInstance()
         val authenticatedUserId = auth.currentUser?.uid
         if (authenticatedUserId == null) {
-            // Firebase Auth can still be restoring its persisted session.
-            return Result.retry()
+            // Do not keep retrying while Firebase restores a signed-out or starting session.
+            // The Application auth listener schedules fresh work once a user is available.
+            cancel(applicationContext, ownerUserId, senderDeviceId)
+            return Result.success()
         }
         if (authenticatedUserId != ownerUserId) {
-            // A stale job from another account must never inspect or upload its rows.
+            // A stale account's immediate and periodic jobs must retire themselves.
             Log.i(TAG, "Skipping encrypted delivery after the signed-in account changed.")
+            cancel(applicationContext, ownerUserId, senderDeviceId)
             return Result.success()
         }
 

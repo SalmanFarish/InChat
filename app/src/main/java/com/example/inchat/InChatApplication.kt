@@ -83,14 +83,14 @@ class InChatApplication : Application() {
             val ownerUserId = firebaseAuth.currentUser?.uid
             val generation = synchronized(encryptedDeliveryWorkLock) {
                 encryptedDeliveryAuthGeneration += 1
+                if (ownerUserId == null) {
+                    cancelRememberedEncryptedDeliveryWork()
+                    EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                }
                 encryptedDeliveryAuthGeneration
             }
 
             if (ownerUserId == null) {
-                synchronized(encryptedDeliveryWorkLock) {
-                    cancelRememberedEncryptedDeliveryWork()
-                    EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
-                }
                 return@addAuthStateListener
             }
 
