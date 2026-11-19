@@ -83,13 +83,18 @@ interface OlmDeliveryQueueDao {
         "UPDATE olm_device_deliveries SET status = :status, nextAttemptAtMillis = :nextAttemptAtMillis, " +
             "leaseUntilMillis = :leaseUntilMillis, lastError = :lastError " +
             "WHERE deliveryId = :deliveryId AND messageId = :messageId " +
-            "AND ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId AND status = 'IN_FLIGHT'"
+            "AND ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId AND status = 'IN_FLIGHT' " +
+            "AND attemptCount = :expectedAttemptCount AND leaseUntilMillis = :expectedLeaseUntilMillis " +
+            "AND leaseUntilMillis > :nowMillis"
     )
     fun updateInFlight(
         deliveryId: String,
         messageId: String,
         ownerUserId: String,
         senderDeviceId: String,
+        expectedAttemptCount: Int,
+        expectedLeaseUntilMillis: Long,
+        nowMillis: Long,
         status: String,
         nextAttemptAtMillis: Long,
         leaseUntilMillis: Long,

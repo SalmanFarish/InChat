@@ -125,12 +125,9 @@ class RoomOlmDeliveryQueueStoreTest {
                 assertEquals(1, firstClaim.attemptCount)
                 assertTrue(
                     firstQueue.retry(
-                        deliveryId = firstClaim.deliveryId,
-                        messageId = firstClaim.messageId,
+                        delivery = firstClaim,
                         nowMillis = 10_000L,
                         errorCode = "relay_upload_failed",
-                        ownerUserId = "alice",
-                        senderDeviceId = "sender-device",
                     ),
                 )
                 val queued = firstDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)
@@ -289,38 +286,28 @@ class RoomOlmDeliveryQueueStoreTest {
 
             assertFalse(
                 queue.acknowledge(
-                    claimed.deliveryId,
-                    claimed.messageId,
-                    "mallory",
-                    "sender-device",
+                    claimed.copy(ownerUserId = "mallory"),
+                    10_001L,
                 ),
             )
             assertFalse(
                 queue.acknowledge(
-                    claimed.deliveryId,
-                    claimed.messageId,
-                    "alice",
-                    "other-device",
+                    claimed.copy(senderDeviceId = "other-device"),
+                    10_001L,
                 ),
             )
             assertFalse(
                 queue.retry(
-                    claimed.deliveryId,
-                    claimed.messageId,
+                    claimed.copy(ownerUserId = "mallory"),
                     10_000L,
                     "wrong_account_retry",
-                    "mallory",
-                    "sender-device",
                 ),
             )
             assertFalse(
                 queue.retry(
-                    claimed.deliveryId,
-                    claimed.messageId,
+                    claimed.copy(senderDeviceId = "other-device"),
                     10_000L,
                     "wrong_device_retry",
-                    "alice",
-                    "other-device",
                 ),
             )
 
@@ -333,13 +320,56 @@ class RoomOlmDeliveryQueueStoreTest {
 
             assertTrue(
                 queue.acknowledge(
-                    claimed.deliveryId,
-                    claimed.messageId,
-                    "alice",
-                    "sender-device",
+                    claimed,
+                    10_001L,
                 ),
             )
             assertNull(queue.claimNext("alice", "sender-device", 20_000L))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun staleWorkerCannotChangeOrAcknowledgeAReclaimedRoomLease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-stale-lease-fence-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()),
+                leaseDurationMillis = 100L,
+            )
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                "stale-room-lease",
+                listOf(prepared("device-phone")),
+            )
+            val staleClaim = queue.claimNext("alice", "sender-device", 1_000L)!!
+            val currentClaim = queue.claimNext("alice", "sender-device", 1_100L)!!
+            assertEquals(1, staleClaim.attemptCount)
+            assertEquals(2, currentClaim.attemptCount)
+
+            // The old worker supplies a pre-expiry clock value. The DB generation
+            // check, not just local lease-time validation, must reject its writes.
+            assertFalse(queue.retry(staleClaim, 1_050L, "stale_worker_failure"))
+            assertFalse(queue.acknowledge(staleClaim, 1_050L))
+
+            val persisted = db.olmDeliveryQueueDao().getByDeliveryId(currentClaim.deliveryId)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, persisted?.status)
+            assertEquals(2, persisted?.attemptCount)
+            assertEquals(currentClaim.leaseUntilMillis, persisted?.leaseUntilMillis)
+            assertNull(persisted?.lastError)
+
+            assertTrue(queue.retry(currentClaim, 1_100L, "current_worker_failure"))
+            val retried = db.olmDeliveryQueueDao().getByDeliveryId(currentClaim.deliveryId)
+            assertEquals(OlmDeliveryStatus.QUEUED.name, retried?.status)
+            assertEquals("current_worker_failure", retried?.lastError)
+            assertEquals(5_100L, retried?.nextAttemptAtMillis)
         } finally {
             db.close()
             context.deleteDatabase(name)

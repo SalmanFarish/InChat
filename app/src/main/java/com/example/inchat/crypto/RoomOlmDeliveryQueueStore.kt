@@ -65,10 +65,20 @@ internal class RoomOlmDeliveryQueueStore(
         messageId: String,
         ownerUserId: String,
         senderDeviceId: String,
+        expectedAttemptCount: Int,
+        expectedLeaseUntilMillis: Long,
+        nowMillis: Long,
         update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
     ): Boolean = database.runInTransaction(Callable {
         val current = dao.getByDeliveryId(deliveryId) ?: return@Callable false
-        if (current.messageId != messageId || current.status != OlmDeliveryStatus.IN_FLIGHT.name) {
+        if (current.messageId != messageId ||
+            current.ownerUserId != ownerUserId ||
+            current.senderDeviceId != senderDeviceId ||
+            current.status != OlmDeliveryStatus.IN_FLIGHT.name ||
+            current.attemptCount != expectedAttemptCount ||
+            current.leaseUntilMillis != expectedLeaseUntilMillis ||
+            current.leaseUntilMillis <= nowMillis
+        ) {
             return@Callable false
         }
         val changed = update(current.toDelivery())
@@ -80,6 +90,9 @@ internal class RoomOlmDeliveryQueueStore(
             messageId = messageId,
             ownerUserId = ownerUserId,
             senderDeviceId = senderDeviceId,
+            expectedAttemptCount = expectedAttemptCount,
+            expectedLeaseUntilMillis = expectedLeaseUntilMillis,
+            nowMillis = nowMillis,
             status = changed.status.name,
             nextAttemptAtMillis = changed.nextAttemptAtMillis,
             leaseUntilMillis = changed.leaseUntilMillis,

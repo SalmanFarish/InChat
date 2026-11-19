@@ -767,11 +767,17 @@ class OlmDeliveryWorkerRunnerTest {
             messageId: String,
             ownerUserId: String,
             senderDeviceId: String,
+            expectedAttemptCount: Int,
+            expectedLeaseUntilMillis: Long,
+            nowMillis: Long,
             update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
         ): Boolean {
             val row = rows[deliveryId] ?: return false
             if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
-                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT ||
+                row.attemptCount != expectedAttemptCount ||
+                row.leaseUntilMillis != expectedLeaseUntilMillis ||
+                row.leaseUntilMillis <= nowMillis
             ) return false
             rows[deliveryId] = update(row)
             return true

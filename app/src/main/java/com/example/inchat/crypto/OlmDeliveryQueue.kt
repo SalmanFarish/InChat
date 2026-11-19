@@ -69,6 +69,9 @@ internal interface OlmDeliveryQueueStore {
         messageId: String,
         ownerUserId: String,
         senderDeviceId: String,
+        expectedAttemptCount: Int,
+        expectedLeaseUntilMillis: Long,
+        nowMillis: Long,
         update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
     ): Boolean
 }
@@ -155,9 +158,9 @@ internal class OlmDeliveryQueue(
         return store.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
     }
 
-    /** Mark a delivery acknowledged; duplicate acknowledgements are harmless. */
-    fun acknowledge(deliveryId: String, messageId: String, ownerUserId: String, senderDeviceId: String): Boolean =
-        store.updateInFlight(deliveryId, messageId, ownerUserId, senderDeviceId) { row ->
+    /** Mark only the still-active claim acknowledged; duplicate or stale claims are harmless. */
+    fun acknowledge(delivery: QueuedOlmDeviceDelivery, nowMillis: Long): Boolean =
+        updateInFlight(delivery, nowMillis) { row ->
             row.copy(
                 status = OlmDeliveryStatus.ACKNOWLEDGED,
                 leaseUntilMillis = 0,
@@ -170,18 +173,15 @@ internal class OlmDeliveryQueue(
      * Once maxAttempts is reached the row becomes terminal FAILED.
      */
     fun retry(
-        deliveryId: String,
-        messageId: String,
+        delivery: QueuedOlmDeviceDelivery,
         nowMillis: Long,
         errorCode: String,
-        ownerUserId: String,
-        senderDeviceId: String,
     ): Boolean {
         require(nowMillis >= 0) { "nowMillis must not be negative" }
         require(errorCode.isNotBlank() && errorCode.length <= MAX_ERROR_LENGTH) {
             "Error code has an invalid format"
         }
-        return store.updateInFlight(deliveryId, messageId, ownerUserId, senderDeviceId) { row ->
+        return updateInFlight(delivery, nowMillis) { row ->
             if (row.attemptCount >= maxAttempts) {
                 row.copy(
                     status = OlmDeliveryStatus.FAILED,
@@ -199,6 +199,33 @@ internal class OlmDeliveryQueue(
                 )
             }
         }
+    }
+
+    /**
+     * Fence state transitions with the claim generation. A late worker cannot
+     * mutate a lease reclaimed by another worker, even if its clock moves back.
+     */
+    private fun updateInFlight(
+        delivery: QueuedOlmDeviceDelivery,
+        nowMillis: Long,
+        update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
+    ): Boolean {
+        if (delivery.status != OlmDeliveryStatus.IN_FLIGHT ||
+            delivery.attemptCount <= 0 ||
+            delivery.leaseUntilMillis <= nowMillis
+        ) return false
+        val ownerUserId = delivery.ownerUserId ?: return false
+        val senderDeviceId = delivery.senderDeviceId ?: return false
+        return store.updateInFlight(
+            deliveryId = delivery.deliveryId,
+            messageId = delivery.messageId,
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            expectedAttemptCount = delivery.attemptCount,
+            expectedLeaseUntilMillis = delivery.leaseUntilMillis,
+            nowMillis = nowMillis,
+            update = update,
+        )
     }
 
     private fun deliveryId(ownerUserId: String, senderDeviceId: String, messageId: String, userId: String, deviceId: String): String {

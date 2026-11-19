@@ -64,12 +64,9 @@ internal class OlmDeliveryWorkerRunner(
                 // ciphertext but the client did not receive the write completion.
                 withContext(ioDispatcher) {
                     queue.retry(
-                        deliveryId = delivery.deliveryId,
-                        messageId = delivery.messageId,
+                        delivery = delivery,
                         nowMillis = clock().coerceAtLeast(0L),
                         errorCode = RELAY_UPLOAD_ERROR,
-                        ownerUserId = senderUserId,
-                        senderDeviceId = senderDeviceId,
                     )
                 }
                 return OlmDeliveryWorkerRunResult(

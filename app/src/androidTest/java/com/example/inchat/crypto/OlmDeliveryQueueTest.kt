@@ -45,8 +45,8 @@ class OlmDeliveryQueueTest {
         val claimed = queue.claimNext("alice", "sender-device", 10_000)!!
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, claimed.status)
         assertEquals(1, claimed.attemptCount)
-        assertTrue(queue.acknowledge(claimed.deliveryId, claimed.messageId, "alice", "sender-device"))
-        assertFalse(queue.acknowledge(claimed.deliveryId, claimed.messageId, "alice", "sender-device"))
+        assertTrue(queue.acknowledge(claimed, 10_001L))
+        assertFalse(queue.acknowledge(claimed, 10_001L))
         assertNull(queue.claimNext("alice", "sender-device", 20_000))
     }
 
@@ -87,11 +87,11 @@ class OlmDeliveryQueueTest {
         queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
 
         val first = queue.claimNext("alice", "sender-device", 10_000)!!
-        assertTrue(queue.retry(first.deliveryId, first.messageId, 10_000, "network", "alice", "sender-device"))
+        assertTrue(queue.retry(first, 10_000, "network"))
         assertNull(queue.claimNext("alice", "sender-device", 11_999))
         val second = queue.claimNext("alice", "sender-device", 12_000)!!
         assertEquals(2, second.attemptCount)
-        assertTrue(queue.retry(second.deliveryId, second.messageId, 12_000, "network", "alice", "sender-device"))
+        assertTrue(queue.retry(second, 12_000, "network"))
 
         assertEquals(OlmDeliveryStatus.FAILED, store.rows.getValue(first.deliveryId).status)
         assertNull(queue.claimNext("alice", "sender-device", Long.MAX_VALUE))
@@ -111,12 +111,38 @@ class OlmDeliveryQueueTest {
     }
 
     @Test
+    fun expiredClaimCannotChangeAReclaimedAttempt() {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
+        queue.enqueue("alice", "sender-device", "stale-lease", listOf(prepared("phone")))
+
+        val staleClaim = queue.claimNext("alice", "sender-device", 1_000L)!!
+        val activeClaim = queue.claimNext("alice", "sender-device", 1_100L)!!
+        assertEquals(1, staleClaim.attemptCount)
+        assertEquals(2, activeClaim.attemptCount)
+
+        // Simulate a stale worker whose clock moved backwards after the newer
+        // worker acquired the row. The persisted attempt generation must fence it.
+        assertFalse(queue.retry(staleClaim, 1_050L, "stale_worker_failure"))
+        assertFalse(queue.acknowledge(staleClaim, 1_050L))
+
+        val unchanged = store.rows.getValue(activeClaim.deliveryId)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, unchanged.status)
+        assertEquals(2, unchanged.attemptCount)
+        assertEquals(activeClaim.leaseUntilMillis, unchanged.leaseUntilMillis)
+        assertNull(unchanged.lastError)
+
+        assertTrue(queue.retry(activeClaim, 1_100L, "current_worker_failure"))
+        assertEquals(OlmDeliveryStatus.QUEUED, store.rows.getValue(activeClaim.deliveryId).status)
+    }
+
+    @Test
     fun rejectsAckForWrongMessageId() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
         queue.enqueue("alice", "sender-device", "message-1", listOf(prepared("phone")))
         val claimed = queue.claimNext("alice", "sender-device", 1_000)!!
-        assertFalse(queue.acknowledge(claimed.deliveryId, "different-message", "alice", "sender-device"))
+        assertFalse(queue.acknowledge(claimed.copy(messageId = "different-message"), 1_001L))
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(claimed.deliveryId).status)
     }
 
@@ -182,11 +208,17 @@ class OlmDeliveryQueueTest {
             messageId: String,
             ownerUserId: String,
             senderDeviceId: String,
+            expectedAttemptCount: Int,
+            expectedLeaseUntilMillis: Long,
+            nowMillis: Long,
             update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
         ): Boolean {
             val row = rows[deliveryId] ?: return false
             if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
-                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.IN_FLIGHT ||
+                row.attemptCount != expectedAttemptCount ||
+                row.leaseUntilMillis != expectedLeaseUntilMillis ||
+                row.leaseUntilMillis <= nowMillis
             ) return false
             rows[deliveryId] = update(row)
             return true
