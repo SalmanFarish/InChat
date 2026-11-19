@@ -321,7 +321,19 @@ internal class SasVerificationCoordinator(
                     ))
             }
             SasVerificationMessageType.SAS_MAC -> {
-                if (previous != null) return@withLock
+                if (previous != null) {
+                    // The delivery may be retried after the peer MAC was verified
+                    // but the local trust-store write failed. Re-run completion
+                    // while the attempt remains active instead of dropping the
+                    // duplicate and leaving its durable inbox row unprocessed.
+                    if (attempt.localConfirmed) {
+                        if (attempt.pendingPeerMac != null) {
+                            verifyPeerMac(attempt, message.payload)
+                        }
+                        updateCompletion(attempt)
+                    }
+                    return@withLock
+                }
                 attempt.received[message.type] = message.payload
                 if (attempt.localConfirmed) {
                     verifyPeerMac(attempt, message.payload)
