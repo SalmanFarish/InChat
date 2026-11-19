@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDeliveryWorkerRunner
@@ -101,7 +102,9 @@ class EncryptedOlmDeliveryWorker(
             val queue = OlmDeliveryQueue(
                 RoomOlmDeliveryQueueStore(database, database.olmDeliveryQueueDao()),
             )
-            val transport = FirebaseOlmEnvelopeTransport()
+            val transport = FirebaseOlmEnvelopeTransport(
+                trustVerifier = TrustedDeviceRepository(applicationContext),
+            )
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
                 transport = transport,
