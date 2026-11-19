@@ -30,6 +30,7 @@ internal class OlmInboundHandoffCoordinator(
     private val receiptDao: OlmInboundReceiptDao,
     private val sessionRepository: OlmSessionRepository,
     private val authenticatedLocalUserId: () -> String,
+    private val trustVerifier: OlmDeviceTrustVerifier,
     messageDao: LocalChatDao,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -79,6 +80,18 @@ internal class OlmInboundHandoffCoordinator(
             }
             check(receipt.status == OlmInboundReceiptStatus.PENDING.name) {
                 "Inbound receipt has an unsupported status"
+            }
+            // Do not advance an Olm receive ratchet, consume a one-time prekey,
+            // or stage plaintext for a directory identity that has not been
+            // explicitly SAS-verified on this installation.
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = remoteDeviceUserId,
+                    peerDeviceId = remoteDevice.deviceId,
+                    peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                )
+            ) {
+                "Remote device has not been verified on this installation"
             }
 
             val envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
