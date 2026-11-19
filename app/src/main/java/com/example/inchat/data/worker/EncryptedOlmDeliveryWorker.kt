@@ -59,7 +59,7 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
         }
 
-        val identityLookup = try {
+        val identityLookup: Result<String?> = try {
             Result.success(DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery())
         } catch (cancelled: CancellationException) {
             throw cancelled
