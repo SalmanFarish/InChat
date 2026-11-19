@@ -249,6 +249,61 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
+    fun duplicateEnqueueCannotResurrectTerminalFailedDelivery() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-terminal-duplicate-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(db, dao),
+                maxAttempts = 1,
+            )
+            val original = prepared("device-phone")
+            assertEquals(
+                1,
+                queue.enqueue("alice", "sender-device", "terminal-message", listOf(original)),
+            )
+            val claim = queue.claimNext("alice", "sender-device", 10_000L)!!
+            assertTrue(queue.retry(claim, 10_000L, "permanent_relay_failure"))
+
+            val failed = dao.getByDeliveryId(claim.deliveryId)!!
+            assertEquals(OlmDeliveryStatus.FAILED.name, failed.status)
+            assertEquals(1, failed.attemptCount)
+            assertEquals("permanent_relay_failure", failed.lastError)
+
+            val regenerated = original.copy(
+                envelope = JSONObject(original.envelope)
+                    .put(
+                        "ciphertext",
+                        Base64.encodeToString(
+                            byteArrayOf(6, 5, 4),
+                            Base64.URL_SAFE or Base64.NO_WRAP,
+                        ),
+                    )
+                    .toString(),
+            )
+            assertEquals(
+                0,
+                queue.enqueue("alice", "sender-device", "terminal-message", listOf(regenerated)),
+            )
+
+            val stillFailed = dao.getByDeliveryId(claim.deliveryId)!!
+            assertEquals(original.envelope, stillFailed.envelope)
+            assertEquals(OlmDeliveryStatus.FAILED.name, stillFailed.status)
+            assertEquals(1, stillFailed.attemptCount)
+            assertEquals("permanent_relay_failure", stillFailed.lastError)
+            assertNull(queue.claimNext("alice", "sender-device", Long.MAX_VALUE))
+            assertEquals(stillFailed, dao.getByDeliveryId(claim.deliveryId))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun acknowledgementDeletesOnlyTheExactQueuedDelivery() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-acknowledgement-test.db"
