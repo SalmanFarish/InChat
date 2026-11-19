@@ -22,18 +22,37 @@ internal interface SasVerificationTransport {
  * It never touches chats, Olm inboxes, or normal message delivery.
  */
 internal class FirebaseSasVerificationTransport(
+    private val localUserId: String,
     private val localDeviceId: String,
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : SasVerificationTransport {
     init {
+        require(USER_PATTERN.matches(localUserId)) { "Local user ID has an invalid format" }
         require(DEVICE_PATTERN.matches(localDeviceId)) { "Local device ID has an invalid format" }
     }
 
+    /**
+     * A transport instance belongs to the account that created its coordinator.
+     * Never derive the inbox owner dynamically from FirebaseAuth: an account switch
+     * must fail closed rather than redirect a stale coordinator to another inbox.
+     */
+    private fun requireAuthenticatedLocalUser(): String {
+        val uid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before using the verification transport"
+        }
+        require(uid == localUserId) {
+            "The signed-in account does not match this verification transport"
+        }
+        return uid
+    }
+
     override suspend fun upload(message: SasVerificationMessage) {
-        val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before sending a verification message" }
-        require(uid == message.senderUserId) { "SAS sender must be the authenticated account" }
+        val uid = requireAuthenticatedLocalUser()
+        require(message.senderUserId == localUserId) {
+            "SAS sender must be this verification transport's account"
+        }
         require(message.senderDeviceId == localDeviceId) {
             "SAS sender device must be this installation"
         }
@@ -55,19 +74,22 @@ internal class FirebaseSasVerificationTransport(
     }
 
     override suspend fun readInbox(deviceId: String): List<SasVerificationInboxItem> {
-        val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before reading verification messages" }
+        requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "SAS inbox must be read for this installation" }
         val now = clock().coerceAtLeast(0L)
-        return database.reference.child(INBOX_NODE).child(uid).child(deviceId).get().await()
-            .children.mapNotNull { parse(it, uid, deviceId, now) }
+        val snapshot = database.reference.child(INBOX_NODE).child(localUserId).child(deviceId).get().await()
+        // Auth can change while the database read is in flight. Do not return
+        // messages to a coordinator after its owning account has signed out.
+        requireAuthenticatedLocalUser()
+        return snapshot.children.mapNotNull { parse(it, localUserId, deviceId, now) }
             .sortedBy { it.message.createdAtMillis }
     }
 
     override suspend fun acknowledge(deviceId: String, deliveryId: String) {
-        val uid = requireNotNull(auth.currentUser?.uid) { "Sign in before acknowledging verification messages" }
+        requireAuthenticatedLocalUser()
         require(deviceId == localDeviceId) { "Only this installation can acknowledge its SAS inbox" }
         require(DELIVERY_PATTERN.matches(deliveryId))
-        database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
+        database.reference.child(INBOX_NODE).child(localUserId).child(deviceId).child(deliveryId)
             .removeValue().await()
     }
 
@@ -104,6 +126,7 @@ internal class FirebaseSasVerificationTransport(
 
     private companion object {
         const val INBOX_NODE = "sasVerificationInbox"
+        val USER_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val DELIVERY_PATTERN = Regex("[A-Fa-f0-9]{64}")
     }
