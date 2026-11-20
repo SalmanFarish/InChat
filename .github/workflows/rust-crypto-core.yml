@@ -28,7 +28,7 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --manifest-path rust/inchat-crypto-core/Cargo.toml -- --check
+        run: rustfmt --check --edition 2021 rust/inchat-crypto-core/src/megolm.rs
 
       - name: Run tests
         run: cargo test --manifest-path rust/inchat-crypto-core/Cargo.toml
