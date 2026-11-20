@@ -14,6 +14,135 @@ internal data class FirebaseOlmInboxItem(
     val envelope: String,
 )
 
+internal data class FirebaseOlmRelayRecord(
+    val deliveryId: String?,
+    val fields: Map<String, Any?>,
+)
+
+/**
+ * Narrow relay boundary shared by the Firebase adapter and deterministic
+ * failure-injection tests. Values are routing metadata or ciphertext only.
+ */
+internal interface OlmRelayStore {
+    suspend fun putInbox(
+        recipientUid: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    )
+
+    suspend fun readInbox(recipientUid: String, recipientDeviceId: String): List<FirebaseOlmRelayRecord>
+
+    suspend fun removeInbox(recipientUid: String, recipientDeviceId: String, deliveryId: String)
+
+    suspend fun putAcknowledgement(
+        senderUid: String,
+        senderDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    )
+
+    suspend fun readAcknowledgements(senderUid: String, senderDeviceId: String): List<FirebaseOlmRelayRecord>
+
+    suspend fun removeAcknowledgement(senderUid: String, senderDeviceId: String, deliveryId: String)
+}
+
+/** Production relay adapter. All paths remain below olmInbox/olmDeliveryAcks. */
+internal class FirebaseOlmRelayStore(
+    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
+) : OlmRelayStore {
+    override suspend fun putInbox(
+        recipientUid: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    ) {
+        database.reference.child(INBOX_NODE)
+            .child(recipientUid)
+            .child(recipientDeviceId)
+            .child(deliveryId)
+            .setValue(fields)
+            .await()
+    }
+
+    override suspend fun readInbox(
+        recipientUid: String,
+        recipientDeviceId: String,
+    ): List<FirebaseOlmRelayRecord> =
+        database.reference.child(INBOX_NODE)
+            .child(recipientUid)
+            .child(recipientDeviceId)
+            .get()
+            .await()
+            .children
+            .map(::toRelayRecord)
+
+    override suspend fun removeInbox(
+        recipientUid: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+    ) {
+        database.reference.child(INBOX_NODE)
+            .child(recipientUid)
+            .child(recipientDeviceId)
+            .child(deliveryId)
+            .removeValue()
+            .await()
+    }
+
+    override suspend fun putAcknowledgement(
+        senderUid: String,
+        senderDeviceId: String,
+        deliveryId: String,
+        fields: Map<String, Any?>,
+    ) {
+        database.reference.child(ACK_NODE)
+            .child(senderUid)
+            .child(senderDeviceId)
+            .child(deliveryId)
+            .setValue(fields)
+            .await()
+    }
+
+    override suspend fun readAcknowledgements(
+        senderUid: String,
+        senderDeviceId: String,
+    ): List<FirebaseOlmRelayRecord> =
+        database.reference.child(ACK_NODE)
+            .child(senderUid)
+            .child(senderDeviceId)
+            .get()
+            .await()
+            .children
+            .map(::toRelayRecord)
+
+    override suspend fun removeAcknowledgement(
+        senderUid: String,
+        senderDeviceId: String,
+        deliveryId: String,
+    ) {
+        database.reference.child(ACK_NODE)
+            .child(senderUid)
+            .child(senderDeviceId)
+            .child(deliveryId)
+            .removeValue()
+            .await()
+    }
+
+    private fun toRelayRecord(snapshot: DataSnapshot): FirebaseOlmRelayRecord {
+        val raw = snapshot.value as? Map<*, *> ?: emptyMap<Any, Any>()
+        val fields = raw.entries.mapNotNull { entry ->
+            (entry.key as? String)?.let { key -> key to entry.value }
+        }.toMap()
+        return FirebaseOlmRelayRecord(snapshot.key, fields)
+    }
+
+    private companion object {
+        const val INBOX_NODE = "olmInbox"
+        const val ACK_NODE = "olmDeliveryAcks"
+    }
+}
+
 internal interface OlmInboxTransport {
     suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem>
     suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem)
@@ -40,26 +169,28 @@ internal enum class FirebaseOlmUploadResult {
 /**
  * Isolated ciphertext-only transport over Firebase Realtime Database.
  *
- * It never reads or writes the existing chats/{chatId}/messages tree. Upload
- * is immutable and recipient/device scoped by database.rules.json. Exact retries
- * are accepted idempotently; changed payloads are rejected. Firebase
- * is an untrusted relay: the receiver must still authenticate the Olm envelope.
+ * Firebase remains an untrusted relay. Database rules enforce recipient/device
+ * ownership and immutable exact retries; the receiver still authenticates the
+ * Olm ciphertext before any plaintext can be committed.
  */
 internal class FirebaseOlmEnvelopeTransport(
     private val trustVerifier: OlmDeviceTrustVerifier,
-    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val relayStore: OlmRelayStore = FirebaseOlmRelayStore(),
+    private val currentAuthenticatedUserId: () -> String? = {
+        FirebaseAuth.getInstance().currentUser?.uid
+    },
+    private val readPublishedDevices: suspend (String) -> List<PublicDeviceKeyBundle> = { uid ->
+        DeviceKeyDirectoryRepository().getUserDevices(uid)
+    },
     private val expectedAuthenticatedUserId: String? = null,
 ) : OlmInboxTransport, OlmOutgoingDeliveryTransport {
-    private val deviceDirectory = DeviceKeyDirectoryRepository(database, auth)
 
     /**
-     * Optionally bind this transport instance to the account that scheduled its
-     * worker. Recheck after every suspending Firebase read and immediately before
-     * remote writes so a stale worker cannot continue under a newly signed-in user.
+     * Bind each worker-created transport to its scheduled account. The callback
+     * seam makes sign-out/account-switch races testable without Firebase Auth.
      */
     private fun requireAuthenticatedUserId(expectedUserId: String? = expectedAuthenticatedUserId): String {
-        val uid = requireNotNull(auth.currentUser?.uid) {
+        val uid = requireNotNull(currentAuthenticatedUserId()) {
             "Sign in before using encrypted delivery transport"
         }
         require(UID_PATTERN.matches(uid)) { "Authenticated user ID has an invalid format" }
@@ -70,11 +201,14 @@ internal class FirebaseOlmEnvelopeTransport(
         }
         return uid
     }
+
     override suspend fun upload(
         delivery: QueuedOlmDeviceDelivery,
         senderDeviceId: String,
     ): FirebaseOlmUploadResult {
-        require(delivery.status == OlmDeliveryStatus.IN_FLIGHT) { "Only a claimed outbox delivery can be uploaded" }
+        require(delivery.status == OlmDeliveryStatus.IN_FLIGHT) {
+            "Only a claimed outbox delivery can be uploaded"
+        }
         val senderUid = requireAuthenticatedUserId()
         require(delivery.ownerUserId == senderUid) {
             "Outbox row does not belong to the authenticated sender account"
@@ -84,16 +218,18 @@ internal class FirebaseOlmEnvelopeTransport(
         }
         require(UID_PATTERN.matches(delivery.recipientUserId)) { "Recipient user ID has an invalid format" }
         require(DEVICE_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
-        require(DEVICE_PATTERN.matches(delivery.recipientDeviceId)) { "Recipient device ID has an invalid format" }
+        require(DEVICE_PATTERN.matches(delivery.recipientDeviceId)) {
+            "Recipient device ID has an invalid format"
+        }
         require(DELIVERY_PATTERN.matches(delivery.deliveryId)) { "Delivery ID has an invalid format" }
         require(MESSAGE_PATTERN.matches(delivery.messageId)) { "Message ID has an invalid format" }
 
-        // Re-read and signature-verify the current public bundle immediately
-        // before relay upload. This prevents a queued copy from being delivered
-        // after its pinned identity has changed or local trust was revoked.
-        val currentRecipientDevice = deviceDirectory.getUserDevices(delivery.recipientUserId)
+        // Fetch the current, signature-verified public bundle and re-check the
+        // active account after the asynchronous directory read.
+        val currentRecipientDevice = readPublishedDevices(delivery.recipientUserId)
             .firstOrNull { it.deviceId == delivery.recipientDeviceId }
             ?: throw IllegalStateException("Recipient device is no longer published")
+        requireAuthenticatedUserId(senderUid)
         check(
             trustVerifier.isVerified(
                 peerUserId = delivery.recipientUserId,
@@ -112,7 +248,6 @@ internal class FirebaseOlmEnvelopeTransport(
             "Envelope recipient device does not match the delivery target"
         }
 
-        val reference = inboxReference(delivery.recipientUserId, delivery.recipientDeviceId, delivery.deliveryId)
         val payload = mapOf(
             "senderUid" to senderUid,
             "senderDeviceId" to senderDeviceId,
@@ -120,27 +255,31 @@ internal class FirebaseOlmEnvelopeTransport(
             "envelope" to delivery.envelope,
         )
         requireAuthenticatedUserId(senderUid)
-        reference.setValue(payload).await()
+        relayStore.putInbox(
+            delivery.recipientUserId,
+            delivery.recipientDeviceId,
+            delivery.deliveryId,
+            payload,
+        )
+        // A lost completion is deliberately surfaced as a retry. The stable
+        // delivery ID and immutable payload make the next write idempotent.
+        requireAuthenticatedUserId(senderUid)
         return FirebaseOlmUploadResult.STORED
     }
 
-    /** One-shot inbox read. A later worker can poll; no live listener is attached here. */
+    /** One-shot inbox read. A later worker poll performs reconnection recovery. */
     override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
         val uid = requireAuthenticatedUserId()
         require(DEVICE_PATTERN.matches(deviceId)) { "Device ID has an invalid format" }
-
-        val snapshot = database.reference.child(INBOX_NODE).child(uid).child(deviceId).get().await()
+        val records = relayStore.readInbox(uid, deviceId)
         requireAuthenticatedUserId(uid)
-        return snapshot.children.mapNotNull { parseInboxItem(it, deviceId) }
+        return records.mapNotNull { parseInboxItem(it, deviceId) }
             .sortedBy { it.deliveryId }
     }
 
     /**
-     * Tell the originating device that this recipient device has durably
-     * registered the ciphertext in its local Room receipt ledger.
-     *
-     * The acknowledgement is written before removing the relay copy. If either
-     * operation is interrupted, the receiver can safely repeat both operations.
+     * Publish the recipient acknowledgement only after the ciphertext receipt
+     * has been stored in Room. The inbox item is deleted by a separate call.
      */
     override suspend fun acknowledgeStoredDelivery(
         deviceId: String,
@@ -160,70 +299,74 @@ internal class FirebaseOlmEnvelopeTransport(
             "acknowledgedAt" to ServerValue.TIMESTAMP,
         )
         requireAuthenticatedUserId(recipientUid)
-        database.reference.child(ACK_NODE)
-            .child(item.senderUid)
-            .child(item.senderDeviceId)
-            .child(item.deliveryId)
-            .setValue(acknowledgement)
-            .await()
+        relayStore.putAcknowledgement(
+            item.senderUid,
+            item.senderDeviceId,
+            item.deliveryId,
+            acknowledgement,
+        )
         requireAuthenticatedUserId(recipientUid)
     }
 
-    /** Delete only a delivery in the currently authenticated user's own device inbox. */
+    /** Delete only a delivery in the currently authenticated user's own inbox. */
     override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
         val uid = requireAuthenticatedUserId()
         require(DEVICE_PATTERN.matches(deviceId))
         require(DELIVERY_PATTERN.matches(deliveryId))
         requireAuthenticatedUserId(uid)
-        database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
-            .removeValue().await()
+        relayStore.removeInbox(uid, deviceId, deliveryId)
         requireAuthenticatedUserId(uid)
     }
 
-    /**
-     * Read only acknowledgements under the authenticated sender user/device path.
-     * Invalid or incomplete records are ignored rather than used for queue mutation.
-     */
+    /** Read only acknowledgements under the authenticated sender account/device. */
     override suspend fun readMyDeliveryAcknowledgements(
         senderDeviceId: String,
     ): List<OlmDeliveryAcknowledgement> {
         val uid = requireAuthenticatedUserId()
-        require(DEVICE_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
-
-        val snapshot = database.reference.child(ACK_NODE).child(uid).child(senderDeviceId).get().await()
+        require(DEVICE_PATTERN.matches(senderDeviceId)) {
+            "Sender device ID has an invalid format"
+        }
+        val records = relayStore.readAcknowledgements(uid, senderDeviceId)
         requireAuthenticatedUserId(uid)
-        return snapshot.children.mapNotNull { parseAcknowledgement(it, uid, senderDeviceId) }
+        return records.mapNotNull { parseAcknowledgement(it, uid, senderDeviceId) }
             .sortedBy { it.deliveryId }
     }
 
-    /** Delete only an acknowledgement in the authenticated user's own sender-device path. */
+    /** Delete only an acknowledgement in the authenticated sender's own path. */
     override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
         val uid = requireAuthenticatedUserId()
         require(DEVICE_PATTERN.matches(senderDeviceId))
         require(DELIVERY_PATTERN.matches(deliveryId))
         requireAuthenticatedUserId(uid)
-        database.reference.child(ACK_NODE).child(uid).child(senderDeviceId).child(deliveryId)
-            .removeValue().await()
+        relayStore.removeAcknowledgement(uid, senderDeviceId, deliveryId)
         requireAuthenticatedUserId(uid)
     }
 
-    private fun parseAcknowledgement(snapshot: DataSnapshot, senderUserId: String, senderDeviceId: String): OlmDeliveryAcknowledgement? {
-        val deliveryId = snapshot.key ?: return null
-        val recipientUid = snapshot.child("recipientUid").getValue(String::class.java) ?: return null
-        val recipientDeviceId = snapshot.child("recipientDeviceId").getValue(String::class.java) ?: return null
-        val messageId = snapshot.child("messageId").getValue(String::class.java) ?: return null
-        val acknowledgedAt = snapshot.child("acknowledgedAt").value as? Number ?: return null
+    private fun parseAcknowledgement(
+        record: FirebaseOlmRelayRecord,
+        senderUserId: String,
+        senderDeviceId: String,
+    ): OlmDeliveryAcknowledgement? = runCatching {
+        val deliveryId = requireNotNull(record.deliveryId)
+        val fields = record.fields
+        require(fields.keys == ACK_FIELDS) {
+            "Encrypted delivery acknowledgement has missing or unexpected fields"
+        }
+        val recipientUid = fields["recipientUid"] as? String
+            ?: error("Acknowledgement recipient account is invalid")
+        val recipientDeviceId = fields["recipientDeviceId"] as? String
+            ?: error("Acknowledgement recipient device is invalid")
+        val messageId = fields["messageId"] as? String
+            ?: error("Acknowledgement message ID is invalid")
+        val acknowledgedAt = fields["acknowledgedAt"] as? Number
+            ?: error("Acknowledgement timestamp is invalid")
         val timestamp = acknowledgedAt.toDouble()
-        if (!DELIVERY_PATTERN.matches(deliveryId) ||
-            !UID_PATTERN.matches(recipientUid) ||
-            !DEVICE_PATTERN.matches(recipientDeviceId) ||
-            !MESSAGE_PATTERN.matches(messageId) ||
-            !timestamp.isFinite() ||
-            timestamp <= 0.0 ||
-            timestamp % 1.0 != 0.0
-        ) return null
-
-        return OlmDeliveryAcknowledgement(
+        require(DELIVERY_PATTERN.matches(deliveryId))
+        require(UID_PATTERN.matches(recipientUid))
+        require(DEVICE_PATTERN.matches(recipientDeviceId))
+        require(MESSAGE_PATTERN.matches(messageId))
+        require(timestamp.isFinite() && timestamp > 0.0 && timestamp % 1.0 == 0.0)
+        OlmDeliveryAcknowledgement(
             deliveryId = deliveryId,
             recipientUserId = recipientUid,
             recipientDeviceId = recipientDeviceId,
@@ -231,46 +374,38 @@ internal class FirebaseOlmEnvelopeTransport(
             senderUserId = senderUserId,
             senderDeviceId = senderDeviceId,
         )
-    }
+    }.getOrNull()
 
-    private fun inboxReference(uid: String, deviceId: String, deliveryId: String) =
-        database.reference.child(INBOX_NODE).child(uid).child(deviceId).child(deliveryId)
-
-    private fun DataSnapshot.matches(
-        senderUid: String,
-        senderDeviceId: String,
-        messageId: String,
-        envelope: String,
-    ): Boolean =
-        exists() &&
-            child("senderUid").getValue(String::class.java) == senderUid &&
-            child("senderDeviceId").getValue(String::class.java) == senderDeviceId &&
-            child("messageId").getValue(String::class.java) == messageId &&
-            child("envelope").getValue(String::class.java) == envelope
-
-    private fun parseInboxItem(snapshot: DataSnapshot, expectedRecipientDeviceId: String): FirebaseOlmInboxItem? {
-        val deliveryId = snapshot.key ?: return null
-        val senderUid = snapshot.child("senderUid").getValue(String::class.java) ?: return null
-        val senderDeviceId = snapshot.child("senderDeviceId").getValue(String::class.java) ?: return null
-        val messageId = snapshot.child("messageId").getValue(String::class.java) ?: return null
-        val envelope = snapshot.child("envelope").getValue(String::class.java) ?: return null
-        if (!DELIVERY_PATTERN.matches(deliveryId) ||
-            !UID_PATTERN.matches(senderUid) ||
-            !DEVICE_PATTERN.matches(senderDeviceId) ||
-            !MESSAGE_PATTERN.matches(messageId)
-        ) return null
-
-        return runCatching {
-            val decoded = EncryptedOlmEnvelopeCodec.decode(envelope)
-            require(decoded.senderDeviceId == senderDeviceId)
-            require(decoded.recipientDeviceId == expectedRecipientDeviceId)
-            FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope)
-        }.getOrNull()
-    }
+    private fun parseInboxItem(
+        record: FirebaseOlmRelayRecord,
+        expectedRecipientDeviceId: String,
+    ): FirebaseOlmInboxItem? = runCatching {
+        val deliveryId = requireNotNull(record.deliveryId)
+        val fields = record.fields
+        require(fields.keys == INBOX_FIELDS) {
+            "Encrypted inbox item has missing or unexpected fields"
+        }
+        val senderUid = fields["senderUid"] as? String
+            ?: error("Encrypted inbox sender account is invalid")
+        val senderDeviceId = fields["senderDeviceId"] as? String
+            ?: error("Encrypted inbox sender device is invalid")
+        val messageId = fields["messageId"] as? String
+            ?: error("Encrypted inbox message ID is invalid")
+        val envelope = fields["envelope"] as? String
+            ?: error("Encrypted inbox envelope is invalid")
+        require(DELIVERY_PATTERN.matches(deliveryId))
+        require(UID_PATTERN.matches(senderUid))
+        require(DEVICE_PATTERN.matches(senderDeviceId))
+        require(MESSAGE_PATTERN.matches(messageId))
+        val decoded = EncryptedOlmEnvelopeCodec.decode(envelope)
+        require(decoded.senderDeviceId == senderDeviceId)
+        require(decoded.recipientDeviceId == expectedRecipientDeviceId)
+        FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope)
+    }.getOrNull()
 
     private companion object {
-        const val INBOX_NODE = "olmInbox"
-        const val ACK_NODE = "olmDeliveryAcks"
+        val INBOX_FIELDS = setOf("senderUid", "senderDeviceId", "messageId", "envelope")
+        val ACK_FIELDS = setOf("recipientUid", "recipientDeviceId", "messageId", "acknowledgedAt")
         val UID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val DELIVERY_PATTERN = Regex("[A-Fa-f0-9]{64}")
