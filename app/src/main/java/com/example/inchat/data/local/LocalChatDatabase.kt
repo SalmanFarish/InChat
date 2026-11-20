@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.inchat.crypto.DecryptedOlmMessage
 import com.example.inchat.crypto.EncryptedOlmMessageDao
 import com.example.inchat.crypto.EncryptedOlmMessageEntity
+import com.example.inchat.crypto.EncryptedOlmMessageVault
 import com.example.inchat.crypto.OlmDeliveryQueueDao
 import com.example.inchat.crypto.OlmDeliveryReceiptDao
 import com.example.inchat.crypto.OlmDeliveryReceiptEntity
@@ -19,7 +21,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -167,13 +169,113 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Re-encrypt every version-10 plaintext text column before replacing the table.
+         * Room runs migrations transactionally; if a row cannot be authenticated/encrypted,
+         * the migration fails and the original v10 table remains intact for recovery.
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP TABLE IF EXISTS encrypted_olm_messages_new")
+                database.execSQL(
+                    """
+                    CREATE TABLE encrypted_olm_messages_new (
+                        ownerUserId TEXT NOT NULL,
+                        conversationId TEXT NOT NULL,
+                        messageId TEXT NOT NULL,
+                        conversationPeerUserId TEXT NOT NULL,
+                        senderUserId TEXT NOT NULL,
+                        senderDeviceId TEXT NOT NULL,
+                        recipientUserId TEXT NOT NULL,
+                        recipientDeviceId TEXT NOT NULL,
+                        sentAtMillis INTEGER NOT NULL,
+                        contentEncryptionVersion INTEGER NOT NULL,
+                        textNonceBase64 TEXT NOT NULL,
+                        textCiphertextBase64 TEXT NOT NULL,
+                        PRIMARY KEY(ownerUserId, conversationId, messageId)
+                    )
+                    """.trimIndent()
+                )
+
+                val vault = EncryptedOlmMessageVault()
+                database.query(
+                    """
+                    SELECT ownerUserId, conversationId, messageId, conversationPeerUserId,
+                           senderUserId, senderDeviceId, recipientUserId, recipientDeviceId,
+                           sentAtMillis, text
+                    FROM encrypted_olm_messages
+                    """.trimIndent()
+                ).use { cursor ->
+                    val ownerIndex = cursor.getColumnIndexOrThrow("ownerUserId")
+                    val conversationIndex = cursor.getColumnIndexOrThrow("conversationId")
+                    val messageIndex = cursor.getColumnIndexOrThrow("messageId")
+                    val peerIndex = cursor.getColumnIndexOrThrow("conversationPeerUserId")
+                    val senderIndex = cursor.getColumnIndexOrThrow("senderUserId")
+                    val senderDeviceIndex = cursor.getColumnIndexOrThrow("senderDeviceId")
+                    val recipientIndex = cursor.getColumnIndexOrThrow("recipientUserId")
+                    val recipientDeviceIndex = cursor.getColumnIndexOrThrow("recipientDeviceId")
+                    val timestampIndex = cursor.getColumnIndexOrThrow("sentAtMillis")
+                    val textIndex = cursor.getColumnIndexOrThrow("text")
+
+                    while (cursor.moveToNext()) {
+                        val plaintextMessage = DecryptedOlmMessage(
+                            ownerUserId = cursor.getString(ownerIndex),
+                            conversationId = cursor.getString(conversationIndex),
+                            messageId = cursor.getString(messageIndex),
+                            conversationPeerUserId = cursor.getString(peerIndex),
+                            senderUserId = cursor.getString(senderIndex),
+                            senderDeviceId = cursor.getString(senderDeviceIndex),
+                            recipientUserId = cursor.getString(recipientIndex),
+                            recipientDeviceId = cursor.getString(recipientDeviceIndex),
+                            sentAtMillis = cursor.getLong(timestampIndex),
+                            text = cursor.getString(textIndex),
+                        )
+                        val encrypted = vault.encrypt(plaintextMessage)
+                        database.execSQL(
+                            """
+                            INSERT INTO encrypted_olm_messages_new (
+                                ownerUserId, conversationId, messageId, conversationPeerUserId,
+                                senderUserId, senderDeviceId, recipientUserId, recipientDeviceId,
+                                sentAtMillis, contentEncryptionVersion, textNonceBase64,
+                                textCiphertextBase64
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """.trimIndent(),
+                            arrayOf(
+                                encrypted.ownerUserId,
+                                encrypted.conversationId,
+                                encrypted.messageId,
+                                encrypted.conversationPeerUserId,
+                                encrypted.senderUserId,
+                                encrypted.senderDeviceId,
+                                encrypted.recipientUserId,
+                                encrypted.recipientDeviceId,
+                                encrypted.sentAtMillis,
+                                encrypted.contentEncryptionVersion,
+                                encrypted.textNonceBase64,
+                                encrypted.textCiphertextBase64,
+                            ),
+                        )
+                    }
+                }
+
+                database.execSQL("DROP TABLE encrypted_olm_messages")
+                database.execSQL(
+                    "ALTER TABLE encrypted_olm_messages_new RENAME TO encrypted_olm_messages"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_encrypted_olm_messages_ownerUserId_conversationId_sentAtMillis " +
+                        "ON encrypted_olm_messages(ownerUserId, conversationId, sentAtMillis)"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .build().also { INSTANCE = it }
             }
     }
