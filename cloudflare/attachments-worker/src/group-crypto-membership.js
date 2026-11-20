@@ -45,7 +45,10 @@ export async function mutateGroupMembersWithEtag(
   fetchImpl = fetch,
 ) {
   const path = "chats/" + chatId;
-  const url = env.FIREBASE_DATABASE_URL.replace(/\\/$/, "") +
+  const databaseUrl = env.FIREBASE_DATABASE_URL.endsWith("/") ?
+    env.FIREBASE_DATABASE_URL.slice(0, -1) :
+    env.FIREBASE_DATABASE_URL;
+  const url = databaseUrl +
     "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
