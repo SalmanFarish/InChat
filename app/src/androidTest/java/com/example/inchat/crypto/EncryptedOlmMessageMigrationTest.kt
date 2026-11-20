@@ -75,7 +75,7 @@ class EncryptedOlmMessageMigrationTest {
             ownerUserId = "bob",
             conversationId = "alice_bob",
             messageId = "legacy-message-1",
-            conversationPeerUserId = "alice",
+            conversationPeerUserId = "bob",
             senderUserId = "alice",
             senderDeviceId = "sender-device",
             recipientUserId = "bob",
