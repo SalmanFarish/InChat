@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DecryptedOlmMessage
 import com.example.inchat.crypto.DefaultOlmInboundGroupMessageHandoff
+import com.example.inchat.crypto.DefaultOlmInboundGroupSessionKeyHandoff
 import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmSessionRepository
 import com.example.inchat.crypto.DeviceIdentityRepository
@@ -136,6 +137,14 @@ class EncryptedOlmInboxWorker(
                 },
                 trustVerifier = trustRepository,
             )
+            val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
+                membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                sessionRepository = megolmSessionRepository,
+                authenticatedLocalUserId = {
+                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                },
+                trustVerifier = trustRepository,
+            )
             val handoffCoordinator = OlmInboundHandoffCoordinator(
                 database = database,
                 receiptDao = database.olmInboundReceiptDao(),
@@ -146,6 +155,7 @@ class EncryptedOlmInboxWorker(
                 trustVerifier = trustRepository,
                 encryptedMessageDao = database.encryptedOlmMessageDao(),
                 groupMessageHandoff = groupMessageHandoff,
+                groupSessionKeyHandoff = groupSessionKeyHandoff,
                 megolmSessionRepository = megolmSessionRepository,
             )
             val deviceDirectory = DeviceKeyDirectoryRepository()
