@@ -109,12 +109,19 @@ class CloudflareNotificationRepository {
      * conversation and resolves the recipient device's private FCM token.
      */
     suspend fun notifyEncryptedDelivery(
+        senderUserId: String,
         chatId: String,
         deliveryId: String,
         messageId: String,
         senderDeviceId: String,
         recipientDeviceId: String
     ): Result<Unit> {
+        if (senderUserId.isBlank() || auth.currentUser?.uid != senderUserId) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match encrypted delivery owner.")
+            )
+        }
+
         val valid = chatId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
             deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
             messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
