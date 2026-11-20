@@ -72,13 +72,6 @@ class InChatFirebaseMessagingService :
             return
         }
 
-        // Encrypted pushes are wake-up signals only. Their FCM data never
-        // selects a chat, sender, or plaintext notification presentation.
-        if (NotificationPayloadPolicy.isEncryptedOlmWakeup(remoteMessage.data)) {
-            scheduleEncryptedInboxWake(remoteMessage.data)
-            return
-        }
-
         val presentation = NotificationPayloadPolicy.from(
             data = remoteMessage.data,
             fallbackTitle = remoteMessage.notification?.title,
