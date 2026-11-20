@@ -14,6 +14,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DecryptedOlmMessage
+import com.example.inchat.crypto.DefaultOlmInboundGroupMessageHandoff
+import com.example.inchat.crypto.EncryptedGroupMessageRepository
+import com.example.inchat.crypto.MegolmSessionRepository
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.OlmCommittedReceiptFinalizer
@@ -26,6 +29,7 @@ import com.example.inchat.crypto.FirebaseOlmInboxReceiver
 import com.example.inchat.crypto.OlmInboundDeliveryLedger
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
+import com.example.inchat.data.repository.GroupChatRepository
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
@@ -116,15 +120,33 @@ class EncryptedOlmInboxWorker(
 
             // Decryption remains isolated from plaintext Firebase listeners and UI.
             // Only SAS-trusted, signature-verified device bundles reach the handoff.
+            val olmSessionRepository = OlmSessionRepository(applicationContext)
+            val megolmSessionRepository = MegolmSessionRepository(applicationContext) {
+                FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+            }
+            val groupRepository = GroupChatRepository()
+            val groupMessageHandoff = DefaultOlmInboundGroupMessageHandoff(
+                membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                sessionRepository = megolmSessionRepository,
+                messageRepository = EncryptedGroupMessageRepository(
+                    dao = database.encryptedGroupMessageDao(),
+                ),
+                authenticatedLocalUserId = {
+                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                },
+                trustVerifier = trustRepository,
+            )
             val handoffCoordinator = OlmInboundHandoffCoordinator(
                 database = database,
                 receiptDao = database.olmInboundReceiptDao(),
-                sessionRepository = OlmSessionRepository(applicationContext),
+                sessionRepository = olmSessionRepository,
                 authenticatedLocalUserId = {
                     FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 },
                 trustVerifier = trustRepository,
                 encryptedMessageDao = database.encryptedOlmMessageDao(),
+                groupMessageHandoff = groupMessageHandoff,
+                megolmSessionRepository = megolmSessionRepository,
             )
             val deviceDirectory = DeviceKeyDirectoryRepository()
             val processor = OlmPendingReceiptProcessor(
