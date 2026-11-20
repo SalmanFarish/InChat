@@ -27,7 +27,13 @@ internal class OlmInboundMessageCommitter(
             "Encrypted message owner must match its recipient"
         }
 
-        val encryptedMessage = vault.encrypt(message)
+        // A missing Keystore key may be created only for a genuinely empty
+        // encrypted-message table. Never rotate into a new key while old rows exist.
+        val allowKeyCreation = !encryptedMessageDao.hasStoredMessages()
+        val encryptedMessage = vault.encrypt(
+            message = message,
+            allowKeyCreation = allowKeyCreation,
+        )
 
         return database.withTransaction {
             val receipt = receiptDao.getByReceiptId(receiptId)
