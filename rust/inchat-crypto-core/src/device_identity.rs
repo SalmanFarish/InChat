@@ -543,6 +543,85 @@ fn decode_device_crypto_state(
                 );
             }
         }
+        let mut pending_group_decryptions = std::collections::BTreeMap::new();
+        if let Some(values) = envelope
+            .get("pendingGroupDecryptions")
+            .and_then(Value::as_object)
+        {
+            if values.len() > 64 {
+                return Err("Saved Olm state contains too many pending Megolm decryptions");
+            }
+            for (receipt_id, value) in values {
+                if !valid_receipt_id(receipt_id) {
+                    return Err("Saved pending Megolm receipt ID is invalid");
+                }
+                let owner_user_id = value.get("ownerUserId").and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved pending Megolm owner account is invalid")?;
+                let group_id = value.get("groupId").and_then(Value::as_str)
+                    .filter(|id| valid_group_id(id))
+                    .ok_or("Saved pending Megolm group ID is invalid")?;
+                let membership_epoch = value.get("membershipEpoch").and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("Saved pending Megolm epoch is invalid")?;
+                let message_id = value.get("messageId").and_then(Value::as_str)
+                    .filter(|id| valid_user_id(id))
+                    .ok_or("Saved pending Megolm message ID is invalid")?;
+                let sender_user_id = value.get("senderUserId").and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved pending Megolm sender account is invalid")?;
+                let sender_device_id = value.get("senderDeviceId").and_then(Value::as_str)
+                    .filter(|id| valid_device_id(id))
+                    .ok_or("Saved pending Megolm sender device is invalid")?;
+                let session_id = value.get("sessionId").and_then(Value::as_str)
+                    .filter(|id| id.len() >= 16 && id.len() <= 128 && id.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'+' || b == b'/' || b == b'='
+                    }))
+                    .ok_or("Saved pending Megolm session ID is invalid")?;
+                let message_index = value.get("messageIndex").and_then(Value::as_u64)
+                    .and_then(|index| u32::try_from(index).ok())
+                    .ok_or("Saved pending Megolm message index is invalid")?;
+                let sent_at_millis = value.get("sentAtMillis").and_then(Value::as_u64)
+                    .filter(|timestamp| *timestamp <= i64::MAX as u64)
+                    .ok_or("Saved pending Megolm timestamp is invalid")?;
+                let parse_bytes = |name: &str, minimum: usize, maximum: usize| {
+                    let bytes = value.get(name).and_then(Value::as_array)
+                        .ok_or("Saved pending Megolm byte field is missing")?
+                        .iter()
+                        .map(|byte| byte.as_u64().and_then(|number| u8::try_from(number).ok())
+                            .ok_or("Saved pending Megolm byte field is invalid"))
+                        .collect::<Result<Vec<u8>, _>>()?;
+                    if bytes.len() < minimum || bytes.len() > maximum {
+                        return Err("Saved pending Megolm byte field has an invalid size");
+                    }
+                    Ok(bytes)
+                };
+                let ciphertext = parse_bytes("ciphertext", 1, crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES)?;
+                let plaintext = parse_bytes("plaintext", 1, crate::megolm::MAX_GROUP_PLAINTEXT_BYTES)?;
+                if std::str::from_utf8(&plaintext).is_err() {
+                    return Err("Saved pending Megolm plaintext is not valid UTF-8");
+                }
+                pending_group_decryptions.insert(
+                    receipt_id.clone(),
+                    PendingGroupDecryption {
+                        owner_user_id: owner_user_id.to_owned(),
+                        group_id: group_id.to_owned(),
+                        membership_epoch,
+                        message_id: message_id.to_owned(),
+                        sender_user_id: sender_user_id.to_owned(),
+                        sender_device_id: sender_device_id.to_owned(),
+                        session_id: session_id.to_owned(),
+                        message_index,
+                        sent_at_millis,
+                        ciphertext,
+                        plaintext,
+                    },
+                );
+            }
+        } else if envelope.get("pendingGroupDecryptions").is_some() {
+            return Err("Saved pending Megolm decryptions have an invalid format");
+        }
+
         let mut outbound_group_sessions = std::collections::BTreeMap::new();
         if let Some(values) = envelope
             .get("outboundGroupSessions")
@@ -681,6 +760,7 @@ fn decode_device_crypto_state(
             account: Account::from(account_pickle),
             sessions,
             pending_decryptions,
+            pending_group_decryptions,
             outbound_group_sessions,
             inbound_group_sessions,
         })
