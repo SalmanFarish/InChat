@@ -8,11 +8,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicInteger
 
 class OlmPendingReceiptProcessorTest {
     @Test
-    fun pendingReceiptsUseVerifiedDeviceTrustAndExplicitOlmWireType() = runBlockingTest {
+    fun pendingReceiptsUseVerifiedDeviceTrustAndExplicitOlmWireType() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val databaseName = "olm-pending-processor-${UUID.randomUUID()}.db"
         val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
