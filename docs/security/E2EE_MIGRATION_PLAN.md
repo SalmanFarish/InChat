@@ -449,8 +449,11 @@ that device's token mapping, covering the case where login-time token
 registration ran before the Olm identity was created. A token refresh or a
 later login continues to use the durable registration worker. Logout removes
 this installation's device-scoped token together with the legacy account
-token. The Worker can therefore target a specific published Olm device
-instead of assuming one FCM token represents every device on an account.
+token. Revoking a published device also removes only that device's private
+token mapping after its public directory entry is deleted; the account-wide
+legacy token is retained for existing plaintext messaging. The Worker can
+therefore target a specific published Olm device instead of assuming one FCM
+token represents every device on an account.
 
 
 ## Authenticated direct-conversation routing (payload schema v2)
