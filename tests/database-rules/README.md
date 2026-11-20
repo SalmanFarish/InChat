@@ -19,8 +19,11 @@ npm install
 npm test
 ```
 
-The `npm test` script starts the Realtime Database Emulator, runs the rules tests,
-and stops the emulator when the test process exits. It never deploys rules.
+The `npm test` script starts only the Realtime Database Emulator, runs the rules tests,
+and stops the emulator when the test process exits. The test suite uses
+`authenticatedContext()` from `@firebase/rules-unit-testing`; it does not start or
+contact the Firebase Auth emulator, create real Firebase accounts, deploy rules, or
+connect to the production InChat Firebase project.
 
 To run the Android SAS transport integration test against both local emulators,
 keep the emulators running in a separate terminal:
@@ -60,5 +63,6 @@ The current suite checks:
 - direct-chat and group read permissions;
 - atomic one-time prekey claims, including concurrent claim attempts, repeat claims, and unauthenticated access;
 - prekey-claim cleanup only by the owning account after its device directory entry has been revoked.
+- the complete encrypted `olmInbox` / `olmDeliveryAcks` sender-recipient lifecycle, including a same-ID exact resend after the sender consumes an acknowledgement.
 
 Add a test whenever a security rule or Worker-owned data path changes.
