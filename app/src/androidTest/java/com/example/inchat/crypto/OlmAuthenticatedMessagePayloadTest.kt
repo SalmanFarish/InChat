@@ -7,6 +7,8 @@ import org.junit.Test
 class OlmAuthenticatedMessagePayloadTest {
     private val payload = OlmAuthenticatedMessagePayload(
         messageId = "message-123",
+        conversationId = "alice_bob",
+        conversationPeerUserId = "bob",
         senderUserId = "alice",
         senderDeviceId = "alice-device",
         recipientUserId = "bob",
@@ -60,6 +62,41 @@ class OlmAuthenticatedMessagePayloadTest {
     fun rejectsRecipientDeviceMismatch() {
         assertThrows(IllegalArgumentException::class.java) {
             decode(expectedRecipientDeviceId = "other-device")
+        }
+    }
+
+    @Test
+    fun rejectsConversationIdThatDoesNotMatchTheAuthenticatedParticipants() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(conversationId = "alice_mallory"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(conversationPeerUserId = "mallory"))
+        }
+    }
+
+    @Test
+    fun allowsSenderOwnedDeviceCopiesWithoutChangingTheOriginalConversation() {
+        val selfDeviceCopy = payload.copy(
+            recipientUserId = payload.senderUserId,
+            recipientDeviceId = "alice-secondary-device",
+        )
+        val decoded = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
+            plaintext = OlmAuthenticatedMessagePayloadCodec.encode(selfDeviceCopy),
+            expectedMessageId = selfDeviceCopy.messageId,
+            expectedSenderUserId = selfDeviceCopy.senderUserId,
+            expectedSenderDeviceId = selfDeviceCopy.senderDeviceId,
+            expectedRecipientUserId = selfDeviceCopy.recipientUserId,
+            expectedRecipientDeviceId = selfDeviceCopy.recipientDeviceId,
+        )
+        assertEquals(payload.conversationId, decoded.conversationId)
+        assertEquals(payload.conversationPeerUserId, decoded.conversationPeerUserId)
+    }
+
+    @Test
+    fun rejectsDeliveryToAnAccountOutsideTheConversation() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OlmAuthenticatedMessagePayloadCodec.encode(payload.copy(recipientUserId = "mallory"))
         }
     }
 
