@@ -374,6 +374,10 @@
         }
       }
     },
+    "olmPushDispatch": {
+      ".read": false,
+      ".write": false
+    },
     "sasVerificationInbox": {
       "$recipientUid": {
         ".read": "auth != null && auth.uid === $recipientUid",
