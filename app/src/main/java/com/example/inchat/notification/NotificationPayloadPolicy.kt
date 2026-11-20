@@ -25,12 +25,22 @@ internal object NotificationPayloadPolicy {
     const val TYPE_GROUP = "group_message"
     const val TYPE_ENCRYPTED_CHAT = "encrypted_message"
     const val TYPE_ENCRYPTED_GROUP = "encrypted_group_message"
+    const val TYPE_ENCRYPTED_OLM_WAKEUP = "encrypted_olm"
 
     const val ROUTE_CHAT = "chat_message"
     const val ROUTE_GROUP = "group_message"
 
     private const val GENERIC_TITLE = "InChat"
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
+
+    /**
+     * Encrypted Olm FCM carries a wake-up signal, not notification content or
+     * routing data. Accept only the two fields emitted by the trusted Worker.
+     */
+    fun isEncryptedOlmWakeup(data: Map<String, String>): Boolean =
+        data.keys == setOf("type", "deliveryId") &&
+            data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP &&
+            data["deliveryId"]?.matches(Regex("[A-Fa-f0-9]{64}")) == true
 
     fun from(
         data: Map<String, String>,
