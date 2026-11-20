@@ -93,3 +93,7 @@ The upstream `vodozemac` crate is Apache-2.0 licensed. Keep its upstream licence
 - Upstream: https://github.com/matrix-org/vodozemac
 - Exact dependency documentation: https://docs.rs/vodozemac/0.11.2/
 - Android Rust Gradle plugin: https://github.com/mullvad/rust-android-gradle
+
+The unified Keystore-backed device-state envelope now also stores outbound Megolm sessions by group ID and inbound sessions by a composite group/epoch/sender-account/sender-device/session identifier. Session pickles are embedded only inside the existing opaque native state blob, which the Android `CryptoStateStore` encrypts with its Keystore key. The native serializer validates epoch, group, device and sender metadata; caps session counts and pickle sizes; and checks every restored pickle's session ID against its metadata. Older v2 blobs without the new Megolm maps still restore with empty group-session maps. The Rust device-transfer rebind step updates the sender-device binding of every transferred outbound Megolm session while preserving its ratchet and session ID.
+
+This adds native persistence only. It does not yet expose JNI operations for creating/importing/encrypting/decrypting group sessions, enforce current epochs when retrieving sessions, or implement the Room replay ledger and transactional encrypted group-message commit. No group messages are sent or received through this state yet.
