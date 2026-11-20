@@ -6,6 +6,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.LocalChatDatabase
 import kotlinx.coroutines.runBlocking
+import java.security.GeneralSecurityException
+import java.security.KeyStore
+import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -146,6 +149,72 @@ class OlmInboundMessageCommitterTest {
             )
             assertFalse(db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status == OlmInboundReceiptStatus.PENDING.name)
         }
+    }
+
+    @Test
+    fun existingEncryptedHistoryPreventsSilentKeystoreKeyRecreation() = runBlocking {
+        withDatabase("olm-inbound-missing-key.db") { db ->
+            val alias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+            val vault = EncryptedOlmMessageVault(alias)
+            try {
+                val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+                assertEquals(
+                    OlmInboundRegistration.NEW,
+                    ledger.register("alice", "message-1", envelope(), 100L),
+                )
+                val firstReceipt = db.olmInboundReceiptDao().getByReceiptId(receiptId())!!
+                val committer = OlmInboundMessageCommitter(
+                    db,
+                    db.encryptedOlmMessageDao(),
+                    db.olmInboundReceiptDao(),
+                    vault,
+                )
+                assertTrue(committer.commit(firstReceipt.receiptId, message(), 200L))
+
+                assertEquals(
+                    OlmInboundRegistration.NEW,
+                    ledger.register("alice", "message-2", envelope(), 300L),
+                )
+                val secondReceipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("message-2"))!!
+                deleteKeystoreAlias(alias)
+
+                var rejected = false
+                try {
+                    committer.commit(
+                        secondReceipt.receiptId,
+                        message(messageId = "message-2"),
+                        400L,
+                    )
+                } catch (expected: GeneralSecurityException) {
+                    rejected = expected.message.orEmpty().contains("key is missing")
+                }
+
+                assertTrue("A missing key must fail closed when encrypted history exists", rejected)
+                assertFalse(keystoreAliasExists(alias))
+                assertEquals(
+                    OlmInboundReceiptStatus.PENDING.name,
+                    db.olmInboundReceiptDao().getByReceiptId(secondReceipt.receiptId)?.status,
+                )
+                assertEquals(
+                    null,
+                    db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-2"),
+                )
+            } finally {
+                deleteKeystoreAlias(alias)
+            }
+        }
+    }
+
+    private fun keystoreAliasExists(alias: String): Boolean {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        return keyStore.containsAlias(alias)
+    }
+
+    private fun deleteKeystoreAlias(alias: String) {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
     }
 
     private suspend fun withDatabase(name: String, block: suspend (LocalChatDatabase) -> Unit) {
