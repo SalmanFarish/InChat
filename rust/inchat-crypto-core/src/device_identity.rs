@@ -3177,3 +3177,164 @@ mod transfer_tests {
         .is_err());
     }
 }
+
+
+// Isolated Megolm JNI surface. Callers must hold CryptoStateStore.withExclusiveAccess
+// around every operation so a ratchet read-modify-write cannot race another caller.
+// Membership authorization is deliberately enforced by the Android protocol layer,
+// not inferred from these primitive parameters.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeEnsureOutboundMegolmSession<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let (session_id, created) = ensure_outbound_group_session(
+            &mut state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
+        )?;
+        if created {
+            let blob = encode_device_crypto_state(&device_id, &state)?;
+            write_device_state(&mut env, &store, blob)?;
+        }
+        serde_json::to_string(&json!({
+            "sessionId": session_id,
+            "membershipEpoch": membership_epoch,
+            "created": created
+        })).map_err(|_| "Could not encode outbound Megolm session metadata")
+    }));
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeExportOutboundMegolmSessionKey<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+) -> jbyteArray {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        export_outbound_group_session_key(
+            &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
+        )
+    }));
+    match result {
+        Ok(Ok(mut key)) => {
+            let output = env.byte_array_from_slice(&key);
+            key.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeImportInboundMegolmSessionKey<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+    sender_device_id: JString<'local>,
+    expected_session_id: JString<'local>,
+    session_key: JByteArray<'local>,
+) -> jboolean {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let sender_device_id: String = match env.get_string(&sender_device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let expected_session_id: String = match env.get_string(&expected_session_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    if membership_epoch <= 0 { return JNI_FALSE; }
+    let mut key = match read_transfer_array(&mut env, &session_key, None, 16, 1024) {
+        Ok(v) => v,
+        Err(_) => return JNI_FALSE,
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let inserted = import_inbound_group_session(
+            &mut state, &group_id, membership_epoch as u64, &sender_user_id,
+            &sender_device_id, &expected_session_id, &key
+        )?;
+        if inserted {
+            let blob = encode_device_crypto_state(&device_id, &state)?;
+            write_device_state(&mut env, &store, blob)?;
+        }
+        Ok::<bool, &'static str>(inserted)
+    }));
+    key.zeroize();
+    match result {
+        Ok(Ok(_)) => JNI_TRUE,
+        _ => JNI_FALSE,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeEncryptOutboundMegolmMessage<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+    plaintext: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let mut plaintext: String = match env.get_string(&plaintext) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { plaintext.zeroize(); return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let stored = state.outbound_group_sessions.get_mut(&group_id)
+            .ok_or("Outbound Megolm session does not exist")?;
+        if stored.membership_epoch != membership_epoch as u64
+            || stored.sender_user_id != sender_user_id
+            || stored.sender_device_id != device_id {
+            return Err("Outbound Megolm session is not bound to the requested group epoch and sender");
+        }
+        let encrypted = stored.session.encrypt(plaintext.as_bytes())?;
+        let blob = encode_device_crypto_state(&device_id, &state)?;
+        write_device_state(&mut env, &store, blob)?;
+        serde_json::to_string(&json!({
+            "sessionId": encrypted.session_id,
+            "messageIndex": encrypted.message_index,
+            "ciphertext": encrypted.ciphertext
+        })).map_err(|_| "Could not encode encrypted Megolm message")
+    }));
+    plaintext.zeroize();
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
