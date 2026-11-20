@@ -25,6 +25,7 @@ internal class OlmDeliveryWorkerRunner(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxDeliveriesPerRun: Int = DEFAULT_BATCH_SIZE,
+    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
 ) {
     init {
         require(senderUserId.matches(USER_ID_PATTERN)) { "Sender user ID has an invalid format" }
@@ -40,6 +41,8 @@ internal class OlmDeliveryWorkerRunner(
             transport = transport,
             senderUserId = senderUserId,
             senderDeviceId = senderDeviceId,
+            recordAcknowledgement = recordAcknowledgement,
+            clock = clock,
         ).processPending()
 
         var uploaded = 0
