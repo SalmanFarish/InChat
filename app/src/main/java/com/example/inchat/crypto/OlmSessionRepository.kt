@@ -27,7 +27,7 @@ internal data class StagedInboundOlmMessage(
 internal class OlmSessionRepository(
     context: Context,
     private val identityRepository: SasVerificationLocalIdentity = DeviceIdentityRepository(context.applicationContext),
-) : OlmOutboundSessionRepository {
+) : OlmGroupKeyOutboundSessionRepository {
     private val appContext = context.applicationContext
 
     private val cachedLocalBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -308,7 +308,7 @@ internal class OlmSessionRepository(
      * must use a SAS-trusted recipient device in the current group membership
      * snapshot and must never send this payload through a public key directory.
      */
-    fun encryptGroupSessionKeyDistributionEnvelope(
+    override fun encryptGroupSessionKeyDistributionEnvelope(
         sessionId: String,
         payload: OlmGroupSessionKeyDistributionPayload,
     ): String {
