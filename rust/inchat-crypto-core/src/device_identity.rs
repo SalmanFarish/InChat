@@ -52,6 +52,35 @@ struct StoredOutboundGroupSession {
     session: OutboundGroupSession,
 }
 
+/// A Megolm receive-ratchet advance that is durable until the Room message
+/// and replay ledger have committed. It is bound to the original Olm receipt.
+struct PendingGroupDecryption {
+    owner_user_id: String,
+    group_id: String,
+    membership_epoch: u64,
+    message_id: String,
+    sender_user_id: String,
+    sender_device_id: String,
+    session_id: String,
+    message_index: u32,
+    sent_at_millis: u64,
+    ciphertext: Vec<u8>,
+    plaintext: Vec<u8>,
+}
+
+impl Drop for PendingGroupDecryption {
+    fn drop(&mut self) {
+        self.owner_user_id.zeroize();
+        self.group_id.zeroize();
+        self.message_id.zeroize();
+        self.sender_user_id.zeroize();
+        self.sender_device_id.zeroize();
+        self.session_id.zeroize();
+        self.ciphertext.zeroize();
+        self.plaintext.zeroize();
+    }
+}
+
 struct StoredInboundGroupSession {
     group_id: String,
     membership_epoch: u64,
@@ -64,6 +93,8 @@ struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
     pending_decryptions: std::collections::BTreeMap<String, PendingDecryption>,
+    /// Advanced inbound Megolm ratchets with durable plaintext awaiting Room commit.
+    pending_group_decryptions: std::collections::BTreeMap<String, PendingGroupDecryption>,
     /// One active sender ratchet per local device, group, and membership epoch.
     outbound_group_sessions: std::collections::BTreeMap<String, StoredOutboundGroupSession>,
     /// Inbound group ratchets keyed by their complete sender/epoch/session identity.
@@ -257,6 +288,47 @@ fn encode_device_crypto_state(
         );
     }
 
+    if state.pending_group_decryptions.len() > 64 {
+        return Err("Too many pending Megolm decryptions; finalize committed group receipts first");
+    }
+    let mut pending_group_decryptions = serde_json::Map::new();
+    for (receipt_id, pending) in &state.pending_group_decryptions {
+        if !valid_receipt_id(receipt_id)
+            || !valid_user_id(&pending.owner_user_id)
+            || !valid_group_id(&pending.group_id)
+            || pending.membership_epoch == 0
+            || !valid_user_id(&pending.message_id)
+            || !valid_user_id(&pending.sender_user_id)
+            || !valid_device_id(&pending.sender_device_id)
+            || pending.session_id.len() < 16
+            || pending.session_id.len() > 128
+            || pending.sent_at_millis > i64::MAX as u64
+            || pending.ciphertext.is_empty()
+            || pending.ciphertext.len() > crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES
+            || pending.plaintext.is_empty()
+            || pending.plaintext.len() > crate::megolm::MAX_GROUP_PLAINTEXT_BYTES
+            || std::str::from_utf8(&pending.plaintext).is_err()
+        {
+            return Err("Saved pending Megolm decryption metadata is invalid");
+        }
+        pending_group_decryptions.insert(
+            receipt_id.clone(),
+            json!({
+                "ownerUserId": pending.owner_user_id,
+                "groupId": pending.group_id,
+                "membershipEpoch": pending.membership_epoch,
+                "messageId": pending.message_id,
+                "senderUserId": pending.sender_user_id,
+                "senderDeviceId": pending.sender_device_id,
+                "sessionId": pending.session_id,
+                "messageIndex": pending.message_index,
+                "sentAtMillis": pending.sent_at_millis,
+                "ciphertext": pending.ciphertext,
+                "plaintext": pending.plaintext
+            }),
+        );
+    }
+
     if state.outbound_group_sessions.len() > 1_000 ||
         state.inbound_group_sessions.len() > 10_000 {
         return Err("Olm device state contains too many Megolm sessions");
@@ -328,6 +400,7 @@ fn encode_device_crypto_state(
         "account": account,
         "sessions": sessions,
         "pendingDecryptions": pending_decryptions,
+        "pendingGroupDecryptions": pending_group_decryptions,
         "outboundGroupSessions": outbound_group_sessions,
         "inboundGroupSessions": inbound_group_sessions
     }))
@@ -385,6 +458,7 @@ fn decode_device_crypto_state(
                 account: Account::from(pickle),
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             });
@@ -636,6 +710,7 @@ fn encode_device_account_state(
             account: restored,
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         },
@@ -908,6 +983,7 @@ fn ensure_device_identity<'local>(
                 account: Account::new(),
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             },
@@ -2234,6 +2310,7 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2308,6 +2385,7 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2493,6 +2571,7 @@ mod tests {
             account: alice,
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2558,6 +2637,7 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions,
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2621,6 +2701,7 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions,
         };
@@ -2661,6 +2742,7 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2997,6 +3079,7 @@ mod transfer_tests {
             account: source_account,
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3072,6 +3155,7 @@ mod transfer_tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions,
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3120,6 +3204,7 @@ mod transfer_tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+                pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
