@@ -1116,6 +1116,9 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
   const updates = {};
   let activityMessageId = "";
   let previewMembers = chat.members || {};
+  let cryptoMembershipEpoch = currentGroupCryptoMembershipEpoch(
+    chat.cryptoMembershipEpoch,
+  );
 
   if (action === "add") {
     if (!Array.isArray(body.memberIds) || body.memberIds.length < 1 ||
@@ -1186,6 +1189,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
     const newMemberIds = mutation.result.newMemberIds;
     previewMembers = mutation.members;
+    cryptoMembershipEpoch = mutation.cryptoMembershipEpoch;
     for (const memberId of requestedIds) {
       updates["groupMemberships/" + memberId + "/" + chatId] = true;
     }
@@ -1304,6 +1308,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       },
     );
     previewMembers = mutation.members;
+    cryptoMembershipEpoch = mutation.cryptoMembershipEpoch;
 
     if (action === "set_role" && mutation.changed) {
       const targetName = await groupUsername(env, adminAuth.token, targetUid);
@@ -1367,7 +1372,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     action: action,
     chatId: chatId,
     messageId: activityMessageId,
-    cryptoMembershipEpoch: mutation.cryptoMembershipEpoch,
+    cryptoMembershipEpoch: cryptoMembershipEpoch,
   });
 }
 
