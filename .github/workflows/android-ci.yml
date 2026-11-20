@@ -53,10 +53,9 @@ jobs:
           cmdline-tools-version: 15859902
           packages: platform-tools
 
-      - name: Install Android SDK platform and NDK
+      - name: Install Android 17 preview platform and NDK
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-37" "ndk;30.0.16248370"
+          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0" "ndk;30.0.16248370"
 
       - name: Set up Rust stable
         uses: dtolnay/rust-toolchain@stable
