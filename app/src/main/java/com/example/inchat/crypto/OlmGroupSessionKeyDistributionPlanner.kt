@@ -67,6 +67,9 @@ internal object OlmGroupSessionKeyDistributionPlanner {
                     peerEd25519IdentityKey = device.ed25519IdentityKey,
                 )
             }
+            require(trusted.isNotEmpty()) {
+                "Every current group member needs at least one SAS-verified device before group key distribution"
+            }
             skippedUntrusted += devices.size - trusted.size
             trusted
         }
