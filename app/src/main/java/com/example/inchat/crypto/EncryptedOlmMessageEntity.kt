@@ -4,10 +4,10 @@ import androidx.room.Entity
 import androidx.room.Index
 
 /**
- * Locally decrypted direct-text message storage for the isolated Olm pipeline.
+ * Authenticated metadata and AES-GCM ciphertext for a locally decrypted Olm message.
  *
- * This table is intentionally separate from cached_messages, which is observed
- * by ChatRepository and therefore feeds the current plaintext chat UI.
+ * Message text is never persisted as a Room plaintext column. Its nonce and
+ * ciphertext are authenticated against every routing/identity field below.
  */
 @Entity(
     tableName = "encrypted_olm_messages",
@@ -24,6 +24,21 @@ data class EncryptedOlmMessageEntity(
     val recipientUserId: String,
     val recipientDeviceId: String,
     val sentAtMillis: Long,
-    /** Decrypted app-private Room content; Keystore-backed at-rest encryption remains pending. */
+    val contentEncryptionVersion: Int,
+    val textNonceBase64: String,
+    val textCiphertextBase64: String,
+)
+
+/** Decrypted message data held only in process memory until encrypted for Room. */
+internal data class DecryptedOlmMessage(
+    val ownerUserId: String,
+    val conversationId: String,
+    val messageId: String,
+    val conversationPeerUserId: String,
+    val senderUserId: String,
+    val senderDeviceId: String,
+    val recipientUserId: String,
+    val recipientDeviceId: String,
+    val sentAtMillis: Long,
     val text: String,
 )
