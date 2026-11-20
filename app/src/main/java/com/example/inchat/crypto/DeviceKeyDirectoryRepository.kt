@@ -102,7 +102,7 @@ internal class DeviceKeyDirectoryRepository(
      *
      * Returns false when another authenticated client has already claimed it.
      */
-    suspend fun claimOneTimePreKey(
+    override suspend fun claimOneTimePreKey(
         targetUid: String,
         deviceId: String,
         keyId: String,
