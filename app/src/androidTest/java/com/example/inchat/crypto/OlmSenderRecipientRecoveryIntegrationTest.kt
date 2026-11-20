@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -173,6 +174,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             val relay = InMemoryOlmRelayStore(
                 failAfterInboxPutOnce = true,
                 failAfterAcknowledgementPutOnce = true,
+                failAfterAcknowledgementRemoveOnce = true,
             )
             var authenticatedUserId = senderUserId
             val transport = FirebaseOlmEnvelopeTransport(
@@ -349,42 +351,90 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 },
             )
 
-            // Model a late duplicate relay delivery after the recipient has already
-            // committed the plaintext. Its PROCESSED receipt must only re-ack/delete.
-            relay.putInbox(
-                recipientUid = recipientUserId,
-                recipientDeviceId = recipientBundle.deviceId,
-                deliveryId = deliveryId,
-                fields = mapOf(
-                    "senderUid" to senderUserId,
-                    "senderDeviceId" to senderDeviceId,
-                    "messageId" to messageId,
-                    "envelope" to envelope,
-                ),
-            )
-            val duplicateReceive = FirebaseOlmInboxReceiver(
-                transport = transport,
-                ledger = recipientLedger,
-                deviceId = recipientBundle.deviceId,
-                clock = { 7_000L },
-            ).receivePending()
-            assertEquals(1, duplicateReceive.alreadyProcessed)
-            assertEquals(0, relay.inboxCount())
-            assertEquals(1, relay.acknowledgementCount())
-
-            // The sender consumes the exact recipient acknowledgement, records its
-            // metadata in Room, and then removes its ciphertext outbox row.
+            // Simulate process death after the sender deletes the remote ack but
+            // before it can persist the metadata receipt / remove its outbox row.
             authenticatedUserId = senderUserId
             val acknowledgementRecorder = RoomOlmDeliveryAcknowledgementRecorder(
                 database = senderDatabase,
                 dao = senderDatabase.olmDeliveryReceiptDao(),
             )
-            val finalSend = OlmDeliveryWorkerRunner(
-                queue = reopenedSenderQueue,
+            var lostSenderAckDeletionCompletion = false
+            try {
+                OlmDeliveryWorkerRunner(
+                    queue = reopenedSenderQueue,
+                    transport = transport,
+                    senderUserId = senderUserId,
+                    senderDeviceId = senderDeviceId,
+                    clock = { 8_000L },
+                    recordAcknowledgement = acknowledgementRecorder::record,
+                ).run()
+            } catch (_: CancellationException) {
+                lostSenderAckDeletionCompletion = true
+            }
+            assertTrue(lostSenderAckDeletionCompletion)
+            assertEquals(0, relay.acknowledgementCount())
+            assertEquals(
+                OlmDeliveryStatus.UPLOADED.name,
+                senderDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)?.status,
+            )
+            assertTrue(
+                senderDatabase.olmDeliveryReceiptDao().getDeliveredMessageIds(
+                    senderUserId,
+                    senderDeviceId,
+                    recipientUserId,
+                ).isEmpty(),
+            )
+
+            // Reopen the sender database. The unacknowledged outbox row retries
+            // after its persisted 15-minute interval with exactly the same bytes.
+            senderDatabase.close()
+            senderDatabase = openDatabase(context, senderDatabaseName)
+            val recoveredSenderQueue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(senderDatabase, senderDatabase.olmDeliveryQueueDao()),
+            )
+            assertEquals(
+                envelope,
+                senderDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)?.envelope,
+            )
+            val resend = OlmDeliveryWorkerRunner(
+                queue = recoveredSenderQueue,
                 transport = transport,
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
-                clock = { 8_000L },
+                clock = { 903_000L },
+            ).run()
+            assertEquals(1, resend.uploaded)
+            assertEquals(3, relay.inboxPutCalls)
+            assertEquals(1, relay.inboxCount())
+
+            // The recipient sees the resent envelope after its receipt is already
+            // PROCESSED. It does not decrypt or insert another message; it only
+            // republishes the acknowledgement and removes the relay copy.
+            authenticatedUserId = recipientUserId
+            val duplicateReceive = FirebaseOlmInboxReceiver(
+                transport = transport,
+                ledger = recipientLedger,
+                deviceId = recipientBundle.deviceId,
+                clock = { 904_000L },
+            ).receivePending()
+            assertEquals(1, duplicateReceive.alreadyProcessed)
+            assertEquals(0, relay.inboxCount())
+            assertEquals(1, relay.acknowledgementCount())
+            assertEquals(
+                clearText,
+                recipientDatabase.messageDao()
+                    .getMessage(recipientUserId, senderUserId, messageId)?.text,
+            )
+
+            // The sender now consumes the regenerated acknowledgement, records
+            // metadata in Room, and removes the exact ciphertext outbox row.
+            authenticatedUserId = senderUserId
+            val finalSend = OlmDeliveryWorkerRunner(
+                queue = recoveredSenderQueue,
+                transport = transport,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                clock = { 905_000L },
                 recordAcknowledgement = acknowledgementRecorder::record,
             ).run()
             assertEquals(1, finalSend.acknowledged)
@@ -465,11 +515,13 @@ class OlmSenderRecipientRecoveryIntegrationTest {
     private class InMemoryOlmRelayStore(
         failAfterInboxPutOnce: Boolean,
         failAfterAcknowledgementPutOnce: Boolean,
+        failAfterAcknowledgementRemoveOnce: Boolean,
     ) : OlmRelayStore {
         private val inbox = linkedMapOf<Triple<String, String, String>, Map<String, Any?>>()
         private val acknowledgements = linkedMapOf<Triple<String, String, String>, Map<String, Any?>>()
         private var failInboxCompletion = failAfterInboxPutOnce
         private var failAcknowledgementCompletion = failAfterAcknowledgementPutOnce
+        private var failAcknowledgementRemoveCompletion = failAfterAcknowledgementRemoveOnce
         var inboxPutCalls = 0
             private set
         var acknowledgementPutCalls = 0
@@ -554,6 +606,10 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             deliveryId: String,
         ) {
             acknowledgements.remove(Triple(senderUid, senderDeviceId, deliveryId))
+            if (failAcknowledgementRemoveCompletion) {
+                failAcknowledgementRemoveCompletion = false
+                throw CancellationException("simulated lost sender acknowledgement-delete completion")
+            }
         }
 
         fun inboxCount(): Int = inbox.size
