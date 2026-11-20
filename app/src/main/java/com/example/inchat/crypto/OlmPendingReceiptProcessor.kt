@@ -29,7 +29,7 @@ internal fun interface OlmInboundReceiptHandoff {
 
 /** Idempotently removes native staged plaintext for a Room-committed receipt. */
 internal fun interface OlmCommittedReceiptFinalizer {
-    suspend fun finalize(receiptId: String, localUserId: String): Boolean
+    suspend fun finalizeReceipt(receiptId: String, localUserId: String): Boolean
 }
 
 /**
@@ -75,7 +75,7 @@ internal class OlmPendingReceiptProcessor(
             for (receipt in awaitingFinalization) {
                 finalizationChecked++
                 try {
-                    if (finalizer.finalize(receipt.receiptId, localUserId)) {
+                    if (finalizer.finalizeReceipt(receipt.receiptId, localUserId)) {
                         finalized++
                     } else {
                         failed++
