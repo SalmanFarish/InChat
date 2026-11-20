@@ -14,6 +14,8 @@ import java.security.MessageDigest
 import java.util.UUID
 
 class OlmInboundHandoffCoordinatorTest {
+    private val directChatId =
+        OlmAuthenticatedMessagePayloadCodec.directConversationId("alice", "local-user")
     @Test
     fun coordinatorCommitsMessageAndRecoversFinalizeAfterRoomCommit() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -107,7 +109,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 "handoff plaintext",
-                db.messageDao().getMessage("local-user", "alice", receipt.messageId)?.text,
+                db.messageDao().getMessage("local-user", directChatId, receipt.messageId)?.text,
             )
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
@@ -256,7 +258,7 @@ class OlmInboundHandoffCoordinatorTest {
                 OlmInboundReceiptStatus.PENDING.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
-            assertEquals(null, db.messageDao().getMessage("local-user", "alice", messageId))
+            assertEquals(null, db.messageDao().getMessage("local-user", directChatId, messageId))
 
             val rotatedIdentityCoordinator = OlmInboundHandoffCoordinator(
                 database = db,
@@ -333,7 +335,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 null,
-                db.messageDao().getMessage("local-user", "alice", messageId),
+                db.messageDao().getMessage("local-user", directChatId, messageId),
             )
 
             assertEquals(
@@ -350,7 +352,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 "retryable handoff plaintext",
-                db.messageDao().getMessage("local-user", "alice", messageId)?.text,
+                db.messageDao().getMessage("local-user", directChatId, messageId)?.text,
             )
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
@@ -422,7 +424,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 "normal handoff plaintext",
-                db.messageDao().getMessage("local-user", "alice", normalMessageId)?.text,
+                db.messageDao().getMessage("local-user", directChatId, normalMessageId)?.text,
             )
 
             // A normal-message mapping failure must also retain the staged
@@ -484,7 +486,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 "normal retry plaintext",
-                db.messageDao().getMessage("local-user", "alice", retryNormalMessageId)?.text,
+                db.messageDao().getMessage("local-user", directChatId, retryNormalMessageId)?.text,
             )
         } finally {
             db.close()
