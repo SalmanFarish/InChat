@@ -180,6 +180,18 @@ fn import_inbound_group_session(
         return Err("Imported Megolm key does not match the expected session ID");
     }
 
+    // A Megolm signing/session identity must never be reused for a
+    // different group, epoch, or sender binding.
+    if state.inbound_group_sessions.values().any(|existing| {
+        existing.session.session_id() == expected_session_id &&
+            (existing.group_id != group_id ||
+                existing.membership_epoch != membership_epoch ||
+                existing.sender_user_id != sender_user_id ||
+                existing.sender_device_id != sender_device_id)
+    }) {
+        return Err("Megolm session ID is already bound to another group epoch or sender");
+    }
+
     let key = inbound_group_session_key(
         group_id,
         membership_epoch,
@@ -2214,6 +2226,7 @@ mod tests {
     use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
     use vodozemac::{Ed25519PublicKey, Ed25519Signature};
     use crate::megolm::{InboundGroupSession, OutboundGroupSession};
+    use zeroize::Zeroize;
 
     #[test]
     fn outbound_group_sessions_are_idempotent_per_epoch_and_rotate_on_membership_change() {
@@ -2346,8 +2359,8 @@ mod tests {
             &session_id,
             &session_key,
         )
-        .unwrap());
-        assert_eq!(state.inbound_group_sessions.len(), 2);
+        .is_err());
+        assert_eq!(state.inbound_group_sessions.len(), 1);
 
         assert!(super::import_inbound_group_session(
             &mut state,
