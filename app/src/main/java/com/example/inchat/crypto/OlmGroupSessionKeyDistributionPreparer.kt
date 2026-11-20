@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -43,18 +44,19 @@ internal class OlmGroupSessionKeyDistributionPreparer(
 ) {
     suspend fun prepare(
         distributionId: String,
-        groupId: String,
-        membershipEpoch: Long,
-        currentMemberUserIds: Set<String>,
+        membership: GroupCryptoMembershipSnapshot,
         megolmSessionId: String,
         sessionKey: String,
         issuedAtMillis: Long,
     ): PreparedOlmGroupKeyDistribution {
+        require(membership.isValid()) {
+            "Authoritative group crypto membership snapshot is invalid"
+        }
+        val groupId = membership.groupId
+        val membershipEpoch = membership.epoch
+        val currentMemberUserIds = membership.memberUserIds
         val senderUserId = directory.authenticatedUserId
         val senderDeviceId = sessions.localDeviceId
-        require(currentMemberUserIds.size in 2..50) {
-            "Current group membership snapshot has an invalid size"
-        }
         require(senderUserId in currentMemberUserIds) {
             "Authenticated sender is not a current member of this group"
         }
