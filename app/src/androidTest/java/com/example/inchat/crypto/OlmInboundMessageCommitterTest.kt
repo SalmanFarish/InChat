@@ -28,6 +28,8 @@ class OlmInboundMessageCommitterTest {
 
             assertTrue(committer.commit(receipt.receiptId, message(), 200L))
             assertNotNull(db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-1"))
+            // Existing ChatRepository observes this plaintext DAO; encrypted content must never enter it.
+            assertEquals(null, db.messageDao().getMessage("local-user", "alice", "message-1"))
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status,
