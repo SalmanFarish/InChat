@@ -308,13 +308,14 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = recipientUserId,
                 ) { authenticatedPayload ->
-                    cachedMessage(authenticatedPayload)
+                    decryptedMessage(authenticatedPayload)
                 },
             )
             assertEquals(
                 clearText,
                 recipientDatabase.encryptedOlmMessageDao()
-                    .getMessage(recipientUserId, conversationId, messageId)?.text,
+                    .getMessage(recipientUserId, conversationId, messageId)
+                    ?.let { EncryptedOlmMessageVault().decrypt(it).text },
             )
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
@@ -409,7 +410,8 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertEquals(
                 clearText,
                 recipientDatabase.encryptedOlmMessageDao()
-                    .getMessage(recipientUserId, conversationId, messageId)?.text,
+                    .getMessage(recipientUserId, conversationId, messageId)
+                    ?.let { EncryptedOlmMessageVault().decrypt(it).text },
             )
 
             // The sender now consumes the regenerated acknowledgement, records
@@ -471,7 +473,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         )
     }
 
-    private fun cachedMessage(payload: OlmAuthenticatedMessagePayload) = EncryptedOlmMessageEntity(
+    private fun decryptedMessage(payload: OlmAuthenticatedMessagePayload) = DecryptedOlmMessage(
         ownerUserId = payload.recipientUserId,
         conversationId = payload.conversationId,
         messageId = payload.messageId,
