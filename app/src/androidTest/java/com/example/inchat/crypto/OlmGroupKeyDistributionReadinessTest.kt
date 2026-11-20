@@ -91,6 +91,7 @@ class OlmGroupKeyDistributionReadinessTest {
         distributionId = "group-key-7",
         groupId = "group-1",
         membershipEpoch = 7L,
+        megolmSessionId = "1234567890abcdef",
         deliveries = listOf(
             keyDelivery("bob-phone", "session-phone"),
             keyDelivery("bob-tablet", "session-tablet"),
@@ -102,6 +103,7 @@ class OlmGroupKeyDistributionReadinessTest {
         messageId = "group-message-1",
         groupId = "group-1",
         membershipEpoch = 7L,
+        megolmSessionId = "1234567890abcdef",
         deliveries = listOf(
             messageDelivery("bob-phone", "session-phone"),
             messageDelivery("bob-tablet", "session-tablet"),
