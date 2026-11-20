@@ -24,5 +24,6 @@ data class EncryptedOlmMessageEntity(
     val recipientUserId: String,
     val recipientDeviceId: String,
     val sentAtMillis: Long,
+    /** Decrypted app-private Room content; Keystore-backed at-rest encryption remains pending. */
     val text: String,
 )
