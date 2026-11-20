@@ -20,12 +20,16 @@ internal enum class OlmInboundCiphertextKind {
          * first wire byte by the native transport (0 = pre-key, 1 = normal).
          * The native parser validates the same discriminator before decryption.
          */
-        fun fromEnvelope(envelope: EncryptedOlmEnvelope): OlmInboundCiphertextKind =
-            when (envelope.ciphertext.firstOrNull()?.toInt()?.and(0xff)) {
+        fun fromEnvelope(envelope: EncryptedOlmEnvelope): OlmInboundCiphertextKind {
+            require(envelope.ciphertext.size >= 2) {
+                "Encrypted Olm message is truncated"
+            }
+            return when (envelope.ciphertext.first().toInt() and 0xff) {
                 0 -> PRE_KEY
                 1 -> NORMAL
                 else -> throw IllegalArgumentException("Encrypted Olm message has an unknown wire type")
             }
+        }
     }
 }
 
