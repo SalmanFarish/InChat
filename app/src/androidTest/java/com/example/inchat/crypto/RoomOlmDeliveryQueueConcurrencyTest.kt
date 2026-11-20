@@ -166,7 +166,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 assertEquals(2, uploadedDeliveryIds.size)
                 uploadedDeliveryIds.forEach { deliveryId ->
                     val persisted = db.olmDeliveryQueueDao().getByDeliveryId(deliveryId)
-                    assertEquals(OlmDeliveryStatus.IN_FLIGHT.name, persisted?.status)
+                    assertEquals(OlmDeliveryStatus.UPLOADED.name, persisted?.status)
                     assertEquals(1, persisted?.attemptCount)
                 }
             } finally {
