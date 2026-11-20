@@ -23,6 +23,18 @@ The ledger is deliberately not connected to Firebase listeners, the existing cha
 
 The isolated inbox receiver now polls the authenticated device inbox, checks that the transport sender-device field matches the sender device embedded in the encrypted envelope, validates each envelope's routing metadata, and registers the ciphertext in the Room receipt ledger on an IO dispatcher. Instrumentation coverage also verifies that mismatched sender metadata is not acknowledged and that a failed remote acknowledgement is retried safely from the already-persisted pending receipt. It deletes the remote item only after the local receipt insert or duplicate check succeeds. A crash after local persistence but before remote deletion is safe: the next poll sees the same pending receipt and retries the acknowledgement. A reused sender/device/message identity with different ciphertext is treated as a conflict and is deliberately not acknowledged. This receiver only stages ciphertext; it does not decrypt, create plaintext messages, or connect to the live chat cache.
 
+The isolated inbox receiver now also has its own `EncryptedOlmInboxWorker`.
+After Firebase restores the account, startup schedules an immediate, network-
+constrained inbox poll and a 15-minute periodic recovery poll for the existing
+local account/device identity. The worker binds its Firebase transport to the
+scheduled account and rechecks that account after asynchronous reads and before
+remote mutations. A stale account or device scope is retired without deleting
+the Room receipt ledger. Reconnection or a later process start therefore
+retries any relay item whose local receipt was stored but whose acknowledgement
+or remote deletion was interrupted. This worker still only stages ciphertext
+and sends the metadata acknowledgement; it does not decrypt, create cached
+plaintext messages, or connect to live chat listeners or the UI.
+
 The durable sender outbox remains at-least-once. Its isolated Firebase Realtime Database transport uploads immutable ciphertext envelopes to per-user, per-device `olmInbox` paths. Rules require authenticated sender and recipient device registrations, enforce create-once / exact-retry semantics, reject changed payloads, restrict reads and deletes to the recipient, and prevent delivery between mutually blocked accounts. The transport does not use `chats/{chatId}/messages`.
 
 An isolated `OlmOutboundDeliveryCoordinator` now joins the fan-out planner, first-message preparer, and durable queue for version-1 direct text messages. It includes every published recipient device and the sender's other published devices, validates all per-device authenticated payloads before attempting any prekey claim, prepares every ciphertext copy before inserting the complete batch, and asks the caller to schedule the account/device worker only after the Room enqueue. Replaying the same message is idempotent: the first stored ciphertext is retained and scheduling is requested again to repair a missed trigger. The schema is still direct-text only; it cannot be used for groups because it does not authenticate a conversation ID.
