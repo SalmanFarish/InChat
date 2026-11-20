@@ -3659,3 +3659,167 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
         _ => std::ptr::null_mut(),
     }
 }
+
+
+/// Stage an authenticated group-message decrypt. The caller must first validate
+/// the outer Olm envelope, SAS trust, membership snapshot and inner routing fields.
+/// The native ratchet advance and plaintext stage are persisted atomically.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativePrepareInboundMegolmDecryption<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+    owner_user_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    message_id: JString<'local>,
+    sender_user_id: JString<'local>,
+    sender_device_id: JString<'local>,
+    session_id: JString<'local>,
+    expected_message_index: jni::sys::jlong,
+    sent_at_millis: jni::sys::jlong,
+    ciphertext: JByteArray<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let owner_user_id: String = match env.get_string(&owner_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let message_id: String = match env.get_string(&message_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_device_id: String = match env.get_string(&sender_device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let session_id: String = match env.get_string(&session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 || expected_message_index < 0
+        || expected_message_index > u32::MAX as jlong || sent_at_millis < 0 {
+        return std::ptr::null_mut();
+    }
+    let mut wire = match read_transfer_array(
+        &mut env,
+        &ciphertext,
+        None,
+        1,
+        crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES,
+    ) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        prepare_inbound_megolm_decryption(
+            &mut state,
+            &receipt_id,
+            &owner_user_id,
+            &group_id,
+            membership_epoch as u64,
+            &message_id,
+            &sender_user_id,
+            &sender_device_id,
+            &session_id,
+            expected_message_index as u32,
+            sent_at_millis as u64,
+            &wire,
+        )?;
+        let pending = state.pending_group_decryptions.get(&receipt_id)
+            .ok_or("Staged Megolm decryption disappeared before persistence")?;
+        let output = pending_megolm_decryption_json(&receipt_id, pending)?;
+        let blob = encode_device_crypto_state(&device_id, &state)?;
+        write_device_state(&mut env, &store, blob)?;
+        Ok::<String, &'static str>(output)
+    }));
+    wire.zeroize();
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        Ok(Err(error)) => env
+            .new_string(format!("INCHAT_CRYPTO_ERROR:{error}"))
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Err(_) => env
+            .new_string("INCHAT_CRYPTO_ERROR:native panic while staging Megolm decryption")
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+    }
+}
+
+/// Return all staged receipt IDs so Kotlin can recover the Room-commit crash window.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeListPendingMegolmDecryptionReceipts<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let receipt_ids: Vec<&String> = state.pending_group_decryptions.keys().collect();
+        serde_json::to_string(&receipt_ids)
+            .map_err(|_| "Could not encode pending Megolm receipt IDs")
+    })) {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Read one already-staged group plaintext for idempotent Room recovery.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeReadPendingMegolmDecryption<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        if !valid_receipt_id(&receipt_id) {
+            return Err("Inbound Megolm receipt ID must be a SHA-256 hex digest");
+        }
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let pending = state.pending_group_decryptions.get(&receipt_id)
+            .ok_or("No pending Megolm decryption exists for this receipt")?;
+        pending_megolm_decryption_json(&receipt_id, pending)
+    })) {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Clear a native staged plaintext only after the matching Room message and
+/// replay record have committed. Repeated calls are intentionally idempotent.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeFinalizeInboundMegolmDecryption<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    receipt_id: JString<'local>,
+) -> jboolean {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let receipt_id: String = match env.get_string(&receipt_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let removed = finalize_pending_megolm_decryption(&mut state, &receipt_id)?;
+        if removed {
+            let blob = encode_device_crypto_state(&device_id, &state)?;
+            write_device_state(&mut env, &store, blob)?;
+        }
+        Ok::<bool, &'static str>(true)
+    })) {
+        Ok(Ok(_)) => JNI_TRUE,
+        _ => JNI_FALSE,
+    }
+}
