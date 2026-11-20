@@ -58,93 +58,34 @@ class InChatFirebaseMessagingService :
     override fun onMessageReceived(
         remoteMessage: RemoteMessage
     ) {
-        val data =
-            remoteMessage.data
-
-        Log.i(
-            "InChatFCM",
-            "Push received: type=" + (data["type"] ?: "unknown") +
-                ", chatId=" + data["chatId"].orEmpty()
+        val presentation = NotificationPayloadPolicy.from(
+            data = remoteMessage.data,
+            fallbackTitle = remoteMessage.notification?.title,
+            fallbackBody = remoteMessage.notification?.body,
         )
 
-        val senderName =
-            data["senderName"]
-                ?.trim()
-                ?.removePrefix("@")
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?: remoteMessage.notification?.title
-                    ?.removePrefix("@")
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
-                ?: "InChat"
+        // Do not log conversation IDs or message content. Encrypted pushes are
+        // intentionally indistinguishable in system-visible notification text.
+        Log.i(
+            "InChatFCM",
+            "Push received: type=" + (remoteMessage.data["type"] ?: "unknown")
+        )
 
-        val messageText =
-            data["message"]
-                ?.trim()
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?: remoteMessage.notification?.body
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
-                ?: "You received a new message"
-
-        val chatId =
-            data["chatId"]
-                ?.trim()
-                .orEmpty()
-
-        val senderId =
-            data["senderId"]
-                ?.trim()
-                .orEmpty()
-
-        val messageId =
-            data["messageId"]
-                ?.trim()
-                .orEmpty()
-
-        val isGroupMessage =
-            data["type"] == NOTIFICATION_TYPE_GROUP
-
-        val groupName =
-            data["groupName"]
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: "Group"
-
-        val notificationTitle =
-            if (isGroupMessage) groupName else "@$senderName"
-
-        val notificationBody =
-            if (isGroupMessage) {
-                "$senderName: $messageText"
-            } else {
-                messageText
-            }
-
-        if (ActiveConversationTracker.shouldSuppressNotification(chatId)) {
+        if (ActiveConversationTracker.shouldSuppressNotification(presentation.chatId)) {
             Log.i("InChatFCM", "Suppressed push because this chat is currently open.")
             return
         }
 
         showNotification(
-            senderName = senderName,
-            notificationTitle = notificationTitle,
-            notificationBody = notificationBody,
-            messageText = messageText,
-            notificationType = if (isGroupMessage) {
-                NOTIFICATION_TYPE_GROUP
-            } else {
-                NOTIFICATION_TYPE_CHAT
-            },
-            chatId = chatId,
-            otherUserId = senderId,
-            messageId = messageId
+            senderName = presentation.senderName,
+            notificationTitle = presentation.title,
+            notificationBody = presentation.body,
+            messageText = presentation.messageText,
+            notificationType = presentation.notificationType,
+            chatId = presentation.chatId,
+            otherUserId = presentation.senderId,
+            messageId = presentation.messageId,
+            includeMessageHistory = presentation.includeMessageHistory,
         )
     }
 
@@ -198,7 +139,8 @@ class InChatFirebaseMessagingService :
         notificationType: String,
         chatId: String,
         otherUserId: String,
-        messageId: String
+        messageId: String,
+        includeMessageHistory: Boolean,
     ) {
         createNotificationChannel()
 
@@ -271,17 +213,7 @@ class InChatFirebaseMessagingService :
                         PendingIntent.FLAG_IMMUTABLE
             )
 
-        val messagingStyle =
-            buildMessagingStyle(
-                chatId = chatId,
-                senderName = senderName,
-                messageText = messageText,
-                messageId = messageId,
-                isGroupMessage = notificationType == NOTIFICATION_TYPE_GROUP,
-                groupName = notificationTitle
-            )
-
-        val notification =
+        val notificationBuilder =
             NotificationCompat
                 .Builder(
                     this,
@@ -296,7 +228,6 @@ class InChatFirebaseMessagingService :
                 .setContentText(
                     notificationBody
                 )
-                .setStyle(messagingStyle)
                 .setPriority(
                     NotificationCompat
                         .PRIORITY_HIGH
@@ -315,7 +246,23 @@ class InChatFirebaseMessagingService :
                     NotificationCompat
                         .VISIBILITY_PRIVATE
                 )
-                .build()
+
+        // Legacy plaintext pushes retain their conversation history. Encrypted
+        // pushes never create MessagingStyle entries or persist message text.
+        if (includeMessageHistory) {
+            notificationBuilder.setStyle(
+                buildMessagingStyle(
+                    chatId = chatId,
+                    senderName = senderName,
+                    messageText = messageText,
+                    messageId = messageId,
+                    isGroupMessage = notificationType == NOTIFICATION_TYPE_GROUP,
+                    groupName = notificationTitle
+                )
+            )
+        }
+
+        val notification = notificationBuilder.build()
 
         try {
 
