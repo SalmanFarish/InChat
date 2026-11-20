@@ -1,5 +1,8 @@
 package com.example.inchat.crypto
 
+import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 import com.google.firebase.auth.FirebaseAuth
@@ -46,6 +49,37 @@ internal class DeviceKeyDirectoryRepository(
             .child(bundle.deviceId)
             .setValue(bundle.toDirectoryMap())
             .await()
+
+        // Login-time token registration may have run before this Olm identity
+        // existed. Refresh the device-specific token mapping as part of
+        // publishing the already-created device; token failure must not undo
+        // a successful public-key publication.
+        registerDeviceScopedFcmToken(uid, bundle.deviceId)
+    }
+
+    private suspend fun registerDeviceScopedFcmToken(uid: String, deviceId: String) {
+        try {
+            val token = FirebaseMessaging.getInstance().token.await()
+            if (
+                token.isBlank() ||
+                token.length > MAX_FCM_TOKEN_LENGTH ||
+                auth.currentUser?.uid != uid
+            ) {
+                return
+            }
+
+            database.reference
+                .child(PRIVATE_USERS_NODE)
+                .child(uid)
+                .child(DEVICE_FCM_TOKENS_NODE)
+                .child(deviceId)
+                .setValue(token)
+                .await()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not register the published device's encrypted push token.", error)
+        }
     }
 
     /**
@@ -332,6 +366,10 @@ internal class DeviceKeyDirectoryRepository(
     )
 
     private companion object {
+        const val TAG = "DeviceKeyDirectory"
+        const val MAX_FCM_TOKEN_LENGTH = 4096
+        const val PRIVATE_USERS_NODE = "privateUsers"
+        const val DEVICE_FCM_TOKENS_NODE = "olmDeviceFcmTokens"
         const val ROOT_NODE = "deviceKeys"
         const val CLAIMS_NODE = "deviceKeyClaims"
         const val SCHEMA_VERSION = 1
