@@ -199,6 +199,6 @@ internal class MegolmSessionRepository(
         const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
         const val MAX_MESSAGE_INDEX = 0xffff_ffffL
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
-        val SESSION_ID = Regex("[A-Za-z0-9_-]{16,128}")
+        val SESSION_ID = Regex("[A-Za-z0-9_+/-]{16,128}={0,2}")
     }
 }
