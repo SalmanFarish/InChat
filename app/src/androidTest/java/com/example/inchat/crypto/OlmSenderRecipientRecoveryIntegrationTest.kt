@@ -33,6 +33,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         val senderDeviceId = "e2e-sender-" + suffix
         val messageId = "e2e-message-" + suffix
         val clearText = "end-to-end recovery plaintext"
+        val sentAtMillis = 1_700_000_000_000L
 
         // This instrumentation installation is the recipient device. The sender
         // uses a separate native store and a different device ID. The outbound
@@ -146,7 +147,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                     senderDeviceId = senderDeviceId,
                     recipientUserId = recipientUserId,
                     messageId = messageId,
-                    sentAtMillis = payload.sentAtMillis,
+                    sentAtMillis = sentAtMillis,
                     text = clearText,
                     recipientDevices = listOf(recipientBundle),
                     senderDevices = listOf(senderBundle),
