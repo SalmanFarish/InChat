@@ -265,7 +265,7 @@ class OlmDeliveryWorkerRunnerTest {
         )
         val stored = store.rows.getValue(interruptedClaim.deliveryId)
         assertEquals(2, stored.attemptCount)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, stored.status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, stored.status)
     }
 
     @Test
@@ -344,7 +344,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(1, recovered.uploaded)
         assertEquals(listOf(original.deliveryId), uploadedIds)
         assertEquals(2, store.rows.getValue(original.deliveryId).attemptCount)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(original.deliveryId).status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, store.rows.getValue(original.deliveryId).status)
     }
 
     @Test
@@ -527,7 +527,7 @@ class OlmDeliveryWorkerRunnerTest {
         )
         assertEquals(listOf(firstRow.deliveryId), relayStoredDeliveryIds)
         assertEquals(2, recoveredRow.attemptCount)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, recoveredRow.status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, recoveredRow.status)
         assertEquals(
             listOf(
                 "read-acks",
@@ -570,7 +570,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(listOf(unmatched), remoteAcknowledgements)
         assertEquals(listOf("read-acks", "upload:still-pending"), events)
         assertEquals(listOf(row.deliveryId), uploadedDeliveryIds)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(row.deliveryId).status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, store.rows.getValue(row.deliveryId).status)
     }
 
     @Test
@@ -627,7 +627,7 @@ class OlmDeliveryWorkerRunnerTest {
         val secondRow = store.rows.values.single { it.messageId == "batch-second" }
         assertEquals(1, firstPass.uploaded)
         assertTrue(firstPass.retryRequired)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, firstRow.status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, firstRow.status)
         assertEquals(OlmDeliveryStatus.QUEUED, secondRow.status)
         assertEquals("relay_upload_failed", secondRow.lastError)
         assertEquals(12_000L, secondRow.nextAttemptAtMillis)
@@ -649,8 +649,8 @@ class OlmDeliveryWorkerRunnerTest {
             attemptedDeliveryIds,
         )
         assertEquals(listOf(firstRow.deliveryId, secondRow.deliveryId), storedDeliveryIds)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, firstRow.status)
-        assertEquals(OlmDeliveryStatus.IN_FLIGHT, recoveredSecondRow.status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, firstRow.status)
+        assertEquals(OlmDeliveryStatus.UPLOADED, recoveredSecondRow.status)
         assertEquals(2, recoveredSecondRow.attemptCount)
         assertEquals(
             listOf(
@@ -802,6 +802,7 @@ class OlmDeliveryWorkerRunnerTest {
             val candidate = rows.values.filter {
                 it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
                     ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.UPLOADED && it.nextAttemptAtMillis <= nowMillis) ||
                         (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
             }.minByOrNull { it.nextAttemptAtMillis } ?: return null
             if (candidate.attemptCount >= maxAttempts) {
