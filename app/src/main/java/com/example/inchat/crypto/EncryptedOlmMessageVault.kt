@@ -210,6 +210,12 @@ internal class EncryptedOlmMessageVault(
         require(message.ownerUserId == message.recipientUserId) {
             "Encrypted message owner must match its recipient account"
         }
+        require(
+            message.senderDeviceId != message.recipientDeviceId ||
+                message.senderUserId != message.recipientUserId
+        ) {
+            "A device cannot send an Olm message to itself"
+        }
         require(message.sentAtMillis >= 0L) { "Message timestamp cannot be negative" }
     }
 
