@@ -267,8 +267,7 @@ internal class EncryptedOlmMessageVault(
             value.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
     private fun validMessageId(value: String): Boolean =
-        value.isNotBlank() && value.length <= MAX_MESSAGE_ID_LENGTH &&
-            value.all { it.isLetterOrDigit() || it in "._:-" }
+        MESSAGE_ID_PATTERN.matches(value)
 
     companion object {
         internal const val DEFAULT_KEY_ALIAS =
@@ -283,10 +282,10 @@ internal class EncryptedOlmMessageVault(
         private const val MAX_TEXT_BYTES = 64 * 1024
         private const val MAX_BASE64_LENGTH = ((MAX_TEXT_BYTES + GCM_TAG_BYTES) * 4 / 3) + 16
         private const val MAX_CONVERSATION_ID_LENGTH = 260
-        private const val MAX_MESSAGE_ID_LENGTH = 256
         private const val AAD_CONTEXT = "InChat encrypted Olm local message"
         private const val BASE64_FLAGS = Base64.URL_SAFE or Base64.NO_WRAP
         private val ACCOUNT_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
+        private val MESSAGE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         private val KEY_ALIAS_PATTERN = Regex(
             "com[.]example[.]inchat[.]crypto[.]encrypted-olm-message[.][A-Za-z0-9_-]{1,64}",
