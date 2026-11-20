@@ -30,11 +30,13 @@ import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
- * Polls this installation's ciphertext-only Olm inbox and durably stages each
- * delivery before publishing its acknowledgement and removing the relay copy.
+ * Polls this installation's ciphertext-only Olm inbox, durably stages deliveries,
+ * then advances only SAS-trusted receipts through authenticated Olm decryption
+ * and atomic local message/receipt persistence.
  *
- * This worker does not decrypt messages, create cached plaintext messages, or
- * connect the isolated receiver to normal chat listeners or UI.
+ * The resulting plaintext remains in the isolated Room cache. This worker does
+ * not connect encrypted messages to Firebase plaintext listeners, chat sending,
+ * notification previews, or the existing chat UI.
  */
 class EncryptedOlmInboxWorker(
     appContext: Context,
