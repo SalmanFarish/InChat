@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 
 /** Durable group replay protection and encrypted-content persistence. */
 @Dao
-internal abstract class EncryptedGroupMessageDao {
+abstract class EncryptedGroupMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     protected abstract suspend fun insertReceiptIgnore(
         receipt: EncryptedGroupMessageReceiptEntity,
