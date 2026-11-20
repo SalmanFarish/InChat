@@ -118,6 +118,24 @@ credential.
   accounts, and the 50-member limit before changing the group.
 - Member updates use Firebase Realtime Database ETags so concurrent add
   requests re-check the current member list rather than exceeding the limit.
+- Each group has a Worker-owned `chats/{groupId}/cryptoMembershipEpoch`.
+  Creation starts at epoch 1. A real member addition, removal, or leave
+  increments it; role-only changes and no-op requests do not.
+- The Worker conditionally PATCHes the group root using its ETag, committing
+  the updated `members` map and the next crypto epoch in the same atomic
+  operation. This prevents concurrent membership changes from sharing an
+  epoch or committing a membership snapshot with a stale epoch. Group-root
+  writes (including message traffic) can contend with this ETag; the Worker
+  retries bounded conflicts and returns 409 rather than accepting a stale
+  mutation.
+- Legacy groups without an epoch use an implicit baseline of 1. Their first
+  actual membership change atomically persists epoch 2 with the new member
+  map. They are not assigned a client-generated epoch.
+- The epoch is metadata, not by itself proof of a member's key receipt. An
+  encrypted group sender must read the current authoritative `members` map
+  and epoch together, distribute a fresh Megolm session key to the trusted
+  devices in that exact snapshot, and avoid sending group ciphertext until
+  that distribution is durably committed.
 - Client-side writes to `chats/{groupId}/members` and direct client group
   creation are denied by `database.rules.json`. Deploy the Worker before
   deploying the updated database rules and Android app.
