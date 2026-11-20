@@ -234,6 +234,17 @@ internal class DeviceKeyDirectoryRepository(
             .removeValue()
             .await()
 
+        // The device is already revoked, so no new encrypted push may be
+        // addressed to it. Remove its private FCM registration as part of the
+        // same idempotent cleanup; never clear the account-wide legacy token.
+        database.reference
+            .child(PRIVATE_USERS_NODE)
+            .child(uid)
+            .child(DEVICE_FCM_TOKENS_NODE)
+            .child(deviceId)
+            .removeValue()
+            .await()
+
         // A failure here is safe: the device is already revoked. A retry is
         // idempotent and completes cleanup of its now-orphaned claim records.
         database.reference
