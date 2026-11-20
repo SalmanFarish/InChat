@@ -84,8 +84,8 @@ class InChatApplication : Application() {
         /*
          * WorkManager jobs survive process death, but a process can be
          * terminated after Room commits a message and before its job is
-         * enqueued. Once Firebase restores the signed-in account, scan that
-         * account's durable Room outbox and recreate any missing jobs.
+         * enqueued. Once Firebase restores the signed-in account, restore the
+         * account/device-scoped encrypted sender and recipient recovery jobs.
          */
         FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
             val ownerUserId = firebaseAuth.currentUser?.uid
@@ -137,7 +137,7 @@ class InChatApplication : Application() {
                                 // preference update. Neither operation deletes Room rows.
                                 cancelRememberedEncryptedDeliveryWork()
                                 EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
-                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
+                                EncryptedOlmInboxWorker.cancelAll(applicationContext)
 
                                 val senderDeviceId = identityLookup.getOrNull()
                                 if (senderDeviceId != null) {
@@ -185,7 +185,7 @@ class InChatApplication : Application() {
                                 if (rememberedOwner != null && rememberedOwner != ownerUserId) {
                                     cancelRememberedEncryptedDeliveryWork()
                                     EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
-                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
+                                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
                                 }
                             }
                         }
