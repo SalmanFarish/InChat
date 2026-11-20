@@ -78,6 +78,25 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             trustVerifier = trustVerifier,
         )
 
+        // Validate the shared distribution metadata and signed key before
+        // consuming any one-time prekey. Every per-device payload below differs
+        // only in its recipient account/device binding.
+        val firstTarget = plan.targets.first()
+        OlmGroupSessionKeyDistributionPayloadCodec.encode(
+            OlmGroupSessionKeyDistributionPayload(
+                distributionId = distributionId,
+                groupId = groupId,
+                membershipEpoch = membershipEpoch,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                recipientUserId = firstTarget.userId,
+                recipientDeviceId = firstTarget.device.deviceId,
+                megolmSessionId = megolmSessionId,
+                sessionKey = sessionKey,
+                issuedAtMillis = issuedAtMillis,
+            )
+        )
+
         val deliveries = plan.targets.map { target ->
             // Trust is checked again immediately before claiming a prekey and
             // creating a session, rather than relying only on the earlier plan.
