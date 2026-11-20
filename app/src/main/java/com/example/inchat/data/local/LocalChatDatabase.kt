@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.inchat.crypto.EncryptedOlmMessageDao
+import com.example.inchat.crypto.EncryptedOlmMessageEntity
 import com.example.inchat.crypto.OlmDeliveryQueueDao
 import com.example.inchat.crypto.OlmDeliveryReceiptDao
 import com.example.inchat.crypto.OlmDeliveryReceiptEntity
@@ -16,8 +18,8 @@ import com.example.inchat.crypto.SasVerificationMessageDao
 import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
-    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class],
-    version = 9,
+    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class],
+    version = 10,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -25,6 +27,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
     abstract fun olmDeliveryQueueDao(): OlmDeliveryQueueDao
     abstract fun olmDeliveryReceiptDao(): OlmDeliveryReceiptDao
     abstract fun olmInboundReceiptDao(): OlmInboundReceiptDao
+    abstract fun encryptedOlmMessageDao(): EncryptedOlmMessageDao
     abstract fun sasVerificationMessageDao(): SasVerificationMessageDao
 
     companion object {
@@ -138,13 +141,39 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS encrypted_olm_messages (
+                        ownerUserId TEXT NOT NULL,
+                        conversationId TEXT NOT NULL,
+                        messageId TEXT NOT NULL,
+                        conversationPeerUserId TEXT NOT NULL,
+                        senderUserId TEXT NOT NULL,
+                        senderDeviceId TEXT NOT NULL,
+                        recipientUserId TEXT NOT NULL,
+                        recipientDeviceId TEXT NOT NULL,
+                        sentAtMillis INTEGER NOT NULL,
+                        text TEXT NOT NULL,
+                        PRIMARY KEY(ownerUserId, conversationId, messageId)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_encrypted_olm_messages_ownerUserId_conversationId_sentAtMillis " +
+                        "ON encrypted_olm_messages(ownerUserId, conversationId, sentAtMillis)"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build().also { INSTANCE = it }
             }
     }
