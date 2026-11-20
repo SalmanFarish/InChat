@@ -26,6 +26,7 @@ internal class OlmDeliveryWorkerRunner(
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxDeliveriesPerRun: Int = DEFAULT_BATCH_SIZE,
     private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
+    private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
 ) {
     init {
         require(senderUserId.matches(USER_ID_PATTERN)) { "Sender user ID has an invalid format" }
@@ -57,18 +58,13 @@ internal class OlmDeliveryWorkerRunner(
             )
 
             try {
+                // The relay write is the durable source of truth. Notify only
+                // the other account's devices; sender-owned secondary devices
+                // recover through their own scheduled inbox poll.
                 transport.upload(delivery, senderDeviceId)
-                queue.markUploaded(
-                    delivery = delivery,
-                    nowMillis = clock().coerceAtLeast(0L),
-                )
-                uploaded++
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Persist bounded backoff in Room before asking WorkManager to retry.
-                // The stable deliveryId makes a retry safe if Firebase stored the
-                // ciphertext but the client did not receive the write completion.
                 withContext(ioDispatcher) {
                     queue.retry(
                         delivery = delivery,
@@ -83,6 +79,36 @@ internal class OlmDeliveryWorkerRunner(
                     retryRequired = true,
                 )
             }
+
+            if (delivery.recipientUserId != senderUserId) {
+                try {
+                    notifyEncryptedRecipient(delivery)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Retain the exact ciphertext for retry if push dispatch
+                    // fails after the relay accepted this immutable delivery.
+                    withContext(ioDispatcher) {
+                        queue.retry(
+                            delivery = delivery,
+                            nowMillis = clock().coerceAtLeast(0L),
+                            errorCode = ENCRYPTED_PUSH_ERROR,
+                        )
+                    }
+                    return OlmDeliveryWorkerRunResult(
+                        uploaded = uploaded,
+                        acknowledged = acknowledgements.removed,
+                        unmatchedAcknowledgements = acknowledgements.unmatched,
+                        retryRequired = true,
+                    )
+                }
+            }
+
+            queue.markUploaded(
+                delivery = delivery,
+                nowMillis = clock().coerceAtLeast(0L),
+            )
+            uploaded++
         }
 
         // Re-run once after a successful batch so a delayed recipient ack can be
@@ -98,6 +124,7 @@ internal class OlmDeliveryWorkerRunner(
     private companion object {
         const val DEFAULT_BATCH_SIZE = 25
         const val RELAY_UPLOAD_ERROR = "relay_upload_failed"
+        const val ENCRYPTED_PUSH_ERROR = "encrypted_push_dispatch_failed"
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     }
