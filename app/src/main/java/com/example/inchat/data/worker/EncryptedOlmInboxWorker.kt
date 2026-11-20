@@ -13,8 +13,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.example.inchat.crypto.DecryptedOlmMessage
 import com.example.inchat.crypto.DeviceIdentityRepository
-import com.example.inchat.crypto.EncryptedOlmMessageEntity
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.OlmCommittedReceiptFinalizer
 import com.example.inchat.crypto.OlmInboundHandoffCoordinator
@@ -142,7 +142,7 @@ class EncryptedOlmInboxWorker(
                         ciphertextKind = kind,
                         localUserId = localUid,
                     ) { payload ->
-                        EncryptedOlmMessageEntity(
+                        DecryptedOlmMessage(
                             ownerUserId = payload.recipientUserId,
                             conversationId = payload.conversationId,
                             messageId = payload.messageId,
