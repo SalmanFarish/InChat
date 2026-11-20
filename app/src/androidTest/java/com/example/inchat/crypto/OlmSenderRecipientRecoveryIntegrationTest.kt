@@ -392,6 +392,10 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             val recoveredSenderQueue = OlmDeliveryQueue(
                 RoomOlmDeliveryQueueStore(senderDatabase, senderDatabase.olmDeliveryQueueDao()),
             )
+            val recoveredAcknowledgementRecorder = RoomOlmDeliveryAcknowledgementRecorder(
+                database = senderDatabase,
+                dao = senderDatabase.olmDeliveryReceiptDao(),
+            )
             assertEquals(
                 envelope,
                 senderDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)?.envelope,
@@ -435,7 +439,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 clock = { 905_000L },
-                recordAcknowledgement = acknowledgementRecorder::record,
+                recordAcknowledgement = recoveredAcknowledgementRecorder::record,
             ).run()
             assertEquals(1, finalSend.acknowledged)
             assertEquals(0, finalSend.uploaded)
