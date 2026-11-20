@@ -8,7 +8,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
 import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
