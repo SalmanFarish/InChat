@@ -35,9 +35,9 @@ import java.util.concurrent.TimeUnit
  * then advances only SAS-trusted receipts through authenticated Olm decryption
  * and atomic local message/receipt persistence.
  *
- * The resulting plaintext remains only in the dedicated encrypted_olm_messages
- * Room table. It never enters cached_messages, which feeds the existing chat UI,
- * and is not connected to plaintext listeners, chat sending, or notifications.
+ * The decrypted text is encrypted with the device Keystore key before its
+ * record is committed to encrypted_olm_messages. It never enters cached_messages,
+ * which feeds the existing chat UI, or the plaintext listeners and notifications.
  */
 class EncryptedOlmInboxWorker(
     appContext: Context,
