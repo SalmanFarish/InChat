@@ -181,9 +181,10 @@ class EncryptedOlmInboxWorker(
                     ", rejected=" + handoffResult.rejected +
                     ", failures=" + handoffResult.failed,
             )
-            // Every successful item is now durable locally. Unacknowledged items
-            // remain in the relay and are picked up by the next constrained pass.
-            Result.success()
+            // Retry promptly when native/Room handoff failed. Trust-deferred and
+            // missing-device receipts remain durable and are revisited by the next
+            // wake-up or periodic pass without keeping this work request in retry.
+            if (handoffResult.failed > 0) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
