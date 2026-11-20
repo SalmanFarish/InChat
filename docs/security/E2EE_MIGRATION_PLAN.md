@@ -35,6 +35,17 @@ or remote deletion was interrupted. This worker still only stages ciphertext
 and sends the metadata acknowledgement; it does not decrypt, create cached
 plaintext messages, or connect to live chat listeners or the UI.
 
+The Olm Firebase transport now separates its Realtime Database operations
+behind `OlmRelayStore`, with the production adapter still using the same
+`olmInbox` and `olmDeliveryAcks` paths. A failure-injection suite exercises a
+relay-accepted upload whose completion is lost, retry of the identical
+immutable ciphertext, failed inbox reads, acknowledgement-write completion
+loss, inbox-delete completion loss, and account changes during directory/inbox
+reads. Relay records are parsed with exact field allowlists before they can
+enter the receipt or acknowledgement pipeline. These tests do not contact the
+Firebase Auth emulator and do not replace the separate physical-device /
+Firebase reconnect validation.
+
 The durable sender outbox remains at-least-once. Its isolated Firebase Realtime Database transport uploads immutable ciphertext envelopes to per-user, per-device `olmInbox` paths. Rules require authenticated sender and recipient device registrations, enforce create-once / exact-retry semantics, reject changed payloads, restrict reads and deletes to the recipient, and prevent delivery between mutually blocked accounts. The transport does not use `chats/{chatId}/messages`.
 
 An isolated `OlmOutboundDeliveryCoordinator` now joins the fan-out planner, first-message preparer, and durable queue for version-1 direct text messages. It includes every published recipient device and the sender's other published devices, validates all per-device authenticated payloads before attempting any prekey claim, prepares every ciphertext copy before inserting the complete batch, and asks the caller to schedule the account/device worker only after the Room enqueue. Replaying the same message is idempotent: the first stored ciphertext is retained and scheduling is requested again to repair a missed trigger. The schema is still direct-text only; it cannot be used for groups because it does not authenticate a conversation ID.
