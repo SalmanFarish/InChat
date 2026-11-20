@@ -3043,6 +3043,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions,
             pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3959,7 +3960,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
-        let encrypted = prepare_outbound_megolm_message(
+        prepare_outbound_megolm_message(
             &mut state,
             &sender_user_id,
             &group_id,
@@ -4261,6 +4262,7 @@ mod pending_megolm_receive_tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
             pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
