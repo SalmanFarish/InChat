@@ -19,6 +19,7 @@ import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDeliveryWorkerRunner
 import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
+import com.example.inchat.crypto.RoomOlmDeliveryAcknowledgementRecorder
 import com.example.inchat.data.local.LocalChatDatabase
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
@@ -110,6 +111,10 @@ class EncryptedOlmDeliveryWorker(
                 transport = transport,
                 senderUserId = ownerUserId,
                 senderDeviceId = senderDeviceId,
+                recordAcknowledgement = RoomOlmDeliveryAcknowledgementRecorder(
+                    database = database,
+                    dao = database.olmDeliveryReceiptDao(),
+                )::record,
             ).run()
 
             Log.i(
