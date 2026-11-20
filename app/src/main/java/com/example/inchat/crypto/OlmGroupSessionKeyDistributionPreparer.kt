@@ -25,6 +25,7 @@ internal data class PreparedOlmGroupKeyDistribution(
     val distributionId: String,
     val groupId: String,
     val membershipEpoch: Long,
+    val megolmSessionId: String,
     val deliveries: List<PreparedOlmGroupKeyDelivery>,
     val skippedUntrustedDeviceCount: Int,
 )
@@ -168,6 +169,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             distributionId = distributionId,
             groupId = groupId,
             membershipEpoch = membershipEpoch,
+            megolmSessionId = megolmSessionId,
             deliveries = deliveries,
             skippedUntrustedDeviceCount = plan.skippedUntrustedDeviceCount,
         )
