@@ -614,6 +614,63 @@ const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alic
   }),
 });
 
+test("sender and recipient complete an encrypted Olm relay lifecycle, including an exact resend", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const deliveryId = "5".repeat(64);
+  const inboxPath = `olmInbox/bob/device-bob-1/${deliveryId}`;
+  const acknowledgementPath = `olmDeliveryAcks/alice/device-alice-1/${deliveryId}`;
+  const inboxRecord = encryptedInboxRecord();
+  const acknowledgement = {
+    recipientUid: "bob",
+    recipientDeviceId: "device-bob-1",
+    messageId: "message-encrypted-1",
+    acknowledgedAt: 1_700_000_000_000,
+  };
+
+  // Sender uploads ciphertext to the recipient-device-scoped inbox.
+  await assertSucceeds(set(ref(aliceDb, inboxPath), inboxRecord));
+  await assertFails(get(ref(aliceDb, inboxPath)));
+  await assertFails(get(ref(malloryDb, inboxPath)));
+
+  // Only the addressed recipient can read the inbox and publish its ack.
+  const firstInboxRead = await assertSucceeds(get(ref(bobDb, inboxPath)));
+  assert.deepEqual(firstInboxRead.val(), inboxRecord);
+  await assertSucceeds(set(ref(bobDb, acknowledgementPath), acknowledgement));
+
+  // Recipient removes the inbox only after the acknowledgement write.
+  await assertSucceeds(remove(ref(bobDb, inboxPath)));
+  await assertFails(get(ref(bobDb, acknowledgementPath)));
+  await assertFails(remove(ref(bobDb, acknowledgementPath)));
+
+  // Sender consumes the metadata-only acknowledgement and deletes it.
+  const firstAcknowledgementRead = await assertSucceeds(
+    get(ref(aliceDb, acknowledgementPath)),
+  );
+  assert.deepEqual(firstAcknowledgementRead.val(), acknowledgement);
+  await assertSucceeds(remove(ref(aliceDb, acknowledgementPath)));
+  await assertFails(get(ref(aliceDb, acknowledgementPath)));
+
+  // Model sender recovery after its ack was consumed but its local outbox row
+  // was not removed: it must be allowed to resend the exact immutable envelope
+  // using the same deterministic delivery ID.
+  await assertSucceeds(set(ref(aliceDb, inboxPath), inboxRecord));
+  const resentInboxRead = await assertSucceeds(get(ref(bobDb, inboxPath)));
+  assert.deepEqual(resentInboxRead.val(), inboxRecord);
+  await assertSucceeds(set(ref(bobDb, acknowledgementPath), acknowledgement));
+  await assertSucceeds(remove(ref(bobDb, inboxPath)));
+  const resentAcknowledgementRead = await assertSucceeds(
+    get(ref(aliceDb, acknowledgementPath)),
+  );
+  assert.deepEqual(resentAcknowledgementRead.val(), acknowledgement);
+  await assertSucceeds(remove(ref(aliceDb, acknowledgementPath)));
+
+  // A different account never gains access during either delivery attempt.
+  await assertFails(get(ref(malloryDb, inboxPath)));
+  await assertFails(get(ref(malloryDb, acknowledgementPath)));
+});
+
 test("only the addressed recipient device can acknowledge an existing encrypted delivery", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
