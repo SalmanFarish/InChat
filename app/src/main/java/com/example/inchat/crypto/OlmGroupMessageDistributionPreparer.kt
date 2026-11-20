@@ -36,12 +36,21 @@ internal data class PreparedOlmGroupMessageDistribution(
  * network submission, and the caller must re-check membership epoch before
  * treating the group send as complete.
  */
+internal fun interface OlmGroupMessageDistributionPreparing {
+    suspend fun prepare(
+        membership: GroupCryptoMembershipSnapshot,
+        messageId: String,
+        encryptedMessage: EncryptedMegolmMessage,
+        sentAtMillis: Long,
+    ): PreparedOlmGroupMessageDistribution
+}
+
 internal class OlmGroupMessageDistributionPreparer(
     private val directory: OlmOutboundKeyDirectory,
     private val sessions: OlmGroupMessageOutboundSessionRepository,
     private val trustVerifier: OlmDeviceTrustVerifier,
-) {
-    suspend fun prepare(
+) : OlmGroupMessageDistributionPreparing {
+    override suspend fun prepare(
         membership: GroupCryptoMembershipSnapshot,
         messageId: String,
         encryptedMessage: EncryptedMegolmMessage,
