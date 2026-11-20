@@ -178,8 +178,30 @@ internal object NativeCryptoBridge {
         groupId: String,
         membershipEpoch: Long,
         senderUserId: String,
+        messageId: String,
+        sentAtMillis: Long,
         plaintext: String,
     ): String?
+
+    /** Enumerate staged sender ciphertexts that have not yet been committed to Room. */
+    external fun nativeListPendingOutboundMegolmMessageIds(
+        store: CryptoStateStore,
+        deviceId: String,
+    ): String?
+
+    /** Read the exact ciphertext already staged with the advanced sender ratchet. */
+    external fun nativeReadPendingOutboundMegolmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        messageId: String,
+    ): String?
+
+    /** Remove the pending sender stage only after every Olm delivery row is durable. */
+    external fun nativeFinalizeOutboundMegolmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        messageId: String,
+    ): Boolean
 
     /**
      * Decrypt an authenticated group ciphertext, atomically persisting the
