@@ -161,8 +161,14 @@ internal class MegolmSessionRepository(
         require(ownerUid in membership.memberUserIds) {
             "Authenticated account is not a current group member"
         }
-        require(plaintext.isNotEmpty() && plaintext.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
-            "Group plaintext is empty or exceeds the 64 KiB limit"
+        require(plaintext.isNotEmpty()) { "Group plaintext is empty" }
+        val plaintextBytes = plaintext.toByteArray(Charsets.UTF_8)
+        try {
+            require(plaintextBytes.size <= MAX_PLAINTEXT_BYTES) {
+                "Group plaintext exceeds the 64 KiB limit"
+            }
+        } finally {
+            plaintextBytes.fill(0)
         }
         val encoded = withNativeState { store, deviceId ->
             NativeCryptoBridge.nativeEncryptOutboundMegolmMessage(
@@ -193,7 +199,7 @@ internal class MegolmSessionRepository(
 
     private companion object {
         const val MAX_SESSION_ID_LENGTH = 128
-        const val MIN_SESSION_KEY_BYTES = 16
+        const val MIN_SESSION_KEY_BYTES = 32
         const val MAX_SESSION_KEY_BYTES = 1024
         const val MAX_PLAINTEXT_BYTES = 64 * 1024
         const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
