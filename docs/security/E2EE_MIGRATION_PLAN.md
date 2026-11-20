@@ -80,7 +80,7 @@ to the legacy account-level FCM token. Per-account and per-IP Worker rate
 limits apply, and ETag-guarded dispatch receipts suppress duplicate sends and
 protect token cleanup from deleting a concurrently rotated token.
 
-FCM receives a **data-only** message containing only `type=encrypted_olm` and
+FCM receives a **normal-priority data-only** message containing only `type=encrypted_olm` and
 the deterministic `deliveryId`. No FCM `notification` object, chat ID,
 sender display name, group name, message text, or decrypted preview is sent.
 The Android FCM service accepts only this narrow signal and schedules an
