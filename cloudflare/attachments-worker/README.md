@@ -181,10 +181,15 @@ topics. The Worker checks membership before changing topic subscriptions.
   Android uses the validated delivery reference only to wake its existing
   encrypted inbox poller; the encrypted authenticated payload remains the
   source of the conversation route.
-- An ETag-guarded `olmPushDispatch` receipt suppresses duplicate sends and
-  allows failed sends to be retried. Unregistered device tokens are removed
-  only when the stored token still equals the token FCM rejected, protecting a
-  concurrently rotated token.
+- An ETag-guarded `olmPushDispatch` receipt prevents concurrent claims
+  and suppresses retries after a successful/unregistered result has been
+  recorded. FCM delivery and the RTDB receipt cannot be committed atomically:
+  a network failure after FCM accepts a push but before the receipt is saved
+  can cause a duplicate wake-up on retry. This is intentionally at-least-once;
+  the receiver coalesces inbox work and deduplicates the ciphertext by its
+  stable delivery ID. Unregistered device tokens are removed only when the
+  stored token still equals the token FCM rejected, protecting a concurrently
+  rotated token.
 - Publishing a verified Olm device bundle also best-effort refreshes its
   `olmDeviceFcmTokens/{deviceId}` registration. This covers installations
   where login-time token registration happened before the local Olm identity
