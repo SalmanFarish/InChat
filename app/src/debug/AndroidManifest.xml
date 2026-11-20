@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Firebase Auth and Realtime Database emulators use local HTTP endpoints.
+         Keep this exception in the debug source set; release builds remain cleartext-disabled. -->
+    <application
+        android:usesCleartextTraffic="true" />
+</manifest>
