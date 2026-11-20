@@ -395,3 +395,24 @@ the Realtime Database Emulator. It does not start or contact the Firebase Auth
 emulator, use real Firebase accounts, access production data, deploy rules, or
 require a paid Firebase plan. It verifies database authorization and record
 lifecycle, not Android SDK connectivity or real-network behavior.
+
+
+## Android Olm Realtime Database adapter emulator integration
+
+`FirebaseOlmRelayStoreEmulatorTest` now exercises the production
+`FirebaseOlmEnvelopeTransport` and `FirebaseOlmRelayStore` through the Android
+Firebase SDK against a dedicated `demo-inchat-olm-relay` Database Emulator.
+It verifies offline queued-upload recovery after reconnect, ciphertext-only
+inbox serialization and parsing, recipient acknowledgement with a resolved
+server timestamp, and inbox/ack removal.
+
+This test injects synthetic transport identities and never initializes
+FirebaseAuth or the Auth emulator. Its separate emulator configuration loads
+a narrowly scoped test rules file for only `olmInbox` and
+`olmDeliveryAcks`; that rules file is not referenced by the normal Firebase
+configuration. Consequently, this Android adapter test verifies SDK wiring and
+transport serialization, not production authorization. The independent
+Realtime Database rules suite continues to verify authenticated ownership,
+recipient-only inbox access, sender-only acknowledgement access, and immutable
+exact retries. Neither suite contacts production Firebase or changes plaintext
+chat paths, local account identities, or published prekeys.
