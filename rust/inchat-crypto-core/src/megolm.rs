@@ -262,7 +262,8 @@ mod tests {
     #[test]
     fn outbound_pickle_restores_sender_ratchet_and_inbound_can_continue() {
         let mut sender = OutboundGroupSession::new();
-        let mut recipient = InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
+        let mut recipient =
+            InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
         let first = sender.encrypt(b"before sender restart").unwrap();
         assert_eq!(
             recipient.decrypt(&first.ciphertext).unwrap().0,
