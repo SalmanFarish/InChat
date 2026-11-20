@@ -2219,7 +2219,6 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeV
 
 #[cfg(test)]
 mod tests {
-    use zeroize::Zeroize;
     use super::{
         decode_device_account_state, encode_device_account_state, public_device_key_bundle,
         signed_key_payload, valid_device_id, SIGNATURE_CONTEXT,
@@ -2227,7 +2226,6 @@ mod tests {
     use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
     use vodozemac::{Ed25519PublicKey, Ed25519Signature};
     use crate::megolm::{InboundGroupSession, OutboundGroupSession};
-    use zeroize::Zeroize;
 
     #[test]
     fn outbound_group_sessions_are_idempotent_per_epoch_and_rotate_on_membership_change() {
