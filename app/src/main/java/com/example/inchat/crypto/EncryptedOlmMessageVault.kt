@@ -35,6 +35,9 @@ internal class EncryptedOlmMessageVault(
     fun encrypt(message: DecryptedOlmMessage): EncryptedOlmMessageEntity {
         validateMessageMetadata(message)
         val plaintext = message.text.toByteArray(StandardCharsets.UTF_8)
+        require(message.text.isNotEmpty()) {
+            "Encrypted Olm message text cannot be empty"
+        }
         require(plaintext.size <= MAX_TEXT_BYTES) {
             "Encrypted Olm message text exceeds the storage limit"
         }
@@ -185,7 +188,6 @@ internal class EncryptedOlmMessageVault(
             "Encrypted message owner must match its recipient account"
         }
         require(message.sentAtMillis >= 0L) { "Message timestamp cannot be negative" }
-        require(message.text.isNotEmpty()) { "Encrypted Olm message text cannot be empty" }
     }
 
     private fun EncryptedOlmMessageEntity.toMetadata() = DecryptedOlmMessage(
