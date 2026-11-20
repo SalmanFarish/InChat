@@ -31,4 +31,5 @@ enum class OlmInboundReceiptStatus {
     WAITING_FOR_DEVICE,
     PROCESSED,
     FINALIZED,
+    REJECTED,
 }
