@@ -140,9 +140,10 @@ fn encode_device_crypto_state(
         }
         let session_id = stored.session.session_id();
         let mut pickle = stored.session.serialize_for_encrypted_storage()?;
-        let pickle_value = serde_json::from_slice(&pickle)
-            .map_err(|_| "Outbound Megolm pickle could not be encoded")?;
+        let pickle_result = serde_json::from_slice::<Value>(&pickle);
         pickle.zeroize();
+        let pickle_value =
+            pickle_result.map_err(|_| "Outbound Megolm pickle could not be encoded")?;
         outbound_group_sessions.insert(
             group_id.clone(),
             json!({
@@ -173,9 +174,10 @@ fn encode_device_crypto_state(
             return Err("Saved inbound Megolm session key does not match its metadata");
         }
         let mut pickle = stored.session.serialize_for_encrypted_storage()?;
-        let pickle_value = serde_json::from_slice(&pickle)
-            .map_err(|_| "Inbound Megolm pickle could not be encoded")?;
+        let pickle_result = serde_json::from_slice::<Value>(&pickle);
         pickle.zeroize();
+        let pickle_value =
+            pickle_result.map_err(|_| "Inbound Megolm pickle could not be encoded")?;
         inbound_group_sessions.insert(
             key.clone(),
             json!({
