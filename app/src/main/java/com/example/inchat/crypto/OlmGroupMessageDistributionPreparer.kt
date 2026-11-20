@@ -25,6 +25,7 @@ internal data class PreparedOlmGroupMessageDistribution(
     val messageId: String,
     val groupId: String,
     val membershipEpoch: Long,
+    val megolmSessionId: String,
     val deliveries: List<PreparedOlmGroupMessageDelivery>,
     val skippedUntrustedDeviceCount: Int,
 )
@@ -139,6 +140,7 @@ internal class OlmGroupMessageDistributionPreparer(
             messageId = messageId,
             groupId = membership.groupId,
             membershipEpoch = membership.epoch,
+            megolmSessionId = encryptedMessage.sessionId,
             deliveries = deliveries,
             skippedUntrustedDeviceCount = plan.skippedUntrustedDeviceCount,
         )
