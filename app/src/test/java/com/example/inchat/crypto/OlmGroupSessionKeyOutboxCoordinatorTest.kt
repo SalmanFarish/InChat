@@ -68,6 +68,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         distributionId = "group-key-7",
         groupId = "group-1",
         membershipEpoch = 7L,
+        megolmSessionId = "1234567890abcdef",
         deliveries = listOf(
             delivery("alice", "alice-tablet", "session-tablet"),
             delivery("bob", "bob-phone", "session-bob"),
