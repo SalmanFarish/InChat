@@ -3,6 +3,7 @@ package com.example.inchat.data.repository
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -200,6 +201,52 @@ class CloudflareNotificationRepository {
             body = body
         ).map { response ->
             response.optString("messageId").takeIf { it.isNotBlank() }
+        }
+    }
+
+    /**
+     * Initializes or repairs the Worker-owned E2EE membership snapshot for a
+     * legacy group. The Worker verifies that this signed-in account is still a
+     * current member and conditionally binds the complete member map to one
+     * monotonically increasing epoch.
+     */
+    suspend fun ensureGroupCryptoMembershipSnapshot(
+        chatId: String
+    ): Result<GroupCryptoMembershipSnapshot> {
+        if (chatId.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException("Invalid group crypto membership reference.")
+            )
+        }
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.failure(
+                IllegalStateException("The group crypto membership service is not configured.")
+            )
+        }
+
+        return post(
+            path = "/groups/crypto-membership",
+            body = JSONObject().put("chatId", chatId)
+        ).map { response ->
+            val epoch = response.optLong("epoch", 0L)
+            val membersJson = response.optJSONObject("members")
+                ?: throw IllegalStateException("Worker returned no group membership map.")
+            val members = mutableMapOf<String, String>()
+            val keys = membersJson.keys()
+            while (keys.hasNext()) {
+                val uid = keys.next()
+                val role = membersJson.optString(uid)
+                members[uid] = role
+            }
+            val snapshot = GroupCryptoMembershipSnapshot(
+                groupId = response.optString("chatId", chatId),
+                epoch = epoch,
+                members = members
+            )
+            if (!snapshot.isValid()) {
+                throw IllegalStateException("Worker returned an invalid group crypto membership snapshot.")
+            }
+            snapshot
         }
     }
 
