@@ -1,0 +1,14 @@
+{
+  "database": {
+    "rules": "tests/database-rules/olm-relay-emulator.rules.json"
+  },
+  "emulators": {
+    "database": {
+      "port": 9000
+    },
+    "ui": {
+      "enabled": false
+    },
+    "singleProjectMode": true
+  }
+}
