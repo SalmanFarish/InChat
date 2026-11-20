@@ -56,7 +56,7 @@ internal class EncryptedOlmMessageRepository(
     private companion object {
         const val MAX_CONVERSATION_ID_LENGTH = 260
         val ACCOUNT_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
-        val MESSAGE_ID_PATTERN = Regex("[A-Za-z0-9._:-]{1,256}")
+        val MESSAGE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val CONVERSATION_ID_PATTERN = Regex("[A-Za-z0-9_-]{3,260}")
     }
 }
