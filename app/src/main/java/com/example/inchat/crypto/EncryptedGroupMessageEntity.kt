@@ -9,7 +9,7 @@ import androidx.room.Index
     primaryKeys = ["ownerUserId", "groupId", "messageId"],
     indices = [Index(value = ["ownerUserId", "groupId", "sentAtMillis"])],
 )
-internal data class EncryptedGroupMessageEntity(
+data class EncryptedGroupMessageEntity(
     val ownerUserId: String,
     val groupId: String,
     val messageId: String,
@@ -36,7 +36,7 @@ internal data class EncryptedGroupMessageEntity(
         Index(value = ["ownerUserId", "groupId", "receivedAtMillis"]),
     ],
 )
-internal data class EncryptedGroupMessageReceiptEntity(
+data class EncryptedGroupMessageReceiptEntity(
     val ownerUserId: String,
     val groupId: String,
     val senderUserId: String,
