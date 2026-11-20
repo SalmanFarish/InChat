@@ -73,9 +73,12 @@ internal class OlmInboundHandoffCoordinator(
             }
 
             if (receipt.status == OlmInboundReceiptStatus.PROCESSED.name) {
-                check(sessionRepository.finalizeInboundDecryption(receiptId)) {
+                check(finalizeCommittedReceipt(receiptId, receipt.status)) {
                     "Could not finalize previously committed inbound plaintext"
                 }
+                return@withContext OlmInboundHandoffResult.ALREADY_COMMITTED
+            }
+            if (receipt.status == OlmInboundReceiptStatus.FINALIZED.name) {
                 return@withContext OlmInboundHandoffResult.ALREADY_COMMITTED
             }
             check(receipt.status == OlmInboundReceiptStatus.PENDING.name) {
@@ -151,11 +154,52 @@ internal class OlmInboundHandoffCoordinator(
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
                 "Inbound message and receipt were not committed"
             }
-            check(sessionRepository.finalizeInboundDecryption(receiptId)) {
+            check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
                 "Message committed, but native plaintext staging could not be finalized; retry safely"
             }
             OlmInboundHandoffResult.COMMITTED
         }
+    }
+
+    /**
+     * Recover the narrow crash window after the Room transaction marked a receipt
+     * PROCESSED but before native staged plaintext was finalized. Native finalize
+     * is idempotent, so retrying after either side commits is safe.
+     */
+    suspend fun finalizePreviouslyCommitted(
+        receiptId: String,
+        localUserId: String,
+    ): Boolean = processingMutex.withLock {
+        withContext(ioDispatcher) {
+            require(RECEIPT_ID_PATTERN.matches(receiptId)) {
+                "Inbound receipt ID must be a SHA-256 hex digest"
+            }
+            require(localUserId == authenticatedLocalUserId()) {
+                "Inbound recipient account does not match the authenticated local account"
+            }
+            val receipt = requireNotNull(receiptDao.getByReceiptId(receiptId)) {
+                "Inbound receipt does not exist"
+            }
+            require(receipt.recipientDeviceId == sessionRepository.localDeviceId) {
+                "Inbound receipt is addressed to a different local device"
+            }
+            finalizeCommittedReceipt(receiptId, receipt.status)
+        }
+    }
+
+    private fun finalizeCommittedReceipt(receiptId: String, status: String): Boolean {
+        if (status == OlmInboundReceiptStatus.FINALIZED.name) return true
+        check(status == OlmInboundReceiptStatus.PROCESSED.name) {
+            "Only a committed inbound receipt can be finalized"
+        }
+        check(sessionRepository.finalizeInboundDecryption(receiptId)) {
+            "Could not finalize committed inbound plaintext"
+        }
+        val marked = receiptDao.markFinalized(receiptId)
+        check(marked == 1 || receiptDao.getByReceiptId(receiptId)?.status == OlmInboundReceiptStatus.FINALIZED.name) {
+            "Native plaintext was finalized, but the durable receipt status was not updated"
+        }
+        return true
     }
 
     private companion object {
