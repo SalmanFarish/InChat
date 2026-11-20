@@ -56,6 +56,7 @@ internal class OlmInboundHandoffCoordinator(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
     private val groupMessageHandoff: OlmInboundGroupMessageHandoff? = null,
+    private val groupSessionKeyHandoff: OlmInboundGroupSessionKeyHandoff? = null,
     private val megolmSessionRepository: MegolmSessionRepository? = null,
 ) {
     private val committer = OlmInboundMessageCommitter(database, encryptedMessageDao, receiptDao)
@@ -145,6 +146,31 @@ internal class OlmInboundHandoffCoordinator(
             // The outer Olm envelope and SAS-trusted sender device are already
             // authenticated. Route the typed group payload only after this point,
             // before attempting the strict direct-message schema decoder.
+            if (isGroupSessionKeyPayload(staged.plaintext)) {
+                val keyHandoff = requireNotNull(groupSessionKeyHandoff) {
+                    "Inbound Megolm key-distribution handling is not configured"
+                }
+                check(megolmSessionRepository != null) {
+                    "Inbound Megolm session repository is not configured"
+                }
+                val imported = keyHandoff.process(
+                    receipt = receipt,
+                    remoteDevice = remoteDevice,
+                    remoteDeviceUserId = remoteDeviceUserId,
+                    localUserId = localUserId,
+                    authenticatedOlmPlaintext = staged.plaintext,
+                )
+                markOuterReceiptProcessed(receiptId)
+                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
+                    "Megolm key imported, but its authenticated Olm receipt could not be finalized"
+                }
+                return@withContext if (imported) {
+                    OlmInboundHandoffResult.COMMITTED
+                } else {
+                    OlmInboundHandoffResult.ALREADY_COMMITTED
+                }
+            }
+
             if (isGroupMessagePayload(staged.plaintext)) {
                 val groupHandoff = requireNotNull(groupMessageHandoff) {
                     "Inbound Megolm group-message handling is not configured"
@@ -159,19 +185,7 @@ internal class OlmInboundHandoffCoordinator(
                     localUserId = localUserId,
                     authenticatedOlmPlaintext = staged.plaintext,
                 )
-                val marked = receiptDao.markProcessed(
-                    receiptId,
-                    clock().coerceAtLeast(0L),
-                )
-                check(
-                    marked == 1 ||
-                        receiptDao.getByReceiptId(receiptId)?.status in setOf(
-                            OlmInboundReceiptStatus.PROCESSED.name,
-                            OlmInboundReceiptStatus.FINALIZED.name,
-                        )
-                ) {
-                    "Encrypted group message committed, but its Olm receipt was not marked processed"
-                }
+                markOuterReceiptProcessed(receiptId)
                 check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
                     "Group message committed, but native receive stages could not be finalized; retry safely"
                 }
@@ -277,6 +291,28 @@ internal class OlmInboundHandoffCoordinator(
             "Native plaintext was finalized, but the durable receipt status was not updated"
         }
         return true
+    }
+
+    private fun markOuterReceiptProcessed(receiptId: String) {
+        val marked = receiptDao.markProcessed(
+            receiptId,
+            clock().coerceAtLeast(0L),
+        )
+        check(
+            marked == 1 ||
+                receiptDao.getByReceiptId(receiptId)?.status in setOf(
+                    OlmInboundReceiptStatus.PROCESSED.name,
+                    OlmInboundReceiptStatus.FINALIZED.name,
+                )
+        ) {
+            "Authenticated group control/message committed, but its Olm receipt was not marked processed"
+        }
+    }
+
+    private fun isGroupSessionKeyPayload(plaintext: String): Boolean = try {
+        JSONObject(plaintext).opt("messageType") == "group_session_key"
+    } catch (_: JSONException) {
+        false
     }
 
     private fun isGroupMessagePayload(plaintext: String): Boolean = try {
