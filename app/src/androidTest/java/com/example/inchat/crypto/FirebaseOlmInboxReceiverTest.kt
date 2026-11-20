@@ -90,6 +90,49 @@ class FirebaseOlmInboxReceiverTest {
     }
 
     @Test
+    fun rejectedDuplicateIsAcknowledgedAndRemovedWithoutReenteringTheProcessingQueue() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-rejected-duplicate-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val messageId = "rejected-duplicate-message"
+            val encoded = envelope(1)
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", messageId, encoded, 200L),
+            )
+            val receiptId = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("alice\u0000sender-device\u0000$messageId\u0000receiver-device".toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            assertEquals(1, db.olmInboundReceiptDao().markRejected(receiptId))
+
+            val item = FirebaseOlmInboxItem(
+                "9".repeat(64), "alice", "sender-device", messageId, encoded,
+            )
+            val transport = FakeTransport(mutableListOf(item))
+            val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device")
+
+            val result = receiver.receivePending()
+
+            assertEquals(1, result.rejected)
+            assertEquals(0, result.conflicts)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(listOf(item.deliveryId), transport.removedDeliveryIds)
+            assertTrue(transport.items.isEmpty())
+            assertEquals(
+                OlmInboundRegistration.DUPLICATE_REJECTED,
+                ledger.register("alice", messageId, encoded, 201L),
+            )
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun failedAcknowledgementWriteKeepsInboxCopyUntilRetrySucceeds() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbox-ack-write-retry-test.db"
