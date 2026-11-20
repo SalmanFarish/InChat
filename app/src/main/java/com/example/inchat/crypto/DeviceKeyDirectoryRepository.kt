@@ -19,8 +19,9 @@ import kotlin.coroutines.resumeWithException
  * Database. Firebase is an untrusted directory/transport: callers must verify
  * the Ed25519 signatures before using any returned key to establish a session.
  *
- * This repository deliberately does not create sessions, consume one-time keys,
- * or connect itself to normal app startup and messaging.
+ * This repository deliberately does not create sessions or consume one-time
+ * keys as a side effect of ordinary chat messaging. Device publication may
+ * refresh only the matching private FCM token registration.
  */
 internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
