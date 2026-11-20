@@ -152,7 +152,7 @@ internal class OlmInboundHandoffCoordinator(
                 check(megolmSessionRepository != null) {
                     "Inbound Megolm session finalizer is not configured"
                 }
-                groupHandoff.process(
+                val inserted = groupHandoff.process(
                     receipt = receipt,
                     remoteDevice = remoteDevice,
                     remoteDeviceUserId = remoteDeviceUserId,
@@ -175,7 +175,11 @@ internal class OlmInboundHandoffCoordinator(
                 check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
                     "Group message committed, but native receive stages could not be finalized; retry safely"
                 }
-                return@withContext OlmInboundHandoffResult.COMMITTED
+                return@withContext if (inserted) {
+                    OlmInboundHandoffResult.COMMITTED
+                } else {
+                    OlmInboundHandoffResult.ALREADY_COMMITTED
+                }
             }
 
             val payload = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
