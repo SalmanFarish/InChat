@@ -148,6 +148,29 @@ test("sends one minimal data-only FCM wake-up to the verified recipient device",
   assert.equal(receipt.notificationSent, true);
 });
 
+test("accepts canonical padded Base64URL ciphertext from Android", async () => {
+  const state = fixture({
+    relayRecord: {
+      senderUid: "alice",
+      senderDeviceId: "alice-device",
+      messageId: "message-123",
+      envelope: JSON.stringify({
+        encryptionVersion: 1,
+        algorithm: "olm",
+        senderDeviceId: "alice-device",
+        recipientDeviceId: "bob-device",
+        sessionId: "session-padded",
+        ciphertext: "AQI=",
+      }),
+    },
+  });
+  const response = await state.dispatch();
+
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
+});
+
 test("an exact retry does not send a second FCM wake-up", async () => {
   const state = fixture();
   const first = await state.dispatch();
