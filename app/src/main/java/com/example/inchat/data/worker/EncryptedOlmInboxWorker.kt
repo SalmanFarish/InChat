@@ -14,6 +14,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.DeviceKeyDirectoryRepository
+import com.example.inchat.crypto.OlmCommittedReceiptFinalizer
+import com.example.inchat.crypto.OlmInboundHandoffCoordinator
+import com.example.inchat.crypto.OlmInboundReceiptHandoff
+import com.example.inchat.crypto.OlmPendingReceiptProcessor
+import com.example.inchat.crypto.OlmSessionRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.FirebaseOlmInboxReceiver
 import com.example.inchat.crypto.OlmInboundDeliveryLedger
@@ -91,9 +97,10 @@ class EncryptedOlmInboxWorker(
 
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
+            val trustRepository = TrustedDeviceRepository(applicationContext)
             val receiver = FirebaseOlmInboxReceiver(
                 transport = FirebaseOlmEnvelopeTransport(
-                    trustVerifier = TrustedDeviceRepository(applicationContext),
+                    trustVerifier = trustRepository,
                     expectedAuthenticatedUserId = ownerUserId,
                 ),
                 ledger = OlmInboundDeliveryLedger(
@@ -103,12 +110,83 @@ class EncryptedOlmInboxWorker(
                 deviceId = recipientDeviceId,
             )
             val result = receiver.receivePending()
+
+            // Decryption remains isolated from plaintext Firebase listeners and UI.
+            // Only SAS-trusted, signature-verified device bundles reach the handoff.
+            val handoffCoordinator = OlmInboundHandoffCoordinator(
+                database = database,
+                receiptDao = database.olmInboundReceiptDao(),
+                sessionRepository = OlmSessionRepository(applicationContext),
+                authenticatedLocalUserId = {
+                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                },
+                trustVerifier = trustRepository,
+                messageDao = database.messageDao(),
+            )
+            val deviceDirectory = DeviceKeyDirectoryRepository()
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = database.olmInboundReceiptDao(),
+                remoteDevicesForUser = deviceDirectory::getUserDevices,
+                trustVerifier = trustRepository,
+                authenticatedLocalUserId = {
+                    FirebaseAuth.getInstance().currentUser?.uid
+                },
+                handoff = OlmInboundReceiptHandoff { receiptId, remoteDevice, senderUid, kind, localUid ->
+                    handoffCoordinator.process(
+                        receiptId = receiptId,
+                        remoteDevice = remoteDevice,
+                        remoteDeviceUserId = senderUid,
+                        ciphertextKind = kind,
+                        localUserId = localUid,
+                    ) { payload ->
+                        com.example.inchat.data.local.CachedMessageEntity(
+                            ownerUserId = payload.recipientUserId,
+                            chatId = payload.conversationId,
+                            messageId = payload.messageId,
+                            senderId = payload.senderUserId,
+                            // Until encrypted UI integration, use the authenticated account ID
+                            // as a neutral local label rather than trusting directory display data.
+                            senderNickname = payload.senderUserId,
+                            text = payload.text,
+                            timestamp = payload.sentAtMillis,
+                            replyMessageId = "",
+                            replySenderId = "",
+                            replySenderNickname = "",
+                            replyText = "",
+                            reactionsJson = "{}",
+                            edited = false,
+                            attachmentType = "",
+                            attachmentStorageKey = "",
+                            attachmentFileName = "",
+                            attachmentMimeType = "",
+                            attachmentSizeBytes = 0L,
+                            attachmentViewedAt = 0L,
+                            isPending = false,
+                            systemEvent = "",
+                        )
+                    }
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, localUid ->
+                    handoffCoordinator.finalizePreviouslyCommitted(receiptId, localUid)
+                },
+            )
+            val handoffResult = processor.processPending()
             Log.i(
                 TAG,
                 "Encrypted inbox pass completed: stored=" + result.stored +
                     ", pendingRetries=" + result.alreadyPending +
                     ", processedDuplicates=" + result.alreadyProcessed +
                     ", conflicts=" + result.conflicts,
+            )
+            Log.i(
+                TAG,
+                "Encrypted inbound handoff completed: pending=" + handoffResult.pendingScanned +
+                    ", committed=" + handoffResult.committed +
+                    ", alreadyCommitted=" + handoffResult.alreadyCommitted +
+                    ", finalized=" + handoffResult.finalized +
+                    ", waitingForTrust=" + handoffResult.waitingForTrust +
+                    ", missingDevices=" + handoffResult.missingRemoteDevice +
+                    ", failures=" + handoffResult.failed,
             )
             // Every successful item is now durable locally. Unacknowledged items
             // remain in the relay and are picked up by the next constrained pass.
