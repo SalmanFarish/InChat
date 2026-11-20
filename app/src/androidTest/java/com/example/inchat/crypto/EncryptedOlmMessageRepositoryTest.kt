@@ -34,7 +34,7 @@ class EncryptedOlmMessageRepositoryTest {
                         sentAtMillis = 150L,
                         text = "other account body",
                         ownerUserId = "charlie",
-                        peerUserId = "alice",
+                        peerUserId = "charlie",
                     ),
                 ),
             )
@@ -97,7 +97,7 @@ class EncryptedOlmMessageRepositoryTest {
         sentAtMillis: Long,
         text: String,
         ownerUserId: String = "bob",
-        peerUserId: String = "alice",
+        peerUserId: String = ownerUserId,
     ) = DecryptedOlmMessage(
         ownerUserId = ownerUserId,
         conversationId = if (ownerUserId == "bob") "alice_bob" else "alice_charlie",
