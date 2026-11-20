@@ -6,8 +6,11 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -63,6 +66,18 @@ class FirebaseSasVerificationTransportEmulatorTest {
             )
             deliveryId = message.deliveryId
 
+            // A write issued while RTDB is offline must remain recoverable.
+            // Reconnecting the SDK should flush the queued write to the emulator.
+            FirebaseDatabase.goOffline()
+            try {
+                val interruptedUpload = async { aliceTransport.upload(message) }
+                delay(500)
+                FirebaseDatabase.goOnline()
+                withTimeout(15_000) { interruptedUpload.await() }
+            } finally {
+                FirebaseDatabase.goOnline()
+            }
+
             // The Firebase adapter performs the same immutable write again on
             // retry. Rules must accept an exact retry but reject changed content.
             aliceTransport.upload(message)
@@ -88,8 +103,23 @@ class FirebaseSasVerificationTransportEmulatorTest {
             assertEquals(listOf(message), received.map { it.message })
             assertEquals(listOf(message.deliveryId), received.map { it.deliveryId })
 
-            bobTransport.acknowledge(bobDeviceId, message.deliveryId)
-            assertTrue("Recipient acknowledgement must remove the relay row", bobTransport.readInbox(bobDeviceId).isEmpty())
+            // Acknowledgement is also a remote write. Verify it survives an
+            // offline interval and is committed after the connection returns.
+            FirebaseDatabase.goOffline()
+            try {
+                val interruptedAcknowledgement = async {
+                    bobTransport.acknowledge(bobDeviceId, message.deliveryId)
+                }
+                delay(500)
+                FirebaseDatabase.goOnline()
+                withTimeout(15_000) { interruptedAcknowledgement.await() }
+            } finally {
+                FirebaseDatabase.goOnline()
+            }
+            assertTrue(
+                "Recipient acknowledgement must remove the relay row after reconnection",
+                bobTransport.readInbox(bobDeviceId).isEmpty(),
+            )
         } finally {
             bob?.close(bobDeviceId, deliveryId)
             alice.close(aliceDeviceId, null)
