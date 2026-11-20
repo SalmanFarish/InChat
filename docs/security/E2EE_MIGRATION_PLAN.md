@@ -370,3 +370,10 @@ verifies that the recipient's already-PROCESSED receipt republishes the
 acknowledgement without a second plaintext insertion. The sender then records
 the receipt and removes the durable outbox row. This covers the full
 ack-delete / retry / duplicate-receive recovery loop without Firebase Auth.
+
+The sender and recipient native accounts now use unique, test-owned
+`CryptoStateStore` IDs. The recipient-side `OlmSessionRepository` accepts a
+narrow local-identity interface so the test can bind it to that isolated
+native store. The test deletes both stores and their Keystore keys afterward;
+it does not open, consume, or modify the installed app's real device identity
+or its published one-time prekeys.
