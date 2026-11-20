@@ -259,6 +259,162 @@ fn import_inbound_group_session(
     Ok(true)
 }
 
+fn prepare_inbound_megolm_decryption(
+    state: &mut DeviceCryptoState,
+    receipt_id: &str,
+    owner_user_id: &str,
+    group_id: &str,
+    membership_epoch: u64,
+    message_id: &str,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    session_id: &str,
+    expected_message_index: u32,
+    sent_at_millis: u64,
+    ciphertext: &[u8],
+) -> Result<(), &'static str> {
+    if !valid_receipt_id(receipt_id)
+        || !valid_user_id(owner_user_id)
+        || !valid_group_id(group_id)
+        || membership_epoch == 0
+        || !valid_user_id(message_id)
+        || !valid_user_id(sender_user_id)
+        || !valid_device_id(sender_device_id)
+        || session_id.len() < 16
+        || session_id.len() > 128
+        || !session_id.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'+' || b == b'/' || b == b'='
+        })
+        || sent_at_millis > i64::MAX as u64
+    {
+        return Err("Inbound Megolm message metadata is invalid");
+    }
+    if ciphertext.is_empty() || ciphertext.len() > crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES {
+        return Err("Inbound Megolm ciphertext has an invalid size");
+    }
+
+    if let Some(pending) = state.pending_group_decryptions.get(receipt_id) {
+        if pending.owner_user_id == owner_user_id
+            && pending.group_id == group_id
+            && pending.membership_epoch == membership_epoch
+            && pending.message_id == message_id
+            && pending.sender_user_id == sender_user_id
+            && pending.sender_device_id == sender_device_id
+            && pending.session_id == session_id
+            && pending.message_index == expected_message_index
+            && pending.sent_at_millis == sent_at_millis
+            && pending.ciphertext == ciphertext
+        {
+            // The receipt was already staged. Return the exact stored plaintext;
+            // never advance the receive ratchet twice for a retry.
+            return Ok(());
+        }
+        return Err("Inbound receipt ID is already bound to different Megolm content");
+    }
+
+    if state.pending_group_decryptions.values().any(|pending| {
+        pending.group_id == group_id
+            && pending.membership_epoch == membership_epoch
+            && pending.sender_user_id == sender_user_id
+            && pending.sender_device_id == sender_device_id
+            && pending.session_id == session_id
+            && pending.message_index == expected_message_index
+    }) {
+        return Err("Megolm message index already has another pending receipt");
+    }
+    if state.pending_group_decryptions.len() >= 64 {
+        return Err("Too many pending Megolm decryptions; finalize committed group receipts first");
+    }
+
+    let inbound_key = inbound_group_session_key(
+        group_id,
+        membership_epoch,
+        sender_user_id,
+        sender_device_id,
+        session_id,
+    );
+    let stored = state
+        .inbound_group_sessions
+        .get_mut(&inbound_key)
+        .ok_or("No imported inbound Megolm session matches this group, epoch, and sender")?;
+    if stored.group_id != group_id
+        || stored.membership_epoch != membership_epoch
+        || stored.sender_user_id != sender_user_id
+        || stored.sender_device_id != sender_device_id
+        || stored.session.session_id() != session_id
+    {
+        return Err("Imported Megolm session metadata does not match the authenticated message");
+    }
+
+    let (mut plaintext, actual_index) = stored.session.decrypt(ciphertext)?;
+    if actual_index != expected_message_index {
+        plaintext.zeroize();
+        return Err("Megolm ciphertext message index does not match its authenticated Olm payload");
+    }
+    if plaintext.is_empty()
+        || plaintext.len() > crate::megolm::MAX_GROUP_PLAINTEXT_BYTES
+        || std::str::from_utf8(&plaintext).is_err()
+    {
+        plaintext.zeroize();
+        return Err("Decrypted Megolm plaintext is empty, oversized, or not valid UTF-8");
+    }
+
+    // The advanced inbound ratchet and recoverable plaintext enter the same
+    // encrypted device-state snapshot. If persistence fails, this state is
+    // dropped and the previously saved ratchet remains unchanged.
+    state.pending_group_decryptions.insert(
+        receipt_id.to_owned(),
+        PendingGroupDecryption {
+            owner_user_id: owner_user_id.to_owned(),
+            group_id: group_id.to_owned(),
+            membership_epoch,
+            message_id: message_id.to_owned(),
+            sender_user_id: sender_user_id.to_owned(),
+            sender_device_id: sender_device_id.to_owned(),
+            session_id: session_id.to_owned(),
+            message_index: actual_index,
+            sent_at_millis,
+            ciphertext: ciphertext.to_vec(),
+            plaintext,
+        },
+    );
+    Ok(())
+}
+
+fn pending_megolm_decryption_json(
+    receipt_id: &str,
+    pending: &PendingGroupDecryption,
+) -> Result<String, &'static str> {
+    let plaintext = std::str::from_utf8(&pending.plaintext)
+        .map_err(|_| "Staged Megolm plaintext is not valid UTF-8")?;
+    serde_json::to_string(&json!({
+        "receiptId": receipt_id,
+        "ownerUserId": pending.owner_user_id,
+        "groupId": pending.group_id,
+        "membershipEpoch": pending.membership_epoch,
+        "messageId": pending.message_id,
+        "senderUserId": pending.sender_user_id,
+        "senderDeviceId": pending.sender_device_id,
+        "sessionId": pending.session_id,
+        "messageIndex": pending.message_index,
+        "sentAtMillis": pending.sent_at_millis,
+        "ciphertext": pending.ciphertext,
+        "plaintext": plaintext
+    }))
+    .map_err(|_| "Could not encode staged Megolm plaintext")
+}
+
+fn finalize_pending_megolm_decryption(
+    state: &mut DeviceCryptoState,
+    receipt_id: &str,
+) -> Result<bool, &'static str> {
+    if !valid_receipt_id(receipt_id) {
+        return Err("Inbound Megolm receipt ID must be a SHA-256 hex digest");
+    }
+    // Idempotent: a retry after a successful native clear is safe.
+    Ok(state.pending_group_decryptions.remove(receipt_id).is_some())
+}
+
 fn encode_device_crypto_state(
     device_id: &str,
     state: &DeviceCryptoState,
