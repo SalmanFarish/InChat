@@ -430,3 +430,27 @@ the legacy account token. The Worker can therefore target a specific published
 Olm device instead of assuming one FCM token represents every device on an
 account. These registrations are groundwork only; encrypted FCM dispatch is
 still a separate endpoint and is not connected to normal message sending.
+
+
+## Authenticated direct-conversation routing (payload schema v2)
+
+The authenticated Olm plaintext schema is now version 2. It carries both the
+existing direct-chat ID and the other participant's account ID. The codec
+requires that the conversation ID exactly match the same lexicographically
+ordered `uidA_uidB` convention used by
+`ChatRepository.getChatRoomId`. It also requires that a delivery target be
+either the conversation peer's account or another device owned by the sender.
+This keeps sender-owned multi-device copies attached to the original
+conversation instead of incorrectly deriving a different chat from the
+per-device recipient account.
+
+Inbound handoff now rejects any cache mapping whose chat ID differs from the
+authenticated conversation ID. This makes conversation routing available only
+after successful Olm decryption and strict schema validation; Firebase relay
+metadata and future push data are not trusted to choose the local chat.
+
+Schema version 1 is intentionally not accepted by the current strict decoder,
+because it contains no authenticated conversation route. Existing live chat
+sending, receiving, notifications, and the plaintext Cloudflare pipeline remain
+unchanged. This protocol work is still isolated and does not enable encrypted
+message delivery from the normal composer.
