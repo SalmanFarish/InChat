@@ -178,7 +178,8 @@ class EncryptedOlmInboxWorker(
                 "Encrypted inbox pass completed: stored=" + result.stored +
                     ", pendingRetries=" + result.alreadyPending +
                     ", processedDuplicates=" + result.alreadyProcessed +
-                    ", conflicts=" + result.conflicts,
+                    ", conflicts=" + result.conflicts +
+                    ", rejectedDuplicates=" + result.rejected,
             )
             Log.i(
                 TAG,
