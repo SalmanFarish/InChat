@@ -95,6 +95,47 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
+    fun uploadedDeliveryIsPersistedAndReclaimedForExactRetryAfterAcknowledgementWindow() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-uploaded-retry-test.db"
+        context.deleteDatabase(name)
+        val firstDatabase = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        var deliveryId = ""
+        try {
+            val firstQueue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(firstDatabase, firstDatabase.olmDeliveryQueueDao()),
+            )
+            firstQueue.enqueue("alice", "sender-device", "relay-accepted", listOf(prepared("device-phone")))
+            val claimed = firstQueue.claimNext("alice", "sender-device", 10_000L)!!
+            deliveryId = claimed.deliveryId
+            assertTrue(firstQueue.markUploaded(claimed, 10_000L))
+            val uploaded = firstDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)
+            assertEquals(OlmDeliveryStatus.UPLOADED.name, uploaded?.status)
+            assertEquals(910_000L, uploaded?.nextAttemptAtMillis)
+            assertEquals(0L, uploaded?.leaseUntilMillis)
+        } finally {
+            firstDatabase.close()
+        }
+
+        val reopenedDatabase = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val reopenedQueue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(reopenedDatabase, reopenedDatabase.olmDeliveryQueueDao()),
+            )
+            assertNull(reopenedQueue.claimNext("alice", "sender-device", 909_999L))
+            val retry = reopenedQueue.claimNext("alice", "sender-device", 910_000L)
+            assertEquals(deliveryId, retry?.deliveryId)
+            assertEquals(2, retry?.attemptCount)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT, retry?.status)
+        } finally {
+            reopenedDatabase.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun retryBackoffSurvivesDatabaseReopenAndReclaimsTheSameDelivery() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-retry-persistence-test.db"
