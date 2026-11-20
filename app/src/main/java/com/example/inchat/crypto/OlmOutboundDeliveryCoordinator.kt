@@ -6,7 +6,7 @@ package com.example.inchat.crypto
  *
  * This coordinator deliberately has no dependency on ChatRepository,
  * GroupChatRepository, the ordinary Firebase chats tree, or message UI state.
- * Version-1 authenticated payloads are direct-text only; group delivery must
+ * Version-2 authenticated payloads bind the direct conversation ID; group delivery must
  * wait for a separately authenticated conversation schema.
  */
 internal class OlmOutboundDeliveryCoordinator(
@@ -28,6 +28,7 @@ internal class OlmOutboundDeliveryCoordinator(
         senderDeviceId: String,
         recipientUserId: String,
         messageId: String,
+        conversationId: String,
         sentAtMillis: Long,
         text: String,
         recipientDevices: List<PublicDeviceKeyBundle>,
@@ -35,6 +36,14 @@ internal class OlmOutboundDeliveryCoordinator(
     ): Int {
         require(recipientUserId != senderUserId) {
             "A direct message recipient must be another account"
+        }
+        require(
+            conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                senderUserId,
+                recipientUserId,
+            )
+        ) {
+            "Conversation ID does not match the direct-message participants"
         }
         require(recipientDevices.isNotEmpty()) {
             "The recipient has no published devices"
@@ -72,6 +81,8 @@ internal class OlmOutboundDeliveryCoordinator(
         val payloads = targets.map { target ->
             OlmAuthenticatedMessagePayload(
                 messageId = messageId,
+                conversationId = conversationId,
+                conversationPeerUserId = recipientUserId,
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 recipientUserId = target.userId,
