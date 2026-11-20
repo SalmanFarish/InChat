@@ -190,6 +190,23 @@ internal class EncryptedOlmMessageVault(
         require(DEVICE_ID_PATTERN.matches(message.senderDeviceId)) { "Message sender device ID is invalid" }
         require(validAccountId(message.recipientUserId)) { "Message recipient account ID is invalid" }
         require(DEVICE_ID_PATTERN.matches(message.recipientDeviceId)) { "Message recipient device ID is invalid" }
+        require(message.senderUserId != message.conversationPeerUserId) {
+            "A direct conversation requires two different accounts"
+        }
+        require(
+            message.conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                message.senderUserId,
+                message.conversationPeerUserId,
+            )
+        ) {
+            "Encrypted message conversation ID does not match its authenticated participants"
+        }
+        require(
+            message.recipientUserId == message.senderUserId ||
+                message.recipientUserId == message.conversationPeerUserId
+        ) {
+            "Encrypted message recipient is not a conversation participant"
+        }
         require(message.ownerUserId == message.recipientUserId) {
             "Encrypted message owner must match its recipient account"
         }
