@@ -744,7 +744,43 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(12_000L, row.nextAttemptAtMillis)
     }
 
-    private fun prepared(senderDeviceId: String, recipientDeviceId: String): PreparedOlmDelivery {
+    @Test
+    fun encryptedPushIsSentOnlyToRecipientAccountDevicesNotSenderSecondaryDevices() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            ownerUserId = "alice",
+            senderDeviceId = "sender-device",
+            messageId = "fanout-message",
+            prepared = listOf(
+                prepared("sender-device", "bob-phone", recipientUserId = "bob"),
+                prepared("sender-device", "alice-tablet", recipientUserId = "alice"),
+            ),
+        )
+
+        val notifications = mutableListOf<Pair<String, String>>()
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(mutableListOf(), mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_000L },
+            notifyEncryptedRecipient = { delivery ->
+                notifications += delivery.recipientUserId to delivery.recipientDeviceId
+            },
+        ).run()
+
+        assertEquals(2, result.uploaded)
+        assertFalse(result.retryRequired)
+        assertEquals(listOf("bob" to "bob-phone"), notifications)
+        assertEquals(2, store.rows.values.count { it.status == OlmDeliveryStatus.UPLOADED })
+    }
+
+    private fun prepared(
+        senderDeviceId: String,
+        recipientDeviceId: String,
+        recipientUserId: String = "bob",
+    ): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)
             .put("algorithm", "olm")
@@ -753,7 +789,7 @@ class OlmDeliveryWorkerRunnerTest {
             .put("sessionId", "session-" + recipientDeviceId)
             .put("ciphertext", Base64.encodeToString(byteArrayOf(1, 2, 3), Base64.URL_SAFE or Base64.NO_WRAP))
             .toString()
-        return PreparedOlmDelivery("bob", recipientDeviceId, "session-" + recipientDeviceId, envelope)
+        return PreparedOlmDelivery(recipientUserId, recipientDeviceId, "session-" + recipientDeviceId, envelope)
     }
 
     private fun QueuedOlmDeviceDelivery.toAcknowledgement() = OlmDeliveryAcknowledgement(
