@@ -68,11 +68,11 @@ class FirebaseSasVerificationTransportEmulatorTest {
 
             // A write issued while RTDB is offline must remain recoverable.
             // Reconnecting the SDK should flush the queued write to the emulator.
-            FirebaseDatabase.goOffline()
+            alice.database.goOffline()
             try {
                 val interruptedUpload = async { aliceTransport.upload(message) }
                 delay(500)
-                FirebaseDatabase.goOnline()
+                alice.database.goOnline()
                 withTimeout(15_000) { interruptedUpload.await() }
             } finally {
                 FirebaseDatabase.goOnline()
