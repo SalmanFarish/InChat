@@ -185,6 +185,10 @@ dependencies {
         libs.junit
     )
 
+    // Use a real org.json implementation in JVM tests instead of Android's
+    // mockable platform stubs when exercising strict JSON protocol codecs.
+    testImplementation("org.json:json:20240303")
+
     androidTestImplementation(
         platform(
             libs.androidx.compose.bom
