@@ -1,6 +1,5 @@
 package com.example.inchat.crypto
 
-import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.GeneralSecurityException
 import java.security.KeyStore
@@ -131,7 +130,7 @@ class EncryptedOlmMessageVaultTest {
         EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID().toString()
 
     private fun keyExists(alias: String): Boolean {
-        val keyStore = KeyStore.getInstance(KeyProperties.KEY_ALGORITHM_AES.let { "AndroidKeyStore" })
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
         return keyStore.containsAlias(alias)
     }
