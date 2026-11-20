@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import java.util.Base64
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -38,9 +39,7 @@ class OlmGroupSessionKeyDistributionPreparerTest {
 
         val result = preparer.prepare(
             distributionId = "distribution-1",
-            groupId = "group-1",
-            membershipEpoch = 3L,
-            currentMemberUserIds = setOf("alice", "bob", "carol"),
+            membership = membership("group-1", 3L, "alice", "bob", "carol"),
             megolmSessionId = "1234567890abcdef",
             sessionKey = sessionKey(),
             issuedAtMillis = 123456L,
@@ -101,9 +100,7 @@ class OlmGroupSessionKeyDistributionPreparerTest {
 
         val result = preparer.prepare(
             distributionId = "distribution-fallback",
-            groupId = "group-2",
-            membershipEpoch = 1L,
-            currentMemberUserIds = setOf("alice", "bob"),
+            membership = membership("group-2", 1L, "alice", "bob"),
             megolmSessionId = "abcdef0123456789",
             sessionKey = sessionKey(),
             issuedAtMillis = 10L,
@@ -137,9 +134,7 @@ class OlmGroupSessionKeyDistributionPreparerTest {
             runBlocking {
                 preparer.prepare(
                     distributionId = "distribution-1",
-                    groupId = "group-1",
-                    membershipEpoch = 1L,
-                    currentMemberUserIds = setOf("alice", "bob", "carol"),
+                    membership = membership("group-1", 1L, "alice", "bob", "carol"),
                     megolmSessionId = "1234567890abcdef",
                     sessionKey = sessionKey(),
                     issuedAtMillis = 1L,
@@ -168,9 +163,7 @@ class OlmGroupSessionKeyDistributionPreparerTest {
             runBlocking {
                 preparer.prepare(
                     distributionId = "distribution-1",
-                    groupId = "group-1",
-                    membershipEpoch = 1L,
-                    currentMemberUserIds = setOf("alice", "bob"),
+                    membership = membership("group-1", 1L, "alice", "bob"),
                     megolmSessionId = "1234567890abcdef",
                     sessionKey = sessionKey(),
                     issuedAtMillis = 1L,
@@ -257,6 +250,18 @@ class OlmGroupSessionKeyDistributionPreparerTest {
                 "otk-signature-$deviceId",
             ),
         ),
+    )
+
+    private fun membership(
+        groupId: String,
+        epoch: Long,
+        vararg userIds: String,
+    ) = GroupCryptoMembershipSnapshot(
+        groupId = groupId,
+        epoch = epoch,
+        members = userIds.associateWith { userId ->
+            if (userId == "alice") "admin" else "member"
+        },
     )
 
     private fun sessionKey(): String =
