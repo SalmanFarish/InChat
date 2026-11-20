@@ -8,8 +8,8 @@
 //! to the authenticated application protocol surrounding this primitive.
 
 use vodozemac::megolm::{
-    GroupSession, GroupSessionPickle, InboundGroupSession as VodozemacInboundGroupSession, InboundGroupSessionPickle,
-    MegolmMessage, SessionKey,
+    GroupSession, GroupSessionPickle, InboundGroupSession as VodozemacInboundGroupSession,
+    InboundGroupSessionPickle, MegolmMessage, SessionKey,
 };
 
 /// Maximum application plaintext accepted by the isolated group-message API.
@@ -167,7 +167,9 @@ impl InboundGroupSession {
         }
         let message = MegolmMessage::from_bytes(ciphertext)
             .map_err(|_| "Megolm ciphertext has an invalid encoding")?;
-        let decrypted = self.session.decrypt(&message)
+        let decrypted = self
+            .session
+            .decrypt(&message)
             .map_err(|_| "Megolm ciphertext authentication or decryption failed")?;
         Ok((decrypted.plaintext, decrypted.message_index))
     }
@@ -248,7 +250,8 @@ mod tests {
     #[test]
     fn modified_message_signature_is_rejected() {
         let mut sender = OutboundGroupSession::new();
-        let mut recipient = InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
+        let mut recipient =
+            InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
         let mut message = sender.encrypt(b"authentic group message").unwrap();
         let last = message.ciphertext.len() - 1;
         message.ciphertext[last] ^= 0x01;
@@ -261,15 +264,22 @@ mod tests {
         let mut sender = OutboundGroupSession::new();
         let mut recipient = InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
         let first = sender.encrypt(b"before sender restart").unwrap();
-        assert_eq!(recipient.decrypt(&first.ciphertext).unwrap().0, b"before sender restart");
+        assert_eq!(
+            recipient.decrypt(&first.ciphertext).unwrap().0,
+            b"before sender restart"
+        );
 
         let state = sender.serialize_for_encrypted_storage().unwrap();
-        let mut restored_sender = OutboundGroupSession::restore_from_encrypted_storage(&state).unwrap();
+        let mut restored_sender =
+            OutboundGroupSession::restore_from_encrypted_storage(&state).unwrap();
         assert_eq!(restored_sender.session_id(), sender.session_id());
         assert_eq!(restored_sender.message_index(), sender.message_index());
 
         let second = restored_sender.encrypt(b"after sender restart").unwrap();
-        assert_eq!(recipient.decrypt(&second.ciphertext).unwrap().0, b"after sender restart");
+        assert_eq!(
+            recipient.decrypt(&second.ciphertext).unwrap().0,
+            b"after sender restart"
+        );
     }
 
     #[test]
@@ -277,18 +287,26 @@ mod tests {
         let mut sender = OutboundGroupSession::new();
         let mut recipient = InboundGroupSession::from_session_key(&sender.export_session_key()).unwrap();
         let first = sender.encrypt(b"before recipient restart").unwrap();
-        assert_eq!(recipient.decrypt(&first.ciphertext).unwrap().0, b"before recipient restart");
+        assert_eq!(
+            recipient.decrypt(&first.ciphertext).unwrap().0,
+            b"before recipient restart"
+        );
 
         let state = recipient.serialize_for_encrypted_storage().unwrap();
-        let mut restored_recipient = InboundGroupSession::restore_from_encrypted_storage(&state).unwrap();
+        let mut restored_recipient =
+            InboundGroupSession::restore_from_encrypted_storage(&state).unwrap();
         let second = sender.encrypt(b"after recipient restart").unwrap();
-        assert_eq!(restored_recipient.decrypt(&second.ciphertext).unwrap().0, b"after recipient restart");
+        assert_eq!(
+            restored_recipient.decrypt(&second.ciphertext).unwrap().0,
+            b"after recipient restart"
+        );
     }
 
     #[test]
     fn new_epoch_uses_a_new_signing_identity_and_rejects_old_members() {
         let old_sender = OutboundGroupSession::new();
-        let mut old_member = InboundGroupSession::from_session_key(&old_sender.export_session_key()).unwrap();
+        let mut old_member =
+            InboundGroupSession::from_session_key(&old_sender.export_session_key()).unwrap();
 
         let new_sender = OutboundGroupSession::new();
         assert_ne!(old_sender.session_id(), new_sender.session_id());
