@@ -23,7 +23,10 @@ internal class EncryptedGroupMessageVault(
         require(KEY_ALIAS_PATTERN.matches(keyAlias)) { "Encrypted group-message key alias is invalid" }
     }
 
-    fun encrypt(message: DecryptedGroupMessage): EncryptedGroupMessageEntity {
+    fun encrypt(
+        message: DecryptedGroupMessage,
+        allowKeyCreation: Boolean = true,
+    ): EncryptedGroupMessageEntity {
         validate(message)
         require(message.text.isNotEmpty()) { "Group message text cannot be empty" }
         val plaintext = message.text.toByteArray(StandardCharsets.UTF_8)
@@ -31,7 +34,7 @@ internal class EncryptedGroupMessageVault(
         try {
             return synchronized(KEYSTORE_LOCK) {
                 val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+                cipher.init(Cipher.ENCRYPT_MODE, if (allowKeyCreation) getOrCreateKey() else getExistingKey())
                 val nonce = cipher.iv
                 check(nonce != null && nonce.size == NONCE_BYTES) {
                     "Android Keystore returned an unexpected AES-GCM nonce"
