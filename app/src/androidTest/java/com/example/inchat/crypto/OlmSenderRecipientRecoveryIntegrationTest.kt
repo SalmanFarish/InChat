@@ -182,6 +182,24 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertEquals(2, relay.inboxPutCalls)
             assertEquals(1, relay.inboxCount())
             assertFalse(relay.inboxValues().toString().contains(clearText))
+            var changedCiphertextRetryRejected = false
+            try {
+                relay.putInbox(
+                    recipientUid = recipientUserId,
+                    recipientDeviceId = recipientBundle.deviceId,
+                    deliveryId = deliveryId,
+                    fields = mapOf(
+                        "senderUid" to senderUserId,
+                        "senderDeviceId" to senderDeviceId,
+                        "messageId" to messageId,
+                        "envelope" to envelope + "-changed",
+                    ),
+                )
+            } catch (_: IllegalStateException) {
+                changedCiphertextRetryRejected = true
+            }
+            assertTrue(changedCiphertextRetryRejected)
+            assertEquals(1, relay.inboxCount())
             assertEquals(
                 OlmDeliveryStatus.UPLOADED.name,
                 senderDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)?.status,
