@@ -49,7 +49,8 @@ internal class EncryptedGroupMessageRepository(
         ) { "Group receipt metadata does not match staged plaintext" }
 
         return withContext(ioDispatcher) {
-            val encrypted = vault.encrypt(message)
+            val allowKeyCreation = !dao.hasStoredMessages()
+            val encrypted = vault.encrypt(message, allowKeyCreation)
             dao.commitDecryptedMessage(receipt, encrypted)
         }
     }
