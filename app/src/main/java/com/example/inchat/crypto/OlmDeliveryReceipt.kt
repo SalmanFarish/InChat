@@ -64,6 +64,19 @@ interface OlmDeliveryReceiptDao {
         senderDeviceId: String,
         recipientUserId: String,
     ): List<String>
+
+
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM olm_delivery_receipts " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND recipientUserId = :recipientUserId AND messageId = :messageId)"
+    )
+    fun observeHasRecipientAcknowledgement(
+        ownerUserId: String,
+        senderDeviceId: String,
+        recipientUserId: String,
+        messageId: String,
+    ): Flow<Boolean>
 }
 
 /** Persists a recipient acknowledgement before its ciphertext outbox row is deleted. */
