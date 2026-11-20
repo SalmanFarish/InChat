@@ -112,7 +112,7 @@ class OlmInboundHandoffCoordinatorTest {
                 db.messageDao().getMessage("local-user", directChatId, receipt.messageId)?.text,
             )
             assertEquals(
-                OlmInboundReceiptStatus.PROCESSED.name,
+                OlmInboundReceiptStatus.FINALIZED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
             assertTrue(
@@ -355,7 +355,7 @@ class OlmInboundHandoffCoordinatorTest {
                 db.messageDao().getMessage("local-user", directChatId, messageId)?.text,
             )
             assertEquals(
-                OlmInboundReceiptStatus.PROCESSED.name,
+                OlmInboundReceiptStatus.FINALIZED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
             assertEquals(
