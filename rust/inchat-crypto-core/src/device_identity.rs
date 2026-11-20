@@ -453,6 +453,143 @@ fn finalize_pending_megolm_decryption(
     Ok(state.pending_group_decryptions.remove(receipt_id).is_some())
 }
 
+fn prepare_outbound_megolm_message(
+    state: &mut DeviceCryptoState,
+    owner_user_id: &str,
+    group_id: &str,
+    membership_epoch: u64,
+    message_id: &str,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    sent_at_millis: u64,
+    plaintext: &[u8],
+) -> Result<crate::megolm::EncryptedGroupMessage, &'static str> {
+    if !valid_user_id(owner_user_id)
+        || owner_user_id != sender_user_id
+        || !valid_group_id(group_id)
+        || membership_epoch == 0
+        || !valid_user_id(message_id)
+        || !valid_user_id(sender_user_id)
+        || !valid_device_id(sender_device_id)
+        || sent_at_millis > i64::MAX as u64
+    {
+        return Err("Outbound Megolm message metadata is invalid");
+    }
+    if plaintext.is_empty()
+        || plaintext.len() > crate::megolm::MAX_GROUP_PLAINTEXT_BYTES
+        || std::str::from_utf8(plaintext).is_err()
+    {
+        return Err("Outbound Megolm plaintext is empty, oversized, or not valid UTF-8");
+    }
+
+    let plaintext_sha256 = Sha256::digest(plaintext).to_vec();
+    if let Some(pending) = state.pending_outbound_group_messages.get(message_id) {
+        if pending.owner_user_id == owner_user_id
+            && pending.group_id == group_id
+            && pending.membership_epoch == membership_epoch
+            && pending.message_id == message_id
+            && pending.sender_user_id == sender_user_id
+            && pending.sender_device_id == sender_device_id
+            && pending.sent_at_millis == sent_at_millis
+            && pending.plaintext_sha256 == plaintext_sha256
+        {
+            // A retry before Room outbox commit must reuse the exact ciphertext
+            // and message index; never advance the sender ratchet twice.
+            return Ok(crate::megolm::EncryptedGroupMessage {
+                session_id: pending.session_id.clone(),
+                message_index: pending.message_index,
+                ciphertext: pending.ciphertext.clone(),
+            });
+        }
+        return Err("Outbound message ID is already staged with different content or routing");
+    }
+    if state.pending_outbound_group_messages.values().any(|pending| {
+        pending.group_id == group_id
+            && pending.membership_epoch == membership_epoch
+            && pending.sender_device_id == sender_device_id
+            && pending.message_index == u32::MAX
+    }) {
+        return Err("Outbound Megolm session has an invalid pending message index");
+    }
+    if state.pending_outbound_group_messages.len() >= 128 {
+        return Err("Too many pending outbound Megolm messages; commit the Room outbox first");
+    }
+
+    let (session_id, encrypted) = {
+        let stored = state
+            .outbound_group_sessions
+            .get_mut(group_id)
+            .ok_or("Outbound Megolm session does not exist")?;
+        if stored.membership_epoch != membership_epoch
+            || stored.sender_user_id != sender_user_id
+            || stored.sender_device_id != sender_device_id
+        {
+            return Err("Outbound Megolm session is not bound to the requested group epoch and sender");
+        }
+        let session_id = stored.session.session_id();
+        let encrypted = stored.session.encrypt(plaintext)?;
+        (session_id, encrypted)
+    };
+    if encrypted.message_index == u32::MAX
+        || encrypted.session_id != session_id
+        || encrypted.ciphertext.is_empty()
+        || encrypted.ciphertext.len() > crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES
+    {
+        return Err("Outbound Megolm ciphertext metadata is invalid");
+    }
+    let message_index = encrypted.message_index;
+    let ciphertext = encrypted.ciphertext;
+    state.pending_outbound_group_messages.insert(
+        message_id.to_owned(),
+        PendingOutboundMegolmMessage {
+            owner_user_id: owner_user_id.to_owned(),
+            group_id: group_id.to_owned(),
+            membership_epoch,
+            message_id: message_id.to_owned(),
+            sender_user_id: sender_user_id.to_owned(),
+            sender_device_id: sender_device_id.to_owned(),
+            session_id: session_id.clone(),
+            message_index,
+            sent_at_millis,
+            plaintext_sha256,
+            ciphertext: ciphertext.clone(),
+        },
+    );
+    Ok(crate::megolm::EncryptedGroupMessage {
+        session_id,
+        message_index,
+        ciphertext,
+    })
+}
+
+fn pending_outbound_megolm_message_json(
+    pending: &PendingOutboundMegolmMessage,
+) -> Result<String, &'static str> {
+    serde_json::to_string(&json!({
+        "ownerUserId": pending.owner_user_id,
+        "groupId": pending.group_id,
+        "membershipEpoch": pending.membership_epoch,
+        "messageId": pending.message_id,
+        "senderUserId": pending.sender_user_id,
+        "senderDeviceId": pending.sender_device_id,
+        "sessionId": pending.session_id,
+        "messageIndex": pending.message_index,
+        "sentAtMillis": pending.sent_at_millis,
+        "ciphertext": pending.ciphertext
+    }))
+    .map_err(|_| "Could not encode pending outbound Megolm message")
+}
+
+fn finalize_pending_outbound_megolm_message(
+    state: &mut DeviceCryptoState,
+    message_id: &str,
+) -> Result<bool, &'static str> {
+    if !valid_user_id(message_id) {
+        return Err("Outbound Megolm message ID is invalid");
+    }
+    Ok(state.pending_outbound_group_messages.remove(message_id).is_some())
+}
+
 fn encode_device_crypto_state(
     device_id: &str,
     state: &DeviceCryptoState,
