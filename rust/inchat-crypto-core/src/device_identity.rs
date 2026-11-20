@@ -1645,6 +1645,9 @@ fn rebind_transferred_device_state(
     // destination ID. The long-term identity and all Olm sessions are retained.
     state.account.mark_keys_as_published();
     ensure_unpublished_prekeys(&mut state.account);
+    for stored in state.outbound_group_sessions.values_mut() {
+        stored.sender_device_id = target_device_id.to_owned();
+    }
     encode_device_crypto_state(target_device_id, &state)
 }
 
