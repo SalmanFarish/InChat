@@ -377,3 +377,21 @@ interface so both endpoint repositories can bind to their isolated native
 stores and exercise the production session/prekey validation paths. The test deletes both stores and their Keystore keys afterward;
 it does not open, consume, or modify the installed app's real device identity
 or its published one-time prekeys.
+
+## Encrypted relay rules lifecycle integration
+
+The Realtime Database rules suite now exercises a complete encrypted delivery
+lifecycle against the local Database Emulator: the sender creates the immutable
+ciphertext inbox record; only the recipient reads it, writes the exact metadata
+acknowledgement, and removes the inbox copy; only the sender reads and removes
+the acknowledgement. The test then simulates the sender having consumed the
+remote acknowledgement while its local outbox cleanup was interrupted: the
+same immutable envelope is resent under the original deterministic delivery
+ID, the recipient acknowledges the duplicate again, and the sender consumes
+the regenerated acknowledgement.
+
+This suite uses `@firebase/rules-unit-testing` authenticated contexts and only
+the Realtime Database Emulator. It does not start or contact the Firebase Auth
+emulator, use real Firebase accounts, access production data, deploy rules, or
+require a paid Firebase plan. It verifies database authorization and record
+lifecycle, not Android SDK connectivity or real-network behavior.
