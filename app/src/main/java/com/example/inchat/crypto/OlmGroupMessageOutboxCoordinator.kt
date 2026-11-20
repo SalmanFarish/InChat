@@ -11,11 +11,13 @@ internal class OlmGroupMessageOutboxCoordinator(
     private val queue: OlmDeliveryQueue,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
+    private val keyDistributionReadiness: OlmGroupKeyDistributionReadinessVerifier,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
 ) {
     fun enqueue(
         currentMembership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupMessageDistribution,
+        keyDistribution: PreparedOlmGroupKeyDistribution,
     ): Int {
         require(currentMembership.isValid()) {
             "Authoritative group membership snapshot is invalid"
@@ -58,6 +60,14 @@ internal class OlmGroupMessageOutboxCoordinator(
         }) {
             "A group message cannot be delivered back to the sending device"
         }
+
+        keyDistributionReadiness.requireReady(
+            ownerUserId = ownerUid,
+            senderDeviceId = deviceId,
+            currentMembership = currentMembership,
+            keyDistribution = keyDistribution,
+            messageDistribution = distribution,
+        )
 
         // The generic outbox validates every outer Olm envelope's sender,
         // recipient, session and canonical encoding before inserting the batch.
