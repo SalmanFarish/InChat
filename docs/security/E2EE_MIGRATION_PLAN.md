@@ -19,7 +19,7 @@ The inbound ledger stores only the encrypted envelope and routing/deduplication 
 
 The isolated Olm handoff now uses a strict version-2 authenticated inner payload for direct text messages. Message ID, direct conversation ID and peer account, sender account/device, recipient account/device, timestamp, and text are encoded inside the Olm plaintext, so successful Olm decryption authenticates these fields as a unit. The receiver checks every identity against the durable receipt and the local account/device before creating a cached message. The direct conversation ID must match the existing canonical ChatRepository ID derived from the two participants; a delivery may target either the peer's devices or another device owned by the sender. The handoff coordinator also obtains the authenticated local account from its injected auth-backed provider and rejects receipts addressed to another local device; unknown fields, unsupported versions, non-canonical JSON, fractional timestamps, and mismatches are rejected. The first-message preparer accepts this typed payload and validates it before claiming a one-time prekey. This schema is text-only: attachment descriptors, edits, reactions, groups, and nickname semantics still need separately authenticated protocol definitions. Raw legacy plaintext is not accepted by this isolated handoff. This does not enable encryption or change live chat behavior.
 
-The ledger is deliberately not connected to Firebase listeners, the existing chat receiver, message persistence, notifications, or the UI. Its markProcessed operation must eventually be coordinated transactionally with local message persistence. Otherwise a process death between marking a receipt and saving the decrypted message could lose the local copy. No live chat behavior has changed.
+The receipt ledger is deliberately separate from Firebase plaintext listeners, the existing chat receiver, notifications, and the UI. The encrypted-only pending-receipt processor now routes durable receipts through the SAS-gated handoff coordinator. The coordinator commits the decrypted message and receipt in one Room transaction, then finalizes native staged plaintext. Receipt states distinguish PENDING, WAITING_FOR_DEVICE, PROCESSED, FINALIZED, and REJECTED so untrusted devices do not block newer messages and malformed wire envelopes do not retry forever. No live chat behavior has changed.
 
 The isolated inbox receiver now polls the authenticated device inbox, checks that the transport sender-device field matches the sender device embedded in the encrypted envelope, validates each envelope's routing metadata, and registers the ciphertext in the Room receipt ledger on an IO dispatcher. Instrumentation coverage also verifies that mismatched sender metadata is not acknowledged and that a failed remote acknowledgement is retried safely from the already-persisted pending receipt. It deletes the remote item only after the local receipt insert or duplicate check succeeds. A crash after local persistence but before remote deletion is safe: the next poll sees the same pending receipt and retries the acknowledgement. A reused sender/device/message identity with different ciphertext is treated as a conflict and is deliberately not acknowledged. This receiver only stages ciphertext; it does not decrypt, create plaintext messages, or connect to the live chat cache.
 
@@ -31,9 +31,13 @@ scheduled account and rechecks that account after asynchronous reads and before
 remote mutations. A stale account or device scope is retired without deleting
 the Room receipt ledger. Reconnection or a later process start therefore
 retries any relay item whose local receipt was stored but whose acknowledgement
-or remote deletion was interrupted. This worker still only stages ciphertext
-and sends the metadata acknowledgement; it does not decrypt, create cached
-plaintext messages, or connect to live chat listeners or the UI.
+or remote deletion was interrupted. After the ciphertext is durably staged and remotely acknowledged, the same
+isolated worker now scans pending Room receipts. It resolves each sender's
+public device bundle through the signature-verifying directory, requires the
+matching device-local SAS trust record, classifies the explicit Olm wire-message
+type, and calls the existing authenticated handoff coordinator. Decrypted
+messages are committed only to the local Room cache; no Firebase plaintext
+listener, notification preview, or live chat UI is connected.
 
 The Olm Firebase transport now separates its Realtime Database operations
 behind `OlmRelayStore`, with the production adapter still using the same
@@ -95,12 +99,13 @@ recovery poll. The wake-up metadata is not used as a chat route or message
 identity; the encrypted relay record and the authenticated Olm payload remain
 the source of truth.
 
-The receiver currently stages ciphertext and publishes its durable metadata
-acknowledgement. It does not yet decrypt the message or display a user-visible
-message notification. Decrypted notification presentation and tap navigation
-must wait for the authenticated inbound handoff and live-chat integration
-milestones. Until then, a silent wake-up is safer than showing an unverified
-sender or conversation.
+The encrypted inbox worker now performs authenticated inbound decryption
+and atomic local Room persistence after the durable ciphertext acknowledgement.
+It still does not display a user-visible message notification, and the resulting
+Room cache remains isolated from the live chat UI. Decrypted notification
+presentation and tap navigation must wait for the remaining notification and
+live-chat integration milestones. Until then, a silent wake-up is safer than
+showing an unverified sender or conversation.
 
 The existing `chat_message` and `group_message` plaintext notification
 presentation, history, and delivery pipeline remain unchanged. No Firebase
@@ -478,3 +483,14 @@ because it contains no authenticated conversation route. Existing live chat
 sending, receiving, notifications, and the plaintext Cloudflare pipeline remain
 unchanged. This protocol work is still isolated and does not enable encrypted
 message delivery from the normal composer.
+
+
+## Isolated inbound decrypt-and-persist processing
+
+OlmPendingReceiptProcessor now advances the ciphertext receipt ledger in bounded batches. It first retries receipts whose Room message/receipt transaction committed but whose native staged-plaintext cleanup did not. The native finalize operation is idempotent; after it succeeds, the receipt moves from PROCESSED to FINALIZED, so process death between native cleanup and the Room status update is recoverable.
+
+New PENDING receipts are validated against the exact envelope sender and recipient device IDs. The explicit first-byte Olm wire discriminator selects pre-key or normal-session processing; the native vodozemac parser remains responsible for validating and decrypting the wire message. Sender device bundles are loaded through DeviceKeyDirectoryRepository, which verifies the Ed25519 identity binding and signed prekeys. The matching device-local SAS trust record is checked before the coordinator advances a receive ratchet or consumes a one-time prekey.
+
+Receipts whose sender device is missing or not yet SAS-trusted move to WAITING_FOR_DEVICE, separately from new messages, so they cannot indefinitely occupy the head of the new-message queue. They are reconsidered on later inbox passes and return to PENDING only after the published identity and local trust are available. Structurally invalid envelopes or unknown wire types move to REJECTED; identical remote redeliveries of rejected receipts are acknowledged and removed without re-entering decryption. Conflicting ciphertext under an existing sender/device/message identity remains unacknowledged.
+
+The handoff creates a minimal local cache row from the authenticated version-2 text payload and atomically commits that row with the receipt. The local cache currently uses the authenticated sender account ID as a neutral sender label; display-name, notification, tap-routing, and live-chat integration remain separate work. This processor does not connect the encrypted message to ChatRepository, plaintext Firebase listeners, normal message producers, or the existing UI, and does not change the existing plaintext messaging path.
