@@ -9,6 +9,7 @@ internal data class FirebaseOlmInboxReceiveResult(
     val alreadyPending: Int,
     val alreadyProcessed: Int,
     val conflicts: Int,
+    val rejected: Int,
 )
 
 /**
@@ -28,6 +29,7 @@ internal class FirebaseOlmInboxReceiver(
         var pending = 0
         var processed = 0
         var conflicts = 0
+        var rejected = 0
 
         for (item in items) {
             val registration = withContext(ioDispatcher) {
@@ -58,8 +60,13 @@ internal class FirebaseOlmInboxReceiver(
                     transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
                     processed++
                 }
+                OlmInboundRegistration.DUPLICATE_REJECTED -> {
+                    transport.acknowledgeStoredDelivery(deviceId, item)
+                    transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                    rejected++
+                }
             }
         }
-        return FirebaseOlmInboxReceiveResult(stored, pending, processed, conflicts)
+        return FirebaseOlmInboxReceiveResult(stored, pending, processed, conflicts, rejected)
     }
 }
