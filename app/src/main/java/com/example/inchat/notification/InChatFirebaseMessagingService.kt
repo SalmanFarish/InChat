@@ -56,8 +56,6 @@ class InChatFirebaseMessagingService :
         const val NOTIFICATION_TYPE_GROUP =
             "group_message"
 
-        private const val TYPE_ENCRYPTED_OLM_WAKEUP = "encrypted_olm"
-        private val DELIVERY_ID_PATTERN = Regex("[A-Fa-f0-9]{64}")
     }
 
     override fun onMessageReceived(
@@ -65,7 +63,7 @@ class InChatFirebaseMessagingService :
     ) {
         // Encrypted pushes are wake-up signals only. Their FCM data never
         // selects a chat, sender, or plaintext notification presentation.
-        if (remoteMessage.data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP) {
+        if (NotificationPayloadPolicy.isEncryptedOlmWakeup(remoteMessage.data)) {
             scheduleEncryptedInboxWake(remoteMessage.data)
             return
         }
@@ -102,10 +100,7 @@ class InChatFirebaseMessagingService :
     }
 
     private fun scheduleEncryptedInboxWake(data: Map<String, String>) {
-        if (
-            data.keys != setOf("type", "deliveryId") ||
-            !DELIVERY_ID_PATTERN.matches(data["deliveryId"].orEmpty())
-        ) {
+        if (!NotificationPayloadPolicy.isEncryptedOlmWakeup(data)) {
             Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
             return
         }
