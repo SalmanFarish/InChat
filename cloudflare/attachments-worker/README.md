@@ -118,19 +118,23 @@ credential.
   accounts, and the 50-member limit before changing the group.
 - Member updates use Firebase Realtime Database ETags so concurrent add
   requests re-check the current member list rather than exceeding the limit.
-- Each group has a Worker-owned `chats/{groupId}/cryptoMembershipEpoch`.
-  Creation starts at epoch 1. A real member addition, removal, or leave
-  increments it; role-only changes and no-op requests do not.
+- Each group has a Worker-owned `chats/{groupId}/cryptoMembership` snapshot
+  containing both `epoch` and the complete `members` role map. Creation
+  starts at epoch 1. A real member addition, removal, or leave increments it;
+  role-only changes and no-op requests do not.
 - The Worker conditionally PATCHes the group root using its ETag, committing
-  the updated `members` map and the next crypto epoch in the same atomic
-  operation. This prevents concurrent membership changes from sharing an
-  epoch or committing a membership snapshot with a stale epoch. Group-root
-  writes (including message traffic) can contend with this ETag; the Worker
-  retries bounded conflicts and returns 409 rather than accepting a stale
-  mutation.
-- Legacy groups without an epoch use an implicit baseline of 1. Their first
-  actual membership change atomically persists epoch 2 with the new member
-  map. They are not assigned a client-generated epoch.
+  the compatibility `members` map and the nested `cryptoMembership` snapshot
+  in the same atomic operation. Clients can listen to the nested snapshot as
+  one value, avoiding a transient mixture of a new member map and old epoch
+  from two independently delivered child listeners. The same root ETag also
+  protects concurrent changes from sharing an epoch or committing a stale
+  membership snapshot. Group-root writes (including message traffic) can
+  contend with this ETag; the Worker retries bounded conflicts and returns
+  409 rather than accepting a stale mutation.
+- Legacy groups without a snapshot use an implicit baseline of 1. A real
+  membership change or role update initializes the snapshot; the first actual
+  member addition/removal/leave stores epoch 2 with the new member map.
+  Clients must not invent epochs locally.
 - The epoch is metadata, not by itself proof of a member's key receipt. An
   encrypted group sender must read the current authoritative `members` map
   and epoch together, distribute a fresh Megolm session key to the trusted
