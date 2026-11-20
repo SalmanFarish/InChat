@@ -82,20 +82,29 @@ export async function mutateGroupMembersWithEtag(
         members: currentMembers,
         changed: false,
         cryptoMembershipEpoch: currentGroupCryptoMembershipEpoch(
-          currentChat.cryptoMembershipEpoch,
+          currentChat.cryptoMembership?.epoch ?? currentChat.cryptoMembershipEpoch,
         ),
         result: decision ? decision.result : undefined,
       };
     }
 
+    const currentEpoch = currentGroupCryptoMembershipEpoch(
+      currentChat.cryptoMembership?.epoch ?? currentChat.cryptoMembershipEpoch,
+    );
     const nextEpoch = membershipEpochUpdate(
-      currentChat.cryptoMembershipEpoch,
+      currentEpoch,
       decision.cryptoMembershipChanged === true,
     );
-    const patch = { members: decision.members };
-    if (nextEpoch !== null) {
-      patch.cryptoMembershipEpoch = nextEpoch;
-    }
+    const resolvedEpoch = nextEpoch ?? currentEpoch;
+    const patch = {
+      members: decision.members,
+      // A single listener can observe this immutable membership snapshot;
+      // clients never need to combine two independently delivered child events.
+      cryptoMembership: {
+        epoch: resolvedEpoch,
+        members: decision.members,
+      },
+    };
 
     const writeResponse = await fetchImpl(url, {
       method: "PATCH",
@@ -119,8 +128,7 @@ export async function mutateGroupMembersWithEtag(
     return {
       members: decision.members,
       changed: true,
-      cryptoMembershipEpoch: nextEpoch ??
-        currentGroupCryptoMembershipEpoch(currentChat.cryptoMembershipEpoch),
+      cryptoMembershipEpoch: resolvedEpoch,
       result: decision.result,
     };
   }
