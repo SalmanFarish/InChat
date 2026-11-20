@@ -8,6 +8,44 @@ import org.junit.Test
 class NotificationPayloadPolicyTest {
 
     @Test
+    fun encryptedOlmWakeupAcceptsOnlyItsMinimalDeliveryReference() {
+        assertTrue(
+            NotificationPayloadPolicy.isEncryptedOlmWakeup(
+                mapOf(
+                    "type" to "encrypted_olm",
+                    "deliveryId" to "a".repeat(64),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun encryptedOlmWakeupRejectsExtraFieldsAndInvalidDeliveryIds() {
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmWakeup(
+                mapOf(
+                    "type" to "encrypted_olm",
+                    "deliveryId" to "a".repeat(64),
+                    "chatId" to "untrusted-chat",
+                ),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmWakeup(
+                mapOf(
+                    "type" to "encrypted_olm",
+                    "deliveryId" to "not-a-delivery-id",
+                ),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmWakeup(
+                mapOf("type" to "encrypted_message"),
+            ),
+        )
+    }
+
+    @Test
     fun encryptedDirectPushIgnoresAllUntrustedDisplayContent() {
         val presentation = NotificationPayloadPolicy.from(
             data = mapOf(
