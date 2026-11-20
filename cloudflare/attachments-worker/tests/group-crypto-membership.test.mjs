@@ -6,6 +6,7 @@ import {
   nextGroupCryptoMembershipEpoch,
   membershipEpochUpdate,
   mutateGroupMembersWithEtag,
+  ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "../src/group-crypto-membership.js";
 
 function groupFixture(group, { onConditionalWrite } = {}) {
@@ -307,3 +308,150 @@ test("rejects malformed group state and invalid persisted epoch without writing"
   );
   assert.equal(invalidEpoch.writes, 0);
 });
+
+test("authorized current member initializes a legacy snapshot at epoch one", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+  });
+  const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    "bob",
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.epoch, 1);
+  assert.equal(result.changed, true);
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 1,
+    members: { alice: "admin", bob: "member" },
+  });
+  assert.deepEqual(fixture.patches, [{
+    cryptoMembership: {
+      epoch: 1,
+      members: { alice: "admin", bob: "member" },
+    },
+  }]);
+});
+
+test("matching initialized snapshot is returned without another write", async () => {
+  const members = { alice: "admin", bob: "member" };
+  const fixture = groupFixture({
+    type: "group",
+    members,
+    cryptoMembership: { epoch: 9, members },
+  });
+  const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    "alice",
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.epoch, 9);
+  assert.equal(result.changed, false);
+  assert.equal(fixture.writes, 0);
+  assert.equal(fixture.reads, 1);
+});
+
+test("membership drift repairs snapshot only after advancing the epoch", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member", carol: "member" },
+    cryptoMembership: {
+      epoch: 5,
+      members: { alice: "admin", bob: "member" },
+    },
+  });
+  const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    "carol",
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.epoch, 6);
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 6,
+    members: { alice: "admin", bob: "member", carol: "member" },
+  });
+});
+
+test("removed or non-member accounts cannot initialize a group snapshot", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+  });
+  await assert.rejects(
+    ensureGroupCryptoMembershipSnapshotWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      "mallory",
+      fixture.fetchImpl,
+    ),
+    (error) => error instanceof Response && error.status === 403,
+  );
+  assert.equal(fixture.writes, 0);
+});
+
+test("initialization retries against a concurrent member change and uses its epoch", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+  }, {
+    onConditionalWrite: ({ group, writeNumber }) => {
+      if (writeNumber === 1) {
+        group.members = {
+          ...group.members,
+          carol: "member",
+        };
+        group.cryptoMembership = {
+          epoch: 2,
+          members: group.members,
+        };
+        return true;
+      }
+      return false;
+    },
+  });
+
+  const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    "alice",
+    fixture.fetchImpl,
+  );
+  assert.equal(result.epoch, 2);
+  assert.equal(result.changed, false);
+  assert.equal(fixture.reads, 2);
+  assert.equal(fixture.writes, 1);
+});
+
+test("malformed existing snapshot epoch fails closed", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembership: {
+      epoch: 1.25,
+      members: { alice: "admin", bob: "member" },
+    },
+  });
+  await assert.rejects(
+    ensureGroupCryptoMembershipSnapshotWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      "alice",
+      fixture.fetchImpl,
+    ),
+    /epoch is invalid/,
+  );
+  assert.equal(fixture.writes, 0);
+});
+
