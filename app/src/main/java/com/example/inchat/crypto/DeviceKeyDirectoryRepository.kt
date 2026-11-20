@@ -22,7 +22,7 @@ import kotlin.coroutines.resumeWithException
 internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-) : OlmOutboundKeyDirectory {
+) : DeviceIdentityTransferDirectory, OlmOutboundKeyDirectory {
     /** Current Firebase account used as the owner of this device directory. */
     override val authenticatedUserId: String
         get() = requireNotNull(auth.currentUser?.uid) {
