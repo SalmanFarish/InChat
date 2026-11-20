@@ -160,6 +160,42 @@ credential.
 The app does not choose an FCM recipient or subscribe itself to private group
 topics. The Worker checks membership before changing topic subscriptions.
 
+## Encrypted Olm push wake-ups
+
+- The isolated Android Olm delivery worker calls
+  `POST /v1/olm/notify` only after the exact ciphertext envelope has been
+  accepted by `olmInbox/{recipientUid}/{recipientDeviceId}/{deliveryId}`.
+- The Worker derives the recipient account from the existing direct-chat
+  participants. The caller cannot choose an arbitrary recipient UID or FCM
+  registration token. Group chats are rejected by this endpoint.
+- Before sending, the Worker checks both block directions, verifies that the
+  sender and recipient device IDs still have published `deviceKeys` entries,
+  and requires the relay record's sender, device, message, and encrypted
+  envelope metadata to match the authenticated request.
+- It reads only the recipient device's private
+  `privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}` registration. It never
+  falls back to the account-wide plaintext-notification token.
+- FCM receives a **data-only** message containing only the event type and
+  deterministic delivery ID. No FCM `notification` object, message text,
+  sender display name, group name, or chat ID is included. Android can use the
+  delivery ID to wake its encrypted inbox poller; authenticated decrypted
+  payload data remains the source of the conversation route.
+- An ETag-guarded `olmPushDispatch` receipt suppresses duplicate sends and
+  allows failed sends to be retried. Unregistered device tokens are removed
+  only when the stored token still equals the token FCM rejected, protecting a
+  concurrently rotated token.
+- Separate per-account and per-IP Cloudflare Worker rate limits protect this
+  endpoint. The normal `/v1/events/message` plaintext/group notification path
+  is unchanged and does not call the encrypted endpoint.
+- This endpoint is an explicit API call after relay upload; it is not a
+  Firebase database trigger. It uses the existing Firebase service account
+  and FCM API, not Firebase Cloud Functions, Firebase Cloud Storage, or a
+  paid Cloudflare feature.
+
+The encrypted endpoint remains isolated from the normal composer. Do not
+enable encrypted sending in the live chat UI until real two-device recovery,
+inbox wake-up handling, and delivery-state reconciliation have been validated.
+
 ## Attachments
 
 - Attachment bytes are stored as Base64 under
