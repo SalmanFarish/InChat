@@ -50,13 +50,18 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             override fun ensurePublicKeyBundle(): PublicDeviceKeyBundle = recipientBundle
             override fun requireIdentityUsable() = Unit
         }
-        val senderStore = CryptoStateStore(context, "e2e-sender-" + suffix)
+        val senderStore = CryptoStateStore(context, "device-" + senderDeviceId)
         val senderIdentity = JSONObject(
             requireNotNull(
                 NativeCryptoBridge.nativeEnsureDeviceIdentity(senderStore, senderDeviceId),
             ),
         )
         val senderBundle = parseBundle(senderDeviceId, senderIdentity)
+        val senderLocalIdentity = object : SasVerificationLocalIdentity {
+            override fun ensurePublicKeyBundle(): PublicDeviceKeyBundle = senderBundle
+            override fun requireIdentityUsable() = Unit
+        }
+        val senderSessions = OlmSessionRepository(context, senderLocalIdentity)
         val claimedPreKeyIds = mutableListOf<String>()
         val claimedPreKeySet = mutableSetOf<String>()
         val keyDirectory = object : OlmOutboundKeyDirectory {
@@ -76,43 +81,6 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 if (!claimedPreKeySet.add(keyId)) return false
                 claimedPreKeyIds += keyId
                 return true
-            }
-        }
-        val senderSessions = object : OlmOutboundSessionRepository {
-            override val localDeviceId: String = senderDeviceId
-
-            override fun createOutboundSession(
-                remoteDevice: PublicDeviceKeyBundle,
-                remotePreKey: SignedOlmPreKey,
-            ): String = requireNotNull(
-                NativeCryptoBridge.nativeCreateOutboundOlmSession(
-                    senderStore,
-                    senderDeviceId,
-                    remoteDevice.curve25519IdentityKey,
-                    remotePreKey.publicKey,
-                ),
-            )
-
-            override fun encryptAuthenticatedEnvelope(
-                sessionId: String,
-                payload: OlmAuthenticatedMessagePayload,
-            ): String {
-                val wireCiphertext = requireNotNull(
-                    NativeCryptoBridge.nativeEncryptOlmMessage(
-                        senderStore,
-                        senderDeviceId,
-                        sessionId,
-                        OlmAuthenticatedMessagePayloadCodec.encode(payload),
-                    ),
-                )
-                return EncryptedOlmEnvelopeCodec.encode(
-                    EncryptedOlmEnvelope(
-                        senderDeviceId = senderDeviceId,
-                        recipientDeviceId = payload.recipientDeviceId,
-                        sessionId = sessionId,
-                        ciphertext = wireCiphertext,
-                    ),
-                )
             }
         }
         val trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
