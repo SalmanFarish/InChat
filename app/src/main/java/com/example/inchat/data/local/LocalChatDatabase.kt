@@ -20,8 +20,8 @@ import com.example.inchat.crypto.SasVerificationMessageDao
 import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
-    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class],
-    version = 11,
+    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class],
+    version = 12,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -30,6 +30,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
     abstract fun olmDeliveryReceiptDao(): OlmDeliveryReceiptDao
     abstract fun olmInboundReceiptDao(): OlmInboundReceiptDao
     abstract fun encryptedOlmMessageDao(): EncryptedOlmMessageDao
+    abstract fun encryptedGroupMessageDao(): EncryptedGroupMessageDao
     abstract fun sasVerificationMessageDao(): SasVerificationMessageDao
 
     companion object {
@@ -269,13 +270,67 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /** Separate E2EE group content and a durable Megolm replay ledger. */
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS encrypted_group_messages (
+                        ownerUserId TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        messageId TEXT NOT NULL,
+                        membershipEpoch INTEGER NOT NULL,
+                        senderUserId TEXT NOT NULL,
+                        senderDeviceId TEXT NOT NULL,
+                        megolmSessionId TEXT NOT NULL,
+                        messageIndex INTEGER NOT NULL,
+                        sentAtMillis INTEGER NOT NULL,
+                        contentEncryptionVersion INTEGER NOT NULL,
+                        textNonceBase64 TEXT NOT NULL,
+                        textCiphertextBase64 TEXT NOT NULL,
+                        PRIMARY KEY(ownerUserId, groupId, messageId)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_encrypted_group_messages_ownerUserId_groupId_sentAtMillis " +
+                        "ON encrypted_group_messages(ownerUserId, groupId, sentAtMillis)"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS encrypted_group_message_receipts (
+                        ownerUserId TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        senderUserId TEXT NOT NULL,
+                        senderDeviceId TEXT NOT NULL,
+                        megolmSessionId TEXT NOT NULL,
+                        messageIndex INTEGER NOT NULL,
+                        messageId TEXT NOT NULL,
+                        receiptId TEXT NOT NULL,
+                        ciphertextSha256 TEXT NOT NULL,
+                        receivedAtMillis INTEGER NOT NULL,
+                        PRIMARY KEY(ownerUserId, groupId, senderUserId, senderDeviceId, megolmSessionId, messageIndex)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_encrypted_group_message_receipts_receiptId " +
+                        "ON encrypted_group_message_receipts(receiptId)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_encrypted_group_message_receipts_ownerUserId_groupId_receivedAtMillis " +
+                        "ON encrypted_group_message_receipts(ownerUserId, groupId, receivedAtMillis)"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .build().also { INSTANCE = it }
             }
     }
