@@ -131,7 +131,7 @@ function isValidEnvelopeRecord(record, expected) {
     envelope.sessionId.trim() === "" ||
     envelope.sessionId.length > 128 ||
     typeof envelope.ciphertext !== "string" ||
-    !/^[A-Za-z0-9_-]+$/.test(envelope.ciphertext)
+    !/^[A-Za-z0-9_-]+={0,2}$/.test(envelope.ciphertext)
   ) {
     return false;
   }
