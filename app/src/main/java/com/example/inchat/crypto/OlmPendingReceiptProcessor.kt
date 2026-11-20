@@ -9,10 +9,12 @@ internal data class OlmPendingReceiptProcessingResult(
     val finalizationChecked: Int,
     val finalized: Int,
     val pendingScanned: Int,
+    val deferredScanned: Int,
     val committed: Int,
     val alreadyCommitted: Int,
     val waitingForTrust: Int,
     val missingRemoteDevice: Int,
+    val rejected: Int,
     val failed: Int,
 )
 
@@ -36,8 +38,8 @@ internal fun interface OlmCommittedReceiptFinalizer {
  * Advances durable ciphertext receipts through the existing SAS-gated Olm handoff.
  *
  * Public device bundles are resolved through the signature-verifying device directory.
- * An unknown or untrusted sender device is left pending; no receive ratchet is advanced.
- * Failures for one receipt do not prevent independent receipts in the same batch.
+ * An unknown or untrusted sender device is deferred rather than left at the head of
+ * the new-message queue. No receive ratchet is advanced before SAS trust is confirmed.
  */
 internal class OlmPendingReceiptProcessor(
     private val receiptDao: OlmInboundReceiptDao,
@@ -63,16 +65,17 @@ internal class OlmPendingReceiptProcessor(
             var finalizationChecked = 0
             var finalized = 0
             var pendingScanned = 0
+            var deferredScanned = 0
             var committed = 0
             var alreadyCommitted = 0
             var waitingForTrust = 0
             var missingRemoteDevice = 0
+            var rejected = 0
             var failed = 0
 
             // Recover the crash window where Room committed the message but the
             // native staged-plaintext cleanup had not yet completed.
-            val awaitingFinalization = receiptDao.getAwaitingFinalization(limit)
-            for (receipt in awaitingFinalization) {
+            for (receipt in receiptDao.getAwaitingFinalization(limit)) {
                 finalizationChecked++
                 try {
                     if (finalizer.finalizeReceipt(receipt.receiptId, localUserId)) {
@@ -87,26 +90,58 @@ internal class OlmPendingReceiptProcessor(
                 }
             }
 
+            // Snapshot both queues before changing states. A receipt deferred in
+            // this pass is reconsidered on the next pass, not twice immediately.
             val pendingReceipts = receiptDao.getPending(limit)
+            val deferredReceipts = receiptDao.getWaitingForDevice(limit)
             pendingScanned = pendingReceipts.size
+            deferredScanned = deferredReceipts.size
             val deviceDirectoryCache = mutableMapOf<String, List<PublicDeviceKeyBundle>>()
 
-            for (receipt in pendingReceipts) {
-                // Stop using this batch if Firebase authentication changed while
-                // the worker was running. The coordinator independently checks it too.
-                if (authenticatedLocalUserId() != localUserId) break
+            suspend fun resolveDevices(senderUserId: String): List<PublicDeviceKeyBundle> {
+                val cached = deviceDirectoryCache[senderUserId]
+                if (cached != null) return cached
+                val loaded = remoteDevicesForUser(senderUserId)
+                deviceDirectoryCache[senderUserId] = loaded
+                return loaded
+            }
 
+            suspend fun processReceipt(
+                receipt: OlmInboundReceiptEntity,
+                isDeferred: Boolean,
+            ) {
+                if (authenticatedLocalUserId() != localUserId) return
+
+                val envelope: EncryptedOlmEnvelope
+                val ciphertextKind: OlmInboundCiphertextKind
                 try {
-                    val devices = deviceDirectoryCache[receipt.senderUserId]
-                        ?: remoteDevicesForUser(receipt.senderUserId).also {
-                            deviceDirectoryCache[receipt.senderUserId] = it
-                        }
+                    envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
+                    require(envelope.senderDeviceId == receipt.senderDeviceId) {
+                        "Stored envelope sender does not match its receipt"
+                    }
+                    require(envelope.recipientDeviceId == receipt.recipientDeviceId) {
+                        "Stored envelope recipient does not match its receipt"
+                    }
+                    ciphertextKind = OlmInboundCiphertextKind.fromEnvelope(envelope)
+                } catch (invalidEnvelope: IllegalArgumentException) {
+                    // Structurally malformed or unknown wire formats cannot recover
+                    // on retry. Quarantine them without blocking valid later messages.
+                    receiptDao.markRejected(receipt.receiptId)
+                    rejected++
+                    return
+                }
+
+                // Let directory/network failures escape to WorkManager so the whole
+                // pass can retry. Missing entries are a normal deferred condition.
+                val devices = resolveDevices(receipt.senderUserId)
+                try {
                     val remoteDevice = devices.firstOrNull {
                         it.deviceId == receipt.senderDeviceId
                     }
                     if (remoteDevice == null) {
+                        if (!isDeferred) receiptDao.markWaitingForDevice(receipt.receiptId)
                         missingRemoteDevice++
-                        continue
+                        return
                     }
 
                     if (!trustVerifier.isVerified(
@@ -115,18 +150,23 @@ internal class OlmPendingReceiptProcessor(
                             peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                         )
                     ) {
+                        if (!isDeferred) receiptDao.markWaitingForDevice(receipt.receiptId)
                         waitingForTrust++
-                        continue
+                        return
                     }
 
-                    val envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
-                    require(envelope.senderDeviceId == receipt.senderDeviceId) {
-                        "Stored envelope sender does not match its receipt"
+                    if (isDeferred) {
+                        val restored = receiptDao.restorePending(receipt.receiptId)
+                        val currentStatus = receiptDao.getByReceiptId(receipt.receiptId)?.status
+                        check(
+                            restored == 1 ||
+                                currentStatus == OlmInboundReceiptStatus.PENDING.name ||
+                                currentStatus == OlmInboundReceiptStatus.PROCESSED.name ||
+                                currentStatus == OlmInboundReceiptStatus.FINALIZED.name
+                        ) {
+                            "Deferred inbound receipt could not be restored for processing"
+                        }
                     }
-                    require(envelope.recipientDeviceId == receipt.recipientDeviceId) {
-                        "Stored envelope recipient does not match its receipt"
-                    }
-                    val ciphertextKind = OlmInboundCiphertextKind.fromEnvelope(envelope)
 
                     when (
                         handoff.process(
@@ -143,20 +183,29 @@ internal class OlmPendingReceiptProcessor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    // Keep the immutable ciphertext receipt PENDING. A later
-                    // worker pass can recover transient native/Room failures.
+                    // Keep the immutable receipt recoverable. Transient crypto,
+                    // Keystore, Room, and mapping errors are retried on a later pass.
                     failed++
                 }
+            }
+
+            for (receipt in pendingReceipts) {
+                processReceipt(receipt, isDeferred = false)
+            }
+            for (receipt in deferredReceipts) {
+                processReceipt(receipt, isDeferred = true)
             }
 
             OlmPendingReceiptProcessingResult(
                 finalizationChecked = finalizationChecked,
                 finalized = finalized,
                 pendingScanned = pendingScanned,
+                deferredScanned = deferredScanned,
                 committed = committed,
                 alreadyCommitted = alreadyCommitted,
                 waitingForTrust = waitingForTrust,
                 missingRemoteDevice = missingRemoteDevice,
+                rejected = rejected,
                 failed = failed,
             )
         }
