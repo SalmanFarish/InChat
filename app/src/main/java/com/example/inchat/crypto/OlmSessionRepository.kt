@@ -302,6 +302,26 @@ internal class OlmSessionRepository(
         )
     }
 
+    /**
+     * Encrypt a per-device Megolm session-key distribution inside an established
+     * Olm session. The signed Megolm key is a decryption capability, so callers
+     * must use a SAS-trusted recipient device in the current group membership
+     * snapshot and must never send this payload through a public key directory.
+     */
+    fun encryptGroupSessionKeyDistributionEnvelope(
+        sessionId: String,
+        payload: OlmGroupSessionKeyDistributionPayload,
+    ): String {
+        require(payload.senderDeviceId == localBundle.deviceId) {
+            "Group session-key sender device does not match this installation"
+        }
+        return encryptEnvelope(
+            sessionId = sessionId,
+            recipientDeviceId = payload.recipientDeviceId,
+            plaintext = OlmGroupSessionKeyDistributionPayloadCodec.encode(payload),
+        )
+    }
+
     /** Encrypt a message and persist the advanced sending ratchet before returning. */
     fun encrypt(sessionId: String, plaintext: String): ByteArray {
         validateSessionId(sessionId)
