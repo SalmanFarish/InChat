@@ -62,6 +62,27 @@ Encrypted chat previews, notification tap routing after decryption, and
 two-device notification validation are also required before rollout.
 
 
+
+## Encrypted delivery status lifecycle
+
+Each account/device outbox row distinguishes an active upload lease from
+successful relay acceptance. A successful Firebase Realtime Database write
+moves the immutable envelope to `UPLOADED` and records its next exact-retry
+time. If no recipient acknowledgement arrives within 15 minutes, the same
+delivery ID and ciphertext are retried. The existing bounded attempt policy
+still applies. An interrupted upload remains `IN_FLIGHT` until its lease
+expires and is reclaimed.
+
+The encrypted-only status projection combines the sender's scoped outbox
+states with its durable recipient acknowledgement ledger:
+`QUEUED` → Waiting, `IN_FLIGHT` → Sending, `UPLOADED` → Sent,
+a recipient-device acknowledgement → Delivered, and an exhausted queue row
+→ Failed. An acknowledgement from another device owned by the sender is not
+counted as recipient delivery. The projection reads status strings only; it
+does not expose queued ciphertext. "Delivered" means at least one recipient
+device durably staged the ciphertext. Read receipts are not implemented, so
+this path never reports "Read".
+
 ## Encrypted delivery acknowledgement persistence
 
 Sender-side recipient-device acknowledgements are now retained in a separate,
