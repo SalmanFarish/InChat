@@ -91,6 +91,13 @@ class EncryptedGroupMessageVaultTest {
                 missingKeyRejected = expected.message.orEmpty().contains("key is missing")
             }
             assertTrue(missingKeyRejected)
+            var encryptRejected = false
+            try {
+                vault.encrypt(message(), allowKeyCreation = false)
+            } catch (expected: GeneralSecurityException) {
+                encryptRejected = expected.message.orEmpty().contains("key is missing")
+            }
+            assertTrue("Existing group ciphertext must not be stranded by silent key rotation", encryptRejected)
             assertFalse(keyExists(alias))
         } finally {
             deleteKey(alias)
