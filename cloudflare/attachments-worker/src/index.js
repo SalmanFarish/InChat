@@ -3300,21 +3300,35 @@ async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
   return json(outcome.payload, outcome.status);
 }
 
-async function enforceEncryptedOlmPushRateLimits(request, env, uid) {
-  const accountLimiter = env.OLM_PUSH_UID_LIMITER;
+async function enforceEncryptedOlmPushIpRateLimit(request, env) {
   const ipLimiter = env.OLM_PUSH_IP_LIMITER;
-  if (!accountLimiter || !ipLimiter) {
+  if (!ipLimiter) {
     return json({
-      error: "Encrypted push rate limits are not configured on this Worker.",
+      error: "Encrypted push IP rate limiting is not configured on this Worker.",
     }, 503);
   }
 
   const sourceIp = request.headers.get("CF-Connecting-IP") || "unknown";
-  const [accountLimit, ipLimit] = await Promise.all([
-    accountLimiter.limit({ key: uid }),
-    ipLimiter.limit({ key: sourceIp }),
-  ]);
-  if (!accountLimit.success || !ipLimit.success) {
+  const limit = await ipLimiter.limit({ key: sourceIp });
+  if (!limit.success) {
+    return json({
+      error: "Too many encrypted push requests. Please retry later.",
+      retryable: true,
+    }, 429);
+  }
+  return null;
+}
+
+async function enforceEncryptedOlmPushAccountRateLimit(env, uid) {
+  const accountLimiter = env.OLM_PUSH_UID_LIMITER;
+  if (!accountLimiter) {
+    return json({
+      error: "Encrypted push account rate limiting is not configured on this Worker.",
+    }, 503);
+  }
+
+  const limit = await accountLimiter.limit({ key: uid });
+  if (!limit.success) {
     return json({
       error: "Too many encrypted push requests. Please retry later.",
       retryable: true,
@@ -3370,21 +3384,27 @@ export default {
         return recoverPassword(request, env, adminAuth);
       }
 
-      const user = await authenticate(getBearer(request), env);
-
       if (
         request.method === "POST" &&
         url.pathname === "/v1/olm/notify"
       ) {
-        const rateLimitResponse = await enforceEncryptedOlmPushRateLimits(
-          request,
+        // Apply the IP limit before calling Firebase Identity Toolkit so
+        // invalid-token floods cannot turn this endpoint into an auth proxy.
+        const ipLimitResponse = await enforceEncryptedOlmPushIpRateLimit(request, env);
+        if (ipLimitResponse) return ipLimitResponse;
+
+        const user = await authenticate(getBearer(request), env);
+        const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(
           env,
           user.uid,
         );
-        if (rateLimitResponse) return rateLimitResponse;
+        if (accountLimitResponse) return accountLimitResponse;
+
         const adminAuth = await getFirebaseAdminToken(env);
         return processEncryptedOlmPushRequest(request, env, user.uid, adminAuth);
       }
+
+      const user = await authenticate(getBearer(request), env);
 
       if (
         request.method === "POST" &&
