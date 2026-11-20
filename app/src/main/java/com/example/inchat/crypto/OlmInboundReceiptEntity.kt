@@ -26,4 +26,9 @@ data class OlmInboundReceiptEntity(
 )
 
 /** FINALIZED means Room commit and native staged-plaintext cleanup both completed. */
-enum class OlmInboundReceiptStatus { PENDING, PROCESSED, FINALIZED }
+enum class OlmInboundReceiptStatus {
+    PENDING,
+    WAITING_FOR_DEVICE,
+    PROCESSED,
+    FINALIZED,
+}
