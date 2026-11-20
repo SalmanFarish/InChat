@@ -103,6 +103,7 @@ class MegolmGroupMessageOutboxCommitterTest {
                 messageId = messageId,
                 groupId = membership.groupId,
                 membershipEpoch = membership.epoch,
+                megolmSessionId = encrypted.sessionId,
                 deliveries = listOf(
                     PreparedOlmGroupMessageDelivery(
                         recipientUserId = "bob",
@@ -167,6 +168,7 @@ class MegolmGroupMessageOutboxCommitterTest {
         distributionId = "group-key-7",
         groupId = "group-1",
         membershipEpoch = 7L,
+        megolmSessionId = "1234567890abcdef",
         deliveries = listOf(
             PreparedOlmGroupKeyDelivery(
                 recipientUserId = "bob",
