@@ -138,3 +138,124 @@ export async function mutateGroupMembersWithEtag(
     { status: 409 },
   );
 }
+
+function sameMemberMap(left, right) {
+  if (!left || !right || typeof left !== "object" || typeof right !== "object" ||
+      Array.isArray(left) || Array.isArray(right)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) =>
+      key === rightKeys[index] && left[key] === right[key],
+    );
+}
+
+/**
+ * Lazily initializes the authoritative snapshot for pre-existing groups.
+ * The authenticated account is checked against the member map on every ETag
+ * retry, so a user removed during a concurrent change cannot initialize/read
+ * the replacement snapshot.
+ */
+export async function ensureGroupCryptoMembershipSnapshotWithEtag(
+  env,
+  adminToken,
+  chatId,
+  authorizedUid,
+  fetchImpl = fetch,
+) {
+  const path = "chats/" + chatId;
+  const databaseUrl = env.FIREBASE_DATABASE_URL.endsWith("/") ?
+    env.FIREBASE_DATABASE_URL.slice(0, -1) :
+    env.FIREBASE_DATABASE_URL;
+  const url = databaseUrl +
+    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const readResponse = await fetchImpl(url, {
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "X-Firebase-ETag": "true",
+      },
+    });
+    if (!readResponse.ok) {
+      throw new Error(
+        "Could not read group crypto membership (" + readResponse.status + ").",
+      );
+    }
+
+    const currentChat = await readResponse.json();
+    if (!currentChat || currentChat.type !== "group" ||
+        !currentChat.members || typeof currentChat.members !== "object" ||
+        Array.isArray(currentChat.members)) {
+      throw new Response("Group not found.", { status: 404 });
+    }
+
+    const members = currentChat.members;
+    if (!Object.prototype.hasOwnProperty.call(members, authorizedUid)) {
+      throw new Response("You are not a current group member.", { status: 403 });
+    }
+    if (Object.keys(members).length < 2 || Object.keys(members).length > 50 ||
+        Object.entries(members).some(([uid, role]) =>
+          !uid || (role !== "admin" && role !== "member"),
+        )) {
+      throw new Error("Group membership map is invalid.");
+    }
+
+    const existing = currentChat.cryptoMembership;
+    if (
+      existing &&
+      currentGroupCryptoMembershipEpoch(existing.epoch) > 0 &&
+      sameMemberMap(existing.members, members)
+    ) {
+      return {
+        groupId: chatId,
+        epoch: existing.epoch,
+        members: existing.members,
+        changed: false,
+      };
+    }
+
+    const etag = readResponse.headers.get("ETag");
+    if (!etag) throw new Error("Realtime Database did not return a group ETag.");
+
+    // A truly legacy group begins at epoch 1. If an existing snapshot drifted
+    // from its canonical member map, advance the epoch to invalidate old keys.
+    const epoch = existing ?
+      nextGroupCryptoMembershipEpoch(existing.epoch) :
+      INITIAL_GROUP_CRYPTO_MEMBERSHIP_EPOCH;
+    const snapshot = { epoch, members };
+    const writeResponse = await fetchImpl(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer " + adminToken,
+        "Content-Type": "application/json",
+        "If-Match": etag,
+      },
+      body: JSON.stringify({ cryptoMembership: snapshot }),
+    });
+
+    if (writeResponse.status === 412) continue;
+    if (!writeResponse.ok) {
+      const details = await writeResponse.text();
+      throw new Error(
+        "Could not initialize group crypto membership (" +
+        writeResponse.status + "): " + details.slice(0, 240),
+      );
+    }
+
+    return {
+      groupId: chatId,
+      epoch,
+      members,
+      changed: true,
+    };
+  }
+
+  throw new Response(
+    "Group membership changed at the same time. Please try again.",
+    { status: 409 },
+  );
+}
+
