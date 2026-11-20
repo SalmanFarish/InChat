@@ -14,11 +14,18 @@ class OlmGroupMessageOutboxCoordinatorTest {
             queue = OlmDeliveryQueue(store),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
+            keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, keys, messages ->
+                assertEquals(
+                    keys.deliveries.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+                    messages.deliveries.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+                )
+            },
             scheduleDelivery = { owner, device -> scheduled += owner to device },
         )
         val inserted = coordinator.enqueue(
             currentMembership = membership(7L),
             distribution = distribution(7L),
+            keyDistribution = keyDistribution(7L),
         )
 
         assertEquals(2, inserted)
@@ -37,12 +44,15 @@ class OlmGroupMessageOutboxCoordinatorTest {
             queue = OlmDeliveryQueue(store),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
+            keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, _, _ ->
+                throw IllegalStateException("Readiness must not be called for stale membership")
+            },
             scheduleDelivery = { _, _ -> scheduled = true },
         )
 
         var rejected = false
         try {
-            coordinator.enqueue(membership(8L), distribution(7L))
+            coordinator.enqueue(membership(8L), distribution(7L), keyDistribution(7L))
         } catch (_: IllegalArgumentException) {
             rejected = true
         }
@@ -58,6 +68,17 @@ class OlmGroupMessageOutboxCoordinatorTest {
         members = mapOf("alice" to "admin", "bob" to "member"),
     )
 
+    private fun keyDistribution(epoch: Long) = PreparedOlmGroupKeyDistribution(
+        distributionId = "group-key-7",
+        groupId = "group-1",
+        membershipEpoch = epoch,
+        deliveries = listOf(
+            keyDelivery("alice", "alice-tablet", "session-tablet"),
+            keyDelivery("bob", "bob-phone", "session-bob"),
+        ),
+        skippedUntrustedDeviceCount = 0,
+    )
+
     private fun distribution(epoch: Long) = PreparedOlmGroupMessageDistribution(
         messageId = "group-message-1",
         groupId = "group-1",
@@ -68,6 +89,21 @@ class OlmGroupMessageOutboxCoordinatorTest {
         ),
         skippedUntrustedDeviceCount = 0,
     )
+
+    private fun keyDelivery(userId: String, deviceId: String, sessionId: String) =
+        PreparedOlmGroupKeyDelivery(
+            recipientUserId = userId,
+            recipientDeviceId = deviceId,
+            sessionId = sessionId,
+            envelope = EncryptedOlmEnvelopeCodec.encode(
+                EncryptedOlmEnvelope(
+                    senderDeviceId = "alice-phone",
+                    recipientDeviceId = deviceId,
+                    sessionId = sessionId,
+                    ciphertext = ByteArray(32) { (it + 1).toByte() },
+                ),
+            ),
+        )
 
     private fun delivery(userId: String, deviceId: String, sessionId: String) =
         PreparedOlmGroupMessageDelivery(
