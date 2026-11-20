@@ -2751,13 +2751,11 @@ mod transfer_tests {
         let target_device_id = "target-device";
         let mut group_session = OutboundGroupSession::new();
         let session_id = group_session.session_id();
-        let message = group_session.encrypt(b"before transfer").unwrap();
-
+        let session_key = group_session.export_session_key();
         let mut recipient =
-            crate::megolm::InboundGroupSession::from_session_key(
-                &group_session.export_session_key(),
-            )
-            .unwrap();
+            crate::megolm::InboundGroupSession::from_session_key(&session_key)
+                .unwrap();
+        let message = group_session.encrypt(b"before transfer").unwrap();
         assert_eq!(
             recipient.decrypt(&message.ciphertext).unwrap().0,
             b"before transfer"
