@@ -2081,6 +2081,7 @@ mod tests {
     };
     use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
     use vodozemac::{Ed25519PublicKey, Ed25519Signature};
+    use crate::megolm::{InboundGroupSession, OutboundGroupSession};
 
     #[test]
     fn device_account_pickle_round_trips_and_is_bound_to_device_id() {
@@ -2226,6 +2227,160 @@ mod tests {
             .decrypt(&follow_up)
             .expect("second restored ratchet decrypts");
         assert_eq!(plaintext.as_slice(), b"second reply");
+    }
+
+    #[test]
+    fn outbound_megolm_ratchet_round_trips_in_keystore_device_state() {
+        let mut sender = OutboundGroupSession::new();
+        let session_id = sender.session_id();
+        let session_key = sender.export_session_key();
+        let mut recipient =
+            InboundGroupSession::from_session_key(&session_key).expect("session key imports");
+
+        let first = sender.encrypt(b"before native state restart").unwrap();
+        assert_eq!(
+            recipient.decrypt(&first.ciphertext).unwrap().0,
+            b"before native state restart"
+        );
+
+        let mut outbound_group_sessions = std::collections::BTreeMap::new();
+        outbound_group_sessions.insert(
+            "group-1".to_owned(),
+            super::StoredOutboundGroupSession {
+                membership_epoch: 4,
+                sender_device_id: "sender-device".to_owned(),
+                session: sender,
+            },
+        );
+        let state = super::DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions,
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+
+        let encoded = super::encode_device_crypto_state("sender-device", &state)
+            .expect("outbound Megolm state should serialize");
+        let mut restored =
+            super::decode_device_crypto_state(encoded, "sender-device")
+                .expect("outbound Megolm state should restore");
+        let stored = restored
+            .outbound_group_sessions
+            .get_mut("group-1")
+            .expect("outbound Megolm session should be restored");
+        assert_eq!(stored.membership_epoch, 4);
+        assert_eq!(stored.sender_device_id, "sender-device");
+        assert_eq!(stored.session.session_id(), session_id);
+
+        let second = stored
+            .session
+            .encrypt(b"after native state restart")
+            .unwrap();
+        assert_eq!(
+            recipient.decrypt(&second.ciphertext).unwrap().0,
+            b"after native state restart"
+        );
+    }
+
+    #[test]
+    fn inbound_megolm_ratchet_round_trips_with_authenticated_sender_metadata() {
+        let mut sender = OutboundGroupSession::new();
+        let session_id = sender.session_id();
+        let mut recipient =
+            InboundGroupSession::from_session_key(&sender.export_session_key())
+                .expect("signed Megolm session key imports");
+
+        let first = sender.encrypt(b"before recipient restart").unwrap();
+        assert_eq!(
+            recipient.decrypt(&first.ciphertext).unwrap().0,
+            b"before recipient restart"
+        );
+
+        let key = super::inbound_group_session_key(
+            "group-1",
+            7,
+            "sender-user",
+            "sender-device",
+            &session_id,
+        );
+        let mut inbound_group_sessions = std::collections::BTreeMap::new();
+        inbound_group_sessions.insert(
+            key,
+            super::StoredInboundGroupSession {
+                group_id: "group-1".to_owned(),
+                membership_epoch: 7,
+                sender_user_id: "sender-user".to_owned(),
+                sender_device_id: "sender-device".to_owned(),
+                session: recipient,
+            },
+        );
+        let state = super::DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions,
+        };
+
+        let encoded = super::encode_device_crypto_state("recipient-device", &state)
+            .expect("inbound Megolm state should serialize");
+        let mut restored =
+            super::decode_device_crypto_state(encoded, "recipient-device")
+                .expect("inbound Megolm state should restore");
+        let key = super::inbound_group_session_key(
+            "group-1",
+            7,
+            "sender-user",
+            "sender-device",
+            &session_id,
+        );
+        let stored = restored
+            .inbound_group_sessions
+            .get_mut(&key)
+            .expect("inbound Megolm session should be restored");
+        assert_eq!(stored.group_id, "group-1");
+        assert_eq!(stored.membership_epoch, 7);
+        assert_eq!(stored.sender_user_id, "sender-user");
+        assert_eq!(stored.sender_device_id, "sender-device");
+        assert_eq!(stored.session.session_id(), session_id);
+
+        let second = sender.encrypt(b"after recipient restart").unwrap();
+        assert_eq!(
+            stored.session.decrypt(&second.ciphertext).unwrap().0,
+            b"after recipient restart"
+        );
+    }
+
+    #[test]
+    fn previous_v2_device_state_without_megolm_fields_remains_readable() {
+        let device_id = "legacy-v2-device";
+        let state = super::DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+        let encoded = super::encode_device_crypto_state(device_id, &state)
+            .expect("current state should encode");
+        let prefix_len = super::DEVICE_STATE_HEADER_V2.len() + 1 + device_id.len();
+        let mut envelope: serde_json::Value =
+            serde_json::from_slice(&encoded[prefix_len..]).unwrap();
+        let object = envelope.as_object_mut().unwrap();
+        object.remove("outboundGroupSessions");
+        object.remove("inboundGroupSessions");
+
+        let mut legacy_v2 = Vec::new();
+        legacy_v2.extend_from_slice(super::DEVICE_STATE_HEADER_V2);
+        legacy_v2.push(device_id.len() as u8);
+        legacy_v2.extend_from_slice(device_id.as_bytes());
+        legacy_v2.extend_from_slice(&serde_json::to_vec(&envelope).unwrap());
+
+        let restored = super::decode_device_crypto_state(legacy_v2, device_id)
+            .expect("previous v2 state must default missing Megolm maps to empty");
+        assert!(restored.outbound_group_sessions.is_empty());
+        assert!(restored.inbound_group_sessions.is_empty());
     }
 
     #[test]
