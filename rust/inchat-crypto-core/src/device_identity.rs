@@ -98,6 +98,124 @@ fn inbound_group_session_key(
     )
 }
 
+fn ensure_outbound_group_session(
+    state: &mut DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+) -> Result<(String, bool), &'static str> {
+    if !valid_group_id(group_id) ||
+        membership_epoch == 0 ||
+        !valid_user_id(sender_user_id) ||
+        !valid_device_id(sender_device_id) {
+        return Err("Outbound Megolm session metadata is invalid");
+    }
+
+    if let Some(existing) = state.outbound_group_sessions.get(group_id) {
+        if membership_epoch < existing.membership_epoch {
+            return Err("Cannot restore an outbound Megolm session for a stale membership epoch");
+        }
+        if membership_epoch == existing.membership_epoch {
+            if existing.sender_user_id != sender_user_id ||
+                existing.sender_device_id != sender_device_id {
+                return Err("Outbound Megolm session sender identity does not match");
+            }
+            return Ok((existing.session.session_id(), false));
+        }
+    }
+
+    let session = OutboundGroupSession::new();
+    let session_id = session.session_id();
+    state.outbound_group_sessions.insert(
+        group_id.to_owned(),
+        StoredOutboundGroupSession {
+            membership_epoch,
+            sender_user_id: sender_user_id.to_owned(),
+            sender_device_id: sender_device_id.to_owned(),
+            session,
+        },
+    );
+    Ok((session_id, true))
+}
+
+fn export_outbound_group_session_key(
+    state: &DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+) -> Result<Vec<u8>, &'static str> {
+    let stored = state
+        .outbound_group_sessions
+        .get(group_id)
+        .ok_or("Outbound Megolm session does not exist")?;
+    if stored.membership_epoch != membership_epoch ||
+        stored.sender_user_id != sender_user_id ||
+        stored.sender_device_id != sender_device_id {
+        return Err("Outbound Megolm session does not match the current group epoch or sender");
+    }
+    Ok(stored.session.export_session_key())
+}
+
+fn import_inbound_group_session(
+    state: &mut DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    expected_session_id: &str,
+    session_key: &[u8],
+) -> Result<bool, &'static str> {
+    if !valid_group_id(group_id) ||
+        membership_epoch == 0 ||
+        !valid_user_id(sender_user_id) ||
+        !valid_device_id(sender_device_id) ||
+        expected_session_id.is_empty() ||
+        expected_session_id.len() > 128 {
+        return Err("Inbound Megolm session metadata is invalid");
+    }
+    let session = InboundGroupSession::from_session_key(session_key)?;
+    if session.session_id() != expected_session_id {
+        return Err("Imported Megolm key does not match the expected session ID");
+    }
+
+    let key = inbound_group_session_key(
+        group_id,
+        membership_epoch,
+        sender_user_id,
+        sender_device_id,
+        expected_session_id,
+    );
+    if let Some(existing) = state.inbound_group_sessions.get(&key) {
+        if existing.group_id != group_id ||
+            existing.membership_epoch != membership_epoch ||
+            existing.sender_user_id != sender_user_id ||
+            existing.sender_device_id != sender_device_id ||
+            existing.session.session_id() != expected_session_id {
+            return Err("Existing inbound Megolm session metadata conflicts");
+        }
+        // Preserve the existing receive ratchet when an exact distribution is
+        // delivered again. Re-importing the key would reset replay progress.
+        return Ok(false);
+    }
+    if state.inbound_group_sessions.len() >= 10_000 {
+        return Err("Too many inbound Megolm sessions are stored on this device");
+    }
+
+    state.inbound_group_sessions.insert(
+        key,
+        StoredInboundGroupSession {
+            group_id: group_id.to_owned(),
+            membership_epoch,
+            sender_user_id: sender_user_id.to_owned(),
+            sender_device_id: sender_device_id.to_owned(),
+            session,
+        },
+    );
+    Ok(true)
+}
+
 fn encode_device_crypto_state(
     device_id: &str,
     state: &DeviceCryptoState,
