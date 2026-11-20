@@ -1,6 +1,5 @@
 package com.example.inchat.crypto
 
-import android.util.Base64
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 
 /**
