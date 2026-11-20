@@ -1,6 +1,8 @@
 package com.example.inchat.crypto
 
 import androidx.room.RoomDatabase
+import org.json.JSONException
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -53,6 +55,8 @@ internal class OlmInboundHandoffCoordinator(
     encryptedMessageDao: EncryptedOlmMessageDao,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val groupMessageHandoff: OlmInboundGroupMessageHandoff? = null,
+    private val megolmSessionRepository: MegolmSessionRepository? = null,
 ) {
     private val committer = OlmInboundMessageCommitter(database, encryptedMessageDao, receiptDao)
     private val processingMutex = Mutex()
@@ -138,6 +142,42 @@ internal class OlmInboundHandoffCoordinator(
                     )
             }
 
+            // The outer Olm envelope and SAS-trusted sender device are already
+            // authenticated. Route the typed group payload only after this point,
+            // before attempting the strict direct-message schema decoder.
+            if (isGroupMessagePayload(staged.plaintext)) {
+                val groupHandoff = requireNotNull(groupMessageHandoff) {
+                    "Inbound Megolm group-message handling is not configured"
+                }
+                check(megolmSessionRepository != null) {
+                    "Inbound Megolm session finalizer is not configured"
+                }
+                groupHandoff.process(
+                    receipt = receipt,
+                    remoteDevice = remoteDevice,
+                    remoteDeviceUserId = remoteDeviceUserId,
+                    localUserId = localUserId,
+                    authenticatedOlmPlaintext = staged.plaintext,
+                )
+                val marked = receiptDao.markProcessed(
+                    receiptId,
+                    clock().coerceAtLeast(0L),
+                )
+                check(
+                    marked == 1 ||
+                        receiptDao.getByReceiptId(receiptId)?.status in setOf(
+                            OlmInboundReceiptStatus.PROCESSED.name,
+                            OlmInboundReceiptStatus.FINALIZED.name,
+                        )
+                ) {
+                    "Encrypted group message committed, but its Olm receipt was not marked processed"
+                }
+                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
+                    "Group message committed, but native receive stages could not be finalized; retry safely"
+                }
+                return@withContext OlmInboundHandoffResult.COMMITTED
+            }
+
             val payload = OlmAuthenticatedMessagePayloadCodec.decodeAndValidate(
                 plaintext = staged.plaintext,
                 expectedMessageId = receipt.messageId,
@@ -216,6 +256,15 @@ internal class OlmInboundHandoffCoordinator(
         check(status == OlmInboundReceiptStatus.PROCESSED.name) {
             "Only a committed inbound receipt can be finalized"
         }
+        // The group native stage is independent of the Olm stage. Remove it
+        // first, only after the group ciphertext/replay transaction and outer
+        // PROCESSED receipt have committed. The native operation is idempotent
+        // and returns success when no group stage exists (direct-message case).
+        megolmSessionRepository?.let { repository ->
+            check(repository.finalizeInboundDecryption(receiptId)) {
+                "Could not finalize committed Megolm plaintext"
+            }
+        }
         check(sessionRepository.finalizeInboundDecryption(receiptId)) {
             "Could not finalize committed inbound plaintext"
         }
@@ -224,6 +273,12 @@ internal class OlmInboundHandoffCoordinator(
             "Native plaintext was finalized, but the durable receipt status was not updated"
         }
         return true
+    }
+
+    private fun isGroupMessagePayload(plaintext: String): Boolean = try {
+        JSONObject(plaintext).opt("messageType") == "group_message"
+    } catch (_: JSONException) {
+        false
     }
 
     private companion object {
