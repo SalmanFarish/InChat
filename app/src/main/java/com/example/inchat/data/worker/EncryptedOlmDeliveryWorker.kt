@@ -14,6 +14,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
+import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmDeliveryQueue
@@ -107,6 +109,7 @@ class EncryptedOlmDeliveryWorker(
                 trustVerifier = TrustedDeviceRepository(applicationContext),
                 expectedAuthenticatedUserId = ownerUserId,
             )
+            val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
                 transport = transport,
@@ -116,6 +119,19 @@ class EncryptedOlmDeliveryWorker(
                     database = database,
                     dao = database.olmDeliveryReceiptDao(),
                 )::record,
+                notifyEncryptedRecipient = { delivery ->
+                    notifications.notifyEncryptedDelivery(
+                        senderUserId = ownerUserId,
+                        chatId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                            ownerUserId,
+                            delivery.recipientUserId,
+                        ),
+                        deliveryId = delivery.deliveryId,
+                        messageId = delivery.messageId,
+                        senderDeviceId = senderDeviceId,
+                        recipientDeviceId = delivery.recipientDeviceId,
+                    ).getOrThrow()
+                },
             ).run()
 
             Log.i(
