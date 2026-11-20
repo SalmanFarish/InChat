@@ -35,7 +35,8 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         val clearText = "end-to-end recovery plaintext"
 
         // This instrumentation installation is the recipient device. The sender
-        // uses a separate native store and a different device ID.
+        // uses a separate native store and a different device ID. The outbound
+        // preparer below creates the real Olm session and claims the recipient OTK.
         val recipientBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
         val senderStore = CryptoStateStore(context, "e2e-sender-" + suffix)
         val senderIdentity = JSONObject(
@@ -44,47 +45,76 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             ),
         )
         val senderBundle = parseBundle(senderDeviceId, senderIdentity)
-        val recipientPreKey = requireNotNull(recipientBundle.oneTimeKeys.firstOrNull()) {
-            "The recipient device must publish a one-time prekey for this test"
+        val claimedPreKeyIds = mutableListOf<String>()
+        val claimedPreKeySet = mutableSetOf<String>()
+        val keyDirectory = object : OlmOutboundKeyDirectory {
+            override val authenticatedUserId: String = senderUserId
+
+            override suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> =
+                if (uid == recipientUserId) listOf(recipientBundle) else emptyList()
+
+            override suspend fun claimOneTimePreKey(
+                targetUid: String,
+                deviceId: String,
+                keyId: String,
+            ): Boolean {
+                assertEquals(recipientUserId, targetUid)
+                assertEquals(recipientBundle.deviceId, deviceId)
+                if (recipientBundle.oneTimeKeys.none { it.keyId == keyId }) return false
+                if (!claimedPreKeySet.add(keyId)) return false
+                claimedPreKeyIds += keyId
+                return true
+            }
         }
-        val sessionId = requireNotNull(
-            NativeCryptoBridge.nativeCreateOutboundOlmSession(
-                senderStore,
-                senderDeviceId,
-                recipientBundle.curve25519IdentityKey,
-                recipientPreKey.publicKey,
-            ),
-        )
-        val payload = OlmAuthenticatedMessagePayload(
-            messageId = messageId,
-            senderUserId = senderUserId,
-            senderDeviceId = senderDeviceId,
-            recipientUserId = recipientUserId,
-            recipientDeviceId = recipientBundle.deviceId,
-            sentAtMillis = 1_700_000_000_000L,
-            text = clearText,
-        )
-        val wireCiphertext = requireNotNull(
-            NativeCryptoBridge.nativeEncryptOlmMessage(
-                senderStore,
-                senderDeviceId,
-                sessionId,
-                OlmAuthenticatedMessagePayloadCodec.encode(payload),
-            ),
-        )
-        val envelope = EncryptedOlmEnvelopeCodec.encode(
-            EncryptedOlmEnvelope(
-                senderDeviceId = senderDeviceId,
-                recipientDeviceId = recipientBundle.deviceId,
-                sessionId = sessionId,
-                ciphertext = wireCiphertext,
-            ),
-        )
-        val prepared = PreparedOlmDelivery(
-            recipientUserId = recipientUserId,
-            recipientDeviceId = recipientBundle.deviceId,
-            sessionId = sessionId,
-            envelope = envelope,
+        val senderSessions = object : OlmOutboundSessionRepository {
+            override val localDeviceId: String = senderDeviceId
+
+            override fun createOutboundSession(
+                remoteDevice: PublicDeviceKeyBundle,
+                remotePreKey: SignedOlmPreKey,
+            ): String = requireNotNull(
+                NativeCryptoBridge.nativeCreateOutboundOlmSession(
+                    senderStore,
+                    senderDeviceId,
+                    remoteDevice.curve25519IdentityKey,
+                    remotePreKey.publicKey,
+                ),
+            )
+
+            override fun encryptAuthenticatedEnvelope(
+                sessionId: String,
+                payload: OlmAuthenticatedMessagePayload,
+            ): String {
+                val wireCiphertext = requireNotNull(
+                    NativeCryptoBridge.nativeEncryptOlmMessage(
+                        senderStore,
+                        senderDeviceId,
+                        sessionId,
+                        OlmAuthenticatedMessagePayloadCodec.encode(payload),
+                    ),
+                )
+                return EncryptedOlmEnvelopeCodec.encode(
+                    EncryptedOlmEnvelope(
+                        senderDeviceId = senderDeviceId,
+                        recipientDeviceId = payload.recipientDeviceId,
+                        sessionId = sessionId,
+                        ciphertext = wireCiphertext,
+                    ),
+                )
+            }
+        }
+        val trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+            (userId == senderUserId &&
+                deviceId == senderBundle.deviceId &&
+                identityKey == senderBundle.ed25519IdentityKey) ||
+                (userId == recipientUserId &&
+                    deviceId == recipientBundle.deviceId &&
+                    identityKey == recipientBundle.ed25519IdentityKey)
+        }
+        val preparer = OlmOutboundDeliveryPreparer(
+            directory = keyDirectory,
+            sessions = senderSessions,
+            trustVerifier = trustVerifier,
         )
 
         val senderDatabaseName = "olm-e2e-sender-" + suffix + ".db"
@@ -100,12 +130,9 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             )
             var scheduleCalls = 0
             val outboundCoordinator = OlmOutboundDeliveryCoordinator(
-                preparer = OlmFirstMessagePreparer { actualPayload ->
-                    assertEquals(payload, actualPayload)
-                    prepared
-                },
+                preparer = preparer,
                 queue = senderQueue,
-                trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+                trustVerifier = trustVerifier,
                 scheduleDelivery = { ownerUserId, scheduledDeviceId ->
                     assertEquals(senderUserId, ownerUserId)
                     assertEquals(senderDeviceId, scheduledDeviceId)
@@ -126,24 +153,24 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 ),
             )
             assertEquals(1, scheduleCalls)
+            assertEquals(1, claimedPreKeyIds.size)
 
             val deliveryId = sha256(
                 senderUserId + "\u0000" + senderDeviceId + "\u0000" + messageId +
                     "\u0000" + recipientUserId + "\u0000" + recipientBundle.deviceId,
             )
+            val envelope = requireNotNull(
+                senderDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId),
+            ).envelope
+            val preparedEnvelope = EncryptedOlmEnvelopeCodec.decode(envelope)
+            assertEquals(senderDeviceId, preparedEnvelope.senderDeviceId)
+            assertEquals(recipientBundle.deviceId, preparedEnvelope.recipientDeviceId)
+
             val relay = InMemoryOlmRelayStore(
                 failAfterInboxPutOnce = true,
                 failAfterAcknowledgementPutOnce = true,
             )
             var authenticatedUserId = senderUserId
-            val trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
-                (userId == senderUserId &&
-                    deviceId == senderBundle.deviceId &&
-                    identityKey == senderBundle.ed25519IdentityKey) ||
-                    (userId == recipientUserId &&
-                        deviceId == recipientBundle.deviceId &&
-                        identityKey == recipientBundle.ed25519IdentityKey)
-            }
             val transport = FirebaseOlmEnvelopeTransport(
                 trustVerifier = trustVerifier,
                 relayStore = relay,
