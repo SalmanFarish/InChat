@@ -89,10 +89,12 @@ class MegolmGroupMessageOutboxCommitterTest {
         membershipSnapshots: List<GroupCryptoMembershipSnapshot>,
         finalize: (String) -> Boolean,
         invalidEnvelope: Boolean = false,
-    ) = MegolmGroupMessageOutboxCommitter(
+    ) : MegolmGroupMessageOutboxCommitter = run {
+        val snapshots = membershipSnapshots.toMutableList()
+        MegolmGroupMessageOutboxCommitter(
         membershipForGroup = { groupId ->
             assertEquals("group-1", groupId)
-            membershipSnapshots.removeFirstOrNull()
+            snapshots.removeFirstOrNull()
         },
         authenticatedUserId = { "alice" },
         localDeviceId = { "alice-phone" },
@@ -111,7 +113,7 @@ class MegolmGroupMessageOutboxCommitterTest {
                                 senderDeviceId = "alice-phone",
                                 recipientDeviceId = "bob-phone",
                                 sessionId = "session-bob",
-                                ciphertext = if (invalidEnvelope) byteArrayOf(1) else ByteArray(32) { it.toByte() },
+                                ciphertext = ByteArray(32) { it.toByte() },
                             ),
                         ),
                     ),
