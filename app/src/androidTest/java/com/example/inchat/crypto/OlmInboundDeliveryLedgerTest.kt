@@ -46,6 +46,37 @@ class OlmInboundDeliveryLedgerTest {
     }
 
     @Test
+    fun pendingReceiptQueryReturnsOldestUnprocessedReceiptsOnlyAndHonorsLimit() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-pending-query-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val firstEnvelope = envelope("receiver-device", "sender-device", 31)
+            val secondEnvelope = envelope("receiver-device", "sender-device", 32)
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "first-pending", firstEnvelope, 100L),
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "second-pending", secondEnvelope, 200L),
+            )
+            assertTrue(ledger.markProcessed("alice", "first-pending", "sender-device"))
+
+            val pending = db.olmInboundReceiptDao().getPending(10)
+            assertEquals(listOf("second-pending"), pending.map { it.messageId })
+            assertTrue(pending.all { it.status == OlmInboundReceiptStatus.PENDING.name })
+            assertTrue(db.olmInboundReceiptDao().getPending(0).isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun concurrentDuplicateRegistrationProducesOneNewAndOnePendingRetry() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbound-concurrent-duplicate-test.db"
