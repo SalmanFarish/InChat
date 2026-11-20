@@ -416,3 +416,17 @@ Realtime Database rules suite continues to verify authenticated ownership,
 recipient-only inbox access, sender-only acknowledgement access, and immutable
 exact retries. Neither suite contacts production Firebase or changes plaintext
 chat paths, local account identities, or published prekeys.
+
+
+## Device-scoped encrypted push registration
+
+FCM token registration retains the existing account-level token for all current
+plaintext notification behavior. When an installation already has a usable
+local Olm identity, the same token is additionally registered at
+`privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}`. The registration worker
+only reads an existing identity; it never creates a device ID or native Olm
+state. Logout removes this installation's device-scoped token together with
+the legacy account token. The Worker can therefore target a specific published
+Olm device instead of assuming one FCM token represents every device on an
+account. These registrations are groundwork only; encrypted FCM dispatch is
+still a separate endpoint and is not connected to normal message sending.
