@@ -20,6 +20,8 @@ This is an isolated Rust prototype for InChat's end-to-end encryption work.
 - The directory repository is not called by app startup or live chat code. It does not consume one-time keys or establish sessions; callers must verify the Ed25519 signatures before trusting returned keys.
 - The serialized account blob has a separate version marker. The underlying vodozemac Serde pickle format is not treated as a stable cross-version format; a future app update must add explicit migration handling before changing the pinned crypto version.
 - Tests a two-device Olm handshake and bidirectional encrypted message exchange.
+- Adds an isolated Megolm group-session primitive: sender sessions export signed session keys for authenticated Olm delivery, recipients import only those signed keys, and messages expose session/message indices for replay-ledger checks.
+- Megolm tests cover member decryption, late-member history exclusion, fresh-session epoch rotation, key/message tampering, out-of-order messages, and sender/recipient pickle restoration.
 - Tests rejection of an invalid message-type discriminator.
 - Creates and decodes account pickles inside Rust. Private key material is persisted only as Android Keystore-encrypted ciphertext; Kotlin receives neither private keys nor plaintext serialized state.
 
@@ -78,10 +80,10 @@ The GitHub Actions workflow runs these host-side formatting and test checks.
 - No JNI or Android API returns private account keys or plaintext ratchet state to Kotlin.
 - The Android Keystore-backed account/session persistence path is still test-only; the device-identity repository can be instantiated by isolated tests but is not wired into app startup, account lifecycle, or live Olm sessions.
 - Public key bundles can be published to the new versioned Realtime Database directory, but no production InChat message envelope or live-session schema exists yet.
-- No Megolm group-session distribution or membership-epoch rotation.
+- The Megolm primitive is not yet exposed through JNI, persisted through Android Keystore, or connected to an authenticated group-session distribution flow. Group ID, membership epoch, sender-device binding, membership-change serialization, and durable `(sessionId, messageIndex)` replay protection still require an authenticated application protocol and Room-backed implementation.
 - No Worker, Firebase rules, FCM, Room, attachment, or UI changes.
 
-Do not call this prototype production-ready E2EE. It proves that the pinned native engine can be loaded from Android, can execute an isolated two-device Olm exchange, and can round-trip a test account through encrypted local storage; it does not yet secure any InChat conversation.
+Do not call this prototype production-ready E2EE. It proves that the pinned native engine can be loaded from Android, can execute isolated two-device Olm and Megolm cryptographic tests, and can round-trip a test account through encrypted local storage; it does not yet secure any InChat conversation.
 
 ## Dependency and licensing
 
