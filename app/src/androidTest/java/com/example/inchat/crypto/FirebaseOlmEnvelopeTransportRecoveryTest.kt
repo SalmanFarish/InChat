@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,13 +73,13 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         store.seedInbox(item)
         val recipientTransport = transport(store, user = { "bob" })
 
-        store.failNextAcknowledgementPut = true
+        store.failNextAcknowledgementPutAfterCommit = true
         assertTrue(
             runCatching {
                 recipientTransport.acknowledgeStoredDelivery("recipient-device", item)
             }.isFailure,
         )
-        assertTrue(store.acknowledgements.isEmpty())
+        assertEquals(1, store.acknowledgements.size)
         assertEquals(1, store.inbox.size)
 
         recipientTransport.acknowledgeStoredDelivery("recipient-device", item)
@@ -88,13 +87,13 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         assertEquals("bob", store.acknowledgements.values.single().fields["recipientUid"])
         assertEquals("recipient-device", store.acknowledgements.values.single().fields["recipientDeviceId"])
 
-        store.failNextInboxRemove = true
+        store.failNextInboxRemoveAfterCommit = true
         assertTrue(
             runCatching {
                 recipientTransport.removeFromMyDeviceInbox("recipient-device", item.deliveryId)
             }.isFailure,
         )
-        assertEquals(1, store.inbox.size)
+        assertTrue(store.inbox.isEmpty())
         assertEquals(1, store.acknowledgements.size)
 
         recipientTransport.removeFromMyDeviceInbox("recipient-device", item.deliveryId)
@@ -225,8 +224,8 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         var inboxRemoveAttempts = 0
         var failNextInboxPutAfterCommit = false
         var failNextInboxRead = false
-        var failNextAcknowledgementPut = false
-        var failNextInboxRemove = false
+        var failNextAcknowledgementPutAfterCommit = false
+        var failNextInboxRemoveAfterCommit = false
         var afterInboxRead: (() -> Unit)? = null
 
         override suspend fun putInbox(
@@ -270,11 +269,11 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             deliveryId: String,
         ) {
             inboxRemoveAttempts++
-            if (failNextInboxRemove) {
-                failNextInboxRemove = false
-                error("Simulated temporary inbox delete failure")
-            }
             inbox.remove(deliveryId)
+            if (failNextInboxRemoveAfterCommit) {
+                failNextInboxRemoveAfterCommit = false
+                error("Simulated lost inbox-delete completion after relay removal")
+            }
         }
 
         override suspend fun putAcknowledgement(
@@ -283,16 +282,21 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             deliveryId: String,
             fields: Map<String, Any?>,
         ) {
-            if (failNextAcknowledgementPut) {
-                failNextAcknowledgementPut = false
-                error("Simulated temporary acknowledgement write failure")
-            }
             // Replace the Firebase ServerValue sentinel with the value returned
             // after server resolution so the sender parser can be tested locally.
-            acknowledgements[deliveryId] = FirebaseOlmRelayRecord(
-                deliveryId,
-                fields + ("acknowledgedAt" to 1234L),
-            )
+            val resolvedFields = fields + ("acknowledgedAt" to 1234L)
+            val existing = acknowledgements[deliveryId]
+            if (existing != null) {
+                check(existing.fields["recipientUid"] == resolvedFields["recipientUid"])
+                check(existing.fields["recipientDeviceId"] == resolvedFields["recipientDeviceId"])
+                check(existing.fields["messageId"] == resolvedFields["messageId"])
+            } else {
+                acknowledgements[deliveryId] = FirebaseOlmRelayRecord(deliveryId, resolvedFields)
+            }
+            if (failNextAcknowledgementPutAfterCommit) {
+                failNextAcknowledgementPutAfterCommit = false
+                error("Simulated lost acknowledgement-write completion after relay commit")
+            }
         }
 
         override suspend fun readAcknowledgements(
