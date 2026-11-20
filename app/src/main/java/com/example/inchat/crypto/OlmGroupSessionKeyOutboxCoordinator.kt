@@ -33,6 +33,9 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
         require(distribution.distributionId.matches(DISTRIBUTION_ID)) {
             "Group key distribution ID is invalid"
         }
+        require(distribution.megolmSessionId.matches(SESSION_ID)) {
+            "Group key distribution Megolm session ID is invalid"
+        }
         require(distribution.deliveries.isNotEmpty()) {
             "No SAS-trusted group device is available for key distribution"
         }
@@ -86,6 +89,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
     private companion object {
         const val MAX_DELIVERIES = 500
         const val MAX_SESSION_ID_LENGTH = 128
+        val SESSION_ID = Regex("[A-Za-z0-9_+/-]{16,128}={0,2}")
         val DISTRIBUTION_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
     }
