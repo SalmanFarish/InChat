@@ -650,7 +650,10 @@ test("sender and recipient complete an encrypted Olm relay lifecycle, including 
   );
   assert.deepEqual(firstAcknowledgementRead.val(), acknowledgement);
   await assertSucceeds(remove(ref(aliceDb, acknowledgementPath)));
-  await assertFails(get(ref(aliceDb, acknowledgementPath)));
+  const removedAcknowledgement = await assertSucceeds(
+    get(ref(aliceDb, acknowledgementPath)),
+  );
+  assert.equal(removedAcknowledgement.exists(), false);
 
   // Model sender recovery after its ack was consumed but its local outbox row
   // was not removed: it must be allowed to resend the exact immutable envelope
