@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Base64
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Callable
@@ -25,10 +24,10 @@ class OlmInboundMessageCommitterTest {
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
             assertEquals(OlmInboundRegistration.NEW, ledger.register("alice", "message-1", envelope(), 100L))
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId())!!
-            val committer = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
 
             assertTrue(committer.commit(receipt.receiptId, message(), 200L))
-            assertNotNull(db.messageDao().getMessage("local-user", "alice", "message-1"))
+            assertNotNull(db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-1"))
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status,
@@ -45,8 +44,8 @@ class OlmInboundMessageCommitterTest {
                 ledger.register("alice", "concurrent-commit", envelope(), 100L),
             )
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("concurrent-commit"))!!
-            val firstCommitter = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
-            val secondCommitter = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val firstCommitter = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
+            val secondCommitter = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(2)
 
@@ -82,7 +81,7 @@ class OlmInboundMessageCommitterTest {
                     },
                 )
 
-                val stored = db.messageDao().getMessage("local-user", "alice", "concurrent-commit")
+                val stored = db.encryptedOlmMessageDao().getMessage("local-user", "alice", "concurrent-commit")
                 assertNotNull(stored)
                 assertTrue(
                     stored?.text == "first concurrent plaintext" ||
@@ -104,7 +103,7 @@ class OlmInboundMessageCommitterTest {
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
             ledger.register("alice", "message-2", envelope(), 100L)
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("message-2"))!!
-            val committer = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
 
             try {
                 committer.commit(receipt.receiptId, message(messageId = "wrong-id"), 200L)
@@ -112,7 +111,7 @@ class OlmInboundMessageCommitterTest {
             } catch (expected: IllegalStateException) {
                 assertTrue(expected.message.orEmpty().contains("message ID"))
             }
-            assertEquals(null, db.messageDao().getMessage("local-user", "alice", "wrong-id"))
+            assertEquals(null, db.encryptedOlmMessageDao().getMessage("local-user", "alice", "wrong-id"))
             assertEquals(OlmInboundReceiptStatus.PENDING.name, db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status)
         }
     }
@@ -123,7 +122,7 @@ class OlmInboundMessageCommitterTest {
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
             ledger.register("alice", "message-3", envelope(), 100L)
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("message-3"))!!
-            val committer = OlmInboundMessageCommitter(db, db.messageDao(), db.olmInboundReceiptDao())
+            val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
             assertTrue(committer.commit(receipt.receiptId, message(messageId = "message-3"), 200L))
 
             try {
@@ -132,7 +131,7 @@ class OlmInboundMessageCommitterTest {
             } catch (expected: IllegalStateException) {
                 assertTrue(expected.message.orEmpty().contains("not pending"))
             }
-            assertEquals("decrypted body", db.messageDao().getMessage("local-user", "alice", "message-3")?.text)
+            assertEquals("decrypted body", db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-3")?.text)
             assertFalse(db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status == OlmInboundReceiptStatus.PENDING.name)
         }
     }
@@ -148,13 +147,17 @@ class OlmInboundMessageCommitterTest {
     private fun message(
         messageId: String = "message-1",
         text: String = "decrypted body",
-    ) = CachedMessageEntity(
-        ownerUserId = "local-user", chatId = "alice", messageId = messageId,
-        senderId = "alice", senderNickname = "Alice", text = text, timestamp = 150L,
-        replyMessageId = "", replySenderId = "", replySenderNickname = "", replyText = "",
-        reactionsJson = "{}", edited = false, attachmentType = "", attachmentStorageKey = "",
-        attachmentFileName = "", attachmentMimeType = "", attachmentSizeBytes = 0L,
-        attachmentViewedAt = 0L, isPending = false, systemEvent = "",
+    ) = EncryptedOlmMessageEntity(
+        ownerUserId = "local-user",
+        conversationId = "alice",
+        messageId = messageId,
+        conversationPeerUserId = "alice",
+        senderUserId = "alice",
+        senderDeviceId = "sender-device",
+        recipientUserId = "local-user",
+        recipientDeviceId = "receiver-device",
+        sentAtMillis = 150L,
+        text = text,
     )
 
     private fun envelope(): String = JSONObject()
