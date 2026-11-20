@@ -61,6 +61,17 @@ class InChatFirebaseMessagingService :
     override fun onMessageReceived(
         remoteMessage: RemoteMessage
     ) {
+        // The encrypted wake-up type is reserved. A malformed instance must
+        // be discarded, never reinterpreted as a legacy plaintext notification.
+        if (NotificationPayloadPolicy.isEncryptedOlmWakeupType(remoteMessage.data)) {
+            if (NotificationPayloadPolicy.isEncryptedOlmWakeup(remoteMessage.data)) {
+                scheduleEncryptedInboxWake(remoteMessage.data)
+            } else {
+                Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
+            }
+            return
+        }
+
         // Encrypted pushes are wake-up signals only. Their FCM data never
         // selects a chat, sender, or plaintext notification presentation.
         if (NotificationPayloadPolicy.isEncryptedOlmWakeup(remoteMessage.data)) {
