@@ -7,6 +7,7 @@ import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmInboxWorker
 import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -56,6 +57,11 @@ class InChatApplication : Application() {
                 ownerUserId = ownerUserId,
                 senderDeviceId = senderDeviceId,
             )
+            EncryptedOlmInboxWorker.cancel(
+                context = applicationContext,
+                ownerUserId = ownerUserId,
+                recipientDeviceId = senderDeviceId,
+            )
         }
         preferences.edit().clear().apply()
     }
@@ -88,6 +94,7 @@ class InChatApplication : Application() {
                 if (ownerUserId == null) {
                     cancelRememberedEncryptedDeliveryWork()
                     EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
                 }
                 encryptedDeliveryAuthGeneration
             }
@@ -130,6 +137,7 @@ class InChatApplication : Application() {
                                 // preference update. Neither operation deletes Room rows.
                                 cancelRememberedEncryptedDeliveryWork()
                                 EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
 
                                 val senderDeviceId = identityLookup.getOrNull()
                                 if (senderDeviceId != null) {
@@ -144,6 +152,16 @@ class InChatApplication : Application() {
                                         context = applicationContext,
                                         ownerUserId = ownerUserId,
                                         senderDeviceId = senderDeviceId,
+                                    )
+                                    EncryptedOlmInboxWorker.cancel(
+                                        context = applicationContext,
+                                        ownerUserId = ownerUserId,
+                                        recipientDeviceId = senderDeviceId,
+                                    )
+                                    EncryptedOlmInboxWorker.schedule(
+                                        context = applicationContext,
+                                        ownerUserId = ownerUserId,
+                                        recipientDeviceId = senderDeviceId,
                                     )
                                     val saved = getSharedPreferences(
                                         ENCRYPTED_DELIVERY_PREFS,
@@ -167,6 +185,7 @@ class InChatApplication : Application() {
                                 if (rememberedOwner != null && rememberedOwner != ownerUserId) {
                                     cancelRememberedEncryptedDeliveryWork()
                                     EncryptedOlmDeliveryWorker.cancelAll(applicationContext)
+                    EncryptedOlmInboxWorker.cancelAll(applicationContext)
                                 }
                             }
                         }
