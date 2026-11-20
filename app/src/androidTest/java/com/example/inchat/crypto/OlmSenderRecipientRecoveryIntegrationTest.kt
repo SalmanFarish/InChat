@@ -36,10 +36,20 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         val clearText = "end-to-end recovery plaintext"
         val sentAtMillis = 1_700_000_000_000L
 
-        // This instrumentation installation is the recipient device. The sender
-        // uses a separate native store and a different device ID. The outbound
-        // preparer below creates the real Olm session and claims the recipient OTK.
-        val recipientBundle = DeviceIdentityRepository(context).ensurePublicKeyBundle()
+        // Both test endpoints use unique native stores. No real installation
+        // identity or its published one-time prekeys are opened or consumed.
+        val recipientDeviceId = "e2e-recipient-" + suffix
+        val recipientStore = CryptoStateStore(context, "device-" + recipientDeviceId)
+        val recipientIdentity = JSONObject(
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(recipientStore, recipientDeviceId),
+            ),
+        )
+        val recipientBundle = parseBundle(recipientDeviceId, recipientIdentity)
+        val recipientLocalIdentity = object : SasVerificationLocalIdentity {
+            override fun ensurePublicKeyBundle(): PublicDeviceKeyBundle = recipientBundle
+            override fun requireIdentityUsable() = Unit
+        }
         val senderStore = CryptoStateStore(context, "e2e-sender-" + suffix)
         val senderIdentity = JSONObject(
             requireNotNull(
@@ -311,7 +321,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             val handoff = OlmInboundHandoffCoordinator(
                 database = recipientDatabase,
                 receiptDao = recipientDatabase.olmInboundReceiptDao(),
-                sessionRepository = OlmSessionRepository(context),
+                sessionRepository = OlmSessionRepository(context, recipientLocalIdentity),
                 authenticatedLocalUserId = { recipientUserId },
                 trustVerifier = trustVerifier,
                 messageDao = recipientDatabase.messageDao(),
@@ -460,6 +470,8 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             recipientDatabase.close()
             context.deleteDatabase(senderDatabaseName)
             context.deleteDatabase(recipientDatabaseName)
+            senderStore.delete()
+            recipientStore.delete()
         }
     }
 
