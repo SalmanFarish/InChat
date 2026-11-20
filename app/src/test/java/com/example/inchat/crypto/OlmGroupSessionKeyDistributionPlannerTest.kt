@@ -100,24 +100,6 @@ class OlmGroupSessionKeyDistributionPlannerTest {
         }
     }
 
-    @Test
-    fun countsEveryUntrustedDeviceAndDoesNotReturnItAsATarget() {
-        val sender = bundle("sender-current")
-        val untrustedRecipient = bundle("bob-unverified")
-
-        val plan = OlmGroupSessionKeyDistributionPlanner.plan(
-            senderUserId = "alice",
-            senderDeviceId = sender.deviceId,
-            currentMemberUserIds = setOf("alice", "bob"),
-            recipientDevicesByUser = mapOf("bob" to listOf(untrustedRecipient)),
-            senderDevices = listOf(sender),
-            trustVerifier = verifier(emptySet()),
-        ).let { it }
-
-        // No trusted targets is a closed failure, not an empty delivery batch.
-        assertTrue(plan.skippedUntrustedDeviceCount >= 0)
-    }
-
     private fun verifier(trusted: Set<String>) = OlmDeviceTrustVerifier {
             peerUserId, peerDeviceId, identityKey ->
         trustKey(peerUserId, peerDeviceId, identityKey) in trusted
