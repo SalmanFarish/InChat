@@ -62,6 +62,8 @@ class OlmPendingReceiptProcessorTest {
                     assertEquals("recipient", localUid)
                     assertEquals(trustedDevice.deviceId, remoteDevice.deviceId)
                     handoffCalls += receiptId to kind
+                    assertEquals(1, dao.markProcessed(receiptId, 600L))
+                    assertEquals(1, dao.markFinalized(receiptId))
                     OlmInboundHandoffResult.COMMITTED
                 },
                 finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
@@ -75,11 +77,13 @@ class OlmPendingReceiptProcessorTest {
             assertEquals(1, result.finalizationChecked)
             assertEquals(1, result.finalized)
             assertEquals(5, result.pendingScanned)
+            assertEquals(0, result.deferredScanned)
             assertEquals(2, result.committed)
             assertEquals(0, result.alreadyCommitted)
             assertEquals(1, result.waitingForTrust)
             assertEquals(1, result.missingRemoteDevice)
-            assertEquals(1, result.failed)
+            assertEquals(1, result.rejected)
+            assertEquals(0, result.failed)
             assertEquals(1, directoryReads.get())
             assertEquals(
                 listOf(
@@ -96,7 +100,30 @@ class OlmPendingReceiptProcessorTest {
                     receiptId("alice", "trusted-sender-device", "committed-before-crash", "recipient-device"),
                 )?.status,
             )
-            assertEquals(5, dao.getPending(20).size)
+            assertEquals(0, dao.getPending(20).size)
+            assertEquals(
+                OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
+                dao.getByReceiptId(
+                    receiptId("alice", "untrusted-sender-device", "untrusted", "recipient-device"),
+                )?.status,
+            )
+            assertEquals(
+                OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
+                dao.getByReceiptId(
+                    receiptId("alice", "revoked-sender-device", "missing-device", "recipient-device"),
+                )?.status,
+            )
+            assertEquals(
+                OlmInboundReceiptStatus.REJECTED.name,
+                dao.getByReceiptId(
+                    receiptId("alice", "trusted-sender-device", "unknown-type", "recipient-device"),
+                )?.status,
+            )
+            val deferredResult = processor.processPending(limit = 20)
+            assertEquals(2, deferredResult.deferredScanned)
+            assertEquals(1, deferredResult.waitingForTrust)
+            assertEquals(1, deferredResult.missingRemoteDevice)
+            assertEquals(0, deferredResult.committed)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
