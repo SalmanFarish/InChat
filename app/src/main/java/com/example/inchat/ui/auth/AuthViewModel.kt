@@ -5,6 +5,7 @@ import android.util.Log
 import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.UsernameAlreadyTakenException
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
@@ -1879,8 +1880,13 @@ class AuthViewModel(
                     uid = uid
                 )
 
+                val olmDeviceId = runCatching {
+                    DeviceIdentityRepository(getApplication<Application>())
+                        .existingDeviceIdForDelivery()
+                }.getOrNull()
+
                 userRepository
-                    .clearFcmToken(uid)
+                    .clearFcmToken(uid, olmDeviceId)
                     .onFailure { error ->
                         Log.w(
                             "AuthViewModel",
