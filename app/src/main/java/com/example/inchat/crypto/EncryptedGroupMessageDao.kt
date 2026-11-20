@@ -32,7 +32,9 @@ abstract class EncryptedGroupMessageDao {
         require(
             receipt.ownerUserId == message.ownerUserId &&
                 receipt.groupId == message.groupId &&
+                receipt.membershipEpoch == message.membershipEpoch &&
                 receipt.messageId == message.messageId &&
+                receipt.sentAtMillis == message.sentAtMillis &&
                 receipt.senderUserId == message.senderUserId &&
                 receipt.senderDeviceId == message.senderDeviceId &&
                 receipt.megolmSessionId == message.megolmSessionId &&
