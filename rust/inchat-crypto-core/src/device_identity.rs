@@ -2744,6 +2744,81 @@ mod transfer_tests {
     }
 
     #[test]
+    fn encrypted_transfer_preserves_and_rebinds_outbound_megolm_session() {
+        use crate::megolm::OutboundGroupSession;
+
+        let sender_device_id = "source-device";
+        let target_device_id = "target-device";
+        let mut group_session = OutboundGroupSession::new();
+        let session_id = group_session.session_id();
+        let message = group_session.encrypt(b"before transfer").unwrap();
+
+        let mut recipient =
+            crate::megolm::InboundGroupSession::from_session_key(
+                &group_session.export_session_key(),
+            )
+            .unwrap();
+        assert_eq!(
+            recipient.decrypt(&message.ciphertext).unwrap().0,
+            b"before transfer"
+        );
+
+        let mut outbound_group_sessions = std::collections::BTreeMap::new();
+        outbound_group_sessions.insert(
+            "group-1".to_owned(),
+            super::StoredOutboundGroupSession {
+                membership_epoch: 11,
+                sender_device_id: sender_device_id.to_owned(),
+                session: group_session,
+            },
+        );
+        let state = DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions,
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+        let transaction_id = "0123456789abcdef0123456789abcdef";
+        let state_blob = super::encode_device_crypto_state(sender_device_id, &state).unwrap();
+        let key = vec![0x42; DEVICE_TRANSFER_KEY_BYTES];
+        let nonce = vec![0x24; DEVICE_TRANSFER_NONCE_BYTES];
+
+        let envelope = encrypt_device_transfer(
+            state_blob,
+            key.clone(),
+            &nonce,
+            sender_device_id,
+            target_device_id,
+            transaction_id,
+        )
+        .unwrap();
+        let plaintext = decrypt_device_transfer(
+            envelope,
+            key,
+            sender_device_id,
+            target_device_id,
+            transaction_id,
+        )
+        .unwrap();
+        let rebound =
+            rebind_transferred_device_state(plaintext, sender_device_id, target_device_id)
+                .expect("Megolm sender metadata should rebind with device identity");
+        let mut restored =
+            super::decode_device_crypto_state(rebound, target_device_id).unwrap();
+        let stored = restored.outbound_group_sessions.get_mut("group-1").unwrap();
+
+        assert_eq!(stored.membership_epoch, 11);
+        assert_eq!(stored.sender_device_id, target_device_id);
+        assert_eq!(stored.session.session_id(), session_id);
+        let after = stored.session.encrypt(b"after transfer").unwrap();
+        assert_eq!(
+            recipient.decrypt(&after.ciphertext).unwrap().0,
+            b"after transfer"
+        );
+    }
+
+    #[test]
     fn transfer_authentication_rejects_wrong_key_ids_and_tampering() {
         let state = DeviceCryptoState {
             account: Account::new(),
