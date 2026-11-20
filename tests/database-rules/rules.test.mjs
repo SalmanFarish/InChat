@@ -140,6 +140,25 @@ after(async () => {
   await testEnv?.cleanup();
 });
 
+test("users can manage only their own device-scoped FCM token registrations", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const aliceTokenPath = "privateUsers/alice/olmDeviceFcmTokens/device-alice-1";
+  const bobTokenPath = "privateUsers/bob/olmDeviceFcmTokens/device-bob-1";
+
+  await assertSucceeds(set(ref(aliceDb, aliceTokenPath), "alice-device-token"));
+  await assertSucceeds(get(ref(aliceDb, aliceTokenPath)));
+  await assertFails(set(ref(aliceDb, bobTokenPath), "spoofed-token"));
+  await assertFails(set(ref(bobDb, aliceTokenPath), "stolen-token"));
+  await assertFails(
+    set(ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/device-invalid"), "x".repeat(4097)),
+  );
+
+  await assertSucceeds(remove(ref(aliceDb, aliceTokenPath)));
+  const removed = await assertSucceeds(get(ref(aliceDb, aliceTokenPath)));
+  assert.equal(removed.exists(), false);
+});
+
 test("a user cannot forge another user's direct-chat inbox preview", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
 
