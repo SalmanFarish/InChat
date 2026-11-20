@@ -11,6 +11,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.inchat.MainActivity
+import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.data.worker.EncryptedOlmInboxWorker
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -53,11 +55,21 @@ class InChatFirebaseMessagingService :
 
         const val NOTIFICATION_TYPE_GROUP =
             "group_message"
+
+        private const val TYPE_ENCRYPTED_OLM_WAKEUP = "encrypted_olm"
+        private val DELIVERY_ID_PATTERN = Regex("[A-Fa-f0-9]{64}")
     }
 
     override fun onMessageReceived(
         remoteMessage: RemoteMessage
     ) {
+        // Encrypted pushes are wake-up signals only. Their FCM data never
+        // selects a chat, sender, or plaintext notification presentation.
+        if (remoteMessage.data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP) {
+            scheduleEncryptedInboxWake(remoteMessage.data)
+            return
+        }
+
         val presentation = NotificationPayloadPolicy.from(
             data = remoteMessage.data,
             fallbackTitle = remoteMessage.notification?.title,
@@ -87,6 +99,38 @@ class InChatFirebaseMessagingService :
             messageId = presentation.messageId,
             includeMessageHistory = presentation.includeMessageHistory,
         )
+    }
+
+    private fun scheduleEncryptedInboxWake(data: Map<String, String>) {
+        if (
+            data.keys != setOf("type", "deliveryId") ||
+            !DELIVERY_ID_PATTERN.matches(data["deliveryId"].orEmpty())
+        ) {
+            Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
+            return
+        }
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.i("InChatFCM", "Encrypted message wake-up arrived before account restoration.")
+            return
+        }
+
+        val deviceId = runCatching {
+            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not resolve this installation's encrypted inbox.", error)
+        }.getOrNull() ?: return
+
+        runCatching {
+            EncryptedOlmInboxWorker.schedule(
+                context = applicationContext,
+                ownerUserId = uid,
+                recipientDeviceId = deviceId,
+            )
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not schedule encrypted inbox recovery.", error)
+        }
     }
 
     /*
