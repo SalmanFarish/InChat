@@ -47,6 +47,7 @@ impl Drop for PendingDecryption {
 
 struct StoredOutboundGroupSession {
     membership_epoch: u64,
+    sender_user_id: String,
     sender_device_id: String,
     session: OutboundGroupSession,
 }
@@ -135,6 +136,7 @@ fn encode_device_crypto_state(
     for (group_id, stored) in &state.outbound_group_sessions {
         if !valid_group_id(group_id) ||
             stored.membership_epoch == 0 ||
+            !valid_user_id(&stored.sender_user_id) ||
             stored.sender_device_id != device_id {
             return Err("Saved outbound Megolm session metadata is invalid");
         }
@@ -148,6 +150,7 @@ fn encode_device_crypto_state(
             group_id.clone(),
             json!({
                 "membershipEpoch": stored.membership_epoch,
+                "senderUserId": stored.sender_user_id,
                 "senderDeviceId": stored.sender_device_id,
                 "sessionId": session_id,
                 "pickle": pickle_value,
@@ -353,6 +356,11 @@ fn decode_device_crypto_state(
                     .and_then(Value::as_u64)
                     .filter(|epoch| *epoch > 0)
                     .ok_or("Saved outbound Megolm epoch is invalid")?;
+                let sender_user_id = value
+                    .get("senderUserId")
+                    .and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved outbound Megolm sender account is invalid")?;
                 let sender_device_id = value
                     .get("senderDeviceId")
                     .and_then(Value::as_str)
@@ -383,6 +391,7 @@ fn decode_device_crypto_state(
                     group_id.clone(),
                     StoredOutboundGroupSession {
                         membership_epoch,
+                        sender_user_id: sender_user_id.to_owned(),
                         sender_device_id: sender_device_id.to_owned(),
                         session,
                     },
@@ -2253,6 +2262,7 @@ mod tests {
             "group-1".to_owned(),
             super::StoredOutboundGroupSession {
                 membership_epoch: 4,
+                sender_user_id: "sender-user".to_owned(),
                 sender_device_id: "sender-device".to_owned(),
                 session: sender,
             },
@@ -2766,6 +2776,7 @@ mod transfer_tests {
             "group-1".to_owned(),
             super::StoredOutboundGroupSession {
                 membership_epoch: 11,
+                sender_user_id: "sender-user".to_owned(),
                 sender_device_id: sender_device_id.to_owned(),
                 session: group_session,
             },
