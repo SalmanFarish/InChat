@@ -35,6 +35,10 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         val messageId = "e2e-message-" + suffix
         val clearText = "end-to-end recovery plaintext"
         val sentAtMillis = 1_700_000_000_000L
+        val conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
+            senderUserId,
+            recipientUserId,
+        )
 
         // Both test endpoints use unique native stores. No real installation
         // identity or its published one-time prekeys are opened or consumed.
@@ -126,10 +130,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                     senderDeviceId = senderDeviceId,
                     recipientUserId = recipientUserId,
                     messageId = messageId,
-                    conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
-                        senderUserId,
-                        recipientUserId,
-                    ),
+                    conversationId = conversationId,
                     sentAtMillis = sentAtMillis,
                     text = clearText,
                     recipientDevices = listOf(recipientBundle),
@@ -314,7 +315,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertEquals(
                 clearText,
                 recipientDatabase.messageDao()
-                    .getMessage(recipientUserId, senderUserId, messageId)?.text,
+                    .getMessage(recipientUserId, conversationId, messageId)?.text,
             )
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
@@ -409,7 +410,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertEquals(
                 clearText,
                 recipientDatabase.messageDao()
-                    .getMessage(recipientUserId, senderUserId, messageId)?.text,
+                    .getMessage(recipientUserId, conversationId, messageId)?.text,
             )
 
             // The sender now consumes the regenerated acknowledgement, records
