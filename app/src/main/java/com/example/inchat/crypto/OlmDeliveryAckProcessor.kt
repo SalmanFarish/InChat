@@ -13,6 +13,8 @@ internal class OlmDeliveryAckProcessor(
     private val transport: OlmDeliveryAckTransport,
     private val senderUserId: String,
     private val senderDeviceId: String,
+    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun processPending(): OlmDeliveryAckProcessingResult {
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
@@ -28,8 +30,12 @@ internal class OlmDeliveryAckProcessor(
                 continue
             }
 
-            // Do not drop the durable ciphertext row unless relay ack deletion succeeds.
+            // Remove the relay ack first, then persist a metadata-only delivery
+            // receipt before deleting the ciphertext outbox row. If the process
+            // stops after receipt persistence, the retained row is safe to retry:
+            // the recipient's durable receipt ledger will acknowledge it again.
             transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement.deliveryId)
+            recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
             if (queue.removeAcknowledgedDelivery(acknowledgement)) {
                 removed++
             } else {
