@@ -1876,12 +1876,15 @@ class UserRepository {
 
     suspend fun saveFcmToken(
         uid: String,
-        token: String
+        token: String,
+        olmDeviceId: String? = null,
     ): Result<Unit> {
 
         if (
             uid.isBlank() ||
-            token.isBlank()
+            token.isBlank() ||
+            token.length > 4096 ||
+            (olmDeviceId != null && !Regex("[A-Za-z0-9_-]{1,64}").matches(olmDeviceId))
         ) {
 
             return Result.failure(
@@ -1893,19 +1896,15 @@ class UserRepository {
 
         return try {
 
-            database
-                .getReference(
-                    "privateUsers"
-                )
-                .child(
-                    uid
-                )
-                .child(
-                    "fcmToken"
-                )
-                .setValue(
-                    token
-                )
+            val tokenUpdates = mutableMapOf<String, Any?>(
+                "fcmToken" to token,
+            )
+            if (olmDeviceId != null) {
+                tokenUpdates["olmDeviceFcmTokens/$olmDeviceId"] = token
+            }
+            database.getReference("privateUsers")
+                .child(uid)
+                .updateChildren(tokenUpdates)
                 .await()
 
             val groupSyncResult =
@@ -1946,7 +1945,8 @@ class UserRepository {
      */
 
     suspend fun clearFcmToken(
-        uid: String
+        uid: String,
+        olmDeviceId: String? = null,
     ): Result<Unit> {
 
         if (
@@ -1983,17 +1983,17 @@ class UserRepository {
                     )
                 }
 
-            database
-                .getReference(
-                    "privateUsers"
-                )
-                .child(
-                    uid
-                )
-                .child(
-                    "fcmToken"
-                )
-                .removeValue()
+            val tokenUpdates = mutableMapOf<String, Any?>(
+                "fcmToken" to null,
+            )
+            if (olmDeviceId != null &&
+                Regex("[A-Za-z0-9_-]{1,64}").matches(olmDeviceId)
+            ) {
+                tokenUpdates["olmDeviceFcmTokens/$olmDeviceId"] = null
+            }
+            database.getReference("privateUsers")
+                .child(uid)
+                .updateChildren(tokenUpdates)
                 .await()
 
             Result.success(
