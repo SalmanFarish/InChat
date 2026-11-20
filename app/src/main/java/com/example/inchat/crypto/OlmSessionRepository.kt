@@ -24,9 +24,11 @@ internal data class StagedInboundOlmMessage(
  * chat receiving, or message persistence. Callers must obtain remote bundles
  * through DeviceKeyDirectoryRepository, which verifies their signatures.
  */
-internal class OlmSessionRepository(context: Context) : OlmOutboundSessionRepository {
+internal class OlmSessionRepository(
+    context: Context,
+    private val identityRepository: SasVerificationLocalIdentity = DeviceIdentityRepository(context.applicationContext),
+) : OlmOutboundSessionRepository {
     private val appContext = context.applicationContext
-    private val identityRepository = DeviceIdentityRepository(appContext)
 
     private val cachedLocalBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         identityRepository.ensurePublicKeyBundle()
