@@ -3838,3 +3838,221 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeF
         _ => JNI_FALSE,
     }
 }
+
+
+#[cfg(test)]
+mod pending_megolm_receive_tests {
+    use super::{
+        decode_device_crypto_state, encode_device_crypto_state, finalize_pending_megolm_decryption,
+        import_inbound_group_session, inbound_group_session_key, prepare_inbound_megolm_decryption,
+        DeviceCryptoState,
+    };
+    use crate::megolm::OutboundGroupSession;
+    use vodozemac::olm::Account;
+    use zeroize::Zeroize;
+
+    fn receiver_state(
+        sender: &OutboundGroupSession,
+    ) -> (DeviceCryptoState, String) {
+        let session_id = sender.session_id();
+        let mut state = DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            pending_group_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+        let key = sender.export_session_key();
+        import_inbound_group_session(
+            &mut state,
+            "group-1",
+            7,
+            "sender-user",
+            "sender-device",
+            &session_id,
+            &key,
+        )
+        .unwrap();
+        let mut key = key;
+        key.zeroize();
+        (state, session_id)
+    }
+
+    #[test]
+    fn megolm_ratchet_and_plaintext_are_staged_atomically_and_recovered_after_restart() {
+        let mut sender = OutboundGroupSession::new();
+        let encrypted = sender.encrypt(b"staged group plaintext").unwrap();
+        let (mut state, session_id) = receiver_state(&sender);
+        let receipt_id = "a".repeat(64);
+
+        prepare_inbound_megolm_decryption(
+            &mut state,
+            &receipt_id,
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            1_700_000_000_000,
+            1_700_000_000_100,
+            &encrypted.ciphertext,
+        )
+        .unwrap();
+
+        assert_eq!(state.pending_group_decryptions.len(), 1);
+        assert_eq!(
+            state.pending_group_decryptions[&receipt_id].plaintext,
+            b"staged group plaintext"
+        );
+
+        let persisted = encode_device_crypto_state("local-device", &state).unwrap();
+        let mut restored = decode_device_crypto_state(persisted, "local-device")
+            .expect("native encrypted state snapshot restores");
+        let pending = restored.pending_group_decryptions.get(&receipt_id).unwrap();
+        assert_eq!(pending.group_id, "group-1");
+        assert_eq!(pending.membership_epoch, 7);
+        assert_eq!(pending.message_id, "message-1");
+        assert_eq!(pending.sender_user_id, "sender-user");
+        assert_eq!(pending.sender_device_id, "sender-device");
+        assert_eq!(pending.session_id, session_id);
+        assert_eq!(pending.message_index, encrypted.message_index);
+        assert_eq!(pending.sent_at_millis, 1_700_000_000_000);
+        assert_eq!(pending.received_at_millis, 1_700_000_000_100);
+        assert_eq!(pending.ciphertext, encrypted.ciphertext);
+
+        // Retrying the same durable receipt returns the staged result and does
+        // not re-run Megolm decrypt or advance the inbound ratchet a second time.
+        prepare_inbound_megolm_decryption(
+            &mut restored,
+            &receipt_id,
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            1_700_000_000_000,
+            1_700_000_000_100,
+            &encrypted.ciphertext,
+        )
+        .unwrap();
+        assert_eq!(restored.pending_group_decryptions.len(), 1);
+
+        assert!(finalize_pending_megolm_decryption(&mut restored, &receipt_id).unwrap());
+        assert!(!finalize_pending_megolm_decryption(&mut restored, &receipt_id).unwrap());
+        assert!(restored.pending_group_decryptions.is_empty());
+    }
+
+    #[test]
+    fn pending_megolm_receipt_rejects_conflicting_reuse_and_duplicate_index() {
+        let mut sender = OutboundGroupSession::new();
+        let encrypted = sender.encrypt(b"one valid message").unwrap();
+        let (mut state, session_id) = receiver_state(&sender);
+        let first_receipt = "b".repeat(64);
+
+        prepare_inbound_megolm_decryption(
+            &mut state,
+            &first_receipt,
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            100,
+            200,
+            &encrypted.ciphertext,
+        )
+        .unwrap();
+
+        assert!(prepare_inbound_megolm_decryption(
+            &mut state,
+            &first_receipt,
+            "local-user",
+            "group-1",
+            7,
+            "different-message",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            100,
+            200,
+            &encrypted.ciphertext,
+        )
+        .is_err());
+
+        assert!(prepare_inbound_megolm_decryption(
+            &mut state,
+            &"c".repeat(64),
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            100,
+            200,
+            &encrypted.ciphertext,
+        )
+        .is_err());
+        assert_eq!(state.pending_group_decryptions.len(), 1);
+    }
+
+    #[test]
+    fn mismatched_authenticated_message_index_is_not_persisted() {
+        let mut sender = OutboundGroupSession::new();
+        let encrypted = sender.encrypt(b"message index binding").unwrap();
+        let (mut state, session_id) = receiver_state(&sender);
+        let receipt_id = "d".repeat(64);
+        let mut snapshot = encode_device_crypto_state("local-device", &state).unwrap();
+
+        assert!(prepare_inbound_megolm_decryption(
+            &mut state,
+            &receipt_id,
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index + 1,
+            100,
+            200,
+            &encrypted.ciphertext,
+        )
+        .is_err());
+
+        // A failed metadata check is never saved. The stored snapshot remains
+        // usable and can successfully stage the correct authenticated index.
+        let mut state = decode_device_crypto_state(snapshot, "local-device").unwrap();
+        prepare_inbound_megolm_decryption(
+            &mut state,
+            &receipt_id,
+            "local-user",
+            "group-1",
+            7,
+            "message-1",
+            "sender-user",
+            "sender-device",
+            &session_id,
+            encrypted.message_index,
+            100,
+            200,
+            &encrypted.ciphertext,
+        )
+        .unwrap();
+        assert_eq!(state.pending_group_decryptions.len(), 1);
+    }
+}
