@@ -8,6 +8,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
 use crate::megolm::{InboundGroupSession, OutboundGroupSession};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 const DEVICE_STATE_HEADER_V1: &[u8; 6] = b"ICDEV\x01";
@@ -90,12 +91,43 @@ struct StoredInboundGroupSession {
     session: InboundGroupSession,
 }
 
+/// An encrypted Megolm sender message staged until its per-device Olm fan-out
+/// has been durably committed to the Room outbox.
+struct PendingOutboundMegolmMessage {
+    owner_user_id: String,
+    group_id: String,
+    membership_epoch: u64,
+    message_id: String,
+    sender_user_id: String,
+    sender_device_id: String,
+    session_id: String,
+    message_index: u32,
+    sent_at_millis: u64,
+    plaintext_sha256: Vec<u8>,
+    ciphertext: Vec<u8>,
+}
+
+impl Drop for PendingOutboundMegolmMessage {
+    fn drop(&mut self) {
+        self.owner_user_id.zeroize();
+        self.group_id.zeroize();
+        self.message_id.zeroize();
+        self.sender_user_id.zeroize();
+        self.sender_device_id.zeroize();
+        self.session_id.zeroize();
+        self.plaintext_sha256.zeroize();
+        self.ciphertext.zeroize();
+    }
+}
+
 struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
     pending_decryptions: std::collections::BTreeMap<String, PendingDecryption>,
     /// Advanced inbound Megolm ratchets with durable plaintext awaiting Room commit.
     pending_group_decryptions: std::collections::BTreeMap<String, PendingGroupDecryption>,
+    /// Sender ratchets advanced with ciphertext waiting for durable per-device outbox commit.
+    pending_outbound_group_messages: std::collections::BTreeMap<String, PendingOutboundMegolmMessage>,
     /// One active sender ratchet per local device, group, and membership epoch.
     outbound_group_sessions: std::collections::BTreeMap<String, StoredOutboundGroupSession>,
     /// Inbound group ratchets keyed by their complete sender/epoch/session identity.
@@ -453,6 +485,9 @@ fn encode_device_crypto_state(
     if state.pending_group_decryptions.len() > 64 {
         return Err("Too many pending Megolm decryptions; finalize committed group receipts first");
     }
+    if state.pending_outbound_group_messages.len() > 128 {
+        return Err("Too many pending outbound Megolm messages; commit the outbox first");
+    }
     let mut pending_group_decryptions = serde_json::Map::new();
     for (receipt_id, pending) in &state.pending_group_decryptions {
         if !valid_receipt_id(receipt_id)
@@ -489,6 +524,43 @@ fn encode_device_crypto_state(
                 "receivedAtMillis": pending.received_at_millis,
                 "ciphertext": pending.ciphertext,
                 "plaintext": pending.plaintext
+            }),
+        );
+    }
+
+    let mut pending_outbound_group_messages = serde_json::Map::new();
+    for (message_id, pending) in &state.pending_outbound_group_messages {
+        if !valid_user_id(message_id)
+            || !valid_user_id(&pending.owner_user_id)
+            || !valid_group_id(&pending.group_id)
+            || pending.membership_epoch == 0
+            || pending.message_id != *message_id
+            || !valid_user_id(&pending.sender_user_id)
+            || pending.sender_device_id != device_id
+            || pending.session_id.len() < 16
+            || pending.session_id.len() > 128
+            || pending.message_index == u32::MAX
+            || pending.sent_at_millis > i64::MAX as u64
+            || pending.plaintext_sha256.len() != 32
+            || pending.ciphertext.is_empty()
+            || pending.ciphertext.len() > crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES
+        {
+            return Err("Saved pending outbound Megolm message metadata is invalid");
+        }
+        pending_outbound_group_messages.insert(
+            message_id.clone(),
+            json!({
+                "ownerUserId": pending.owner_user_id,
+                "groupId": pending.group_id,
+                "membershipEpoch": pending.membership_epoch,
+                "messageId": pending.message_id,
+                "senderUserId": pending.sender_user_id,
+                "senderDeviceId": pending.sender_device_id,
+                "sessionId": pending.session_id,
+                "messageIndex": pending.message_index,
+                "sentAtMillis": pending.sent_at_millis,
+                "plaintextSha256": pending.plaintext_sha256,
+                "ciphertext": pending.ciphertext
             }),
         );
     }
@@ -565,6 +637,7 @@ fn encode_device_crypto_state(
         "sessions": sessions,
         "pendingDecryptions": pending_decryptions,
         "pendingGroupDecryptions": pending_group_decryptions,
+        "pendingOutboundGroupMessages": pending_outbound_group_messages,
         "outboundGroupSessions": outbound_group_sessions,
         "inboundGroupSessions": inbound_group_sessions
     }))
@@ -623,6 +696,7 @@ fn decode_device_crypto_state(
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             });
@@ -790,6 +864,90 @@ fn decode_device_crypto_state(
             return Err("Saved pending Megolm decryptions have an invalid format");
         }
 
+        let mut pending_outbound_group_messages = std::collections::BTreeMap::new();
+        if let Some(values) = envelope
+            .get("pendingOutboundGroupMessages")
+            .and_then(Value::as_object)
+        {
+            if values.len() > 128 {
+                return Err("Saved Olm state contains too many pending outbound Megolm messages");
+            }
+            for (message_id, value) in values {
+                if !valid_user_id(message_id) {
+                    return Err("Saved pending outbound Megolm message ID is invalid");
+                }
+                let owner_user_id = value.get("ownerUserId").and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved pending outbound Megolm owner account is invalid")?;
+                let group_id = value.get("groupId").and_then(Value::as_str)
+                    .filter(|id| valid_group_id(id))
+                    .ok_or("Saved pending outbound Megolm group ID is invalid")?;
+                let membership_epoch = value.get("membershipEpoch").and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("Saved pending outbound Megolm epoch is invalid")?;
+                let stored_message_id = value.get("messageId").and_then(Value::as_str)
+                    .filter(|id| valid_user_id(id))
+                    .ok_or("Saved pending outbound Megolm message ID is invalid")?;
+                if stored_message_id != message_id {
+                    return Err("Saved pending outbound Megolm message key does not match metadata");
+                }
+                let sender_user_id = value.get("senderUserId").and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved pending outbound Megolm sender account is invalid")?;
+                let sender_device_id = value.get("senderDeviceId").and_then(Value::as_str)
+                    .filter(|id| valid_device_id(id))
+                    .ok_or("Saved pending outbound Megolm sender device is invalid")?;
+                let session_id = value.get("sessionId").and_then(Value::as_str)
+                    .filter(|id| id.len() >= 16 && id.len() <= 128 && id.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'+' || b == b'/' || b == b'='
+                    }))
+                    .ok_or("Saved pending outbound Megolm session ID is invalid")?;
+                let message_index = value.get("messageIndex").and_then(Value::as_u64)
+                    .and_then(|index| u32::try_from(index).ok())
+                    .filter(|index| *index < u32::MAX)
+                    .ok_or("Saved pending outbound Megolm message index is invalid")?;
+                let sent_at_millis = value.get("sentAtMillis").and_then(Value::as_u64)
+                    .filter(|timestamp| *timestamp <= i64::MAX as u64)
+                    .ok_or("Saved pending outbound Megolm timestamp is invalid")?;
+                let parse_bytes = |name: &str, minimum: usize, maximum: usize| {
+                    let bytes = value.get(name).and_then(Value::as_array)
+                        .ok_or("Saved pending outbound Megolm byte field is missing")?
+                        .iter()
+                        .map(|byte| byte.as_u64().and_then(|number| u8::try_from(number).ok())
+                            .ok_or("Saved pending outbound Megolm byte field is invalid"))
+                        .collect::<Result<Vec<u8>, _>>()?;
+                    if bytes.len() < minimum || bytes.len() > maximum {
+                        return Err("Saved pending outbound Megolm byte field has an invalid size");
+                    }
+                    Ok(bytes)
+                };
+                let plaintext_sha256 = parse_bytes("plaintextSha256", 32, 32)?;
+                let ciphertext = parse_bytes(
+                    "ciphertext",
+                    1,
+                    crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES,
+                )?;
+                pending_outbound_group_messages.insert(
+                    message_id.clone(),
+                    PendingOutboundMegolmMessage {
+                        owner_user_id: owner_user_id.to_owned(),
+                        group_id: group_id.to_owned(),
+                        membership_epoch,
+                        message_id: stored_message_id.to_owned(),
+                        sender_user_id: sender_user_id.to_owned(),
+                        sender_device_id: sender_device_id.to_owned(),
+                        session_id: session_id.to_owned(),
+                        message_index,
+                        sent_at_millis,
+                        plaintext_sha256,
+                        ciphertext,
+                    },
+                );
+            }
+        } else if envelope.get("pendingOutboundGroupMessages").is_some() {
+            return Err("Saved pending outbound Megolm messages have an invalid format");
+        }
+
         let mut outbound_group_sessions = std::collections::BTreeMap::new();
         if let Some(values) = envelope
             .get("outboundGroupSessions")
@@ -929,6 +1087,7 @@ fn decode_device_crypto_state(
             sessions,
             pending_decryptions,
             pending_group_decryptions,
+            pending_outbound_group_messages,
             outbound_group_sessions,
             inbound_group_sessions,
         })
@@ -959,6 +1118,7 @@ fn encode_device_account_state(
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         },
@@ -1232,6 +1392,7 @@ fn ensure_device_identity<'local>(
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             },
@@ -2559,6 +2720,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2634,6 +2796,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2821,6 +2984,7 @@ mod tests {
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2887,6 +3051,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions,
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -2951,6 +3116,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions,
         };
@@ -2992,6 +3158,7 @@ mod tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3329,6 +3496,7 @@ mod transfer_tests {
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3405,6 +3573,7 @@ mod transfer_tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions,
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
@@ -3454,6 +3623,7 @@ mod transfer_tests {
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
+                pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
