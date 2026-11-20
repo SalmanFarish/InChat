@@ -181,6 +181,47 @@ internal object NativeCryptoBridge {
         plaintext: String,
     ): String?
 
+    /**
+     * Decrypt an authenticated group ciphertext, atomically persisting the
+     * advanced inbound Megolm ratchet and recoverable plaintext in native state.
+     * The caller must have already authenticated the Olm payload and membership.
+     */
+    external fun nativePrepareInboundMegolmDecryption(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+        ownerUserId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        messageId: String,
+        senderUserId: String,
+        senderDeviceId: String,
+        sessionId: String,
+        expectedMessageIndex: Long,
+        sentAtMillis: Long,
+        ciphertext: ByteArray,
+    ): String?
+
+    /** Enumerate native pending Megolm stages for crash recovery after process death. */
+    external fun nativeListPendingMegolmDecryptionReceipts(
+        store: CryptoStateStore,
+        deviceId: String,
+    ): String?
+
+    /** Read a pending staged Megolm plaintext without advancing its receive ratchet. */
+    external fun nativeReadPendingMegolmDecryption(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+    ): String?
+
+    /** Clear native staged plaintext only after encrypted Room and replay records commit. */
+    external fun nativeFinalizeInboundMegolmDecryption(
+        store: CryptoStateStore,
+        deviceId: String,
+        receiptId: String,
+    ): Boolean
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
