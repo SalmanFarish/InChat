@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId};
+use crate::megolm::{InboundGroupSession, OutboundGroupSession};
 use zeroize::Zeroize;
 
 const DEVICE_STATE_HEADER_V1: &[u8; 6] = b"ICDEV\x01";
@@ -44,10 +45,55 @@ impl Drop for PendingDecryption {
     }
 }
 
+struct StoredOutboundGroupSession {
+    membership_epoch: u64,
+    sender_device_id: String,
+    session: OutboundGroupSession,
+}
+
+struct StoredInboundGroupSession {
+    membership_epoch: u64,
+    sender_user_id: String,
+    sender_device_id: String,
+    session: InboundGroupSession,
+}
+
 struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
     pending_decryptions: std::collections::BTreeMap<String, PendingDecryption>,
+    /// One active sender ratchet per local device, group, and membership epoch.
+    outbound_group_sessions: std::collections::BTreeMap<String, StoredOutboundGroupSession>,
+    /// Inbound group ratchets keyed by their complete sender/epoch/session identity.
+    inbound_group_sessions: std::collections::BTreeMap<String, StoredInboundGroupSession>,
+}
+
+fn valid_group_id(group_id: &str) -> bool {
+    !group_id.is_empty()
+        && group_id.len() <= 128
+        && group_id.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+        })
+}
+
+fn valid_user_id(user_id: &str) -> bool {
+    !user_id.is_empty()
+        && user_id.len() <= 128
+        && user_id.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+        })
+}
+
+fn inbound_group_session_key(
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    session_id: &str,
+) -> String {
+    format!(
+        "{group_id}|{membership_epoch}|{sender_user_id}|{sender_device_id}|{session_id}"
+    )
 }
 
 fn encode_device_crypto_state(
@@ -78,10 +124,76 @@ fn encode_device_crypto_state(
             }),
         );
     }
+
+    if state.outbound_group_sessions.len() > 1_000 ||
+        state.inbound_group_sessions.len() > 10_000 {
+        return Err("Olm device state contains too many Megolm sessions");
+    }
+
+    let mut outbound_group_sessions = serde_json::Map::new();
+    for (group_id, stored) in &state.outbound_group_sessions {
+        if !valid_group_id(group_id) ||
+            stored.membership_epoch == 0 ||
+            stored.sender_device_id != device_id {
+            return Err("Saved outbound Megolm session metadata is invalid");
+        }
+        let session_id = stored.session.session_id();
+        let mut pickle = stored.session.serialize_for_encrypted_storage()?;
+        let pickle_value = serde_json::from_slice(&pickle)
+            .map_err(|_| "Outbound Megolm pickle could not be encoded")?;
+        pickle.zeroize();
+        outbound_group_sessions.insert(
+            group_id.clone(),
+            json!({
+                "membershipEpoch": stored.membership_epoch,
+                "senderDeviceId": stored.sender_device_id,
+                "sessionId": session_id,
+                "pickle": pickle_value,
+            }),
+        );
+    }
+
+    let mut inbound_group_sessions = serde_json::Map::new();
+    for (key, stored) in &state.inbound_group_sessions {
+        if !valid_group_id(&stored.group_id) ||
+            stored.membership_epoch == 0 ||
+            !valid_user_id(&stored.sender_user_id) ||
+            !valid_device_id(&stored.sender_device_id) {
+            return Err("Saved inbound Megolm session metadata is invalid");
+        }
+        let session_id = stored.session.session_id();
+        if key != &inbound_group_session_key(
+            &stored.group_id,
+            stored.membership_epoch,
+            &stored.sender_user_id,
+            &stored.sender_device_id,
+            &session_id,
+        ) {
+            return Err("Saved inbound Megolm session key does not match its metadata");
+        }
+        let mut pickle = stored.session.serialize_for_encrypted_storage()?;
+        let pickle_value = serde_json::from_slice(&pickle)
+            .map_err(|_| "Inbound Megolm pickle could not be encoded")?;
+        pickle.zeroize();
+        inbound_group_sessions.insert(
+            key.clone(),
+            json!({
+                "groupId": stored.group_id,
+                "membershipEpoch": stored.membership_epoch,
+                "senderUserId": stored.sender_user_id,
+                "senderDeviceId": stored.sender_device_id,
+                "sessionId": session_id,
+                "pickle": pickle_value,
+            }),
+        );
+    }
+
     let mut serialized = serde_json::to_vec(&json!({
         "account": account,
         "sessions": sessions,
-        "pendingDecryptions": pending_decryptions
+        "pendingDecryptions": pending_decryptions,
+        "outboundGroupSessions": outbound_group_sessions,
+        "inboundGroupSessions": inbound_group_sessions
     }))
     .map_err(|_| "Olm device crypto state serialization failed")?;
     let mut blob =
@@ -137,6 +249,8 @@ fn decode_device_crypto_state(
                 account: Account::from(pickle),
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
+                outbound_group_sessions: std::collections::BTreeMap::new(),
+                inbound_group_sessions: std::collections::BTreeMap::new(),
             });
         }
         let envelope: Value = serde_json::from_slice(&blob[pickle_start..])
@@ -219,10 +333,140 @@ fn decode_device_crypto_state(
                 );
             }
         }
+        let mut outbound_group_sessions = std::collections::BTreeMap::new();
+        if let Some(values) = envelope
+            .get("outboundGroupSessions")
+            .and_then(Value::as_object)
+        {
+            if values.len() > 1_000 {
+                return Err("Saved Olm state contains too many outbound Megolm sessions");
+            }
+            for (group_id, value) in values {
+                if !valid_group_id(group_id) {
+                    return Err("Saved outbound Megolm group ID has an invalid format");
+                }
+                let membership_epoch = value
+                    .get("membershipEpoch")
+                    .and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("Saved outbound Megolm epoch is invalid")?;
+                let sender_device_id = value
+                    .get("senderDeviceId")
+                    .and_then(Value::as_str)
+                    .ok_or("Saved outbound Megolm session has no sender device")?;
+                if sender_device_id != expected_device_id {
+                    return Err("Saved outbound Megolm session belongs to another device");
+                }
+                let session_id = value
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty() && id.len() <= 128)
+                    .ok_or("Saved outbound Megolm session ID is invalid")?;
+                let pickle_value = value
+                    .get("pickle")
+                    .ok_or("Saved outbound Megolm session has no pickle")?;
+                let mut pickle_bytes = serde_json::to_vec(pickle_value)
+                    .map_err(|_| "Saved outbound Megolm pickle could not be decoded")?;
+                if pickle_bytes.len() > crate::megolm::MAX_GROUP_SESSION_STATE_BYTES {
+                    pickle_bytes.zeroize();
+                    return Err("Saved outbound Megolm pickle exceeds the size limit");
+                }
+                let session = OutboundGroupSession::restore_from_encrypted_storage(&pickle_bytes)?;
+                pickle_bytes.zeroize();
+                if session.session_id() != session_id {
+                    return Err("Saved outbound Megolm session ID does not match its pickle");
+                }
+                outbound_group_sessions.insert(
+                    group_id.clone(),
+                    StoredOutboundGroupSession {
+                        membership_epoch,
+                        sender_device_id: sender_device_id.to_owned(),
+                        session,
+                    },
+                );
+            }
+        } else if envelope.get("outboundGroupSessions").is_some() {
+            return Err("Saved outbound Megolm sessions have an invalid format");
+        }
+
+        let mut inbound_group_sessions = std::collections::BTreeMap::new();
+        if let Some(values) = envelope
+            .get("inboundGroupSessions")
+            .and_then(Value::as_object)
+        {
+            if values.len() > 10_000 {
+                return Err("Saved Olm state contains too many inbound Megolm sessions");
+            }
+            for (key, value) in values {
+                let group_id = value
+                    .get("groupId")
+                    .and_then(Value::as_str)
+                    .ok_or("Saved inbound Megolm session has no group ID")?;
+                let membership_epoch = value
+                    .get("membershipEpoch")
+                    .and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("Saved inbound Megolm epoch is invalid")?;
+                let sender_user_id = value
+                    .get("senderUserId")
+                    .and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved inbound Megolm sender account is invalid")?;
+                let sender_device_id = value
+                    .get("senderDeviceId")
+                    .and_then(Value::as_str)
+                    .filter(|id| valid_device_id(id))
+                    .ok_or("Saved inbound Megolm sender device is invalid")?;
+                let session_id = value
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty() && id.len() <= 128)
+                    .ok_or("Saved inbound Megolm session ID is invalid")?;
+                if !valid_group_id(group_id) ||
+                    key != &inbound_group_session_key(
+                        group_id,
+                        membership_epoch,
+                        sender_user_id,
+                        sender_device_id,
+                        session_id,
+                    ) {
+                    return Err("Saved inbound Megolm session key does not match its metadata");
+                }
+                let pickle_value = value
+                    .get("pickle")
+                    .ok_or("Saved inbound Megolm session has no pickle")?;
+                let mut pickle_bytes = serde_json::to_vec(pickle_value)
+                    .map_err(|_| "Saved inbound Megolm pickle could not be decoded")?;
+                if pickle_bytes.len() > crate::megolm::MAX_GROUP_SESSION_STATE_BYTES {
+                    pickle_bytes.zeroize();
+                    return Err("Saved inbound Megolm pickle exceeds the size limit");
+                }
+                let session = InboundGroupSession::restore_from_encrypted_storage(&pickle_bytes)?;
+                pickle_bytes.zeroize();
+                if session.session_id() != session_id {
+                    return Err("Saved inbound Megolm session ID does not match its pickle");
+                }
+                inbound_group_sessions.insert(
+                    key.clone(),
+                    StoredInboundGroupSession {
+                        group_id: group_id.to_owned(),
+                        membership_epoch,
+                        sender_user_id: sender_user_id.to_owned(),
+                        sender_device_id: sender_device_id.to_owned(),
+                        session,
+                    },
+                );
+            }
+        } else if envelope.get("inboundGroupSessions").is_some() {
+            return Err("Saved inbound Megolm sessions have an invalid format");
+        }
+
         Ok(DeviceCryptoState {
             account: Account::from(account_pickle),
             sessions,
             pending_decryptions,
+            outbound_group_sessions,
+            inbound_group_sessions,
         })
     })();
     blob.zeroize();
@@ -250,6 +494,8 @@ fn encode_device_account_state(
             account: restored,
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
         },
     )
 }
@@ -520,6 +766,8 @@ fn ensure_device_identity<'local>(
                 account: Account::new(),
                 sessions: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
+                outbound_group_sessions: std::collections::BTreeMap::new(),
+                inbound_group_sessions: std::collections::BTreeMap::new(),
             },
             true,
         ),
@@ -1865,6 +2113,8 @@ mod tests {
             account,
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions,
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
         let encoded = super::encode_device_crypto_state("pending-device", &state)
@@ -1940,6 +2190,8 @@ mod tests {
             account: alice,
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let encoded = super::encode_device_crypto_state("session-device", &state)
             .expect("unified state should serialize");
