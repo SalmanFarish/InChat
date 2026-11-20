@@ -145,7 +145,12 @@ function isValidEnvelopeRecord(record, expected) {
       .replace(/=/g, "")
       .replace(/\+/g, "-")
       .replace(/\//g, "_");
-    return canonical === envelope.ciphertext;
+    const canonicalPadded =
+      canonical + "=".repeat((4 - (canonical.length % 4)) % 4);
+    return (
+      envelope.ciphertext === canonical ||
+      envelope.ciphertext === canonicalPadded
+    );
   } catch (_) {
     return false;
   }
