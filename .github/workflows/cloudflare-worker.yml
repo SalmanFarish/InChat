@@ -26,6 +26,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Install Cloudflare Worker toolchain
+        working-directory: cloudflare/attachments-worker
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Run Cloudflare Worker unit tests
         working-directory: cloudflare/attachments-worker
         run: npm test
+      - name: Validate Worker bundle and wrangler configuration
+        working-directory: cloudflare/attachments-worker
+        run: npx wrangler deploy --dry-run
