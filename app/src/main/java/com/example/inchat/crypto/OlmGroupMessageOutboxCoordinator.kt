@@ -32,6 +32,13 @@ internal class OlmGroupMessageOutboxCoordinator(
         ) {
             "Group membership changed after encrypted fan-out preparation"
         }
+        require(
+            keyDistribution.groupId == distribution.groupId &&
+                keyDistribution.membershipEpoch == distribution.membershipEpoch &&
+                keyDistribution.megolmSessionId == distribution.megolmSessionId
+        ) {
+            "Megolm message ciphertext does not match the session key distributed to group members"
+        }
         require(distribution.messageId.matches(MESSAGE_ID)) {
             "Group message ID is invalid"
         }
