@@ -97,15 +97,9 @@ class OlmInboundHandoffCoordinatorTest {
                 trustVerifier = trustedDevice("alice", senderBundle),
                 messageDao = db.messageDao(),
             )
-            assertEquals(
-                OlmInboundHandoffResult.ALREADY_COMMITTED,
-                coordinator.process(
-                    receiptId,
-                    senderBundle,
-                    remoteDeviceUserId = "alice",
-                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
-                    localUserId = "local-user",
-                ) { error("A committed receipt must not rebuild or insert its message") },
+            assertTrue(
+                "Committed plaintext staging should finalize without rebuilding the Room message",
+                coordinator.finalizePreviouslyCommitted(receiptId, "local-user"),
             )
             assertEquals(
                 "handoff plaintext",
