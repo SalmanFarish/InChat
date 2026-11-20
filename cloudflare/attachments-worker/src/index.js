@@ -1,4 +1,5 @@
 import { hasReadThrough, shouldIncrementGroupUnread, membersReadThroughLatestMessage } from "./group-unread.js";
+import { processEncryptedOlmPush } from "./olm-push.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -3271,6 +3272,57 @@ async function remove(env, chatId, messageId, uid, adminToken) {
   );
   return json({ success: true, deleted: true });
 }
+async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > 4096) {
+    return json({ error: "Encrypted push request is too large." }, 413);
+  }
+
+  let body;
+  try {
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).length > 4096) {
+      return json({ error: "Encrypted push request is too large." }, 413);
+    }
+    body = JSON.parse(raw);
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const outcome = await processEncryptedOlmPush({
+    env,
+    uid,
+    body,
+    adminToken: adminAuth,
+    adminDatabaseRequest,
+    fcmRequest,
+  });
+  return json(outcome.payload, outcome.status);
+}
+
+async function enforceEncryptedOlmPushRateLimits(request, env, uid) {
+  const accountLimiter = env.OLM_PUSH_UID_LIMITER;
+  const ipLimiter = env.OLM_PUSH_IP_LIMITER;
+  if (!accountLimiter || !ipLimiter) {
+    return json({
+      error: "Encrypted push rate limits are not configured on this Worker.",
+    }, 503);
+  }
+
+  const sourceIp = request.headers.get("CF-Connecting-IP") || "unknown";
+  const [accountLimit, ipLimit] = await Promise.all([
+    accountLimiter.limit({ key: uid }),
+    ipLimiter.limit({ key: sourceIp }),
+  ]);
+  if (!accountLimit.success || !ipLimit.success) {
+    return json({
+      error: "Too many encrypted push requests. Please retry later.",
+      retryable: true,
+    }, 429);
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     try {
@@ -3319,6 +3371,20 @@ export default {
       }
 
       const user = await authenticate(getBearer(request), env);
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/olm/notify"
+      ) {
+        const rateLimitResponse = await enforceEncryptedOlmPushRateLimits(
+          request,
+          env,
+          user.uid,
+        );
+        if (rateLimitResponse) return rateLimitResponse;
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processEncryptedOlmPushRequest(request, env, user.uid, adminAuth);
+      }
 
       if (
         request.method === "POST" &&
