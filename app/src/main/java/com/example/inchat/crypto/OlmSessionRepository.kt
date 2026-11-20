@@ -27,7 +27,7 @@ internal data class StagedInboundOlmMessage(
 internal class OlmSessionRepository(
     context: Context,
     private val identityRepository: SasVerificationLocalIdentity = DeviceIdentityRepository(context.applicationContext),
-) : OlmGroupKeyOutboundSessionRepository {
+) : OlmGroupKeyOutboundSessionRepository, OlmGroupMessageOutboundSessionRepository {
     private val appContext = context.applicationContext
 
     private val cachedLocalBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -319,6 +319,21 @@ internal class OlmSessionRepository(
             sessionId = sessionId,
             recipientDeviceId = payload.recipientDeviceId,
             plaintext = OlmGroupSessionKeyDistributionPayloadCodec.encode(payload),
+        )
+    }
+
+    /** Encrypt a typed Megolm ciphertext payload inside an authenticated Olm envelope. */
+    override fun encryptGroupMessageEnvelope(
+        sessionId: String,
+        payload: OlmGroupMessagePayload,
+    ): String {
+        require(payload.senderDeviceId == localBundle.deviceId) {
+            "Group message sender device does not match this installation"
+        }
+        return encryptEnvelope(
+            sessionId = sessionId,
+            recipientDeviceId = payload.recipientDeviceId,
+            plaintext = OlmGroupMessagePayloadCodec.encode(payload),
         )
     }
 
