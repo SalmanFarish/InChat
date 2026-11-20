@@ -1205,3 +1205,19 @@ test("only the account owner can remove a completed device transfer relay", asyn
   await assertFails(set(ref(bobDb, path), null));
   await assertSucceeds(set(ref(aliceDb, path), null));
 });
+
+
+test("encrypted push dispatch receipts are server-only", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const path = "olmPushDispatch/bob/device-bob-1/" + "a".repeat(64);
+
+  for (const database of [aliceDb, bobDb, malloryDb]) {
+    await assertFails(get(ref(database, path)));
+    await assertFails(set(ref(database, path), {
+      status: "sent",
+      deliveryId: "a".repeat(64),
+    }));
+  }
+});
