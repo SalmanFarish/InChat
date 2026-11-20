@@ -63,36 +63,50 @@ The isolated `EncryptedOlmDeliveryWorker` now processes sender acknowledgements 
 
 ## Encrypted notification privacy boundary
 
-The Android FCM receiver now recognizes two data-message types reserved for the
-isolated encrypted path: `encrypted_message` and
-`encrypted_group_message`. Both are rendered as the generic title
-"InChat" and body "New encrypted message". The receiver ignores any supplied
-sender name, group name, message text, or FCM notification title/body for these
-types, and it does not create a `MessagingStyle` entry or persist encrypted
-message content in local notification history. Routing IDs are retained only
-for notification tap navigation and active-conversation suppression.
+The isolated encrypted push path now has a separate authenticated Cloudflare
+endpoint, `POST /v1/olm/notify`. The sender's encrypted outbox worker calls it
+only after the immutable ciphertext has been accepted at the exact recipient
+device's `olmInbox` path. The normal `/v1/events/message` plaintext route is
+not called or modified by this path.
+
+The Worker derives the recipient account from the existing canonical direct
+conversation and verifies the sender is a participant. It rejects group chats,
+checks both block directions, confirms that both sender and recipient device
+entries are still published, and validates the exact relay record against the
+authenticated sender account/device, message ID, recipient device and Olm
+envelope metadata. It reads only the matching
+`privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}` token; it never falls back
+to the legacy account-level FCM token. Per-account and per-IP Worker rate
+limits apply, and ETag-guarded dispatch receipts suppress duplicate sends and
+protect token cleanup from deleting a concurrently rotated token.
+
+FCM receives a **data-only** message containing only `type=encrypted_olm` and
+the deterministic `deliveryId`. No FCM `notification` object, chat ID,
+sender display name, group name, message text, or decrypted preview is sent.
+The Android FCM service accepts only this narrow signal and schedules an
+immediate `EncryptedOlmInboxWorker` pass for its existing authenticated
+account/device identity. Startup continues to maintain the separate periodic
+recovery poll. The wake-up metadata is not used as a chat route or message
+identity; the encrypted relay record and the authenticated Olm payload remain
+the source of truth.
+
+The receiver currently stages ciphertext and publishes its durable metadata
+acknowledgement. It does not yet decrypt the message or display a user-visible
+message notification. Decrypted notification presentation and tap navigation
+must wait for the authenticated inbound handoff and live-chat integration
+milestones. Until then, a silent wake-up is safer than showing an unverified
+sender or conversation.
 
 The existing `chat_message` and `group_message` plaintext notification
-presentation and history behavior is unchanged.
+presentation, history, and delivery pipeline remain unchanged. No Firebase
+Cloud Function, Firebase Cloud Storage, R2 bucket, Durable Object, or paid
+infrastructure is introduced by the encrypted endpoint.
 
-A privacy-critical transport constraint applies to encrypted pushes: the
-Cloudflare Worker must send FCM **data-only** messages and must not include an
-FCM `notification` object. Android may display notification-payload content
-itself while the app is backgrounded, bypassing
-`InChatFirebaseMessagingService` and its encrypted-content filtering. The
-encrypted event endpoint is still outstanding; the legacy plaintext endpoint
-must remain separate and must never be reused for encrypted messages.
-
-**This is a client-side privacy boundary, not completed end-to-end notification
-delivery.** The current Cloudflare `/events/message` handler remains the
-legacy plaintext notification path and still reads `message.text`. It must
-not be used to dispatch encrypted Olm deliveries. A separately authenticated
-Worker event that verifies the recipient and the corresponding `olmInbox`
-delivery, then emits only the two generic encrypted types, remains outstanding.
-Encrypted chat previews, notification tap routing after decryption, and
-two-device notification validation are also required before rollout.
-
-
+**This completes isolated encrypted FCM dispatch and inbox wake-up plumbing,
+not production E2EE rollout.** Real two-device Firebase validation, decrypt-
+to-UI handoff, user-visible encrypted notification behavior, tap routing, and
+delivery-status reconciliation are still required before connecting the
+normal composer or enabling encrypted messaging by default.
 
 ## Encrypted delivery status lifecycle
 
@@ -425,11 +439,13 @@ plaintext notification behavior. When an installation already has a usable
 local Olm identity, the same token is additionally registered at
 `privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}`. The registration worker
 only reads an existing identity; it never creates a device ID or native Olm
-state. Logout removes this installation's device-scoped token together with
-the legacy account token. The Worker can therefore target a specific published
-Olm device instead of assuming one FCM token represents every device on an
-account. These registrations are groundwork only; encrypted FCM dispatch is
-still a separate endpoint and is not connected to normal message sending.
+state. Publishing a verified public device bundle also best-effort refreshes
+that device's token mapping, covering the case where login-time token
+registration ran before the Olm identity was created. A token refresh or a
+later login continues to use the durable registration worker. Logout removes
+this installation's device-scoped token together with the legacy account
+token. The Worker can therefore target a specific published Olm device
+instead of assuming one FCM token represents every device on an account.
 
 
 ## Authenticated direct-conversation routing (payload schema v2)
