@@ -31,12 +31,12 @@ class OlmInboundMessageCommitterTest {
 
             assertTrue(committer.commit(receipt.receiptId, message(), 200L))
             val encrypted = requireNotNull(
-                db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-1"),
+                db.encryptedOlmMessageDao().getMessage("local-user", "alice_local-user", "message-1"),
             )
             assertEquals("decrypted body", EncryptedOlmMessageVault().decrypt(encrypted).text)
             assertFalse(encrypted.textCiphertextBase64.contains("decrypted body"))
             // Existing ChatRepository observes this plaintext DAO; encrypted content must never enter it.
-            assertEquals(null, db.messageDao().getMessage("local-user", "alice", "message-1"))
+            assertEquals(null, db.messageDao().getMessage("local-user", "alice_local-user", "message-1"))
             assertEquals(
                 OlmInboundReceiptStatus.PROCESSED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status,
@@ -90,7 +90,7 @@ class OlmInboundMessageCommitterTest {
                     },
                 )
 
-                val stored = db.encryptedOlmMessageDao().getMessage("local-user", "alice", "concurrent-commit")
+                val stored = db.encryptedOlmMessageDao().getMessage("local-user", "alice_local-user", "concurrent-commit")
                 assertNotNull(stored)
                 val restoredText = EncryptedOlmMessageVault().decrypt(requireNotNull(stored)).text
                 assertTrue(
@@ -121,7 +121,7 @@ class OlmInboundMessageCommitterTest {
             } catch (expected: IllegalStateException) {
                 assertTrue(expected.message.orEmpty().contains("message ID"))
             }
-            assertEquals(null, db.encryptedOlmMessageDao().getMessage("local-user", "alice", "wrong-id"))
+            assertEquals(null, db.encryptedOlmMessageDao().getMessage("local-user", "alice_local-user", "wrong-id"))
             assertEquals(OlmInboundReceiptStatus.PENDING.name, db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status)
         }
     }
@@ -144,7 +144,7 @@ class OlmInboundMessageCommitterTest {
             assertEquals(
                 "decrypted body",
                 EncryptedOlmMessageVault().decrypt(
-                    requireNotNull(db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-3")),
+                    requireNotNull(db.encryptedOlmMessageDao().getMessage("local-user", "alice_local-user", "message-3")),
                 ).text,
             )
             assertFalse(db.olmInboundReceiptDao().getByReceiptId(receipt.receiptId)?.status == OlmInboundReceiptStatus.PENDING.name)
@@ -197,7 +197,7 @@ class OlmInboundMessageCommitterTest {
                 )
                 assertEquals(
                     null,
-                    db.encryptedOlmMessageDao().getMessage("local-user", "alice", "message-2"),
+                    db.encryptedOlmMessageDao().getMessage("local-user", "alice_local-user", "message-2"),
                 )
             } finally {
                 deleteKeystoreAlias(alias)
@@ -230,9 +230,9 @@ class OlmInboundMessageCommitterTest {
         text: String = "decrypted body",
     ) = DecryptedOlmMessage(
         ownerUserId = "local-user",
-        conversationId = "alice",
+        conversationId = "alice_local-user",
         messageId = messageId,
-        conversationPeerUserId = "alice",
+        conversationPeerUserId = "local-user",
         senderUserId = "alice",
         senderDeviceId = "sender-device",
         recipientUserId = "local-user",
