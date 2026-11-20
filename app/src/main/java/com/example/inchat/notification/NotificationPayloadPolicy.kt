@@ -34,6 +34,14 @@ internal object NotificationPayloadPolicy {
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
 
     /**
+     * Identifies the reserved encrypted wake-up type before validating its
+     * fields. Even malformed payloads of this type must never fall through to
+     * the legacy plaintext notification handler.
+     */
+    fun isEncryptedOlmWakeupType(data: Map<String, String>): Boolean =
+        data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP
+
+    /**
      * Encrypted Olm FCM carries a wake-up signal, not notification content or
      * routing data. Accept only the two fields emitted by the trusted Worker.
      */
