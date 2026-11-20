@@ -2742,6 +2742,7 @@ mod tests {
             account,
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions,
+            pending_group_decryptions: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
