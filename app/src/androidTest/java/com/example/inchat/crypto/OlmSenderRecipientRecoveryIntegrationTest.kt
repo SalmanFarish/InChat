@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -297,7 +296,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 sessionRepository = OlmSessionRepository(context, recipientLocalIdentity),
                 authenticatedLocalUserId = { recipientUserId },
                 trustVerifier = trustVerifier,
-                messageDao = recipientDatabase.messageDao(),
+                encryptedMessageDao = recipientDatabase.encryptedOlmMessageDao(),
                 clock = { 6_000L },
             )
             assertEquals(
@@ -314,7 +313,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             )
             assertEquals(
                 clearText,
-                recipientDatabase.messageDao()
+                recipientDatabase.encryptedOlmMessageDao()
                     .getMessage(recipientUserId, conversationId, messageId)?.text,
             )
             assertEquals(
@@ -409,7 +408,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertEquals(1, relay.acknowledgementCount())
             assertEquals(
                 clearText,
-                recipientDatabase.messageDao()
+                recipientDatabase.encryptedOlmMessageDao()
                     .getMessage(recipientUserId, conversationId, messageId)?.text,
             )
 
@@ -472,28 +471,17 @@ class OlmSenderRecipientRecoveryIntegrationTest {
         )
     }
 
-    private fun cachedMessage(payload: OlmAuthenticatedMessagePayload) = CachedMessageEntity(
+    private fun cachedMessage(payload: OlmAuthenticatedMessagePayload) = EncryptedOlmMessageEntity(
         ownerUserId = payload.recipientUserId,
-        chatId = payload.conversationId,
+        conversationId = payload.conversationId,
         messageId = payload.messageId,
-        senderId = payload.senderUserId,
-        senderNickname = "Alice",
+        conversationPeerUserId = payload.conversationPeerUserId,
+        senderUserId = payload.senderUserId,
+        senderDeviceId = payload.senderDeviceId,
+        recipientUserId = payload.recipientUserId,
+        recipientDeviceId = payload.recipientDeviceId,
+        sentAtMillis = payload.sentAtMillis,
         text = payload.text,
-        timestamp = payload.sentAtMillis,
-        replyMessageId = "",
-        replySenderId = "",
-        replySenderNickname = "",
-        replyText = "",
-        reactionsJson = "{}",
-        edited = false,
-        attachmentType = "",
-        attachmentStorageKey = "",
-        attachmentFileName = "",
-        attachmentMimeType = "",
-        attachmentSizeBytes = 0L,
-        attachmentViewedAt = 0L,
-        isPending = false,
-        systemEvent = "",
     )
 
     private fun sha256(value: String): String =
