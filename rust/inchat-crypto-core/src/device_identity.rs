@@ -3944,33 +3944,72 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     group_id: JString<'local>,
     membership_epoch: jni::sys::jlong,
     sender_user_id: JString<'local>,
+    message_id: JString<'local>,
+    sent_at_millis: jni::sys::jlong,
     plaintext: JString<'local>,
 ) -> jstring {
     let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let message_id: String = match env.get_string(&message_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let mut plaintext: String = match env.get_string(&plaintext) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
-    if membership_epoch <= 0 { plaintext.zeroize(); return std::ptr::null_mut(); }
+    if membership_epoch <= 0 || sent_at_millis < 0 {
+        plaintext.zeroize();
+        return std::ptr::null_mut();
+    }
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
-        let stored = state.outbound_group_sessions.get_mut(&group_id)
-            .ok_or("Outbound Megolm session does not exist")?;
-        if stored.membership_epoch != membership_epoch as u64
-            || stored.sender_user_id != sender_user_id
-            || stored.sender_device_id != device_id {
-            return Err("Outbound Megolm session is not bound to the requested group epoch and sender");
-        }
-        let encrypted = stored.session.encrypt(plaintext.as_bytes())?;
+        let encrypted = prepare_outbound_megolm_message(
+            &mut state,
+            &sender_user_id,
+            &group_id,
+            membership_epoch as u64,
+            &message_id,
+            &sender_user_id,
+            &device_id,
+            sent_at_millis as u64,
+            plaintext.as_bytes(),
+        )?;
+        let pending = state.pending_outbound_group_messages.get(&message_id)
+            .ok_or("Staged outbound Megolm message disappeared before persistence")?;
+        let output = pending_outbound_megolm_message_json(pending)?;
         let blob = encode_device_crypto_state(&device_id, &state)?;
         write_device_state(&mut env, &store, blob)?;
-        serde_json::to_string(&json!({
-            "sessionId": encrypted.session_id,
-            "messageIndex": encrypted.message_index,
-            "ciphertext": encrypted.ciphertext
-        })).map_err(|_| "Could not encode encrypted Megolm message")
+        Ok::<String, &'static str>(output)
     }));
     plaintext.zeroize();
     match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        Ok(Err(error)) => env
+            .new_string(format!("INCHAT_CRYPTO_ERROR:{error}"))
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Err(_) => env
+            .new_string("INCHAT_CRYPTO_ERROR:native panic while staging outbound Megolm message")
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+    }
+}
+
+/// List staged sender messages that still need to be committed to the Olm outbox.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeListPendingOutboundMegolmMessageIds<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let message_ids: Vec<&String> = state.pending_outbound_group_messages.keys().collect();
+        serde_json::to_string(&message_ids)
+            .map_err(|_| "Could not encode pending outbound Megolm message IDs")
+    })) {
         Ok(Ok(mut value)) => {
             let output = env.new_string(&value);
             value.zeroize();
@@ -3980,6 +4019,60 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     }
 }
 
+/// Read a ciphertext that was already staged with the advanced sender ratchet.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeReadPendingOutboundMegolmMessage<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    message_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let message_id: String = match env.get_string(&message_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        if !valid_user_id(&message_id) {
+            return Err("Outbound Megolm message ID is invalid");
+        }
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let pending = state.pending_outbound_group_messages.get(&message_id)
+            .ok_or("No pending outbound Megolm message exists for this ID")?;
+        pending_outbound_megolm_message_json(pending)
+    })) {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Clear a staged sender ciphertext only after every per-device envelope is
+/// durable in the Room outbox. Repeated calls are safe.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeFinalizeOutboundMegolmMessage<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    message_id: JString<'local>,
+) -> jboolean {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    let message_id: String = match env.get_string(&message_id) { Ok(v) => v.into(), Err(_) => return JNI_FALSE };
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let removed = finalize_pending_outbound_megolm_message(&mut state, &message_id)?;
+        if removed {
+            let blob = encode_device_crypto_state(&device_id, &state)?;
+            write_device_state(&mut env, &store, blob)?;
+        }
+        Ok::<bool, &'static str>(true)
+    })) {
+        Ok(Ok(_)) => JNI_TRUE,
+        _ => JNI_FALSE,
+    }
+}
 
 /// Stage an authenticated group-message decrypt. The caller must first validate
 /// the outer Olm envelope, SAS trust, membership snapshot and inner routing fields.
