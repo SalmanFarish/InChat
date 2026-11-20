@@ -25,4 +25,5 @@ data class OlmInboundReceiptEntity(
     val processedAtMillis: Long?,
 )
 
-enum class OlmInboundReceiptStatus { PENDING, PROCESSED }
+/** FINALIZED means Room commit and native staged-plaintext cleanup both completed. */
+enum class OlmInboundReceiptStatus { PENDING, PROCESSED, FINALIZED }
