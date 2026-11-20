@@ -7,6 +7,7 @@ import com.example.inchat.data.worker.MessageNotificationWorker
 
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Group
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
 import com.google.firebase.auth.FirebaseAuth
@@ -460,6 +461,76 @@ class GroupChatRepository {
             }
         }.distinctUntilChanged()
     }
+
+    /**
+     * Observes the Worker-authored E2EE membership snapshot as one atomic value.
+     *
+     * Do not derive this from observeGroupMembers() plus a separate epoch
+     * listener: their callbacks can be delivered at different times. A null
+     * value means this group has not yet been initialized for E2EE or its
+     * snapshot is malformed; senders must fail closed in either case.
+     */
+    fun observeGroupCryptoMembership(
+        groupId: String
+    ): Flow<GroupCryptoMembershipSnapshot?> {
+        if (groupId.isBlank()) return flowOf(null)
+
+        return callbackFlow {
+            val ref = database.getReference("chats")
+                .child(groupId)
+                .child("cryptoMembership")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    try {
+                        val epoch = snapshot.child("epoch").getValue(Long::class.java)
+                        val members = snapshot.child("members").children.mapNotNull { child ->
+                            val uid = child.key
+                            val role = child.getValue(String::class.java)
+                            if (uid.isNullOrBlank() || role.isNullOrBlank()) {
+                                null
+                            } else {
+                                uid to role
+                            }
+                        }.toMap()
+                        val value = if (epoch == null) {
+                            null
+                        } else {
+                            GroupCryptoMembershipSnapshot(
+                                groupId = groupId,
+                                epoch = epoch,
+                                members = members
+                            ).takeIf { it.isValid() }
+                        }
+                        trySend(value)
+                    } catch (error: Exception) {
+                        Log.e(
+                            "GroupChatRepository",
+                            "Could not parse group crypto membership snapshot",
+                            error
+                        )
+                        trySend(null)
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(
+                        "GroupChatRepository",
+                        "Group crypto membership listener cancelled: ${error.message}"
+                    )
+                    trySend(null)
+                    close()
+                }
+            }
+            ref.addValueEventListener(listener)
+            awaitClose { ref.removeEventListener(listener) }
+        }.distinctUntilChanged()
+    }
+
+    /** Returns the current complete snapshot, or null when E2EE initialization is required. */
+    suspend fun getGroupCryptoMembershipSnapshot(
+        groupId: String
+    ): GroupCryptoMembershipSnapshot? =
+        observeGroupCryptoMembership(groupId).first()
 
     private fun observeGroupString(
         groupId: String,
