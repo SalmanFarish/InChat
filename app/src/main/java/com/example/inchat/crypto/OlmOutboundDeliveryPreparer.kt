@@ -23,8 +23,8 @@ internal fun interface OlmFirstMessagePreparer {
 }
 
 internal class OlmOutboundDeliveryPreparer(
-    private val directory: DeviceKeyDirectoryRepository,
-    private val sessions: OlmSessionRepository,
+    private val directory: OlmOutboundKeyDirectory,
+    private val sessions: OlmOutboundSessionRepository,
     private val trustVerifier: OlmDeviceTrustVerifier,
 ) : OlmFirstMessagePreparer {
     /** Prepare an initial prekey envelope for exactly one target device. */
