@@ -37,6 +37,30 @@ The isolated `EncryptedOlmDeliveryWorker` now processes sender acknowledgements 
 - Keep all infrastructure within free Firebase Spark capabilities; no card-required or paid storage services.
 
 
+
+## Encrypted notification privacy boundary
+
+The Android FCM receiver now recognizes two data-message types reserved for the
+isolated encrypted path: `encrypted_message` and
+`encrypted_group_message`. Both are rendered as the generic title
+"InChat" and body "New encrypted message". The receiver ignores any supplied
+sender name, group name, message text, or FCM notification title/body for these
+types, and it does not create a `MessagingStyle` entry or persist encrypted
+message content in local notification history. Routing IDs are retained only
+for notification tap navigation and active-conversation suppression.
+
+The existing `chat_message` and `group_message` plaintext notification
+presentation and history behavior is unchanged.
+
+**This is a client-side privacy boundary, not completed end-to-end notification
+delivery.** The current Cloudflare `/events/message` handler remains the
+legacy plaintext notification path and still reads `message.text`. It must
+not be used to dispatch encrypted Olm deliveries. A separately authenticated
+Worker event that verifies the recipient and the corresponding `olmInbox`
+delivery, then emits only the two generic encrypted types, remains outstanding.
+Encrypted chat previews, notification tap routing after decryption, and
+two-device notification validation are also required before rollout.
+
 ## Device identity verification groundwork
 
 A deterministic SHA-256 fingerprint helper now binds the installation device ID and
