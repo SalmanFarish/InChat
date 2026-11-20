@@ -1,7 +1,7 @@
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use jni::objects::{JByteArray, JObject, JString, JValue};
-use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyteArray, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
 use std::panic::{catch_unwind, AssertUnwindSafe};
