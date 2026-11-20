@@ -22,7 +22,7 @@ internal enum class OlmInboundHandoffResult {
  *
  * This class is intentionally not wired to Firebase listeners, chat UI, message
  * previews, notifications, or the existing plaintext messaging path. The
- * authenticated version-1 payload is validated before the caller maps it into
+ * authenticated version-2 payload is validated before the caller maps it into
  * the local cache entity; transport metadata is never used as a substitute.
  */
 internal class OlmInboundHandoffCoordinator(
@@ -138,8 +138,8 @@ internal class OlmInboundHandoffCoordinator(
             require(message.senderId == payload.senderUserId) {
                 "Cached message sender does not match the authenticated payload"
             }
-            require(message.chatId == payload.senderUserId) {
-                "Cached message chat does not match the authenticated sender"
+            require(message.chatId == payload.conversationId) {
+                "Cached message chat does not match the authenticated conversation"
             }
             require(message.timestamp == payload.sentAtMillis) {
                 "Cached message timestamp does not match the authenticated payload"
