@@ -530,6 +530,8 @@ class OlmInboundHandoffCoordinatorTest {
         text: String,
     ) = OlmAuthenticatedMessagePayload(
         messageId = messageId,
+        conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId(senderUserId, recipientUserId),
+        conversationPeerUserId = recipientUserId,
         senderUserId = senderUserId,
         senderDeviceId = senderDeviceId,
         recipientUserId = recipientUserId,
@@ -540,7 +542,7 @@ class OlmInboundHandoffCoordinatorTest {
 
     private fun cachedMessage(
         payload: OlmAuthenticatedMessagePayload,
-        chatId: String = payload.senderUserId,
+        chatId: String = payload.conversationId,
         timestamp: Long = payload.sentAtMillis,
     ) = CachedMessageEntity(
         ownerUserId = payload.recipientUserId,
