@@ -115,7 +115,10 @@ class OlmGroupSessionKeyDistributionPayloadTest {
 
         assertRejected {
             OlmGroupSessionKeyDistributionPayloadCodec.encode(
-                payload.copy(recipientDeviceId = payload.senderDeviceId),
+                payload.copy(
+                    recipientUserId = payload.senderUserId,
+                    recipientDeviceId = payload.senderDeviceId,
+                ),
             )
         }
         assertRejected {
