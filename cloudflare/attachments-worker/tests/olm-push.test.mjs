@@ -137,7 +137,7 @@ test("sends one minimal data-only FCM wake-up to the verified recipient device",
   });
   assert.equal("notification" in body.message, false);
   assert.deepEqual(body.message.android, {
-    priority: "high",
+    priority: "normal",
     ttl: "86400s",
   });
 
