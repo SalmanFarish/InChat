@@ -1,8 +1,6 @@
 package com.example.inchat.crypto
 
 import androidx.room.RoomDatabase
-import com.example.inchat.data.local.CachedMessageEntity
-import com.example.inchat.data.local.LocalChatDao
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -41,10 +39,10 @@ internal enum class OlmInboundHandoffResult {
 /**
  * Coordinates the isolated two-phase inbound handoff.
  *
- * This class is intentionally not wired to Firebase listeners, chat UI, message
- * previews, notifications, or the existing plaintext messaging path. The
- * authenticated version-2 payload is validated before the caller maps it into
- * the local cache entity; transport metadata is never used as a substitute.
+ * This class is intentionally not wired to Firebase plaintext listeners, the
+ * existing cached_messages table, chat UI, previews, or notifications. The
+ * authenticated version-2 payload is validated before mapping into the separate
+ * encrypted_olm_messages table; transport metadata is never used as a substitute.
  */
 internal class OlmInboundHandoffCoordinator(
     database: RoomDatabase,
@@ -52,18 +50,17 @@ internal class OlmInboundHandoffCoordinator(
     private val sessionRepository: OlmSessionRepository,
     private val authenticatedLocalUserId: () -> String,
     private val trustVerifier: OlmDeviceTrustVerifier,
-    messageDao: LocalChatDao,
+    encryptedMessageDao: EncryptedOlmMessageDao,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val committer = OlmInboundMessageCommitter(database, messageDao, receiptDao)
+    private val committer = OlmInboundMessageCommitter(database, encryptedMessageDao, receiptDao)
     private val processingMutex = Mutex()
 
     /**
-     * Prepare/recover plaintext, atomically commit it with the receipt, then
-     * finalize native staging. The factory must return a non-pending message
-     * whose text is exactly the decrypted plaintext and whose sender/message
-     * IDs match the durable receipt.
+     * Prepare/recover plaintext, atomically commit it to encrypted_olm_messages
+     * with the receipt, then finalize native staging. The factory must return
+     * metadata that exactly matches the authenticated payload.
      */
     suspend fun process(
         receiptId: String,
@@ -71,7 +68,7 @@ internal class OlmInboundHandoffCoordinator(
         remoteDeviceUserId: String,
         ciphertextKind: OlmInboundCiphertextKind,
         localUserId: String,
-        messageFactory: (payload: OlmAuthenticatedMessagePayload) -> CachedMessageEntity,
+        messageFactory: (payload: OlmAuthenticatedMessagePayload) -> EncryptedOlmMessageEntity,
     ): OlmInboundHandoffResult = processingMutex.withLock {
         withContext(ioDispatcher) {
             require(RECEIPT_ID_PATTERN.matches(receiptId)) {
@@ -150,26 +147,32 @@ internal class OlmInboundHandoffCoordinator(
                 expectedRecipientDeviceId = receipt.recipientDeviceId,
             )
             val message = messageFactory(payload)
-            require(message.ownerUserId == localUserId) {
-                "Cached message owner does not match the authenticated recipient"
+            require(message.ownerUserId == localUserId && message.recipientUserId == localUserId) {
+                "Encrypted message owner/recipient does not match the authenticated local account"
             }
             require(message.text == payload.text) {
-                "Cached message text must exactly match the authenticated payload"
+                "Encrypted message text must exactly match the authenticated payload"
             }
             require(message.messageId == payload.messageId) {
-                "Cached message ID does not match the authenticated payload"
+                "Encrypted message ID does not match the authenticated payload"
             }
-            require(message.senderId == payload.senderUserId) {
-                "Cached message sender does not match the authenticated payload"
+            require(message.senderUserId == payload.senderUserId) {
+                "Encrypted message sender does not match the authenticated payload"
             }
-            require(message.chatId == payload.conversationId) {
-                "Cached message chat does not match the authenticated conversation"
+            require(message.senderDeviceId == payload.senderDeviceId) {
+                "Encrypted message sender device does not match the authenticated payload"
             }
-            require(message.timestamp == payload.sentAtMillis) {
-                "Cached message timestamp does not match the authenticated payload"
+            require(message.recipientDeviceId == payload.recipientDeviceId) {
+                "Encrypted message recipient device does not match the authenticated payload"
             }
-            require(!message.isPending) {
-                "Decrypted inbound messages cannot be pending sends"
+            require(message.conversationId == payload.conversationId) {
+                "Encrypted message conversation does not match the authenticated payload"
+            }
+            require(message.conversationPeerUserId == payload.conversationPeerUserId) {
+                "Encrypted message conversation peer does not match the authenticated payload"
+            }
+            require(message.sentAtMillis == payload.sentAtMillis) {
+                "Encrypted message timestamp does not match the authenticated payload"
             }
 
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
