@@ -64,6 +64,7 @@ struct PendingGroupDecryption {
     session_id: String,
     message_index: u32,
     sent_at_millis: u64,
+    received_at_millis: u64,
     ciphertext: Vec<u8>,
     plaintext: Vec<u8>,
 }
@@ -271,6 +272,7 @@ fn prepare_inbound_megolm_decryption(
     session_id: &str,
     expected_message_index: u32,
     sent_at_millis: u64,
+    received_at_millis: u64,
     ciphertext: &[u8],
 ) -> Result<(), &'static str> {
     if !valid_receipt_id(receipt_id)
@@ -286,6 +288,7 @@ fn prepare_inbound_megolm_decryption(
             b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'+' || b == b'/' || b == b'='
         })
         || sent_at_millis > i64::MAX as u64
+        || received_at_millis > i64::MAX as u64
     {
         return Err("Inbound Megolm message metadata is invalid");
     }
@@ -303,6 +306,7 @@ fn prepare_inbound_megolm_decryption(
             && pending.session_id == session_id
             && pending.message_index == expected_message_index
             && pending.sent_at_millis == sent_at_millis
+            && pending.received_at_millis == received_at_millis
             && pending.ciphertext == ciphertext
         {
             // The receipt was already staged. Return the exact stored plaintext;
@@ -374,6 +378,7 @@ fn prepare_inbound_megolm_decryption(
             session_id: session_id.to_owned(),
             message_index: actual_index,
             sent_at_millis,
+            received_at_millis,
             ciphertext: ciphertext.to_vec(),
             plaintext,
         },
@@ -398,6 +403,7 @@ fn pending_megolm_decryption_json(
         "sessionId": pending.session_id,
         "messageIndex": pending.message_index,
         "sentAtMillis": pending.sent_at_millis,
+        "receivedAtMillis": pending.received_at_millis,
         "ciphertext": pending.ciphertext,
         "plaintext": plaintext
     }))
@@ -459,6 +465,7 @@ fn encode_device_crypto_state(
             || pending.session_id.len() < 16
             || pending.session_id.len() > 128
             || pending.sent_at_millis > i64::MAX as u64
+            || pending.received_at_millis > i64::MAX as u64
             || pending.ciphertext.is_empty()
             || pending.ciphertext.len() > crate::megolm::MAX_GROUP_CIPHERTEXT_BYTES
             || pending.plaintext.is_empty()
@@ -479,6 +486,7 @@ fn encode_device_crypto_state(
                 "sessionId": pending.session_id,
                 "messageIndex": pending.message_index,
                 "sentAtMillis": pending.sent_at_millis,
+                "receivedAtMillis": pending.received_at_millis,
                 "ciphertext": pending.ciphertext,
                 "plaintext": pending.plaintext
             }),
@@ -739,7 +747,10 @@ fn decode_device_crypto_state(
                     .ok_or("Saved pending Megolm message index is invalid")?;
                 let sent_at_millis = value.get("sentAtMillis").and_then(Value::as_u64)
                     .filter(|timestamp| *timestamp <= i64::MAX as u64)
-                    .ok_or("Saved pending Megolm timestamp is invalid")?;
+                    .ok_or("Saved pending Megolm sent timestamp is invalid")?;
+                let received_at_millis = value.get("receivedAtMillis").and_then(Value::as_u64)
+                    .filter(|timestamp| *timestamp <= i64::MAX as u64)
+                    .ok_or("Saved pending Megolm received timestamp is invalid")?;
                 let parse_bytes = |name: &str, minimum: usize, maximum: usize| {
                     let bytes = value.get(name).and_then(Value::as_array)
                         .ok_or("Saved pending Megolm byte field is missing")?
@@ -769,6 +780,7 @@ fn decode_device_crypto_state(
                         session_id: session_id.to_owned(),
                         message_index,
                         sent_at_millis,
+                        received_at_millis,
                         ciphertext,
                         plaintext,
                     },
@@ -3680,6 +3692,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
     session_id: JString<'local>,
     expected_message_index: jni::sys::jlong,
     sent_at_millis: jni::sys::jlong,
+    received_at_millis: jni::sys::jlong,
     ciphertext: JByteArray<'local>,
 ) -> jstring {
     let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
@@ -3691,7 +3704,8 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
     let sender_device_id: String = match env.get_string(&sender_device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let session_id: String = match env.get_string(&session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     if membership_epoch <= 0 || expected_message_index < 0
-        || expected_message_index > u32::MAX as jlong || sent_at_millis < 0 {
+        || expected_message_index > u32::MAX as jlong || sent_at_millis < 0
+        || received_at_millis < 0 {
         return std::ptr::null_mut();
     }
     let mut wire = match read_transfer_array(
@@ -3718,6 +3732,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeP
             &session_id,
             expected_message_index as u32,
             sent_at_millis as u64,
+            received_at_millis as u64,
             &wire,
         )?;
         let pending = state.pending_group_decryptions.get(&receipt_id)
