@@ -59,8 +59,10 @@ function fixture({
   const sentMessages = [];
   const env = { FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com" };
 
-  const adminDatabaseRequest = async (_env, _token, path) =>
-    structuredClone(database.get(path) ?? null);
+  const adminDatabaseRequest = async (_env, accessToken, path) => {
+    assert.equal(accessToken, "admin-access-token");
+    return structuredClone(database.get(path) ?? null);
+  };
 
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
@@ -94,7 +96,8 @@ function fixture({
     return new Response("null", { status: 200 });
   };
 
-  const fcmRequest = async (_token, url, method, body, toleratedStatuses) => {
+  const fcmRequest = async (accessToken, url, method, body, toleratedStatuses) => {
+    assert.equal(accessToken, "admin-access-token");
     sentMessages.push({ url, method, body, toleratedStatuses });
     if (fcmError) throw fcmError;
     return fcmResult || {
