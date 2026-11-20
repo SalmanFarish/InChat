@@ -22,6 +22,20 @@ internal fun interface OlmFirstMessagePreparer {
     suspend fun prepareFirstMessage(payload: OlmAuthenticatedMessagePayload): PreparedOlmDelivery
 }
 
+/** Narrow key-directory contract needed to prepare a first Olm message. */
+internal interface OlmOutboundKeyDirectory {
+    val authenticatedUserId: String
+    suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle>
+    suspend fun claimOneTimePreKey(targetUid: String, deviceId: String, keyId: String): Boolean
+}
+
+/** Native session operations required by the first-message preparer. */
+internal interface OlmOutboundSessionRepository {
+    val localDeviceId: String
+    fun createOutboundSession(remoteDevice: PublicDeviceKeyBundle, remotePreKey: SignedOlmPreKey): String
+    fun encryptAuthenticatedEnvelope(sessionId: String, payload: OlmAuthenticatedMessagePayload): String
+}
+
 internal class OlmOutboundDeliveryPreparer(
     private val directory: OlmOutboundKeyDirectory,
     private val sessions: OlmOutboundSessionRepository,
