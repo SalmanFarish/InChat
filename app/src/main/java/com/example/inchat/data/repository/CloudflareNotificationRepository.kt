@@ -104,6 +104,50 @@ class CloudflareNotificationRepository {
     }
 
     /**
+     * Sends a privacy-preserving wake-up for one already-uploaded encrypted
+     * Olm delivery. The Worker derives the recipient account from the direct
+     * conversation and resolves the recipient device's private FCM token.
+     */
+    suspend fun notifyEncryptedDelivery(
+        chatId: String,
+        deliveryId: String,
+        messageId: String,
+        senderDeviceId: String,
+        recipientDeviceId: String
+    ): Result<Unit> {
+        val valid = chatId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
+            deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
+            messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            senderDeviceId != recipientDeviceId
+        if (!valid) {
+            return Result.failure(
+                IllegalArgumentException("Invalid encrypted delivery notification reference.")
+            )
+        }
+
+        if (!CloudflareWorkerConfig.isConfigured) {
+            return Result.success(Unit)
+        }
+
+        return post(
+            path = "/olm/notify",
+            body = JSONObject()
+                .put("chatId", chatId)
+                .put("deliveryId", deliveryId)
+                .put("messageId", messageId)
+                .put("senderDeviceId", senderDeviceId)
+                .put("recipientDeviceId", recipientDeviceId)
+        ).map { response ->
+            if (!response.optBoolean("success", false)) {
+                throw IllegalStateException("Cloudflare Worker did not accept encrypted push dispatch.")
+            }
+            Unit
+        }
+    }
+
+    /**
      * Performs group creation and membership/role changes through the trusted
      * Worker. Firebase client rules intentionally deny direct writes to
      * chats/{groupId}/members.
