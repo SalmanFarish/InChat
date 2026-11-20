@@ -69,8 +69,9 @@ Then, from the repository root in another terminal, run the focused test:
 
 ```powershell
 .\gradlew :app:connectedDebugAndroidTest `
-  -Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseSasVerificationTransportEmulatorTest `
-  -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2
+  "-Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseSasVerificationTransportEmulatorTest" `
+  "-Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2" `
+  --console=plain
 ```
 
 `10.0.2.2` is the host address from an Android Studio emulator. For a physical
