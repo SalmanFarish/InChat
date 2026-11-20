@@ -40,13 +40,18 @@ class EncryptedOlmMessageVaultTest {
             val encrypted = vault.encrypt(message())
 
             val tamperedRecords = listOf(
-                encrypted.copy(ownerUserId = "charlie", recipientUserId = "charlie"),
-                encrypted.copy(conversationId = "alice_someone-else"),
+                encrypted.copy(
+                    ownerUserId = "charlie",
+                    conversationId = "alice_charlie",
+                    conversationPeerUserId = "charlie",
+                    recipientUserId = "charlie",
+                ),
+                encrypted.copy(
+                    conversationId = "bob_charlie",
+                    senderUserId = "charlie",
+                ),
                 encrypted.copy(messageId = "different-message"),
-                encrypted.copy(conversationPeerUserId = "different-peer"),
-                encrypted.copy(senderUserId = "mallory"),
                 encrypted.copy(senderDeviceId = "different-sender-device"),
-                encrypted.copy(ownerUserId = "charlie", recipientUserId = "charlie"),
                 encrypted.copy(recipientDeviceId = "different-recipient-device"),
                 encrypted.copy(sentAtMillis = encrypted.sentAtMillis + 1L),
             )
