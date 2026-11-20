@@ -34,6 +34,7 @@ class OlmOutboundDeliveryCoordinatorTest {
             senderDeviceId = "sender-phone",
             recipientUserId = "bob",
             messageId = "message-1",
+            conversationId = "alice_bob",
             sentAtMillis = 10_000L,
             text = "hello",
             recipientDevices = listOf(bundle("recipient-tablet"), bundle("recipient-phone")),
@@ -52,6 +53,13 @@ class OlmOutboundDeliveryCoordinatorTest {
         assertEquals(listOf("insert:3", "schedule:alice:sender-phone"), events)
         assertEquals(3, store.rows.size)
         assertTrue(store.rows.values.all { it.messageId == "message-1" })
+        assertTrue(store.rows.values.all { it ->
+            val payload = preparer.payloads.first { prepared ->
+                prepared.recipientUserId == it.recipientUserId &&
+                    prepared.recipientDeviceId == it.recipientDeviceId
+            }
+            payload.conversationId == "alice_bob" && payload.conversationPeerUserId == "bob"
+        })
         assertTrue(store.rows.values.all { it.ownerUserId == "alice" })
         assertTrue(store.rows.values.all { it.senderDeviceId == "sender-phone" })
     }
@@ -80,6 +88,7 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderDeviceId = "sender-phone",
                 recipientUserId = "bob",
                 messageId = "message-2",
+            conversationId = "alice_bob",
                 sentAtMillis = 20_000L,
                 text = "all devices or none",
                 recipientDevices = listOf(bundle("recipient-phone"), bundle("recipient-tablet")),
@@ -116,6 +125,7 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderDeviceId = "sender-phone",
                 recipientUserId = "bob",
                 messageId = "message-3",
+            conversationId = "alice_bob",
                 sentAtMillis = 30_000L,
                 text = "x".repeat(70 * 1024),
                 recipientDevices = listOf(bundle("recipient-phone")),
@@ -160,6 +170,7 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderDeviceId = "sender-phone",
                 recipientUserId = "bob",
                 messageId = "message-replay",
+            conversationId = "alice_bob",
                 sentAtMillis = 40_000L,
                 text = "same authenticated message",
                 recipientDevices = listOf(bundle("recipient-phone")),
@@ -179,6 +190,7 @@ class OlmOutboundDeliveryCoordinatorTest {
             senderDeviceId = "sender-phone",
             recipientUserId = "bob",
             messageId = "message-replay",
+            conversationId = "alice_bob",
             sentAtMillis = 40_000L,
             text = "same authenticated message",
             recipientDevices = listOf(bundle("recipient-phone")),
@@ -219,6 +231,7 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderDeviceId = "sender-phone",
                 recipientUserId = "bob",
                 messageId = "untrusted-message",
+            conversationId = "alice_bob",
                 sentAtMillis = 50_000L,
                 text = "must not prepare",
                 recipientDevices = listOf(rotatedRecipient),
