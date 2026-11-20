@@ -190,6 +190,7 @@ class OlmDeliveryQueueTest {
                 .filter {
                     it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
                         ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.UPLOADED && it.nextAttemptAtMillis <= nowMillis) ||
                         (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
                 }
                 .minByOrNull { it.nextAttemptAtMillis }
