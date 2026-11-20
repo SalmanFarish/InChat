@@ -2,6 +2,7 @@ package com.example.inchat.crypto
 
 import android.content.Context
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,6 +19,14 @@ internal data class EncryptedMegolmMessage(
     val sessionId: String,
     val messageIndex: Long,
     val ciphertext: ByteArray,
+)
+
+/** Native staged receive result; plaintext exists only in memory after native persistence. */
+internal data class StagedMegolmDecryption(
+    val receiptId: String,
+    val message: DecryptedGroupMessage,
+    val ciphertext: ByteArray,
+    val receivedAtMillis: Long,
 )
 
 /**
@@ -197,8 +206,200 @@ internal class MegolmSessionRepository(
         return EncryptedMegolmMessage(sessionId, index, ciphertext)
     }
 
+    /**
+     * Stage one already-authenticated Olm group payload. Caller responsibilities:
+     * verify the sender's current SAS trust and decode the payload against the
+     * authenticated outer Olm receipt before calling this method.
+     *
+     * Native code persists the advanced Megolm ratchet and plaintext together.
+     * Do not expose this method to a raw Firebase ciphertext listener.
+     */
+    fun prepareInboundMessage(
+        membership: GroupCryptoMembershipSnapshot,
+        payload: OlmGroupMessagePayload,
+        receiptId: String,
+        receivedAtMillis: Long,
+    ): StagedMegolmDecryption {
+        require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
+        require(receiptId.matches(RECEIPT_ID)) { "Inbound group receipt ID is invalid" }
+        require(receivedAtMillis >= 0L) { "Group receipt time cannot be negative" }
+        val ownerUid = authenticatedUserId()
+        val localDeviceId = localBundle.deviceId
+        require(ownerUid in membership.memberUserIds &&
+            payload.senderUserId in membership.memberUserIds &&
+            payload.recipientUserId in membership.memberUserIds
+        ) { "Group sender or recipient is not a current member" }
+        require(payload.groupId == membership.groupId &&
+            payload.membershipEpoch == membership.epoch
+        ) { "Group message membership snapshot is stale or belongs to another group" }
+        require(payload.recipientUserId == ownerUid && payload.recipientDeviceId == localDeviceId) {
+            "Group message is not addressed to this account and device"
+        }
+        OlmGroupMessagePayloadCodec.requireCurrentMembers(payload, membership.memberUserIds)
+        require(payload.messageIndex in 0L..MAX_MESSAGE_INDEX) {
+            "Megolm message index is invalid"
+        }
+        val ciphertext = try {
+            Base64.getUrlDecoder().decode(payload.ciphertext)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Megolm ciphertext is not valid Base64URL", error)
+        }
+        require(ciphertext.isNotEmpty() && ciphertext.size <= MAX_CIPHERTEXT_BYTES) {
+            "Megolm ciphertext has an invalid size"
+        }
+        require(Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertext) == payload.ciphertext) {
+            "Megolm ciphertext is not canonical Base64URL"
+        }
+        try {
+            val encoded = withNativeState { store, deviceId ->
+                NativeCryptoBridge.nativePrepareInboundMegolmDecryption(
+                    store = store,
+                    deviceId = deviceId,
+                    receiptId = receiptId,
+                    ownerUserId = ownerUid,
+                    groupId = payload.groupId,
+                    membershipEpoch = payload.membershipEpoch,
+                    messageId = payload.messageId,
+                    senderUserId = payload.senderUserId,
+                    senderDeviceId = payload.senderDeviceId,
+                    sessionId = payload.megolmSessionId,
+                    expectedMessageIndex = payload.messageIndex,
+                    sentAtMillis = payload.sentAtMillis,
+                    receivedAtMillis = receivedAtMillis,
+                    ciphertext = ciphertext,
+                )
+            } ?: throw IllegalStateException("Could not stage inbound Megolm decryption")
+            return parseStagedMegolmDecryption(
+                encoded = encoded,
+                expectedReceiptId = receiptId,
+                expectedOwnerUserId = ownerUid,
+                expectedRecipientDeviceId = localDeviceId,
+            )
+        } finally {
+            ciphertext.fill(0)
+        }
+    }
+
+    /** List staged receipts after process restart so the Room commit can be replayed. */
+    fun pendingInboundDecryptionReceiptIds(): List<String> {
+        val encoded = withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeListPendingMegolmDecryptionReceipts(store, deviceId)
+        } ?: throw IllegalStateException("Could not list pending Megolm decryptions")
+        val array = JSONArray(encoded)
+        require(array.length() <= MAX_PENDING_DECRYPTIONS) {
+            "Native pending Megolm receipt count exceeds the limit"
+        }
+        return (0 until array.length()).map { index ->
+            array.getString(index).also {
+                require(it.matches(RECEIPT_ID)) { "Native pending Megolm receipt ID is invalid" }
+            }
+        }
+    }
+
+    /** Read an already-staged plaintext for idempotent Room-commit recovery. */
+    fun readPendingInboundDecryption(receiptId: String): StagedMegolmDecryption {
+        require(receiptId.matches(RECEIPT_ID)) { "Inbound group receipt ID is invalid" }
+        val ownerUid = authenticatedUserId()
+        val localDeviceId = localBundle.deviceId
+        val encoded = withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeReadPendingMegolmDecryption(store, deviceId, receiptId)
+        } ?: throw IllegalStateException("Could not read pending Megolm decryption")
+        return parseStagedMegolmDecryption(
+            encoded = encoded,
+            expectedReceiptId = receiptId,
+            expectedOwnerUserId = ownerUid,
+            expectedRecipientDeviceId = localDeviceId,
+        )
+    }
+
+    /** Clear a staged plaintext only after its encrypted Room row and replay receipt commit. */
+    fun finalizeInboundDecryption(receiptId: String): Boolean {
+        require(receiptId.matches(RECEIPT_ID)) { "Inbound group receipt ID is invalid" }
+        return withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeFinalizeInboundMegolmDecryption(store, deviceId, receiptId)
+        }
+    }
+
+    private fun parseStagedMegolmDecryption(
+        encoded: String,
+        expectedReceiptId: String,
+        expectedOwnerUserId: String,
+        expectedRecipientDeviceId: String,
+    ): StagedMegolmDecryption {
+        if (encoded.startsWith(NATIVE_ERROR_PREFIX)) {
+            throw IllegalStateException(encoded.removePrefix(NATIVE_ERROR_PREFIX))
+        }
+        val result = JSONObject(encoded)
+        val receiptId = result.getString("receiptId")
+        val ownerUserId = result.getString("ownerUserId")
+        val groupId = result.getString("groupId")
+        val messageId = result.getString("messageId")
+        val membershipEpoch = result.getLong("membershipEpoch")
+        val senderUserId = result.getString("senderUserId")
+        val senderDeviceId = result.getString("senderDeviceId")
+        val sessionId = result.getString("sessionId")
+        val messageIndex = result.getLong("messageIndex")
+        val sentAtMillis = result.getLong("sentAtMillis")
+        val receivedAtMillis = result.getLong("receivedAtMillis")
+        val plaintext = result.getString("plaintext")
+        require(receiptId == expectedReceiptId && receiptId.matches(RECEIPT_ID)) {
+            "Native staged Megolm receipt does not match the requested receipt"
+        }
+        require(ownerUserId == expectedOwnerUserId) {
+            "Native staged Megolm message belongs to another account"
+        }
+        require(expectedRecipientDeviceId == localBundle.deviceId) {
+            "Native staged Megolm message belongs to another local device"
+        }
+        require(groupId.matches(ID) && messageId.matches(ID) && senderUserId.matches(ID)) {
+            "Native staged Megolm message identity metadata is invalid"
+        }
+        require(senderDeviceId.matches(DEVICE_ID) && sessionId.matches(SESSION_ID)) {
+            "Native staged Megolm sender or session ID is invalid"
+        }
+        require(membershipEpoch > 0L && messageIndex in 0L..MAX_MESSAGE_INDEX) {
+            "Native staged Megolm epoch or message index is invalid"
+        }
+        require(sentAtMillis >= 0L && receivedAtMillis >= 0L) {
+            "Native staged Megolm timestamp is invalid"
+        }
+        require(plaintext.isNotEmpty() && plaintext.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
+            "Native staged Megolm plaintext has an invalid size"
+        }
+        val array = result.getJSONArray("ciphertext")
+        require(array.length() in 1..MAX_CIPHERTEXT_BYTES) {
+            "Native staged Megolm ciphertext has an invalid size"
+        }
+        val ciphertext = ByteArray(array.length()) { index ->
+            array.getInt(index).also { require(it in 0..255) }.toByte()
+        }
+        return StagedMegolmDecryption(
+            receiptId = receiptId,
+            message = DecryptedGroupMessage(
+                ownerUserId = ownerUserId,
+                groupId = groupId,
+                messageId = messageId,
+                membershipEpoch = membershipEpoch,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                megolmSessionId = sessionId,
+                messageIndex = messageIndex,
+                sentAtMillis = sentAtMillis,
+                text = plaintext,
+            ),
+            ciphertext = ciphertext,
+            receivedAtMillis = receivedAtMillis,
+        )
+    }
+
     private companion object {
         const val MAX_SESSION_ID_LENGTH = 128
+        const val MAX_PENDING_DECRYPTIONS = 64
+        const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
+        const val MAX_PLAINTEXT_BYTES = 64 * 1024
+        const val MAX_MESSAGE_INDEX = 0xffff_ffffL
+        const val NATIVE_ERROR_PREFIX = "INCHAT_CRYPTO_ERROR:"
+        val RECEIPT_ID = Regex("[A-Fa-f0-9]{64}")
         const val MIN_SESSION_KEY_BYTES = 32
         const val MAX_SESSION_KEY_BYTES = 1024
         const val MAX_PLAINTEXT_BYTES = 64 * 1024
@@ -206,5 +407,6 @@ internal class MegolmSessionRepository(
         const val MAX_MESSAGE_INDEX = 0xffff_ffffL
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         val SESSION_ID = Regex("[A-Za-z0-9_+/-]{16,128}={0,2}")
+        val ID = Regex("[A-Za-z0-9_-]{1,128}")
     }
 }
