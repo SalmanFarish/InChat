@@ -39,7 +39,7 @@ npm run olm-relay-emulator
 In another terminal at the repository root, run:
 
 ```powershell
-.\\gradlew :app:connectedDebugAndroidTest `
+.\gradlew :app:connectedDebugAndroidTest `
   "-Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseOlmRelayStoreEmulatorTest" `
   "-Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2" `
   --console=plain
