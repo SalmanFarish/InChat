@@ -35,12 +35,22 @@ class EncryptedGroupMessageDaoTest {
             ),
         )
 
+        // Exact same authenticated replay is idempotent.
+        assertFalse(dao.commitDecryptedMessage(firstReceipt, firstMessage))
+
+        // Reusing a valid Megolm index with altered receipt metadata is a conflict.
         val replayWithDifferentReceipt = firstReceipt.copy(
             receiptId = "b".repeat(64),
             messageId = "message-replay",
         )
         val conflictingMessage = firstMessage.copy(messageId = "message-replay")
-        assertFalse(dao.commitDecryptedMessage(replayWithDifferentReceipt, conflictingMessage))
+        var replayConflictRejected = false
+        try {
+            dao.commitDecryptedMessage(replayWithDifferentReceipt, conflictingMessage)
+        } catch (_: IllegalStateException) {
+            replayConflictRejected = true
+        }
+        assertTrue(replayConflictRejected)
         assertTrue(dao.getMessage("alice", "group-1", "message-1") != null)
         assertTrue(dao.getMessage("alice", "group-1", "message-replay") == null)
     }
@@ -80,7 +90,9 @@ class EncryptedGroupMessageDaoTest {
         senderDeviceId = "bob-phone",
         megolmSessionId = "1234567890abcdef",
         messageIndex = messageIndex,
+        membershipEpoch = 5L,
         messageId = "message-1",
+        sentAtMillis = 1_800_000_000_000L,
         receiptId = receiptId,
         ciphertextSha256 = "e".repeat(64),
         receivedAtMillis = 1_800_000_000_000L,
