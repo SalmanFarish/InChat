@@ -92,7 +92,7 @@ test("commits member map and next epoch together under one root ETag", async () 
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
-    cryptoMembershipEpoch: 4,
+    cryptoMembership: { epoch: 4, members: { alice: "admin", bob: "member" } },
     name: "test",
   });
   const result = await mutateGroupMembersWithEtag(
@@ -113,14 +113,28 @@ test("commits member map and next epoch together under one root ETag", async () 
     bob: "member",
     carol: "member",
   });
-  assert.equal(fixture.group.cryptoMembershipEpoch, 5);
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 5,
+    members: {
+      alice: "admin",
+      bob: "member",
+      carol: "member",
+    },
+  });
   assert.deepEqual(fixture.patches, [{
     members: {
       alice: "admin",
       bob: "member",
       carol: "member",
     },
-    cryptoMembershipEpoch: 5,
+    cryptoMembership: {
+      epoch: 5,
+      members: {
+        alice: "admin",
+        bob: "member",
+        carol: "member",
+      },
+    },
   }]);
 });
 
@@ -128,7 +142,7 @@ test("role-only update patches members without advancing or inventing an epoch",
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
-    cryptoMembershipEpoch: 6,
+    cryptoMembership: { epoch: 6, members: { alice: "admin", bob: "member" } },
   });
   const result = await mutateGroupMembersWithEtag(
     environment,
@@ -142,9 +156,16 @@ test("role-only update patches members without advancing or inventing an epoch",
   );
 
   assert.equal(result.cryptoMembershipEpoch, 6);
-  assert.equal(fixture.group.cryptoMembershipEpoch, 6);
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 6,
+    members: { alice: "admin", bob: "admin" },
+  });
   assert.deepEqual(fixture.patches, [{
     members: { alice: "admin", bob: "admin" },
+    cryptoMembership: {
+      epoch: 6,
+      members: { alice: "admin", bob: "admin" },
+    },
   }]);
 });
 
@@ -173,13 +194,19 @@ test("retries a stale ETag against the latest membership and epoch without reusi
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
-    cryptoMembershipEpoch: 2,
+    cryptoMembership: {
+      epoch: 2,
+      members: { alice: "admin", bob: "member" },
+    },
   }, {
     onConditionalWrite: ({ group, writeNumber }) => {
       if (writeNumber === 1 && !changedElsewhere) {
         changedElsewhere = true;
         group.members = { ...group.members, carol: "member" };
-        group.cryptoMembershipEpoch = 3;
+        group.cryptoMembership = {
+          epoch: 3,
+          members: group.members,
+        };
         return true;
       }
       return false;
@@ -200,7 +227,7 @@ test("retries a stale ETag against the latest membership and epoch without reusi
   assert.equal(fixture.reads, 2);
   assert.equal(fixture.writes, 2);
   assert.equal(result.cryptoMembershipEpoch, 4);
-  assert.equal(fixture.group.cryptoMembershipEpoch, 4);
+  assert.equal(fixture.group.cryptoMembership.epoch, 4);
   assert.deepEqual(fixture.group.members, {
     alice: "admin",
     bob: "member",
@@ -208,14 +235,18 @@ test("retries a stale ETag against the latest membership and epoch without reusi
     dave: "member",
   });
   assert.equal(fixture.patches.length, 1);
-  assert.equal(fixture.patches[0].cryptoMembershipEpoch, 4);
+  assert.equal(fixture.patches[0].cryptoMembership.epoch, 4);
+  assert.deepEqual(fixture.patches[0].cryptoMembership.members, fixture.group.members);
 });
 
 test("fails closed after repeated membership ETag conflicts", async () => {
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
-    cryptoMembershipEpoch: 1,
+    cryptoMembership: {
+      epoch: 1,
+      members: { alice: "admin", bob: "member" },
+    },
   }, {
     onConditionalWrite: () => true,
   });
@@ -256,7 +287,10 @@ test("rejects malformed group state and invalid persisted epoch without writing"
   const invalidEpoch = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
-    cryptoMembershipEpoch: 2.5,
+    cryptoMembership: {
+      epoch: 2.5,
+      members: { alice: "admin", bob: "member" },
+    },
   });
   await assert.rejects(
     mutateGroupMembersWithEtag(
