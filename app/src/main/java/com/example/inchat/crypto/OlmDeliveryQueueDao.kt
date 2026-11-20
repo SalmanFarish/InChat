@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface OlmDeliveryQueueDao {
@@ -42,12 +43,26 @@ interface OlmDeliveryQueueDao {
     @Query("SELECT * FROM olm_device_deliveries WHERE deliveryId = :deliveryId LIMIT 1")
     fun getByDeliveryId(deliveryId: String): OlmDeviceDeliveryEntity?
 
+
+    @Query(
+        "SELECT status FROM olm_device_deliveries " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND recipientUserId = :recipientUserId AND messageId = :messageId " +
+            "AND status IN ('QUEUED', 'IN_FLIGHT', 'UPLOADED', 'FAILED')"
+    )
+    fun observeDeliveryStatuses(
+        ownerUserId: String,
+        senderDeviceId: String,
+        recipientUserId: String,
+        messageId: String,
+    ): Flow<List<String>>
+
     @Query(
         "SELECT * FROM olm_device_deliveries " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId AND " +
-            "((status = 'QUEUED' AND nextAttemptAtMillis <= :nowMillis) " +
+            "((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) " +
             "OR (status = 'IN_FLIGHT' AND leaseUntilMillis <= :nowMillis)) " +
-            "ORDER BY CASE WHEN status = 'QUEUED' THEN nextAttemptAtMillis ELSE leaseUntilMillis END ASC, deliveryId ASC " +
+            "ORDER BY CASE WHEN status IN ('QUEUED', 'UPLOADED') THEN nextAttemptAtMillis ELSE leaseUntilMillis END ASC, deliveryId ASC " +
             "LIMIT 1"
     )
     fun findNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long): OlmDeviceDeliveryEntity?
@@ -57,7 +72,7 @@ interface OlmDeliveryQueueDao {
             "attemptCount = attemptCount + 1, leaseUntilMillis = :leaseUntilMillis " +
             "WHERE deliveryId = :deliveryId AND ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
             "AND attemptCount < :maxAttempts AND " +
-            "((status = 'QUEUED' AND nextAttemptAtMillis <= :nowMillis) OR " +
+            "((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) OR " +
             "(status = 'IN_FLIGHT' AND leaseUntilMillis <= :nowMillis))"
     )
     fun leaseIfDue(
@@ -73,8 +88,8 @@ interface OlmDeliveryQueueDao {
         "UPDATE olm_device_deliveries SET status = 'FAILED', leaseUntilMillis = 0, " +
             "lastError = 'attempt_limit_reached' " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
-            "AND status IN ('QUEUED', 'IN_FLIGHT') AND attemptCount >= :maxAttempts " +
-            "AND ((status = 'QUEUED' AND nextAttemptAtMillis <= :nowMillis) OR " +
+            "AND status IN ('QUEUED', 'UPLOADED', 'IN_FLIGHT') AND attemptCount >= :maxAttempts " +
+            "AND ((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) OR " +
             "(status = 'IN_FLIGHT' AND leaseUntilMillis <= :nowMillis))"
     )
     fun failExhaustedDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, maxAttempts: Int): Int
