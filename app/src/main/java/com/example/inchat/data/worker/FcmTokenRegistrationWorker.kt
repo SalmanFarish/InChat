@@ -11,6 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.data.repository.UserRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
@@ -63,9 +64,19 @@ class FcmTokenRegistrationWorker(
                 return Result.failure()
             }
 
+            // Encrypted delivery addresses a specific published device. Register
+            // this token under that device only when an existing Olm identity is
+            // already available; never create crypto identity state from FCM work.
+            val olmDeviceId = runCatching {
+                DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+            }.onFailure { error ->
+                Log.w(TAG, "Could not resolve the existing Olm device for push registration.", error)
+            }.getOrNull()
+
             val registration = UserRepository().saveFcmToken(
                 uid = uid,
-                token = token
+                token = token,
+                olmDeviceId = olmDeviceId,
             )
             val error = registration.exceptionOrNull()
             if (error != null) {
