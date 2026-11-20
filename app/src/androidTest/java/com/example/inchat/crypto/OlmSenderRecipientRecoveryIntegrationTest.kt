@@ -126,6 +126,10 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                     senderDeviceId = senderDeviceId,
                     recipientUserId = recipientUserId,
                     messageId = messageId,
+                    conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                        senderUserId,
+                        recipientUserId,
+                    ),
                     sentAtMillis = sentAtMillis,
                     text = clearText,
                     recipientDevices = listOf(recipientBundle),
@@ -469,7 +473,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
 
     private fun cachedMessage(payload: OlmAuthenticatedMessagePayload) = CachedMessageEntity(
         ownerUserId = payload.recipientUserId,
-        chatId = payload.senderUserId,
+        chatId = payload.conversationId,
         messageId = payload.messageId,
         senderId = payload.senderUserId,
         senderNickname = "Alice",
