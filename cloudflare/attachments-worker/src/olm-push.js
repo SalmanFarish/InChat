@@ -483,7 +483,7 @@ export async function processEncryptedOlmPush({
             deliveryId: input.deliveryId,
           },
           android: {
-            priority: "high",
+            priority: "normal",
             ttl: "86400s",
           },
         },
