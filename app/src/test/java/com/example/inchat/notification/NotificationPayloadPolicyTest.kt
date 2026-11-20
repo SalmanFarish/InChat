@@ -46,6 +46,24 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun malformedEncryptedOlmWakeupRemainsReservedAndCannotBeTreatedAsPlaintext() {
+        val malformed = mapOf(
+            "type" to NotificationPayloadPolicy.TYPE_ENCRYPTED_OLM_WAKEUP,
+            "deliveryId" to "invalid",
+            "message" to "untrusted plaintext",
+            "senderName" to "untrusted sender",
+        )
+
+        assertTrue(NotificationPayloadPolicy.isEncryptedOlmWakeupType(malformed))
+        assertFalse(NotificationPayloadPolicy.isEncryptedOlmWakeup(malformed))
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmWakeupType(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_CHAT),
+            ),
+        )
+    }
+
+    @Test
     fun encryptedDirectPushIgnoresAllUntrustedDisplayContent() {
         val presentation = NotificationPayloadPolicy.from(
             data = mapOf(
