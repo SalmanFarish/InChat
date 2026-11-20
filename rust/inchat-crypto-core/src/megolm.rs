@@ -8,7 +8,7 @@
 //! to the authenticated application protocol surrounding this primitive.
 
 use vodozemac::megolm::{
-    GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle,
+    GroupSession, GroupSessionPickle, InboundGroupSession as VodozemacInboundGroupSession, InboundGroupSessionPickle,
     MegolmMessage, SessionKey,
 };
 
@@ -128,7 +128,7 @@ impl Default for OutboundGroupSession {
 /// A recipient-side Megolm session, constructed from a signed key delivered
 /// through an authenticated Olm channel.
 pub struct InboundGroupSession {
-    session: InboundGroupSession,
+    session: VodozemacInboundGroupSession,
 }
 
 impl InboundGroupSession {
@@ -140,7 +140,7 @@ impl InboundGroupSession {
         let key = SessionKey::from_bytes(session_key)
             .map_err(|_| "Megolm session key signature or encoding is invalid")?;
         Ok(Self {
-            session: InboundGroupSession::new(&key, Default::default()),
+            session: VodozemacInboundGroupSession::new(&key, Default::default()),
         })
     }
 
@@ -190,7 +190,7 @@ impl InboundGroupSession {
         let pickle: InboundGroupSessionPickle = serde_json::from_slice(state)
             .map_err(|_| "Megolm inbound state could not be decoded")?;
         Ok(Self {
-            session: InboundGroupSession::from_pickle(pickle),
+            session: VodozemacInboundGroupSession::from_pickle(pickle),
         })
     }
 }
@@ -306,7 +306,7 @@ mod tests {
         assert!(sender.encrypt(b"").is_err());
         assert_eq!(sender.message_index(), 0);
 
-        let oversized = vec![0_u8; super::super::MAX_GROUP_PLAINTEXT_BYTES + 1];
+        let oversized = vec![0_u8; super::MAX_GROUP_PLAINTEXT_BYTES + 1];
         assert!(sender.encrypt(&oversized).is_err());
         assert_eq!(sender.message_index(), 0);
     }
