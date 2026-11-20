@@ -9,6 +9,9 @@
 //! Android Keystore-backed encrypted state store. This prototype is not wired
 //! into live message sending, receiving, or Firebase.
 
+/// Isolated Megolm group-session primitives. Not connected to chat delivery.
+pub mod megolm;
+
 use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
