@@ -1,6 +1,6 @@
 package com.example.inchat.crypto
 
-import android.util.Base64
+import java.util.Base64
 import org.json.JSONException
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -216,17 +216,14 @@ internal object OlmGroupSessionKeyDistributionPayloadCodec {
         }
 
         val decodedKey = try {
-            Base64.decode(payload.sessionKey, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            Base64.getUrlDecoder().decode(payload.sessionKey)
         } catch (error: IllegalArgumentException) {
             throw IllegalArgumentException("Megolm session key is not valid Base64URL", error)
         }
         require(decodedKey.size in MIN_SESSION_KEY_BYTES..MAX_SESSION_KEY_BYTES) {
             "Megolm session key has an invalid size"
         }
-        val canonicalKey = Base64.encodeToString(
-            decodedKey,
-            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
-        )
+        val canonicalKey = Base64.getUrlEncoder().withoutPadding().encodeToString(decodedKey)
         require(canonicalKey == payload.sessionKey) {
             "Megolm session key must use canonical unpadded Base64URL"
         }
