@@ -143,6 +143,43 @@ class OlmOutboundDeliveryCoordinatorTest {
     }
 
     @Test
+    fun rejectsConversationIdMismatchBeforePrekeyPreparationOrQueueing() = runBlocking {
+        val events = mutableListOf<String>()
+        val store = RecordingStore(events)
+        val preparer = FakePreparer("sender-phone")
+        var scheduled = false
+        val coordinator = OlmOutboundDeliveryCoordinator(
+            preparer = preparer,
+            queue = OlmDeliveryQueue(store),
+            trustVerifier = trusted(trustKey("bob", "recipient-phone")),
+            scheduleDelivery = { _, _ -> scheduled = true },
+        )
+
+        var rejected = false
+        try {
+            coordinator.enqueueDirectTextMessage(
+                senderUserId = "alice",
+                senderDeviceId = "sender-phone",
+                recipientUserId = "bob",
+                messageId = "wrong-conversation",
+                conversationId = "alice_mallory",
+                sentAtMillis = 35_000L,
+                text = "must stay bound to alice and bob",
+                recipientDevices = listOf(bundle("recipient-phone")),
+                senderDevices = listOf(bundle("sender-phone")),
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertTrue(preparer.payloads.isEmpty())
+        assertTrue(store.rows.isEmpty())
+        assertTrue(events.isEmpty())
+        assertFalse(scheduled)
+    }
+
+    @Test
     fun schedulingFailureAfterDurableInsertIsRepairedByIdempotentReplay() = runBlocking {
         val events = mutableListOf<String>()
         val store = RecordingStore(events)
@@ -169,8 +206,8 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderUserId = "alice",
                 senderDeviceId = "sender-phone",
                 recipientUserId = "bob",
-                messageId = "message-replay",
-                conversationId = "alice_bob",
+            messageId = "message-replay",
+            conversationId = "alice_bob",
                 sentAtMillis = 40_000L,
                 text = "same authenticated message",
                 recipientDevices = listOf(bundle("recipient-phone")),
