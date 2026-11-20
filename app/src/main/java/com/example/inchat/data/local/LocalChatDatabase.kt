@@ -174,7 +174,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
          * Room runs migrations transactionally; if a row cannot be authenticated/encrypted,
          * the migration fails and the original v10 table remains intact for recovery.
          */
-        private val MIGRATION_10_11 = object : Migration(10, 11) {
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("DROP TABLE IF EXISTS encrypted_olm_messages_new")
                 database.execSQL(
