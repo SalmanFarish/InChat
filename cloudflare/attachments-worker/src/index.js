@@ -2,6 +2,7 @@ import { hasReadThrough, shouldIncrementGroupUnread, membersReadThroughLatestMes
 import {
   currentGroupCryptoMembershipEpoch,
   mutateGroupMembersWithEtag,
+  ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
 
@@ -1288,6 +1289,46 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     chatId: chatId,
     messageId: activityMessageId,
     cryptoMembershipEpoch: cryptoMembershipEpoch,
+  });
+}
+
+
+async function initializeGroupCryptoMembership(request, env, uid, adminAuth) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return json({ error: "Invalid JSON body." }, 400);
+  }
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).some((key) => key !== "chatId")
+  ) {
+    return json({ error: "Invalid group crypto membership request." }, 400);
+  }
+
+  let chatId;
+  try {
+    chatId = cleanSegment(body.chatId, "chatId");
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
+
+  const snapshot = await ensureGroupCryptoMembershipSnapshotWithEtag(
+    env,
+    adminAuth.token,
+    chatId,
+    uid,
+  );
+  return json({
+    success: true,
+    chatId: snapshot.groupId,
+    epoch: snapshot.epoch,
+    members: snapshot.members,
+    initialized: snapshot.changed,
   });
 }
 
@@ -3387,6 +3428,14 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return manageGroupMembership(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/groups/crypto-membership"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        return initializeGroupCryptoMembership(request, env, user.uid, adminAuth);
       }
 
       if (
