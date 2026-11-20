@@ -971,7 +971,10 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
         createdBy: uid,
         createdAt: { ".sv": "timestamp" },
         members: members,
-        cryptoMembershipEpoch: 1,
+        cryptoMembership: {
+          epoch: 1,
+          members: members,
+        },
         messages: {
           [messageId]: groupActivityMessage(
             uid,
