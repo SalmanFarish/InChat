@@ -24,7 +24,7 @@ internal data class StagedInboundOlmMessage(
  * chat receiving, or message persistence. Callers must obtain remote bundles
  * through DeviceKeyDirectoryRepository, which verifies their signatures.
  */
-internal class OlmSessionRepository(context: Context) {
+internal class OlmSessionRepository(context: Context) : OlmOutboundSessionRepository {
     private val appContext = context.applicationContext
     private val identityRepository = DeviceIdentityRepository(appContext)
 
@@ -50,7 +50,7 @@ internal class OlmSessionRepository(context: Context) {
     }
 
     /** Create and persist an outbound session using a verified remote prekey. */
-    fun createOutboundSession(
+    override fun createOutboundSession(
         remoteDevice: PublicDeviceKeyBundle,
         remotePreKey: SignedOlmPreKey,
     ): String {
@@ -271,7 +271,7 @@ internal class OlmSessionRepository(context: Context) {
     }
 
     /** Installation-scoped sender device ID used inside authenticated payloads. */
-    val localDeviceId: String
+    override val localDeviceId: String
         get() = localBundle.deviceId
 
     /** Encrypt a typed message whose application metadata is inside the Olm ciphertext. */
@@ -286,7 +286,7 @@ internal class OlmSessionRepository(context: Context) {
     }
 
     /** Encrypt and wrap a typed first message for its declared recipient device. */
-    fun encryptAuthenticatedEnvelope(
+    override fun encryptAuthenticatedEnvelope(
         sessionId: String,
         payload: OlmAuthenticatedMessagePayload,
     ): String {
