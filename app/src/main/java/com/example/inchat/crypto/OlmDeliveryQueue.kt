@@ -6,6 +6,7 @@ import java.security.MessageDigest
 internal enum class OlmDeliveryStatus {
     QUEUED,
     IN_FLIGHT,
+    UPLOADED,
     ACKNOWLEDGED,
     FAILED,
 }
@@ -158,6 +159,23 @@ internal class OlmDeliveryQueue(
         return store.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
     }
 
+    /**
+     * Persist successful relay acceptance while keeping the immutable ciphertext
+     * eligible for an exact retry after the acknowledgement window expires.
+     * This distinguishes "Sent" from "still uploading" without losing recovery.
+     */
+    fun markUploaded(delivery: QueuedOlmDeviceDelivery, nowMillis: Long): Boolean {
+        require(nowMillis >= 0L) { "nowMillis must not be negative" }
+        return updateInFlight(delivery, nowMillis) { row ->
+            row.copy(
+                status = OlmDeliveryStatus.UPLOADED,
+                nextAttemptAtMillis = safeAdd(nowMillis, UPLOADED_RETRY_INTERVAL_MILLIS),
+                leaseUntilMillis = 0L,
+                lastError = null,
+            )
+        }
+    }
+
     /** Mark only the still-active claim acknowledged; duplicate or stale claims are harmless. */
     fun acknowledge(delivery: QueuedOlmDeviceDelivery, nowMillis: Long): Boolean =
         updateInFlight(delivery, nowMillis) { row ->
@@ -239,6 +257,7 @@ internal class OlmDeliveryQueue(
         if (Long.MAX_VALUE - left < right) Long.MAX_VALUE else left + right
 
     private companion object {
+        const val UPLOADED_RETRY_INTERVAL_MILLIS = 15L * 60L * 1000L
         const val DEFAULT_MAX_ATTEMPTS = 8
         const val DEFAULT_LEASE_MILLIS = 60_000L
         const val BASE_RETRY_DELAY_MILLIS = 2_000L
