@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.EncryptedOlmMessageEntity
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.OlmCommittedReceiptFinalizer
 import com.example.inchat.crypto.OlmInboundHandoffCoordinator
@@ -34,9 +35,9 @@ import java.util.concurrent.TimeUnit
  * then advances only SAS-trusted receipts through authenticated Olm decryption
  * and atomic local message/receipt persistence.
  *
- * The resulting plaintext remains in the isolated Room cache. This worker does
- * not connect encrypted messages to Firebase plaintext listeners, chat sending,
- * notification previews, or the existing chat UI.
+ * The resulting plaintext remains only in the dedicated encrypted_olm_messages
+ * Room table. It never enters cached_messages, which feeds the existing chat UI,
+ * and is not connected to plaintext listeners, chat sending, or notifications.
  */
 class EncryptedOlmInboxWorker(
     appContext: Context,
@@ -123,7 +124,7 @@ class EncryptedOlmInboxWorker(
                     FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 },
                 trustVerifier = trustRepository,
-                messageDao = database.messageDao(),
+                encryptedMessageDao = database.encryptedOlmMessageDao(),
             )
             val deviceDirectory = DeviceKeyDirectoryRepository()
             val processor = OlmPendingReceiptProcessor(
@@ -141,30 +142,17 @@ class EncryptedOlmInboxWorker(
                         ciphertextKind = kind,
                         localUserId = localUid,
                     ) { payload ->
-                        com.example.inchat.data.local.CachedMessageEntity(
+                        EncryptedOlmMessageEntity(
                             ownerUserId = payload.recipientUserId,
-                            chatId = payload.conversationId,
+                            conversationId = payload.conversationId,
                             messageId = payload.messageId,
-                            senderId = payload.senderUserId,
-                            // Until encrypted UI integration, use the authenticated account ID
-                            // as a neutral local label rather than trusting directory display data.
-                            senderNickname = payload.senderUserId,
+                            conversationPeerUserId = payload.conversationPeerUserId,
+                            senderUserId = payload.senderUserId,
+                            senderDeviceId = payload.senderDeviceId,
+                            recipientUserId = payload.recipientUserId,
+                            recipientDeviceId = payload.recipientDeviceId,
+                            sentAtMillis = payload.sentAtMillis,
                             text = payload.text,
-                            timestamp = payload.sentAtMillis,
-                            replyMessageId = "",
-                            replySenderId = "",
-                            replySenderNickname = "",
-                            replyText = "",
-                            reactionsJson = "{}",
-                            edited = false,
-                            attachmentType = "",
-                            attachmentStorageKey = "",
-                            attachmentFileName = "",
-                            attachmentMimeType = "",
-                            attachmentSizeBytes = 0L,
-                            attachmentViewedAt = 0L,
-                            isPending = false,
-                            systemEvent = "",
                         )
                     }
                 },
