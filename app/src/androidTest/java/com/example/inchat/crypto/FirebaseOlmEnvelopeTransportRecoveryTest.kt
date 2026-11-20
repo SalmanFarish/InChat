@@ -119,6 +119,38 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
     }
 
     @Test
+    fun relayRecordsWithUnexpectedFieldsAreIgnoredAndRetained() = runBlocking {
+        val store = FakeRelayStore()
+        val item = inboxItem()
+        store.seedInbox(item)
+        val existing = store.inbox.getValue(item.deliveryId)
+        store.inbox[item.deliveryId] = existing.copy(
+            fields = existing.fields + ("unexpectedPlaintext" to "must-not-be-consumed"),
+        )
+        val transport = transport(store, user = { "bob" })
+
+        val received = transport.readMyDeviceInbox("recipient-device")
+
+        assertTrue(received.isEmpty())
+        assertEquals(1, store.inbox.size)
+
+        store.acknowledgements[item.deliveryId] = FirebaseOlmRelayRecord(
+            item.deliveryId,
+            mapOf(
+                "recipientUid" to "bob",
+                "recipientDeviceId" to "recipient-device",
+                "messageId" to item.messageId,
+                "acknowledgedAt" to 1234L,
+                "unexpectedPlaintext" to "must-not-be-consumed",
+            ),
+        )
+        val senderTransport = transport(store, user = { "alice" })
+
+        assertTrue(senderTransport.readMyDeliveryAcknowledgements("sender-device").isEmpty())
+        assertEquals(1, store.acknowledgements.size)
+    }
+
+    @Test
     fun accountSwitchDuringInboxReadFailsClosedWithoutDeletingRelayItem() = runBlocking {
         val store = FakeRelayStore()
         val item = inboxItem()
