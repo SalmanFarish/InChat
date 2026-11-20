@@ -199,6 +199,7 @@ internal object NativeCryptoBridge {
         sessionId: String,
         expectedMessageIndex: Long,
         sentAtMillis: Long,
+        receivedAtMillis: Long,
         ciphertext: ByteArray,
     ): String?
 
