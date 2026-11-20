@@ -77,8 +77,13 @@ authenticated sender account/device, message ID, recipient device and Olm
 envelope metadata. It reads only the matching
 `privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}` token; it never falls back
 to the legacy account-level FCM token. Per-account and per-IP Worker rate
-limits apply, and ETag-guarded dispatch receipts suppress duplicate sends and
-protect token cleanup from deleting a concurrently rotated token.
+limits apply, and ETag-guarded dispatch receipts prevent concurrent claims and suppress
+retries after a successful/unregistered result is recorded. Because FCM
+acceptance and the RTDB receipt cannot be committed atomically, a lost network
+response after FCM acceptance may cause a duplicate wake-up; the receiver
+coalesces inbox work and deduplicates ciphertext using its stable delivery ID.
+Token cleanup is conditional on the stored token still matching the rejected
+token, protecting a concurrently rotated registration.
 
 FCM receives a **normal-priority data-only** message containing only `type=encrypted_olm` and
 the deterministic `deliveryId`. No FCM `notification` object, chat ID,
