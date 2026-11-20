@@ -154,7 +154,10 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 ),
             )
             assertEquals(1, scheduleCalls)
-            assertEquals(1, claimedPreKeyIds.size)
+            assertEquals(
+                listOf(requireNotNull(recipientBundle.oneTimeKeys.firstOrNull()).keyId),
+                claimedPreKeyIds,
+            )
 
             val deliveryId = sha256(
                 senderUserId + "\u0000" + senderDeviceId + "\u0000" + messageId +
