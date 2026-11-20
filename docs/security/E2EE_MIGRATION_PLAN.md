@@ -52,6 +52,14 @@ for notification tap navigation and active-conversation suppression.
 The existing `chat_message` and `group_message` plaintext notification
 presentation and history behavior is unchanged.
 
+A privacy-critical transport constraint applies to encrypted pushes: the
+Cloudflare Worker must send FCM **data-only** messages and must not include an
+FCM `notification` object. Android may display notification-payload content
+itself while the app is backgrounded, bypassing
+`InChatFirebaseMessagingService` and its encrypted-content filtering. The
+encrypted event endpoint is still outstanding; the legacy plaintext endpoint
+must remain separate and must never be reused for encrypted messages.
+
 **This is a client-side privacy boundary, not completed end-to-end notification
 delivery.** The current Cloudflare `/events/message` handler remains the
 legacy plaintext notification path and still reads `message.text`. It must
