@@ -75,7 +75,7 @@ class FirebaseSasVerificationTransportEmulatorTest {
                 alice.database.goOnline()
                 withTimeout(15_000) { interruptedUpload.await() }
             } finally {
-                FirebaseDatabase.goOnline()
+                alice.database.goOnline()
             }
 
             // The Firebase adapter performs the same immutable write again on
@@ -105,16 +105,16 @@ class FirebaseSasVerificationTransportEmulatorTest {
 
             // Acknowledgement is also a remote write. Verify it survives an
             // offline interval and is committed after the connection returns.
-            FirebaseDatabase.goOffline()
+            bobAccount.database.goOffline()
             try {
                 val interruptedAcknowledgement = async {
                     bobTransport.acknowledge(bobDeviceId, message.deliveryId)
                 }
                 delay(500)
-                FirebaseDatabase.goOnline()
+                bobAccount.database.goOnline()
                 withTimeout(15_000) { interruptedAcknowledgement.await() }
             } finally {
-                FirebaseDatabase.goOnline()
+                bobAccount.database.goOnline()
             }
             assertTrue(
                 "Recipient acknowledgement must remove the relay row after reconnection",
