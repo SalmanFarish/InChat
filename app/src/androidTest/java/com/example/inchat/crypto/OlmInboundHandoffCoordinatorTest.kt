@@ -81,7 +81,7 @@ class OlmInboundHandoffCoordinatorTest {
                 "local-user", localBundle.deviceId,
             )
             assertEquals("handoff plaintext", decodedPayload.text)
-            val message = encryptedMessage(decodedPayload)
+            val message = decryptedMessage(decodedPayload)
             assertTrue(
                 OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
                     .commit(receiptId, message, 200L)
@@ -102,7 +102,7 @@ class OlmInboundHandoffCoordinatorTest {
             )
             assertEquals(
                 "handoff plaintext",
-                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, receipt.messageId)?.text,
+                decryptedText(db, "local-user", directChatId, receipt.messageId),
             )
             assertEquals(
                 OlmInboundReceiptStatus.FINALIZED.name,
@@ -199,7 +199,7 @@ class OlmInboundHandoffCoordinatorTest {
                     remoteDeviceUserId = "alice",
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
-                ) { payload -> encryptedMessage(payload) }
+                ) { payload -> decryptedMessage(payload) }
             } catch (_: IllegalArgumentException) {
                 localAccountMismatchRejected = true
             }
@@ -213,7 +213,7 @@ class OlmInboundHandoffCoordinatorTest {
                     remoteDeviceUserId = "mallory",
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
-                ) { payload -> encryptedMessage(payload) }
+                ) { payload -> decryptedMessage(payload) }
             } catch (_: IllegalArgumentException) {
                 senderAccountMismatchRejected = true
             }
@@ -242,7 +242,7 @@ class OlmInboundHandoffCoordinatorTest {
                     remoteDeviceUserId = "alice",
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
-                ) { payload -> encryptedMessage(payload) }
+                ) { payload -> decryptedMessage(payload) }
             } catch (expected: IllegalStateException) {
                 untrustedSenderRejected = expected.message.orEmpty().contains("has not been verified")
             }
@@ -269,7 +269,7 @@ class OlmInboundHandoffCoordinatorTest {
                     remoteDeviceUserId = "alice",
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
-                ) { payload -> encryptedMessage(payload) }
+                ) { payload -> decryptedMessage(payload) }
             } catch (expected: IllegalStateException) {
                 rotatedIdentityRejected = expected.message.orEmpty().contains("has not been verified")
             }
@@ -301,7 +301,7 @@ class OlmInboundHandoffCoordinatorTest {
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
-                    encryptedMessage(payload, conversationId = "wrong-chat")
+                    decryptedMessage(payload, conversationId = "wrong-chat")
                 }
             } catch (_: IllegalArgumentException) {
                 routingFailed = true
@@ -316,7 +316,7 @@ class OlmInboundHandoffCoordinatorTest {
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
-                    encryptedMessage(payload, sentAtMillis = payload.sentAtMillis + 1L)
+                    decryptedMessage(payload, sentAtMillis = payload.sentAtMillis + 1L)
                 }
             } catch (_: IllegalArgumentException) {
                 timestampMismatchRejected = true
@@ -340,12 +340,12 @@ class OlmInboundHandoffCoordinatorTest {
                     ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
                     localUserId = "local-user",
                 ) { payload ->
-                    encryptedMessage(payload)
+                    decryptedMessage(payload)
                 },
             )
             assertEquals(
                 "retryable handoff plaintext",
-                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, messageId)?.text,
+                decryptedText(db, "local-user", directChatId, messageId),
             )
             assertEquals(
                 "Decrypted Olm messages must remain invisible to the existing plaintext chat cache",
@@ -417,12 +417,12 @@ class OlmInboundHandoffCoordinatorTest {
                     ciphertextKind = OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
-                    encryptedMessage(payload)
+                    decryptedMessage(payload)
                 },
             )
             assertEquals(
                 "normal handoff plaintext",
-                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, normalMessageId)?.text,
+                decryptedText(db, "local-user", directChatId, normalMessageId),
             )
 
             // A normal-message mapping failure must also retain the staged
@@ -479,12 +479,12 @@ class OlmInboundHandoffCoordinatorTest {
                     ciphertextKind = OlmInboundCiphertextKind.NORMAL,
                     localUserId = "local-user",
                 ) { payload ->
-                    encryptedMessage(payload)
+                    decryptedMessage(payload)
                 },
             )
             assertEquals(
                 "normal retry plaintext",
-                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, retryNormalMessageId)?.text,
+                decryptedText(db, "local-user", directChatId, retryNormalMessageId),
             )
         } finally {
             db.close()
@@ -540,11 +540,11 @@ class OlmInboundHandoffCoordinatorTest {
         text = text,
     )
 
-    private fun encryptedMessage(
+    private fun decryptedMessage(
         payload: OlmAuthenticatedMessagePayload,
         conversationId: String = payload.conversationId,
         sentAtMillis: Long = payload.sentAtMillis,
-    ) = EncryptedOlmMessageEntity(
+    ) = DecryptedOlmMessage(
         ownerUserId = payload.recipientUserId,
         conversationId = conversationId,
         messageId = payload.messageId,
@@ -556,6 +556,15 @@ class OlmInboundHandoffCoordinatorTest {
         sentAtMillis = sentAtMillis,
         text = payload.text,
     )
+
+    private suspend fun decryptedText(
+        database: LocalChatDatabase,
+        ownerUserId: String,
+        conversationId: String,
+        messageId: String,
+    ): String? = database.encryptedOlmMessageDao()
+        .getMessage(ownerUserId, conversationId, messageId)
+        ?.let { EncryptedOlmMessageVault().decrypt(it).text }
 
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256")
