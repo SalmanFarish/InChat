@@ -52,6 +52,7 @@ struct StoredOutboundGroupSession {
 }
 
 struct StoredInboundGroupSession {
+    group_id: String,
     membership_epoch: u64,
     sender_user_id: String,
     sender_device_id: String,
@@ -2539,6 +2540,8 @@ mod transfer_tests {
             account: source_account,
             sessions,
             pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let source_id = "source-device";
         let target_id = "target-device";
@@ -2586,6 +2589,8 @@ mod transfer_tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let source_id = "source-device";
         let target_id = "target-device";
