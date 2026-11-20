@@ -4460,3 +4460,161 @@ mod pending_megolm_receive_tests {
         assert_eq!(state.pending_group_decryptions.len(), 1);
     }
 }
+
+
+
+#[cfg(test)]
+mod pending_outbound_megolm_tests {
+    use super::{
+        decode_device_crypto_state, encode_device_crypto_state,
+        finalize_pending_outbound_megolm_message, prepare_outbound_megolm_message,
+        DeviceCryptoState, StoredOutboundGroupSession,
+    };
+    use crate::megolm::OutboundGroupSession;
+    use vodozemac::olm::Account;
+
+    fn sender_state() -> DeviceCryptoState {
+        let session = OutboundGroupSession::new();
+        let mut outbound_group_sessions = std::collections::BTreeMap::new();
+        outbound_group_sessions.insert(
+            "group-1".to_owned(),
+            StoredOutboundGroupSession {
+                membership_epoch: 7,
+                sender_user_id: "alice".to_owned(),
+                sender_device_id: "local-device".to_owned(),
+                session,
+            },
+        );
+        DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
+            outbound_group_sessions,
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn encrypt(
+        state: &mut DeviceCryptoState,
+        message_id: &str,
+        plaintext: &[u8],
+        sent_at_millis: u64,
+    ) -> crate::megolm::EncryptedGroupMessage {
+        prepare_outbound_megolm_message(
+            state,
+            "alice",
+            "group-1",
+            7,
+            message_id,
+            "alice",
+            "local-device",
+            sent_at_millis,
+            plaintext,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn retries_reuse_exact_ciphertext_and_do_not_advance_sender_ratchet_twice() {
+        let mut state = sender_state();
+        let first = encrypt(&mut state, "message-1", b"same plaintext", 1234);
+        let next_index = state.outbound_group_sessions["group-1"].session.message_index();
+        let retried = encrypt(&mut state, "message-1", b"same plaintext", 1234);
+
+        assert_eq!(first, retried);
+        assert_eq!(state.outbound_group_sessions["group-1"].session.message_index(), next_index);
+        assert_eq!(state.pending_outbound_group_messages.len(), 1);
+    }
+
+    #[test]
+    fn staged_ciphertext_survives_device_state_restart_and_finalizes_idempotently() {
+        let mut state = sender_state();
+        let expected = encrypt(&mut state, "message-2", b"recover after crash", 5678);
+        let encoded = encode_device_crypto_state("local-device", &state).unwrap();
+        let mut restored = decode_device_crypto_state(encoded, "local-device").unwrap();
+
+        let recovered = encrypt(&mut restored, "message-2", b"recover after crash", 5678);
+        assert_eq!(recovered, expected);
+
+        let pending = restored.pending_outbound_group_messages.get("message-2").unwrap();
+        assert_eq!(pending.owner_user_id, "alice");
+        assert_eq!(pending.group_id, "group-1");
+        assert_eq!(pending.membership_epoch, 7);
+        assert_eq!(pending.sender_device_id, "local-device");
+        assert_eq!(pending.sent_at_millis, 5678);
+        assert_eq!(pending.ciphertext, expected.ciphertext);
+
+        assert!(finalize_pending_outbound_megolm_message(&mut restored, "message-2").unwrap());
+        assert!(!finalize_pending_outbound_megolm_message(&mut restored, "message-2").unwrap());
+        assert!(restored.pending_outbound_group_messages.is_empty());
+    }
+
+    #[test]
+    fn staged_message_id_cannot_be_reused_with_different_plaintext_or_routing() {
+        let mut state = sender_state();
+        let expected = encrypt(&mut state, "message-3", b"original text", 42);
+
+        assert!(prepare_outbound_megolm_message(
+            &mut state,
+            "alice",
+            "group-1",
+            7,
+            "message-3",
+            "alice",
+            "local-device",
+            42,
+            b"modified text",
+        )
+        .is_err());
+        assert!(prepare_outbound_megolm_message(
+            &mut state,
+            "alice",
+            "group-1",
+            8,
+            "message-3",
+            "alice",
+            "local-device",
+            42,
+            b"original text",
+        )
+        .is_err());
+        assert_eq!(
+            state.pending_outbound_group_messages["message-3"].ciphertext,
+            expected.ciphertext
+        );
+        assert_eq!(state.pending_outbound_group_messages.len(), 1);
+    }
+
+    #[test]
+    fn invalid_outbound_metadata_is_rejected_before_sender_ratchet_advances() {
+        let mut state = sender_state();
+        assert!(prepare_outbound_megolm_message(
+            &mut state,
+            "alice",
+            "group-1",
+            0,
+            "message-4",
+            "alice",
+            "local-device",
+            42,
+            b"message",
+        )
+        .is_err());
+        assert!(prepare_outbound_megolm_message(
+            &mut state,
+            "mallory",
+            "group-1",
+            7,
+            "message-4",
+            "alice",
+            "local-device",
+            42,
+            b"message",
+        )
+        .is_err());
+        assert_eq!(state.outbound_group_sessions["group-1"].session.message_index(), 0);
+        assert!(state.pending_outbound_group_messages.is_empty());
+    }
+}
