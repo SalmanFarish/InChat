@@ -10,6 +10,9 @@ import com.example.inchat.crypto.DecryptedOlmMessage
 import com.example.inchat.crypto.EncryptedOlmMessageDao
 import com.example.inchat.crypto.EncryptedOlmMessageEntity
 import com.example.inchat.crypto.EncryptedOlmMessageVault
+import com.example.inchat.crypto.EncryptedGroupMessageDao
+import com.example.inchat.crypto.EncryptedGroupMessageEntity
+import com.example.inchat.crypto.EncryptedGroupMessageReceiptEntity
 import com.example.inchat.crypto.OlmDeliveryQueueDao
 import com.example.inchat.crypto.OlmDeliveryReceiptDao
 import com.example.inchat.crypto.OlmDeliveryReceiptEntity
