@@ -321,3 +321,32 @@ The in-memory transport suite continues to cover deterministic transient read
 and acknowledgement failures, account switching, and retry ordering. Real
 network interruption/reconnection on physical devices remains a separate
 validation step.
+
+
+## Sender-to-recipient recovery integration coverage
+
+The Android instrumentation test
+`OlmSenderRecipientRecoveryIntegrationTest` drives a complete isolated
+sender-to-recipient direct-text path with distinct native Olm stores and
+separate sender/recipient Room databases. It exercises the outbound delivery
+coordinator, Room-backed outbox, production Firebase transport adapter over a
+test-only shared `OlmRelayStore`, recipient inbox receiver and durable receipt
+ledger, native authenticated decryption, the atomic message/receipt handoff,
+and the sender's metadata-only acknowledgement recorder.
+
+Failure injection commits an encrypted inbox write and then loses its completion,
+forcing the sender to retry the identical delivery ID and ciphertext. A second
+failure commits the recipient acknowledgement and loses its completion, forcing
+the recipient to reopen Room, reuse its PENDING receipt, retry the acknowledgement,
+and only then remove the inbox record. The test then commits the decrypted message,
+redelivers the same envelope to exercise PROCESSED-receipt deduplication, and
+verifies that the sender records delivery metadata and removes its outbox row.
+The shared relay rejects changed content under an existing delivery ID and the
+test checks that plaintext is absent from relay records.
+
+This is an in-process two-endpoint integration test with an in-memory relay and
+a permissive test trust verifier. It does not exercise Firebase Realtime Database,
+Firebase Auth, the SAS exchange, two physical devices, or the live chat producer,
+listeners, and UI. Physical-device/Firebase reconnection validation and live
+messaging integration remain separate rollout requirements. The test does not
+require the Firebase Auth emulator.
