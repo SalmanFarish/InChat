@@ -323,7 +323,7 @@ export async function processEncryptedOlmPush({
   env,
   uid,
   body,
-  adminToken,
+  adminToken: adminTokenInput,
   adminDatabaseRequest,
   fcmRequest,
   fetchImpl = fetch,
@@ -332,10 +332,25 @@ export async function processEncryptedOlmPush({
   const validation = validateRequest(body, uid);
   if (validation.error) return validation.error;
   const input = validation.value;
+  const adminAccessToken = typeof adminTokenInput === "string" ?
+    adminTokenInput :
+    (isRecord(adminTokenInput) && typeof adminTokenInput.token === "string" ?
+      adminTokenInput.token :
+      "");
+  const adminProjectId = isRecord(adminTokenInput) ?
+    adminTokenInput.projectId :
+    env.FIREBASE_PROJECT_ID;
+  if (
+    !adminAccessToken ||
+    typeof adminProjectId !== "string" ||
+    !adminProjectId.trim()
+  ) {
+    return result(503, { error: "Firebase Admin credentials are unavailable." });
+  }
 
   const chat = await adminDatabaseRequest(
     env,
-    adminToken,
+    adminAccessToken,
     "chats/" + input.chatId,
   );
   if (!isRecord(chat) || chat.type === "group") {
@@ -362,12 +377,12 @@ export async function processEncryptedOlmPush({
   const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
     adminDatabaseRequest(
       env,
-      adminToken,
+      adminAccessToken,
       "blockedUsers/" + uid + "/" + recipientUid,
     ),
     adminDatabaseRequest(
       env,
-      adminToken,
+      adminAccessToken,
       "blockedUsers/" + recipientUid + "/" + uid,
     ),
   ]);
@@ -382,12 +397,12 @@ export async function processEncryptedOlmPush({
   const [senderDevice, recipientDevice] = await Promise.all([
     adminDatabaseRequest(
       env,
-      adminToken,
+      adminAccessToken,
       "deviceKeys/" + uid + "/" + input.senderDeviceId,
     ),
     adminDatabaseRequest(
       env,
-      adminToken,
+      adminAccessToken,
       "deviceKeys/" + recipientUid + "/" + input.recipientDeviceId,
     ),
   ]);
@@ -400,7 +415,7 @@ export async function processEncryptedOlmPush({
 
   const relayPath =
     "olmInbox/" + recipientUid + "/" + input.recipientDeviceId + "/" + input.deliveryId;
-  const relayRecord = await adminDatabaseRequest(env, adminToken, relayPath);
+  const relayRecord = await adminDatabaseRequest(env, adminAccessToken, relayPath);
   if (!relayRecord) {
     return result(503, {
       error: "Encrypted delivery has not reached the relay yet.",
@@ -419,7 +434,7 @@ export async function processEncryptedOlmPush({
 
   const tokenValue = await adminDatabaseRequest(
     env,
-    adminToken,
+    adminAccessToken,
     "privateUsers/" + recipientUid + "/olmDeviceFcmTokens/" + input.recipientDeviceId,
   );
   const registrationToken =
@@ -438,7 +453,7 @@ export async function processEncryptedOlmPush({
     "olmPushDispatch/" + recipientUid + "/" + input.recipientDeviceId + "/" + input.deliveryId;
   const claim = await claimPushDispatch(
     env,
-    adminToken,
+    adminAccessToken,
     receiptPath,
     uid,
     input.messageId,
@@ -466,13 +481,13 @@ export async function processEncryptedOlmPush({
 
   const fcmUrl =
     "https://fcm.googleapis.com/v1/projects/" +
-    encodeURIComponent(adminToken.projectId) +
+    encodeURIComponent(adminProjectId) +
     "/messages:send";
 
   let delivery;
   try {
     delivery = await fcmRequest(
-      adminToken.token,
+      adminAccessToken,
       fcmUrl,
       "POST",
       {
@@ -493,7 +508,7 @@ export async function processEncryptedOlmPush({
   } catch (error) {
     const completed = await finishPushDispatch(
       env,
-      adminToken.token,
+      adminAccessToken,
       receiptPath,
       claim.claimId,
       "failed",
@@ -521,7 +536,7 @@ export async function processEncryptedOlmPush({
     try {
       await removeDeviceTokenIfUnchanged(
         env,
-        adminToken.token,
+        adminAccessToken,
         recipientUid,
         input.recipientDeviceId,
         registrationToken,
@@ -535,7 +550,7 @@ export async function processEncryptedOlmPush({
   const finalStatus = unregistered ? "unregistered" : "sent";
   const completed = await finishPushDispatch(
     env,
-    adminToken.token,
+    adminAccessToken,
     receiptPath,
     claim.claimId,
     finalStatus,
