@@ -266,7 +266,7 @@ internal class EncryptedOlmMessageVault(
         private val ACCOUNT_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         private val KEY_ALIAS_PATTERN = Regex(
-            "com[.]example[.]inchat[.]crypto[.]encrypted-olm-message[.][A-Za-z0-9_-]{1,32}",
+            "com[.]example[.]inchat[.]crypto[.]encrypted-olm-message[.][A-Za-z0-9_-]{1,64}",
         )
         private val KEYSTORE_LOCK = Any()
     }
