@@ -67,6 +67,19 @@ interface OlmDeliveryReceiptDao {
 
 
     @Query(
+        "SELECT recipientDeviceId FROM olm_delivery_receipts " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND recipientUserId = :recipientUserId AND messageId = :messageId " +
+            "ORDER BY recipientDeviceId ASC"
+    )
+    fun getAcknowledgedRecipientDeviceIds(
+        ownerUserId: String,
+        senderDeviceId: String,
+        recipientUserId: String,
+        messageId: String,
+    ): List<String>
+
+    @Query(
         "SELECT EXISTS(SELECT 1 FROM olm_delivery_receipts " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
             "AND recipientUserId = :recipientUserId AND messageId = :messageId)"
