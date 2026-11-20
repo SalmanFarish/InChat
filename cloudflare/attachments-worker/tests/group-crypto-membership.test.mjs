@@ -5,7 +5,56 @@ import {
   currentGroupCryptoMembershipEpoch,
   nextGroupCryptoMembershipEpoch,
   membershipEpochUpdate,
+  mutateGroupMembersWithEtag,
 } from "../src/group-crypto-membership.js";
+
+function groupFixture(group, { onConditionalWrite } = {}) {
+  let version = 1;
+  let reads = 0;
+  let writes = 0;
+  const patches = [];
+  const fetchImpl = async (_url, options = {}) => {
+    const method = options.method || "GET";
+    if (method === "GET") {
+      reads += 1;
+      return new Response(JSON.stringify(structuredClone(group)), {
+        status: 200,
+        headers: { ETag: '"v' + version + '"' },
+      });
+    }
+    assert.equal(method, "PATCH");
+    writes += 1;
+    const expected = '"v' + version + '"';
+    if (options.headers["If-Match"] !== expected) {
+      return new Response("precondition failed", { status: 412 });
+    }
+    if (onConditionalWrite) {
+      const shouldReject = await onConditionalWrite({
+        group,
+        version,
+        writeNumber: writes,
+      });
+      if (shouldReject) {
+        version += 1;
+        return new Response("precondition failed", { status: 412 });
+      }
+    }
+    const patch = JSON.parse(options.body);
+    patches.push(patch);
+    Object.assign(group, patch);
+    version += 1;
+    return new Response("null", { status: 200 });
+  };
+  return {
+    group,
+    patches,
+    fetchImpl,
+    get reads() { return reads; },
+    get writes() { return writes; },
+  };
+}
+
+const environment = { FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com/" };
 
 test("new group membership starts at crypto epoch one", () => {
   assert.equal(INITIAL_GROUP_CRYPTO_MEMBERSHIP_EPOCH, 1);
@@ -37,4 +86,190 @@ test("rejects invalid, fractional, negative and exhausted epochs", () => {
     () => nextGroupCryptoMembershipEpoch(Number.MAX_SAFE_INTEGER),
     RangeError,
   );
+});
+
+test("commits member map and next epoch together under one root ETag", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembershipEpoch: 4,
+    name: "test",
+  });
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    (members) => ({
+      members: { ...members, carol: "member" },
+      cryptoMembershipChanged: true,
+      result: { added: "carol" },
+    }),
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.cryptoMembershipEpoch, 5);
+  assert.deepEqual(fixture.group.members, {
+    alice: "admin",
+    bob: "member",
+    carol: "member",
+  });
+  assert.equal(fixture.group.cryptoMembershipEpoch, 5);
+  assert.deepEqual(fixture.patches, [{
+    members: {
+      alice: "admin",
+      bob: "member",
+      carol: "member",
+    },
+    cryptoMembershipEpoch: 5,
+  }]);
+});
+
+test("role-only update patches members without advancing or inventing an epoch", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembershipEpoch: 6,
+  });
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    (members) => ({
+      members: { ...members, bob: "admin" },
+      cryptoMembershipChanged: false,
+    }),
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.cryptoMembershipEpoch, 6);
+  assert.equal(fixture.group.cryptoMembershipEpoch, 6);
+  assert.deepEqual(fixture.patches, [{
+    members: { alice: "admin", bob: "admin" },
+  }]);
+});
+
+test("no-op membership request makes no write and keeps the effective legacy epoch", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+  });
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    () => ({ noChange: true, result: { added: false } }),
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.changed, false);
+  assert.equal(result.cryptoMembershipEpoch, 1);
+  assert.equal(fixture.writes, 0);
+  assert.equal(fixture.reads, 1);
+  assert.equal(fixture.group.cryptoMembershipEpoch, undefined);
+});
+
+test("retries a stale ETag against the latest membership and epoch without reusing an epoch", async () => {
+  let changedElsewhere = false;
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembershipEpoch: 2,
+  }, {
+    onConditionalWrite: ({ group, writeNumber }) => {
+      if (writeNumber === 1 && !changedElsewhere) {
+        changedElsewhere = true;
+        group.members = { ...group.members, carol: "member" };
+        group.cryptoMembershipEpoch = 3;
+        return true;
+      }
+      return false;
+    },
+  });
+
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    (members) => ({
+      members: { ...members, dave: "member" },
+      cryptoMembershipChanged: true,
+    }),
+    fixture.fetchImpl,
+  );
+
+  assert.equal(fixture.reads, 2);
+  assert.equal(fixture.writes, 2);
+  assert.equal(result.cryptoMembershipEpoch, 4);
+  assert.equal(fixture.group.cryptoMembershipEpoch, 4);
+  assert.deepEqual(fixture.group.members, {
+    alice: "admin",
+    bob: "member",
+    carol: "member",
+    dave: "member",
+  });
+  assert.equal(fixture.patches.length, 1);
+  assert.equal(fixture.patches[0].cryptoMembershipEpoch, 4);
+});
+
+test("fails closed after repeated membership ETag conflicts", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembershipEpoch: 1,
+  }, {
+    onConditionalWrite: () => true,
+  });
+
+  await assert.rejects(
+    mutateGroupMembersWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      (members) => ({
+        members: { ...members, carol: "member" },
+        cryptoMembershipChanged: true,
+      }),
+      fixture.fetchImpl,
+    ),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  assert.equal(fixture.writes, 5);
+  assert.equal(fixture.patches.length, 0);
+});
+
+test("rejects malformed group state and invalid persisted epoch without writing", async () => {
+  const malformed = groupFixture({
+    type: "direct",
+    members: { alice: "admin", bob: "member" },
+  });
+  await assert.rejects(
+    mutateGroupMembersWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      () => ({ members: {}, cryptoMembershipChanged: true }),
+      malformed.fetchImpl,
+    ),
+    /Group membership state is invalid/,
+  );
+
+  const invalidEpoch = groupFixture({
+    type: "group",
+    members: { alice: "admin", bob: "member" },
+    cryptoMembershipEpoch: 2.5,
+  });
+  await assert.rejects(
+    mutateGroupMembersWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      (members) => ({
+        members: { ...members, carol: "member" },
+        cryptoMembershipChanged: true,
+      }),
+      invalidEpoch.fetchImpl,
+    ),
+    /epoch is invalid/,
+  );
+  assert.equal(invalidEpoch.writes, 0);
 });
