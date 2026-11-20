@@ -175,15 +175,20 @@ topics. The Worker checks membership before changing topic subscriptions.
 - It reads only the recipient device's private
   `privateUsers/{uid}/olmDeviceFcmTokens/{deviceId}` registration. It never
   falls back to the account-wide plaintext-notification token.
-- FCM receives a **data-only** message containing only the event type and
-  deterministic delivery ID. No FCM `notification` object, message text,
-  sender display name, group name, or chat ID is included. Android can use the
-  delivery ID to wake its encrypted inbox poller; authenticated decrypted
-  payload data remains the source of the conversation route.
+- FCM receives a **normal-priority data-only** message containing only the
+  event type and deterministic delivery ID. No FCM `notification` object,
+  message text, sender display name, group name, or chat ID is included.
+  Android uses the validated delivery reference only to wake its existing
+  encrypted inbox poller; the encrypted authenticated payload remains the
+  source of the conversation route.
 - An ETag-guarded `olmPushDispatch` receipt suppresses duplicate sends and
   allows failed sends to be retried. Unregistered device tokens are removed
   only when the stored token still equals the token FCM rejected, protecting a
   concurrently rotated token.
+- Publishing a verified Olm device bundle also best-effort refreshes its
+  `olmDeviceFcmTokens/{deviceId}` registration. This covers installations
+  where login-time token registration happened before the local Olm identity
+  was created; token failures do not roll back public-key publication.
 - Separate per-account and per-IP Cloudflare Worker rate limits protect this
   endpoint. The normal `/v1/events/message` plaintext/group notification path
   is unchanged and does not call the encrypted endpoint.
