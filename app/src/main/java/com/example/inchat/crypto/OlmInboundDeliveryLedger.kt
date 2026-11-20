@@ -2,7 +2,7 @@ package com.example.inchat.crypto
 
 import java.security.MessageDigest
 
-internal enum class OlmInboundRegistration { NEW, PENDING_RETRY, DUPLICATE_PROCESSED, CONFLICT }
+internal enum class OlmInboundRegistration { NEW, PENDING_RETRY, DUPLICATE_PROCESSED, DUPLICATE_REJECTED, CONFLICT }
 
 /**
  * Durable receiver-side deduplication ledger. PENDING receipts can be retried
@@ -52,10 +52,11 @@ internal class OlmInboundDeliveryLedger(
             ?: error("Inbound receipt could not be read after insertion")
         if (stored.envelopeSha256 != envelopeDigest) return OlmInboundRegistration.CONFLICT
         if (inserted != -1L) return OlmInboundRegistration.NEW
-        return if (stored.status == OlmInboundReceiptStatus.PROCESSED.name) {
-            OlmInboundRegistration.DUPLICATE_PROCESSED
-        } else {
-            OlmInboundRegistration.PENDING_RETRY
+        return when (stored.status) {
+            OlmInboundReceiptStatus.PROCESSED.name,
+            OlmInboundReceiptStatus.FINALIZED.name -> OlmInboundRegistration.DUPLICATE_PROCESSED
+            OlmInboundReceiptStatus.REJECTED.name -> OlmInboundRegistration.DUPLICATE_REJECTED
+            else -> OlmInboundRegistration.PENDING_RETRY
         }
     }
 
