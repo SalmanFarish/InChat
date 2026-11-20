@@ -21,6 +21,18 @@ internal data class EncryptedMegolmMessage(
     val ciphertext: ByteArray,
 )
 
+/** Sender ciphertext staged in the encrypted native state until the Room outbox commits. */
+internal data class StagedOutboundMegolmMessage(
+    val ownerUserId: String,
+    val groupId: String,
+    val membershipEpoch: Long,
+    val messageId: String,
+    val senderUserId: String,
+    val senderDeviceId: String,
+    val sentAtMillis: Long,
+    val encryptedMessage: EncryptedMegolmMessage,
+)
+
 /** Native staged receive result; plaintext exists only in memory after native persistence. */
 internal data class StagedMegolmDecryption(
     val receiptId: String,
@@ -160,16 +172,24 @@ internal class MegolmSessionRepository(
         }
     }
 
-    /** Encrypt a group message and persist the advanced sender ratchet first. */
-    fun encryptOutboundMessage(
+    /**
+     * Encrypt one outbound message and stage its exact ciphertext together with
+     * the advanced native sender ratchet. Call finalizeOutboundMessage only after
+     * the complete per-device Olm fan-out is committed to the Room outbox.
+     */
+    fun prepareOutboundMessage(
         membership: GroupCryptoMembershipSnapshot,
+        messageId: String,
         plaintext: String,
-    ): EncryptedMegolmMessage {
+        sentAtMillis: Long,
+    ): StagedOutboundMegolmMessage {
         require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
         val ownerUid = authenticatedUserId()
         require(ownerUid in membership.memberUserIds) {
             "Authenticated account is not a current group member"
         }
+        require(messageId.matches(ID)) { "Group message ID is invalid" }
+        require(sentAtMillis >= 0L) { "Group message timestamp cannot be negative" }
         require(plaintext.isNotEmpty()) { "Group plaintext is empty" }
         val plaintextBytes = plaintext.toByteArray(Charsets.UTF_8)
         try {
@@ -181,29 +201,141 @@ internal class MegolmSessionRepository(
         }
         val encoded = withNativeState { store, deviceId ->
             NativeCryptoBridge.nativeEncryptOutboundMegolmMessage(
-                store,
-                deviceId,
-                membership.groupId,
-                membership.epoch,
-                ownerUid,
-                plaintext,
+                store = store,
+                deviceId = deviceId,
+                groupId = membership.groupId,
+                membershipEpoch = membership.epoch,
+                senderUserId = ownerUid,
+                messageId = messageId,
+                sentAtMillis = sentAtMillis,
+                plaintext = plaintext,
             )
-        } ?: throw IllegalStateException("Could not encrypt the group message")
+        } ?: throw IllegalStateException("Could not stage the outbound group message")
+        return parseStagedOutboundMegolmMessage(
+            encoded = encoded,
+            expectedOwnerUserId = ownerUid,
+            expectedGroupId = membership.groupId,
+            expectedMembershipEpoch = membership.epoch,
+            expectedMessageId = messageId,
+            expectedSenderDeviceId = localBundle.deviceId,
+            expectedSentAtMillis = sentAtMillis,
+        )
+    }
+
+    /** List sender ciphertexts that survived process death before Room outbox commit. */
+    fun pendingOutboundMessageIds(): List<String> {
+        val encoded = withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeListPendingOutboundMegolmMessageIds(store, deviceId)
+        } ?: throw IllegalStateException("Could not list pending outbound Megolm messages")
+        val array = JSONArray(encoded)
+        require(array.length() <= MAX_PENDING_OUTBOUND_MESSAGES) {
+            "Native pending outbound Megolm message count exceeds the limit"
+        }
+        return (0 until array.length()).map { index ->
+            array.getString(index).also {
+                require(it.matches(ID)) { "Native pending outbound Megolm message ID is invalid" }
+            }
+        }
+    }
+
+    /** Read the exact previously encrypted ciphertext without advancing the sender ratchet. */
+    fun readPendingOutboundMessage(messageId: String): StagedOutboundMegolmMessage {
+        require(messageId.matches(ID)) { "Group message ID is invalid" }
+        val ownerUid = authenticatedUserId()
+        val deviceId = localBundle.deviceId
+        val encoded = withNativeState { store, nativeDeviceId ->
+            NativeCryptoBridge.nativeReadPendingOutboundMegolmMessage(
+                store,
+                nativeDeviceId,
+                messageId,
+            )
+        } ?: throw IllegalStateException("Could not read pending outbound Megolm message")
+        return parseStagedOutboundMegolmMessage(
+            encoded = encoded,
+            expectedOwnerUserId = ownerUid,
+            expectedGroupId = null,
+            expectedMembershipEpoch = null,
+            expectedMessageId = messageId,
+            expectedSenderDeviceId = deviceId,
+            expectedSentAtMillis = null,
+        )
+    }
+
+    /** Clear the native staged ciphertext only after all recipient envelopes are durable in Room. */
+    fun finalizeOutboundMessage(messageId: String): Boolean {
+        require(messageId.matches(ID)) { "Group message ID is invalid" }
+        return withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeFinalizeOutboundMegolmMessage(store, deviceId, messageId)
+        }
+    }
+
+    private fun parseStagedOutboundMegolmMessage(
+        encoded: String,
+        expectedOwnerUserId: String,
+        expectedGroupId: String?,
+        expectedMembershipEpoch: Long?,
+        expectedMessageId: String,
+        expectedSenderDeviceId: String,
+        expectedSentAtMillis: Long?,
+    ): StagedOutboundMegolmMessage {
+        if (encoded.startsWith(NATIVE_ERROR_PREFIX)) {
+            throw IllegalStateException(encoded.removePrefix(NATIVE_ERROR_PREFIX))
+        }
         val result = JSONObject(encoded)
+        val ownerUserId = result.getString("ownerUserId")
+        val groupId = result.getString("groupId")
+        val membershipEpoch = result.getLong("membershipEpoch")
+        val messageId = result.getString("messageId")
+        val senderUserId = result.getString("senderUserId")
+        val senderDeviceId = result.getString("senderDeviceId")
+        val sentAtMillis = result.getLong("sentAtMillis")
         val sessionId = result.getString("sessionId")
-        require(sessionId.matches(SESSION_ID)) { "Native Megolm session ID is invalid" }
-        val index = result.getLong("messageIndex")
-        require(index >= 0L && index <= MAX_MESSAGE_INDEX) {
-            "Native Megolm message index is invalid"
+        val messageIndex = result.getLong("messageIndex")
+        require(ownerUserId == expectedOwnerUserId && senderUserId == expectedOwnerUserId) {
+            "Native staged outbound Megolm message belongs to another account"
         }
-        val encodedCiphertext = result.getJSONArray("ciphertext")
-        require(encodedCiphertext.length() in 1..MAX_CIPHERTEXT_BYTES) {
-            "Native Megolm ciphertext has an invalid size"
+        require(expectedGroupId == null || groupId == expectedGroupId) {
+            "Native staged outbound Megolm message belongs to another group"
         }
-        val ciphertext = ByteArray(encodedCiphertext.length()) { i ->
-            encodedCiphertext.getInt(i).also { require(it in 0..255) }.toByte()
+        require(expectedMembershipEpoch == null || membershipEpoch == expectedMembershipEpoch) {
+            "Native staged outbound Megolm epoch does not match the current membership"
         }
-        return EncryptedMegolmMessage(sessionId, index, ciphertext)
+        require(messageId == expectedMessageId && messageId.matches(ID)) {
+            "Native staged outbound Megolm message ID does not match the request"
+        }
+        require(senderDeviceId == expectedSenderDeviceId && senderDeviceId.matches(DEVICE_ID)) {
+            "Native staged outbound Megolm message belongs to another sender device"
+        }
+        require(membershipEpoch > 0L && sessionId.matches(SESSION_ID)) {
+            "Native staged outbound Megolm session metadata is invalid"
+        }
+        require(expectedSentAtMillis == null || sentAtMillis == expectedSentAtMillis) {
+            "Native staged outbound Megolm timestamp does not match the request"
+        }
+        require(sentAtMillis >= 0L && messageIndex in 0L until MAX_MESSAGE_INDEX) {
+            "Native staged outbound Megolm timestamp or message index is invalid"
+        }
+        val array = result.getJSONArray("ciphertext")
+        require(array.length() in 1..MAX_CIPHERTEXT_BYTES) {
+            "Native staged outbound Megolm ciphertext has an invalid size"
+        }
+        val ciphertext = ByteArray(array.length()) { index ->
+            array.getInt(index).also { require(it in 0..255) }.toByte()
+        }
+        return StagedOutboundMegolmMessage(
+            ownerUserId = ownerUserId,
+            groupId = groupId,
+            membershipEpoch = membershipEpoch,
+            messageId = messageId,
+            senderUserId = senderUserId,
+            senderDeviceId = senderDeviceId,
+            sentAtMillis = sentAtMillis,
+            encryptedMessage = EncryptedMegolmMessage(
+                sessionId = sessionId,
+                messageIndex = messageIndex,
+                ciphertext = ciphertext,
+            ),
+        )
     }
 
     /**
@@ -395,6 +527,7 @@ internal class MegolmSessionRepository(
     private companion object {
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_PENDING_DECRYPTIONS = 64
+        const val MAX_PENDING_OUTBOUND_MESSAGES = 128
         const val NATIVE_ERROR_PREFIX = "INCHAT_CRYPTO_ERROR:"
         val RECEIPT_ID = Regex("[A-Fa-f0-9]{64}")
         const val MIN_SESSION_KEY_BYTES = 32
