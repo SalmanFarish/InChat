@@ -3,25 +3,31 @@ package com.example.inchat.crypto
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 
-/** Atomically persists an encrypted-only local message and completes its ciphertext receipt. */
+/** Atomically persists an AES-GCM-encrypted local message and completes its ciphertext receipt. */
 internal class OlmInboundMessageCommitter(
     private val database: RoomDatabase,
     private val encryptedMessageDao: EncryptedOlmMessageDao,
     private val receiptDao: OlmInboundReceiptDao,
+    private val vault: EncryptedOlmMessageVault = EncryptedOlmMessageVault(),
 ) {
     /**
-     * Returns true only when a PENDING receipt and its matching authenticated
-     * message were committed together. Existing plaintext chat cache is untouched.
+     * Encrypts plaintext before the Room transaction, then commits only ciphertext
+     * with the receipt. Existing plaintext chat cache is never written.
      */
     suspend fun commit(
         receiptId: String,
-        message: EncryptedOlmMessageEntity,
+        message: DecryptedOlmMessage,
         processedAtMillis: Long,
     ): Boolean {
         require(receiptId.matches(RECEIPT_ID_PATTERN)) {
             "Inbound receipt ID must be a SHA-256 hex digest"
         }
         require(processedAtMillis >= 0) { "Processed time must not be negative" }
+        require(message.ownerUserId == message.recipientUserId) {
+            "Encrypted message owner must match its recipient"
+        }
+
+        val encryptedMessage = vault.encrypt(message)
 
         return database.withTransaction {
             val receipt = receiptDao.getByReceiptId(receiptId)
@@ -29,23 +35,20 @@ internal class OlmInboundMessageCommitter(
             check(receipt.status == OlmInboundReceiptStatus.PENDING.name) {
                 "Inbound receipt is not pending"
             }
-            check(message.messageId == receipt.messageId) {
+            check(encryptedMessage.messageId == receipt.messageId) {
                 "Decrypted message ID does not match its inbound receipt"
             }
-            check(message.senderUserId == receipt.senderUserId) {
+            check(encryptedMessage.senderUserId == receipt.senderUserId) {
                 "Decrypted message sender does not match its inbound receipt"
             }
-            check(message.senderDeviceId == receipt.senderDeviceId) {
+            check(encryptedMessage.senderDeviceId == receipt.senderDeviceId) {
                 "Decrypted message sender device does not match its inbound receipt"
             }
-            check(message.recipientDeviceId == receipt.recipientDeviceId) {
+            check(encryptedMessage.recipientDeviceId == receipt.recipientDeviceId) {
                 "Decrypted message recipient device does not match its inbound receipt"
             }
-            check(message.recipientUserId == message.ownerUserId) {
-                "Encrypted message owner does not match its authenticated recipient"
-            }
 
-            encryptedMessageDao.upsertMessage(message)
+            encryptedMessageDao.upsertMessage(encryptedMessage)
             check(receiptDao.markProcessed(receiptId, processedAtMillis) == 1) {
                 "Inbound receipt could not be marked processed"
             }
