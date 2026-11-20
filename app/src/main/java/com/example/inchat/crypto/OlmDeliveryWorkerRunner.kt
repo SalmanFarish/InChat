@@ -58,6 +58,10 @@ internal class OlmDeliveryWorkerRunner(
 
             try {
                 transport.upload(delivery, senderDeviceId)
+                queue.markUploaded(
+                    delivery = delivery,
+                    nowMillis = clock().coerceAtLeast(0L),
+                )
                 uploaded++
             } catch (cancelled: CancellationException) {
                 throw cancelled
