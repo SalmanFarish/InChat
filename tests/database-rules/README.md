@@ -25,6 +25,39 @@ and stops the emulator when the test process exits. The test suite uses
 contact the Firebase Auth emulator, create real Firebase accounts, deploy rules, or
 connect to the production InChat Firebase project.
 
+To exercise the production Olm Firebase Realtime Database adapter through the
+Android SDK **without starting Firebase Auth**, use the separate demo-project
+configuration. It loads a test-only rules file that grants access solely below
+`olmInbox` and `olmDeliveryAcks`; it is not referenced by the normal
+`firebase.json` and must never be deployed:
+
+```powershell
+cd tests/database-rules
+npm run olm-relay-emulator
+```
+
+In another terminal at the repository root, run:
+
+```powershell
+.\\gradlew :app:connectedDebugAndroidTest `
+  "-Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.FirebaseOlmRelayStoreEmulatorTest" `
+  "-Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2" `
+  --console=plain
+```
+
+The test injects synthetic account/device IDs into the isolated transport and
+does not initialize FirebaseAuth, create Firebase accounts, load the installed
+InChat identity, or use the default Firebase project. It verifies that the real
+Android Realtime Database SDK can upload an opaque envelope while offline,
+complete the write after reconnecting, read the envelope from the recipient
+device path, resolve the server acknowledgement timestamp, and remove the
+inbox/ack records. The separate Node rules suite remains responsible for
+authorization and immutable-retry policy.
+
+For a physical Android device connected over USB, run
+`adb reverse tcp:9000 tcp:9000` and pass
+`-Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=127.0.0.1`.
+
 To run the Android SAS transport integration test against both local emulators,
 keep the emulators running in a separate terminal:
 
