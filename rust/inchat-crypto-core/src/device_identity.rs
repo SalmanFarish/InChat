@@ -3883,8 +3883,9 @@ mod pending_megolm_receive_tests {
     #[test]
     fn megolm_ratchet_and_plaintext_are_staged_atomically_and_recovered_after_restart() {
         let mut sender = OutboundGroupSession::new();
-        let encrypted = sender.encrypt(b"staged group plaintext").unwrap();
+        // Capture the session key before the sender advances to message index 0.
         let (mut state, session_id) = receiver_state(&sender);
+        let encrypted = sender.encrypt(b"staged group plaintext").unwrap();
         let receipt_id = "a".repeat(64);
 
         prepare_inbound_megolm_decryption(
@@ -3953,8 +3954,8 @@ mod pending_megolm_receive_tests {
     #[test]
     fn pending_megolm_receipt_rejects_conflicting_reuse_and_duplicate_index() {
         let mut sender = OutboundGroupSession::new();
-        let encrypted = sender.encrypt(b"one valid message").unwrap();
         let (mut state, session_id) = receiver_state(&sender);
+        let encrypted = sender.encrypt(b"one valid message").unwrap();
         let first_receipt = "b".repeat(64);
 
         prepare_inbound_megolm_decryption(
@@ -4013,8 +4014,8 @@ mod pending_megolm_receive_tests {
     #[test]
     fn mismatched_authenticated_message_index_is_not_persisted() {
         let mut sender = OutboundGroupSession::new();
-        let encrypted = sender.encrypt(b"message index binding").unwrap();
         let (mut state, session_id) = receiver_state(&sender);
+        let encrypted = sender.encrypt(b"message index binding").unwrap();
         let receipt_id = "d".repeat(64);
         let mut snapshot = encode_device_crypto_state("local-device", &state).unwrap();
 
