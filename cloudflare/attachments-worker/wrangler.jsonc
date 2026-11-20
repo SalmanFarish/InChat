@@ -20,6 +20,22 @@
         "limit": 5,
         "period": 60
       }
+    },
+    {
+      "name": "OLM_PUSH_UID_LIMITER",
+      "namespace_id": "27112028",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    },
+    {
+      "name": "OLM_PUSH_IP_LIMITER",
+      "namespace_id": "27112029",
+      "simple": {
+        "limit": 300,
+        "period": 60
+      }
     }
   ],
   "vars": {
