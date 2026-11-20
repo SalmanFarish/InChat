@@ -39,6 +39,12 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
         require(distribution.deliveries.size <= MAX_DELIVERIES) {
             "Group key distribution fan-out exceeds the device delivery limit"
         }
+        require(
+            distribution.deliveries.map { it.recipientUserId }.toSet()
+                .containsAll(currentMembership.memberUserIds - ownerUid)
+        ) {
+            "Prepared group fan-out omits a current member"
+        }
         require(distribution.deliveries.all { delivery ->
             delivery.recipientUserId in currentMembership.memberUserIds &&
                 delivery.recipientDeviceId.matches(DEVICE_ID) &&
