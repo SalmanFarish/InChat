@@ -59,8 +59,8 @@ internal interface OlmDeliveryQueueStore {
     fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
 
     /**
-     * Atomically lease the oldest due QUEUED row or expired IN_FLIGHT row.
-     * The returned row must have attemptCount incremented and a new lease.
+     * Atomically lease the oldest due QUEUED/UPLOADED row or expired IN_FLIGHT
+     * row. The returned row must have attemptCount incremented and a new lease.
      */
     fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
