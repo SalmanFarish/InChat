@@ -18,13 +18,13 @@ internal class EncryptedGroupMessageRepository(
         receipt: EncryptedGroupMessageReceiptEntity,
         originalCiphertext: ByteArray,
     ): Boolean {
-        require(receipt.receiptId.matches(RECEIPT_ID)) { "Group receipt ID is invalid" }
+        require(originalCiphertext.isNotEmpty() && originalCiphertext.size <= MAX_CIPHERTEXT_BYTES) {\n            "Original Megolm ciphertext has an invalid size"\n        }\n        require(receipt.receivedAtMillis >= 0L) { "Group receipt timestamp is invalid" }\n        require(receipt.receiptId.matches(RECEIPT_ID)) { "Group receipt ID is invalid" }
         require(receipt.ciphertextSha256.matches(SHA256_HEX)) {
             "Group ciphertext digest is invalid"
         }
         val actualDigest = MessageDigest.getInstance("SHA-256")
             .digest(originalCiphertext)
-            .joinToString("") { "%02x".format(it) }
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         require(actualDigest.equals(receipt.ciphertextSha256, ignoreCase = true)) {
             "Group receipt ciphertext digest does not match the staged ciphertext"
         }
@@ -56,6 +56,6 @@ internal class EncryptedGroupMessageRepository(
 
     private companion object {
         val RECEIPT_ID = Regex("[A-Fa-f0-9]{64}")
-        val SHA256_HEX = Regex("[A-Fa-f0-9]{64}")
+        const val MAX_CIPHERTEXT_BYTES = 1024 * 1024\n        val SHA256_HEX = Regex("[A-Fa-f0-9]{64}")
     }
 }
