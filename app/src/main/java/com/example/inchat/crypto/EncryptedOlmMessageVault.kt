@@ -32,7 +32,10 @@ internal class EncryptedOlmMessageVault(
     }
 
     /** Encrypt the message body before any Room write can persist it. */
-    fun encrypt(message: DecryptedOlmMessage): EncryptedOlmMessageEntity {
+    fun encrypt(
+        message: DecryptedOlmMessage,
+        allowKeyCreation: Boolean = true,
+    ): EncryptedOlmMessageEntity {
         validateMessageMetadata(message)
         val plaintext = message.text.toByteArray(StandardCharsets.UTF_8)
         require(message.text.isNotEmpty()) {
@@ -45,7 +48,10 @@ internal class EncryptedOlmMessageVault(
         try {
             return synchronized(KEYSTORE_LOCK) {
                 val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+                cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    if (allowKeyCreation) getOrCreateKey() else getExistingKey(),
+                )
                 val nonce = cipher.iv
                 check(nonce != null && nonce.size == GCM_NONCE_BYTES) {
                     "Android Keystore returned an unexpected AES-GCM nonce"
