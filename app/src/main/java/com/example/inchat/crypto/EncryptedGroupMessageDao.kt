@@ -45,6 +45,9 @@ internal abstract class EncryptedGroupMessageDao {
         return true
     }
 
+    @Query("SELECT EXISTS(SELECT 1 FROM encrypted_group_messages)")
+    abstract suspend fun hasStoredMessages(): Boolean
+
     @Query(
         "SELECT * FROM encrypted_group_messages " +
             "WHERE ownerUserId = :ownerUserId AND groupId = :groupId " +
