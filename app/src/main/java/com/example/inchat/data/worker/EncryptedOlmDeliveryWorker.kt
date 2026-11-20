@@ -105,6 +105,7 @@ class EncryptedOlmDeliveryWorker(
             )
             val transport = FirebaseOlmEnvelopeTransport(
                 trustVerifier = TrustedDeviceRepository(applicationContext),
+                expectedAuthenticatedUserId = ownerUserId,
             )
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
