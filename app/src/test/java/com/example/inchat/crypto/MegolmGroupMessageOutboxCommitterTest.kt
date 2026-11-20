@@ -94,7 +94,7 @@ class MegolmGroupMessageOutboxCommitterTest {
         MegolmGroupMessageOutboxCommitter(
         membershipForGroup = { groupId ->
             assertEquals("group-1", groupId)
-            snapshots.removeFirstOrNull()
+            if (snapshots.isEmpty()) null else snapshots.removeAt(0)
         },
         authenticatedUserId = { "alice" },
         localDeviceId = { "alice-phone" },
@@ -108,14 +108,18 @@ class MegolmGroupMessageOutboxCommitterTest {
                         recipientUserId = "bob",
                         recipientDeviceId = "bob-phone",
                         sessionId = "session-bob",
-                        envelope = EncryptedOlmEnvelopeCodec.encode(
-                            EncryptedOlmEnvelope(
-                                senderDeviceId = "alice-phone",
-                                recipientDeviceId = "bob-phone",
-                                sessionId = "session-bob",
-                                ciphertext = ByteArray(32) { it.toByte() },
-                            ),
-                        ),
+                        envelope = if (invalidEnvelope) {
+                            "not-json"
+                        } else {
+                            EncryptedOlmEnvelopeCodec.encode(
+                                EncryptedOlmEnvelope(
+                                    senderDeviceId = "alice-phone",
+                                    recipientDeviceId = "bob-phone",
+                                    sessionId = "session-bob",
+                                    ciphertext = ByteArray(32) { it.toByte() },
+                                ),
+                            )
+                        },
                     ),
                 ),
                 skippedUntrustedDeviceCount = 0,
@@ -135,7 +139,8 @@ class MegolmGroupMessageOutboxCommitterTest {
             scheduleDelivery = { _, _ -> },
         ),
         finalizeStagedMessage = finalize,
-    )
+        )
+    }
 
     private fun stagedMessage() = StagedOutboundMegolmMessage(
         ownerUserId = "alice",
