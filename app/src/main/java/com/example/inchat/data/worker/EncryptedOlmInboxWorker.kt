@@ -183,11 +183,13 @@ class EncryptedOlmInboxWorker(
             Log.i(
                 TAG,
                 "Encrypted inbound handoff completed: pending=" + handoffResult.pendingScanned +
+                    ", deferred=" + handoffResult.deferredScanned +
                     ", committed=" + handoffResult.committed +
                     ", alreadyCommitted=" + handoffResult.alreadyCommitted +
                     ", finalized=" + handoffResult.finalized +
                     ", waitingForTrust=" + handoffResult.waitingForTrust +
                     ", missingDevices=" + handoffResult.missingRemoteDevice +
+                    ", rejected=" + handoffResult.rejected +
                     ", failures=" + handoffResult.failed,
             )
             // Every successful item is now durable locally. Unacknowledged items
