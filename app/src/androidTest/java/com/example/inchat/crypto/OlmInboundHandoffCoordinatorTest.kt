@@ -348,6 +348,11 @@ class OlmInboundHandoffCoordinatorTest {
                 db.encryptedOlmMessageDao().getMessage("local-user", directChatId, messageId)?.text,
             )
             assertEquals(
+                "Decrypted Olm messages must remain invisible to the existing plaintext chat cache",
+                null,
+                db.messageDao().getMessage("local-user", directChatId, messageId),
+            )
+            assertEquals(
                 OlmInboundReceiptStatus.FINALIZED.name,
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
