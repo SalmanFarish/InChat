@@ -2219,6 +2219,7 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeV
 
 #[cfg(test)]
 mod tests {
+    use zeroize::Zeroize;
     use super::{
         decode_device_account_state, encode_device_account_state, public_device_key_bundle,
         signed_key_payload, valid_device_id, SIGNATURE_CONTEXT,
