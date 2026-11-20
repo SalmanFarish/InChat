@@ -61,6 +61,26 @@ delivery, then emits only the two generic encrypted types, remains outstanding.
 Encrypted chat previews, notification tap routing after decryption, and
 two-device notification validation are also required before rollout.
 
+
+## Encrypted delivery acknowledgement persistence
+
+Sender-side recipient-device acknowledgements are now retained in a separate,
+metadata-only Room table. After the remote acknowledgement is deleted, the
+worker records the exact sender/recipient account, device, message, and delivery
+identity before removing the corresponding ciphertext outbox row. A crash
+between local receipt recording and outbox cleanup is safe: the outbox copy may
+be retried, and the recipient's durable receipt ledger emits the same
+acknowledgement again. Duplicate local receipt inserts do not replace the
+original acknowledgement timestamp.
+
+This table contains no ciphertext, plaintext, or preview. Its query boundary
+exposes delivered message IDs scoped to the sender account/device and recipient
+account, ready for the encrypted chat status presenter. An acknowledgement
+means at least one recipient device durably staged the ciphertext; it does not
+mean the message was decrypted, displayed, or read. Encrypted read receipts and
+live chat UI integration remain outstanding. Existing plaintext status logic
+is unchanged.
+
 ## Device identity verification groundwork
 
 A deterministic SHA-256 fingerprint helper now binds the installation device ID and
