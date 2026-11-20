@@ -35,7 +35,8 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         require(keyDistribution.groupId == currentMembership.groupId &&
             keyDistribution.membershipEpoch == currentMembership.epoch &&
             messageDistribution.groupId == currentMembership.groupId &&
-            messageDistribution.membershipEpoch == currentMembership.epoch
+            messageDistribution.membershipEpoch == currentMembership.epoch &&
+            keyDistribution.megolmSessionId == messageDistribution.megolmSessionId
         ) {
             "Group membership changed after the key or message distribution was prepared"
         }
