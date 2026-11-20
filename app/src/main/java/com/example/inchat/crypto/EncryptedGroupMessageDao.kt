@@ -38,12 +38,40 @@ abstract class EncryptedGroupMessageDao {
                 receipt.megolmSessionId == message.megolmSessionId &&
                 receipt.messageIndex == message.messageIndex
         ) { "Group replay receipt does not match encrypted message metadata" }
-        if (insertReceiptIgnore(receipt) == -1L) return false
+        if (insertReceiptIgnore(receipt) == -1L) {
+            val existing = getReplayReceipt(
+                receipt.ownerUserId,
+                receipt.groupId,
+                receipt.senderUserId,
+                receipt.senderDeviceId,
+                receipt.megolmSessionId,
+                receipt.messageIndex,
+            )
+            check(existing == receipt) {
+                "Megolm replay index is already committed with different authenticated metadata"
+            }
+            return false
+        }
         check(insertMessageIgnore(message) != -1L) {
             "Group message ID already exists with a different replay receipt"
         }
         return true
     }
+
+    @Query(
+        "SELECT * FROM encrypted_group_message_receipts " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId " +
+            "AND senderUserId = :senderUserId AND senderDeviceId = :senderDeviceId " +
+            "AND megolmSessionId = :sessionId AND messageIndex = :messageIndex LIMIT 1"
+    )
+    abstract suspend fun getReplayReceipt(
+        ownerUserId: String,
+        groupId: String,
+        senderUserId: String,
+        senderDeviceId: String,
+        sessionId: String,
+        messageIndex: Long,
+    ): EncryptedGroupMessageReceiptEntity?
 
     @Query("SELECT EXISTS(SELECT 1 FROM encrypted_group_messages)")
     abstract suspend fun hasStoredMessages(): Boolean
