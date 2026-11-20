@@ -395,9 +395,6 @@ internal class MegolmSessionRepository(
     private companion object {
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_PENDING_DECRYPTIONS = 64
-        const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
-        const val MAX_PLAINTEXT_BYTES = 64 * 1024
-        const val MAX_MESSAGE_INDEX = 0xffff_ffffL
         const val NATIVE_ERROR_PREFIX = "INCHAT_CRYPTO_ERROR:"
         val RECEIPT_ID = Regex("[A-Fa-f0-9]{64}")
         const val MIN_SESSION_KEY_BYTES = 32
