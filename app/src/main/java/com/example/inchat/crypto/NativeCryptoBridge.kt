@@ -141,6 +141,46 @@ internal object NativeCryptoBridge {
         receiptId: String,
     ): Boolean
 
+    /** Ensure the local sender ratchet exists for exactly this membership epoch. */
+    external fun nativeEnsureOutboundMegolmSession(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+    ): String?
+
+    /** Export a Megolm session key; callers must distribute it only via authenticated Olm. */
+    external fun nativeExportOutboundMegolmSessionKey(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+    ): ByteArray?
+
+    /** Import a signed Megolm key received over authenticated Olm after membership authorization. */
+    external fun nativeImportInboundMegolmSessionKey(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+        senderDeviceId: String,
+        expectedSessionId: String,
+        sessionKey: ByteArray,
+    ): Boolean
+
+    /** Encrypt a group message and persist the advanced sender ratchet before returning ciphertext. */
+    external fun nativeEncryptOutboundMegolmMessage(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+        plaintext: String,
+    ): String?
+
     external fun nativeOlmSelfTest(): Boolean
 
     /** Create a temporary Olm account and persist its Rust pickle via Keystore. */
