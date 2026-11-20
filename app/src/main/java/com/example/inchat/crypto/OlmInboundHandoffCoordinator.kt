@@ -58,9 +58,9 @@ internal class OlmInboundHandoffCoordinator(
     private val processingMutex = Mutex()
 
     /**
-     * Prepare/recover plaintext, atomically commit it to encrypted_olm_messages
-     * with the receipt, then finalize native staging. The factory must return
-     * metadata that exactly matches the authenticated payload.
+     * Prepare/recover plaintext, encrypt its text with the device Keystore key,
+     * atomically commit ciphertext with the receipt, then finalize native staging.
+     * The factory must return metadata that exactly matches the authenticated payload.
      */
     suspend fun process(
         receiptId: String,
@@ -68,7 +68,7 @@ internal class OlmInboundHandoffCoordinator(
         remoteDeviceUserId: String,
         ciphertextKind: OlmInboundCiphertextKind,
         localUserId: String,
-        messageFactory: (payload: OlmAuthenticatedMessagePayload) -> EncryptedOlmMessageEntity,
+        messageFactory: (payload: OlmAuthenticatedMessagePayload) -> DecryptedOlmMessage,
     ): OlmInboundHandoffResult = processingMutex.withLock {
         withContext(ioDispatcher) {
             require(RECEIPT_ID_PATTERN.matches(receiptId)) {
