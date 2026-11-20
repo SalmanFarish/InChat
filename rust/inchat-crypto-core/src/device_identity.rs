@@ -2216,6 +2216,162 @@ mod tests {
     use crate::megolm::{InboundGroupSession, OutboundGroupSession};
 
     #[test]
+    fn outbound_group_sessions_are_idempotent_per_epoch_and_rotate_on_membership_change() {
+        let mut state = super::DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+
+        let (first_id, created) = super::ensure_outbound_group_session(
+            &mut state,
+            "group-1",
+            3,
+            "sender-user",
+            "sender-device",
+        )
+        .unwrap();
+        assert!(created);
+
+        let (same_epoch_id, created) = super::ensure_outbound_group_session(
+            &mut state,
+            "group-1",
+            3,
+            "sender-user",
+            "sender-device",
+        )
+        .unwrap();
+        assert!(!created);
+        assert_eq!(same_epoch_id, first_id);
+
+        assert!(super::ensure_outbound_group_session(
+            &mut state,
+            "group-1",
+            2,
+            "sender-user",
+            "sender-device",
+        )
+        .is_err());
+
+        let (next_epoch_id, created) = super::ensure_outbound_group_session(
+            &mut state,
+            "group-1",
+            4,
+            "sender-user",
+            "sender-device",
+        )
+        .unwrap();
+        assert!(created);
+        assert_ne!(next_epoch_id, first_id);
+        assert!(super::export_outbound_group_session_key(
+            &state,
+            "group-1",
+            3,
+            "sender-user",
+            "sender-device",
+        )
+        .is_err());
+        assert!(
+            !super::export_outbound_group_session_key(
+                &state,
+                "group-1",
+                4,
+                "sender-user",
+                "sender-device",
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn inbound_group_key_import_is_idempotent_and_binds_sender_epoch() {
+        let mut sender = OutboundGroupSession::new();
+        let session_key = sender.export_session_key();
+        let session_id = sender.session_id();
+        let mut state = super::DeviceCryptoState {
+            account: Account::new(),
+            sessions: std::collections::BTreeMap::new(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+
+        assert!(super::import_inbound_group_session(
+            &mut state,
+            "group-1",
+            8,
+            "sender-user",
+            "sender-device",
+            &session_id,
+            &session_key,
+        )
+        .unwrap());
+        let key = super::inbound_group_session_key(
+            "group-1",
+            8,
+            "sender-user",
+            "sender-device",
+            &session_id,
+        );
+        let first = sender.encrypt(b"one").unwrap();
+        let stored = state.inbound_group_sessions.get_mut(&key).unwrap();
+        assert_eq!(stored.session.decrypt(&first.ciphertext).unwrap().0, b"one");
+        let mut before = stored.session.serialize_for_encrypted_storage().unwrap();
+
+        assert!(!super::import_inbound_group_session(
+            &mut state,
+            "group-1",
+            8,
+            "sender-user",
+            "sender-device",
+            &session_id,
+            &session_key,
+        )
+        .unwrap());
+
+        let stored = state.inbound_group_sessions.get(&key).unwrap();
+        let after = stored.session.serialize_for_encrypted_storage().unwrap();
+        assert_eq!(before, after);
+        before.zeroize();
+
+        assert!(super::import_inbound_group_session(
+            &mut state,
+            "group-1",
+            9,
+            "sender-user",
+            "sender-device",
+            &session_id,
+            &session_key,
+        )
+        .unwrap());
+        assert_eq!(state.inbound_group_sessions.len(), 2);
+
+        assert!(super::import_inbound_group_session(
+            &mut state,
+            "group-1",
+            8,
+            "sender-user",
+            "sender-device",
+            "another-session-id",
+            &session_key,
+        )
+        .is_err());
+        assert!(super::import_inbound_group_session(
+            &mut state,
+            "group-1",
+            8,
+            "sender-user",
+            "sender/device",
+            &session_id,
+            &session_key,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn device_account_pickle_round_trips_and_is_bound_to_device_id() {
         let mut account = Account::new();
         account.generate_one_time_keys(4);
