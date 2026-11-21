@@ -135,3 +135,20 @@ test("fresh group membership rejects malformed group snapshots", async () => {
   assert.equal(currentGroupNotificationRecipients({ type: "direct", members: { alice: true } }, "alice"), null);
   assert.equal(currentGroupNotificationRecipients({ type: "group", members: [] }, "alice"), null);
 });
+
+test("group direct fan-out requires a non-empty token for every current recipient", async () => {
+  const { hasCompleteGroupNotificationRegistry } = await import("../src/message-notification.js");
+  assert.equal(
+    hasCompleteGroupNotificationRegistry(["bob", "carol"], { bob: "token-b", carol: "token-c" }),
+    true,
+  );
+  assert.equal(
+    hasCompleteGroupNotificationRegistry(["bob", "carol"], { bob: "token-b" }),
+    false,
+  );
+  assert.equal(
+    hasCompleteGroupNotificationRegistry(["bob", "carol"], { bob: "token-b", carol: "   " }),
+    false,
+  );
+  assert.equal(hasCompleteGroupNotificationRegistry(["bob"], null), false);
+});
