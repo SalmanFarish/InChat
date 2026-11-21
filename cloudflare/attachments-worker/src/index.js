@@ -1711,6 +1711,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
   let updatedGroups = 0;
   let dissolvedGroups = 0;
+  const stalePersonalTopicTokens = new Set();
 
   for (const rawChatId of groupIds) {
     let chatId;
@@ -1753,6 +1754,9 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       throw new Error(
         "Could not remove all registered group notification tokens for account deletion.",
       );
+    }
+    for (const token of groupTokenCleanup.tokens) {
+      if (token !== registrationToken) stalePersonalTopicTokens.add(token);
     }
 
     if (!chat || chat.type !== "group") {
@@ -1853,6 +1857,17 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     }
 
     updatedGroups += 1;
+  }
+
+  // Old tokens can remain on the personal topic after a rotation failed.
+  // Remove those subscriptions too before deleting their last durable mirrors.
+  for (const staleToken of stalePersonalTopicTokens) {
+    await unsubscribeTopicForAccountCleanup(
+      adminAuth.token,
+      adminAuth.projectId,
+      await userTopicName(env, uid),
+      staleToken,
+    );
   }
 
   await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
