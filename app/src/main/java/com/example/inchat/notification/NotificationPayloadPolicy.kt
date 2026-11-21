@@ -89,7 +89,7 @@ internal object NotificationPayloadPolicy {
      * the correct conversation and deduplicate redelivered messages.
      */
     fun isValidMessagePayload(data: Map<String, String>): Boolean {
-        val type = data["type"]
+        val type = data["type"] ?: return false
         if (type !in setOf(TYPE_CHAT, TYPE_GROUP, TYPE_ENCRYPTED_CHAT, TYPE_ENCRYPTED_GROUP)) {
             return false
         }
