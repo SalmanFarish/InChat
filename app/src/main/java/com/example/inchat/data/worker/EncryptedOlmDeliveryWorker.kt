@@ -108,6 +108,22 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> Unit
         }
 
+        // The device identity read can suspend while Firebase auth changes. Recheck
+        // the scheduled owner before opening Room or constructing any relay/recovery
+        // collaborators, so a stale worker cannot act under a newly signed-in account.
+        when (evaluateEncryptedOlmAuthScope(
+            scheduledOwnerUserId = ownerUserId,
+            authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid,
+        )) {
+            EncryptedOlmAuthScopeDecision.WAIT_FOR_AUTH -> return Result.success()
+            EncryptedOlmAuthScopeDecision.RETIRE_STALE_SCOPE -> {
+                Log.i(TAG, "Retiring encrypted delivery after auth changed during device validation.")
+                cancel(applicationContext, ownerUserId, senderDeviceId)
+                return Result.success()
+            }
+            EncryptedOlmAuthScopeDecision.CHECK_DEVICE -> Unit
+        }
+
         var groupKeyRecoveryRetryRequired = false
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
