@@ -25,7 +25,7 @@ class OlmInboundDeliveryLedgerTest {
             .allowMainThreadQueries().build()
         val envelope = envelope("receiver-device", "sender-device", 7)
         try {
-            val ledger = OlmInboundDeliveryLedger(first.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(first.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(OlmInboundRegistration.NEW, ledger.register("alice", "message-123", envelope, 1_000))
             assertEquals(OlmInboundRegistration.PENDING_RETRY, ledger.register("alice", "message-123", envelope, 2_000))
             assertTrue(ledger.markProcessed("alice", "message-123", "sender-device"))
@@ -34,7 +34,7 @@ class OlmInboundDeliveryLedgerTest {
         val second = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
             .allowMainThreadQueries().build()
         try {
-            val ledger = OlmInboundDeliveryLedger(second.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(second.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.DUPLICATE_PROCESSED,
                 ledger.register("alice", "message-123", envelope, 3_000),
@@ -54,7 +54,7 @@ class OlmInboundDeliveryLedgerTest {
             .allowMainThreadQueries().build()
         try {
             val dao = db.olmInboundReceiptDao()
-            val ledger = OlmInboundDeliveryLedger(dao, "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "receiver-device")
             val finalizedEnvelope = envelope("receiver-device", "sender-device", 51)
             val rejectedEnvelope = envelope("receiver-device", "sender-device", 52)
 
@@ -64,6 +64,7 @@ class OlmInboundDeliveryLedgerTest {
             )
             assertTrue(ledger.markProcessed("alice", "terminal-finalized", "sender-device"))
             val finalizedId = olmInboundReceiptId(
+                "recipient",
                 "alice", "sender-device", "terminal-finalized", "receiver-device",
             )
             assertEquals(1, dao.markFinalized(finalizedId))
@@ -73,6 +74,7 @@ class OlmInboundDeliveryLedgerTest {
                 ledger.register("alice", "terminal-rejected", rejectedEnvelope, 200L),
             )
             val rejectedId = olmInboundReceiptId(
+                "recipient",
                 "alice", "sender-device", "terminal-rejected", "receiver-device",
             )
             assertEquals(1, dao.markRejected(rejectedId))
@@ -99,9 +101,9 @@ class OlmInboundDeliveryLedgerTest {
 
             assertEquals(finalizedBefore, dao.getByReceiptId(finalizedId))
             assertEquals(rejectedBefore, dao.getByReceiptId(rejectedId))
-            assertEquals(0, dao.getPending(10).size)
-            assertEquals(0, dao.getWaitingForDevice(10).size)
-            assertEquals(0, dao.getAwaitingFinalization(10).size)
+            assertEquals(0, dao.getPending("recipient", 10).size)
+            assertEquals(0, dao.getWaitingForDevice("recipient", 10).size)
+            assertEquals(0, dao.getAwaitingFinalization("recipient", 10).size)
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -118,10 +120,12 @@ class OlmInboundDeliveryLedgerTest {
         try {
             val encoded = envelope("receiver-device", "sender-device", 41)
             val receiptId = olmInboundReceiptId(
+                "recipient",
                 "alice", "sender-device", "corrupt-existing", "receiver-device",
             )
             val corrupted = OlmInboundReceiptEntity(
                 receiptId = receiptId,
+                recipientUserId = "recipient",
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 messageId = "corrupt-existing",
@@ -133,12 +137,47 @@ class OlmInboundDeliveryLedgerTest {
                 processedAtMillis = null,
             )
             assertTrue(db.olmInboundReceiptDao().insertIfAbsent(corrupted) != -1L)
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.CONFLICT,
                 ledger.register("alice", "corrupt-existing", encoded, 101L),
             )
             assertEquals(corrupted, db.olmInboundReceiptDao().getByReceiptId(receiptId))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun sharedInstallationDeviceKeepsReceiptQueuesScopedToRecipientAccount() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-account-scope-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmInboundReceiptDao()
+            val accountA = OlmInboundDeliveryLedger(dao, "account-a", "receiver-device")
+            val accountB = OlmInboundDeliveryLedger(dao, "account-b", "receiver-device")
+            val sharedEnvelope = envelope("receiver-device", "sender-device", 61)
+
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                accountA.register("alice", "same-message-id", sharedEnvelope, 100L),
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                accountB.register("alice", "same-message-id", sharedEnvelope, 101L),
+            )
+            assertEquals(listOf("account-a"), dao.getPending("account-a", 10).map { it.recipientUserId })
+            assertEquals(listOf("account-b"), dao.getPending("account-b", 10).map { it.recipientUserId })
+
+            assertTrue(accountA.markProcessed("alice", "same-message-id", "sender-device"))
+            assertTrue(dao.getPending("account-a", 10).isEmpty())
+            assertEquals(1, dao.getPending("account-b", 10).size)
+            assertEquals(1, dao.getAwaitingFinalization("account-a", 10).size)
+            assertTrue(dao.getAwaitingFinalization("account-b", 10).isEmpty())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -153,7 +192,7 @@ class OlmInboundDeliveryLedgerTest {
         val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
             .allowMainThreadQueries().build()
         try {
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val firstEnvelope = envelope("receiver-device", "sender-device", 31)
             val secondEnvelope = envelope("receiver-device", "sender-device", 32)
             assertEquals(
@@ -166,10 +205,10 @@ class OlmInboundDeliveryLedgerTest {
             )
             assertTrue(ledger.markProcessed("alice", "first-pending", "sender-device"))
 
-            val pending = db.olmInboundReceiptDao().getPending(10)
+            val pending = db.olmInboundReceiptDao().getPending("recipient", 10)
             assertEquals(listOf("second-pending"), pending.map { it.messageId })
             assertTrue(pending.all { it.status == OlmInboundReceiptStatus.PENDING.name })
-            assertTrue(db.olmInboundReceiptDao().getPending(0).isEmpty())
+            assertTrue(db.olmInboundReceiptDao().getPending("recipient", 0).isEmpty())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -186,8 +225,8 @@ class OlmInboundDeliveryLedgerTest {
         val messageId = "concurrent-message"
         val encoded = envelope("receiver-device", "sender-device", 11)
         try {
-            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
-            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(2)
             try {
@@ -205,7 +244,7 @@ class OlmInboundDeliveryLedgerTest {
 
                 val receiptId = MessageDigest.getInstance("SHA-256")
                     .digest(
-                        listOf("alice", "sender-device", messageId, "receiver-device")
+                        listOf("recipient", "alice", "sender-device", messageId, "receiver-device")
                             .joinToString(0.toChar().toString())
                             .toByteArray(),
                     )
@@ -233,8 +272,8 @@ class OlmInboundDeliveryLedgerTest {
         val firstEnvelope = envelope("receiver-device", "sender-device", 21)
         val secondEnvelope = envelope("receiver-device", "sender-device", 22)
         try {
-            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
-            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(2)
             try {
@@ -256,7 +295,7 @@ class OlmInboundDeliveryLedgerTest {
 
                 val receiptId = MessageDigest.getInstance("SHA-256")
                     .digest(
-                        listOf("alice", "sender-device", messageId, "receiver-device")
+                        listOf("recipient", "alice", "sender-device", messageId, "receiver-device")
                             .joinToString(0.toChar().toString())
                             .toByteArray(),
                     )
@@ -287,7 +326,7 @@ class OlmInboundDeliveryLedgerTest {
         val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
             .allowMainThreadQueries().build()
         try {
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", "message-456", envelope("receiver-device", "sender-device", 1), 10),
@@ -307,7 +346,7 @@ class OlmInboundDeliveryLedgerTest {
         val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
             .allowMainThreadQueries().build()
         try {
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             try {
                 ledger.register("alice", "message-789", envelope("other-device", "sender-device", 1), 10)
                 throw AssertionError("Expected wrong-recipient envelope to be rejected")

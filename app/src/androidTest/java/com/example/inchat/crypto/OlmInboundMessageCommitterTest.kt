@@ -24,7 +24,7 @@ class OlmInboundMessageCommitterTest {
     @Test
     fun messageAndReceiptAreCommittedTogether() = runBlocking {
         withDatabase("olm-inbound-atomic-success.db") { db ->
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             assertEquals(OlmInboundRegistration.NEW, ledger.register("alice", "message-1", envelope(), 100L))
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId())!!
             val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
@@ -47,7 +47,7 @@ class OlmInboundMessageCommitterTest {
     @Test
     fun concurrentCommittersCannotOverwriteTheFirstCommittedMessage() = runBlocking {
         withDatabase("olm-inbound-concurrent-commit.db") { db ->
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", "concurrent-commit", envelope(), 100L),
@@ -110,7 +110,7 @@ class OlmInboundMessageCommitterTest {
     @Test
     fun mismatchedMessageCannotChangeReceiptOrCache() = runBlocking {
         withDatabase("olm-inbound-atomic-mismatch.db") { db ->
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             ledger.register("alice", "message-2", envelope(), 100L)
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("message-2"))!!
             val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
@@ -130,7 +130,7 @@ class OlmInboundMessageCommitterTest {
     @Test
     fun secondSenderDeviceCannotOverwriteAnExistingConversationMessageId() = runBlocking {
         withDatabase("olm-inbound-message-id-collision.db") { db ->
-            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 firstLedger.register("alice", "shared-message-id", envelope(), 100L),
@@ -160,13 +160,13 @@ class OlmInboundMessageCommitterTest {
                 .put("senderDeviceId", secondDevice)
                 .put("sessionId", "session-$secondDevice")
                 .toString()
-            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 secondLedger.register("alice", "shared-message-id", secondEnvelope, 300L),
             )
             val secondReceiptId = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(("alice" + 0.toChar() + secondDevice + 0.toChar() +
+                .digest(("local-user" + 0.toChar() + "alice" + 0.toChar() + secondDevice + 0.toChar() +
                     "shared-message-id" + 0.toChar() + "receiver-device").toByteArray())
                 .joinToString("") { "%02x".format(it) }
 
@@ -203,7 +203,7 @@ class OlmInboundMessageCommitterTest {
     @Test
     fun processedReceiptCannotBeCommittedAgain() = runBlocking {
         withDatabase("olm-inbound-atomic-duplicate.db") { db ->
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
             ledger.register("alice", "message-3", envelope(), 100L)
             val receipt = db.olmInboundReceiptDao().getByReceiptId(receiptId("message-3"))!!
             val committer = OlmInboundMessageCommitter(db, db.encryptedOlmMessageDao(), db.olmInboundReceiptDao())
@@ -231,7 +231,7 @@ class OlmInboundMessageCommitterTest {
             val alias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
             val vault = EncryptedOlmMessageVault(alias)
             try {
-                val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+                val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
                 assertEquals(
                     OlmInboundRegistration.NEW,
                     ledger.register("alice", "message-1", envelope(), 100L),
@@ -324,6 +324,6 @@ class OlmInboundMessageCommitterTest {
 
     private fun receiptId(messageId: String = "message-1"): String =
         java.security.MessageDigest.getInstance("SHA-256")
-            .digest("alice\u0000sender-device\u0000$messageId\u0000receiver-device".toByteArray())
+            .digest("local-user\u0000alice\u0000sender-device\u0000$messageId\u0000receiver-device".toByteArray())
             .joinToString("") { "%02x".format(it) }
 }

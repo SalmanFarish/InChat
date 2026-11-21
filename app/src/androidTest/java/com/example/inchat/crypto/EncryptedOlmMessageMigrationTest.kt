@@ -42,12 +42,33 @@ interface VersionTenPlaintextOlmMessageDao {
     suspend fun insert(message: VersionTenPlaintextOlmMessage)
 }
 
+/** Exact pre-v14 inbound receipt table: legacy rows have no receiving-account owner. */
+@Entity(
+    tableName = "olm_inbound_receipts",
+    indices = [
+        Index(value = ["senderUserId", "senderDeviceId", "messageId", "recipientDeviceId"], unique = true),
+        Index(value = ["status", "receivedAtMillis"]),
+    ],
+)
+data class VersionTenOlmInboundReceiptEntity(
+    @androidx.room.PrimaryKey val receiptId: String,
+    val senderUserId: String,
+    val senderDeviceId: String,
+    val messageId: String,
+    val recipientDeviceId: String,
+    val envelope: String,
+    val envelopeSha256: String,
+    val status: String,
+    val receivedAtMillis: Long,
+    val processedAtMillis: Long?,
+)
+
 @Database(
     entities = [
         CachedMessageEntity::class,
         OlmDeviceDeliveryEntity::class,
         OlmDeliveryReceiptEntity::class,
-        OlmInboundReceiptEntity::class,
+        VersionTenOlmInboundReceiptEntity::class,
         SasVerificationMessageEntity::class,
         VersionTenPlaintextOlmMessage::class,
     ],
@@ -97,7 +118,12 @@ class EncryptedOlmMessageMigrationTest {
             LocalChatDatabase::class.java,
             databaseName,
         )
-            .addMigrations(LocalChatDatabase.MIGRATION_10_11)
+            .addMigrations(
+                LocalChatDatabase.MIGRATION_10_11,
+                LocalChatDatabase.MIGRATION_11_12,
+                LocalChatDatabase.MIGRATION_12_13,
+                LocalChatDatabase.MIGRATION_13_14,
+            )
             .allowMainThreadQueries()
             .build()
 

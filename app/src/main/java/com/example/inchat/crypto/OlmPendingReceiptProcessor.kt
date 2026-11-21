@@ -92,7 +92,7 @@ internal class OlmPendingReceiptProcessor(
 
                 // Recover the crash window where Room committed the message but the
                 // native staged-plaintext cleanup had not yet completed.
-                for (receipt in receiptDao.getAwaitingFinalization(limit)) {
+                for (receipt in receiptDao.getAwaitingFinalization(localUserId, limit)) {
                     if (authenticatedLocalUserId() != localUserId) break
                     finalizationChecked++
                     try {
@@ -110,8 +110,8 @@ internal class OlmPendingReceiptProcessor(
 
                 // Snapshot both queues before changing states. A receipt deferred in
                 // this pass is reconsidered on the next pass, not twice immediately.
-                val pendingReceipts = receiptDao.getPending(limit)
-                val deferredReceipts = receiptDao.getWaitingForDevice(limit)
+                val pendingReceipts = receiptDao.getPending(localUserId, limit)
+                val deferredReceipts = receiptDao.getWaitingForDevice(localUserId, limit)
                 pendingScanned = pendingReceipts.size
                 deferredScanned = deferredReceipts.size
                 val deviceDirectoryCache = mutableMapOf<String, List<PublicDeviceKeyBundle>>()

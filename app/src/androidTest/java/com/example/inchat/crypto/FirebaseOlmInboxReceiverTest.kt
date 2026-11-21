@@ -23,7 +23,7 @@ class FirebaseOlmInboxReceiverTest {
             val encoded = envelope(1)
             val item = FirebaseOlmInboxItem("a".repeat(64), "alice", "sender-device", "message-1", encoded)
             val transport = FakeTransport(mutableListOf(item))
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 100L })
 
             val result = receiver.receivePending()
@@ -54,7 +54,7 @@ class FirebaseOlmInboxReceiverTest {
             val item = FirebaseOlmInboxItem(
                 "f".repeat(64), "alice", "sender-device", "already-processed-message", encoded,
             )
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", item.messageId, encoded, 300L),
@@ -99,13 +99,13 @@ class FirebaseOlmInboxReceiverTest {
         try {
             val messageId = "rejected-duplicate-message"
             val encoded = envelope(1)
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", messageId, encoded, 200L),
             )
             val receiptId = java.security.MessageDigest.getInstance("SHA-256")
-                .digest("alice\u0000sender-device\u0000$messageId\u0000receiver-device".toByteArray())
+                .digest("recipient\u0000alice\u0000sender-device\u0000$messageId\u0000receiver-device".toByteArray())
                 .joinToString("") { "%02x".format(it) }
             assertEquals(1, db.olmInboundReceiptDao().markRejected(receiptId))
 
@@ -147,7 +147,7 @@ class FirebaseOlmInboxReceiverTest {
                 items = mutableListOf(item),
                 failFirstAcknowledgement = true,
             )
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(
                 transport,
                 ledger,
@@ -193,7 +193,7 @@ class FirebaseOlmInboxReceiverTest {
         val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
             .allowMainThreadQueries().build()
         try {
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             ledger.register("alice", "message-2", envelope(1), 100L)
             val item = FirebaseOlmInboxItem("b".repeat(64), "alice", "sender-device", "message-2", envelope(2))
             val transport = FakeTransport(mutableListOf(item))
@@ -224,7 +224,7 @@ class FirebaseOlmInboxReceiverTest {
                 "c".repeat(64), "alice", "different-device", "message-3", envelope(1),
             )
             val transport = FakeTransport(mutableListOf(item))
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device")
 
             try {
@@ -252,7 +252,7 @@ class FirebaseOlmInboxReceiverTest {
         try {
             val item = FirebaseOlmInboxItem("d".repeat(64), "alice", "sender-device", "message-4", envelope(1))
             val transport = FakeTransport(mutableListOf(item), failFirstRemoval = true)
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 200L })
 
             try {

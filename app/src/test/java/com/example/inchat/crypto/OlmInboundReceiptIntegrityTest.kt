@@ -14,13 +14,14 @@ class OlmInboundReceiptIntegrityTest {
     )
 
     private fun receipt(
-        receiptId: String = olmInboundReceiptId("alice", "sender-device", "message-1", "receiver-device"),
+        receiptId: String = olmInboundReceiptId("recipient", "alice", "sender-device", "message-1", "receiver-device"),
         envelope: String = encodedEnvelope,
         digest: String = sha256(envelope),
         receivedAtMillis: Long = 10L,
         senderDeviceId: String = "sender-device",
     ) = OlmInboundReceiptEntity(
         receiptId = receiptId,
+        recipientUserId = "recipient",
         senderUserId = "alice",
         senderDeviceId = senderDeviceId,
         messageId = "message-1",
@@ -35,6 +36,13 @@ class OlmInboundReceiptIntegrityTest {
     @Test
     fun acceptsReceiptWhoseIdentityDigestAndRoutingAgree() {
         validateOlmInboundReceiptIntegrity(receipt())
+    }
+
+    @Test
+    fun rejectsReceiptWithoutReceivingAccountScope() {
+        assertRejected {
+            validateOlmInboundReceiptIntegrity(receipt().copy(recipientUserId = null))
+        }
     }
 
     @Test

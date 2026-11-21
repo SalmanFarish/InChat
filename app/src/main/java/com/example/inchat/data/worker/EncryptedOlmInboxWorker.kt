@@ -113,6 +113,7 @@ class EncryptedOlmInboxWorker(
                 ),
                 ledger = OlmInboundDeliveryLedger(
                     dao = database.olmInboundReceiptDao(),
+                    recipientUserId = ownerUserId,
                     localDeviceId = recipientDeviceId,
                 ),
                 deviceId = recipientDeviceId,

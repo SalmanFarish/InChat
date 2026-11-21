@@ -21,7 +21,7 @@ class OlmPendingReceiptProcessorTest {
             .build()
         try {
             val dao = database.olmInboundReceiptDao()
-            val ledger = OlmInboundDeliveryLedger(dao, "recipient-device")
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
             val trustedDevice = device("trusted-sender-device", "trusted-identity")
             val untrustedDevice = device("untrusted-sender-device", "untrusted-identity")
 
@@ -100,7 +100,7 @@ class OlmPendingReceiptProcessorTest {
                     receiptId("alice", "trusted-sender-device", "committed-before-crash", "recipient-device"),
                 )?.status,
             )
-            assertEquals(0, dao.getPending(20).size)
+            assertEquals(0, dao.getPending("recipient", 20).size)
             assertEquals(
                 OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
                 dao.getByReceiptId(
@@ -124,6 +124,59 @@ class OlmPendingReceiptProcessorTest {
             assertEquals(1, deferredResult.waitingForTrust)
             assertEquals(1, deferredResult.missingRemoteDevice)
             assertEquals(0, deferredResult.committed)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun processorBDoesNotSelectOrFinalizeAccountAReceiptsOnSharedDevice() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-account-scope.db"
+        context.deleteDatabase(databaseName)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val accountA = OlmInboundDeliveryLedger(dao, "account-a", "recipient-device")
+            val encoded = envelope("sender-device", "recipient-device", 1)
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                accountA.register("alice", "same-installation-message", encoded, 100L),
+            )
+            var directoryReads = 0
+            var handoffs = 0
+            var finalizations = 0
+            val processorForB = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = {
+                    directoryReads++
+                    error("Account B must not resolve senders for Account A receipts")
+                },
+                trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+                handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                    handoffs++
+                    error("Account B must not decrypt Account A receipts")
+                },
+                finalizer = OlmCommittedReceiptFinalizer { _, _ ->
+                    finalizations++
+                    error("Account B must not finalize Account A receipts")
+                },
+                authenticatedLocalUserId = { "account-b" },
+            )
+
+            val result = processorForB.processPending(limit = 10)
+
+            assertEquals(0, result.pendingScanned)
+            assertEquals(0, result.deferredScanned)
+            assertEquals(0, result.finalizationChecked)
+            assertEquals(0, directoryReads)
+            assertEquals(0, handoffs)
+            assertEquals(0, finalizations)
+            assertEquals(1, dao.getPending("account-a", 10).size)
+            assertTrue(dao.getPending("account-b", 10).isEmpty())
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
@@ -177,6 +230,7 @@ class OlmPendingReceiptProcessorTest {
                 status: String = OlmInboundReceiptStatus.PENDING.name,
             ) = OlmInboundReceiptEntity(
                 receiptId = rowReceiptId,
+                recipientUserId = "recipient",
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 messageId = messageId,
@@ -225,8 +279,8 @@ class OlmPendingReceiptProcessorTest {
             assertEquals(0, result.failed)
             assertEquals(0, directoryReads)
             assertEquals(0, handoffCalls)
-            assertEquals(0, dao.getPending(10).size)
-            assertEquals(0, dao.getWaitingForDevice(10).size)
+            assertEquals(0, dao.getPending("recipient", 10).size)
+            assertEquals(0, dao.getWaitingForDevice("recipient", 10).size)
             corruptedRows.forEach { corrupt ->
                 assertEquals(
                     OlmInboundReceiptStatus.REJECTED.name,
@@ -253,7 +307,7 @@ class OlmPendingReceiptProcessorTest {
             .build()
         try {
             val dao = database.olmInboundReceiptDao()
-            val ledger = OlmInboundDeliveryLedger(dao, "recipient-device")
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
             val trustedDevice = device("sender-device", "sender-identity")
             val encoded = envelope("sender-device", "recipient-device", 1)
             assertEquals(
@@ -316,8 +370,8 @@ class OlmPendingReceiptProcessorTest {
                 OlmInboundReceiptStatus.FINALIZED.name,
                 dao.getByReceiptId(id)?.status,
             )
-            assertEquals(0, dao.getPending(10).size)
-            assertEquals(0, dao.getWaitingForDevice(10).size)
+            assertEquals(0, dao.getPending("recipient", 10).size)
+            assertEquals(0, dao.getWaitingForDevice("recipient", 10).size)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
@@ -333,7 +387,7 @@ class OlmPendingReceiptProcessorTest {
             .build()
         try {
             val dao = database.olmInboundReceiptDao()
-            val ledger = OlmInboundDeliveryLedger(dao, "recipient-device")
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
             val encoded = envelope("sender-device", "recipient-device", 1)
             assertEquals(
                 OlmInboundRegistration.NEW,
@@ -419,6 +473,6 @@ class OlmPendingReceiptProcessorTest {
 
     private fun receiptId(sender: String, device: String, message: String, recipient: String): String =
         java.security.MessageDigest.getInstance("SHA-256")
-            .digest("$sender\u0000$device\u0000$message\u0000$recipient".toByteArray())
+            .digest("recipient\u0000$sender\u0000$device\u0000$message\u0000$recipient".toByteArray())
             .joinToString("") { "%02x".format(it) }
 }

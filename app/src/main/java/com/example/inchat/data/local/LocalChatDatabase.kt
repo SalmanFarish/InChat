@@ -29,7 +29,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class, OlmGroupKeyDistributionEntity::class],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -350,13 +350,30 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /** Account-scope inbound ciphertext receipts without guessing owners for legacy rows. */
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Old rows were captured against an installation-scoped device ID. That
+                // installation may have switched accounts, so assigning an owner would be unsafe.
+                // Keep recipientUserId NULL: scoped processor queries will not adopt these rows.
+                database.execSQL("ALTER TABLE olm_inbound_receipts ADD COLUMN recipientUserId TEXT")
+                database.execSQL(
+                    "DROP INDEX IF EXISTS index_olm_inbound_receipts_senderUserId_senderDeviceId_messageId_recipientDeviceId"
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_olm_inbound_receipts_recipientUserId_senderUserId_senderDeviceId_messageId_recipientDeviceId " +
+                        "ON olm_inbound_receipts(recipientUserId, senderUserId, senderDeviceId, messageId, recipientDeviceId)"
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build().also { INSTANCE = it }
             }
     }

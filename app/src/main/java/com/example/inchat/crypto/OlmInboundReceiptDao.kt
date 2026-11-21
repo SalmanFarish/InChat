@@ -13,13 +13,13 @@ interface OlmInboundReceiptDao {
     @Query("SELECT * FROM olm_inbound_receipts WHERE receiptId = :receiptId LIMIT 1")
     fun getByReceiptId(receiptId: String): OlmInboundReceiptEntity?
 
-    /** Oldest ciphertext receipts that still need authenticated decryption and message commit. */
-    @Query("SELECT * FROM olm_inbound_receipts WHERE status = 'PENDING' ORDER BY receivedAtMillis ASC, receiptId ASC LIMIT :limit")
-    fun getPending(limit: Int): List<OlmInboundReceiptEntity>
+    /** Oldest ciphertext receipts belonging only to the authenticated local account. */
+    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PENDING' ORDER BY receivedAtMillis ASC, receiptId ASC LIMIT :limit")
+    fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
-    /** Receipts deferred until their sender device is published and SAS-trusted. */
-    @Query("SELECT * FROM olm_inbound_receipts WHERE status = 'WAITING_FOR_DEVICE' ORDER BY receivedAtMillis ASC, receiptId ASC LIMIT :limit")
-    fun getWaitingForDevice(limit: Int): List<OlmInboundReceiptEntity>
+    /** Deferred receipts remain account-scoped while waiting for device publication or SAS trust. */
+    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'WAITING_FOR_DEVICE' ORDER BY receivedAtMillis ASC, receiptId ASC LIMIT :limit")
+    fun getWaitingForDevice(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
     @Query("UPDATE olm_inbound_receipts SET status = 'WAITING_FOR_DEVICE' WHERE receiptId = :receiptId AND status = 'PENDING'")
     fun markWaitingForDevice(receiptId: String): Int
@@ -31,9 +31,9 @@ interface OlmInboundReceiptDao {
     @Query("UPDATE olm_inbound_receipts SET status = 'REJECTED', processedAtMillis = NULL WHERE receiptId = :receiptId AND status IN ('PENDING', 'WAITING_FOR_DEVICE')")
     fun markRejected(receiptId: String): Int
 
-    /** Receipts whose Room commit succeeded but native plaintext cleanup may need recovery. */
-    @Query("SELECT * FROM olm_inbound_receipts WHERE status = 'PROCESSED' ORDER BY processedAtMillis ASC, receiptId ASC LIMIT :limit")
-    fun getAwaitingFinalization(limit: Int): List<OlmInboundReceiptEntity>
+    /** Committed receipts are finalized only under the account that received them. */
+    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PROCESSED' ORDER BY processedAtMillis ASC, receiptId ASC LIMIT :limit")
+    fun getAwaitingFinalization(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
     @Query("UPDATE olm_inbound_receipts SET status = 'FINALIZED' WHERE receiptId = :receiptId AND status = 'PROCESSED'")
     fun markFinalized(receiptId: String): Int

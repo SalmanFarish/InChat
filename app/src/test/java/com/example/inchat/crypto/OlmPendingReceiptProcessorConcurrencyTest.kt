@@ -21,10 +21,11 @@ class OlmPendingReceiptProcessorConcurrencyTest {
                 ciphertext = byteArrayOf(1, 7),
             ),
         )
-        val receiptId = olmInboundReceiptId("alice", "sender-device", "message-1", "recipient-device")
+        val receiptId = olmInboundReceiptId("recipient", "alice", "sender-device", "message-1", "recipient-device")
         dao.insertIfAbsent(
             OlmInboundReceiptEntity(
                 receiptId = receiptId,
+                recipientUserId = "recipient",
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 messageId = "message-1",
@@ -105,10 +106,11 @@ class OlmPendingReceiptProcessorConcurrencyTest {
                 ciphertext = byteArrayOf(1, 7),
             ),
         )
-        val receiptId = olmInboundReceiptId("alice", "sender-device", "message-2", "recipient-device")
+        val receiptId = olmInboundReceiptId("recipient", "alice", "sender-device", "message-2", "recipient-device")
         dao.insertIfAbsent(
             OlmInboundReceiptEntity(
                 receiptId = receiptId,
+                recipientUserId = "recipient",
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 messageId = "message-2",
@@ -159,10 +161,11 @@ class OlmPendingReceiptProcessorConcurrencyTest {
                 ciphertext = byteArrayOf(1, 9),
             ),
         )
-        val receiptId = olmInboundReceiptId("alice", "sender-device", "message-account-scope", "recipient-device")
+        val receiptId = olmInboundReceiptId("account-a", "alice", "sender-device", "message-account-scope", "recipient-device")
         dao.insertIfAbsent(
             OlmInboundReceiptEntity(
                 receiptId = receiptId,
+                recipientUserId = "account-a",
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 messageId = "message-account-scope",
@@ -209,14 +212,14 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         override fun getByReceiptId(receiptId: String): OlmInboundReceiptEntity? = rows[receiptId]
 
         @Synchronized
-        override fun getPending(limit: Int): List<OlmInboundReceiptEntity> =
-            rows.values.filter { it.status == OlmInboundReceiptStatus.PENDING.name }
+        override fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity> =
+            rows.values.filter { it.recipientUserId == recipientUserId && it.status == OlmInboundReceiptStatus.PENDING.name }
                 .sortedWith(compareBy<OlmInboundReceiptEntity> { it.receivedAtMillis }.thenBy { it.receiptId })
                 .take(limit)
 
         @Synchronized
-        override fun getWaitingForDevice(limit: Int): List<OlmInboundReceiptEntity> =
-            rows.values.filter { it.status == OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name }
+        override fun getWaitingForDevice(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity> =
+            rows.values.filter { it.recipientUserId == recipientUserId && it.status == OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name }
                 .sortedWith(compareBy<OlmInboundReceiptEntity> { it.receivedAtMillis }.thenBy { it.receiptId })
                 .take(limit)
 
@@ -243,8 +246,8 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         }
 
         @Synchronized
-        override fun getAwaitingFinalization(limit: Int): List<OlmInboundReceiptEntity> =
-            rows.values.filter { it.status == OlmInboundReceiptStatus.PROCESSED.name }
+        override fun getAwaitingFinalization(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity> =
+            rows.values.filter { it.recipientUserId == recipientUserId && it.status == OlmInboundReceiptStatus.PROCESSED.name }
                 .sortedWith(compareBy<OlmInboundReceiptEntity> { it.processedAtMillis }.thenBy { it.receiptId })
                 .take(limit)
 

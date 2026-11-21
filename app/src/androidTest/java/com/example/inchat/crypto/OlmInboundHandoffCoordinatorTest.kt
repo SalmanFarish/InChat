@@ -60,13 +60,13 @@ class OlmInboundHandoffCoordinatorTest {
             .allowMainThreadQueries()
             .build()
         try {
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), localBundle.deviceId)
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", localBundle.deviceId)
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", "handoff-$suffix", encodedEnvelope, 100L),
             )
             val receiptId = sha256(
-                "alice\u0000$senderDeviceId\u0000handoff-$suffix\u0000${localBundle.deviceId}"
+                "local-user\u0000alice\u0000$senderDeviceId\u0000handoff-$suffix\u0000${localBundle.deviceId}"
             )
             val receipt = requireNotNull(db.olmInboundReceiptDao().getByReceiptId(receiptId))
             val repository = OlmSessionRepository(context)
@@ -163,13 +163,13 @@ class OlmInboundHandoffCoordinatorTest {
             .build()
         try {
             val messageId = "handoff-retry-$suffix"
-            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), localBundle.deviceId)
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", localBundle.deviceId)
             assertEquals(
                 OlmInboundRegistration.NEW,
                 ledger.register("alice", messageId, envelope, 300L),
             )
             val receiptId = sha256(
-                "alice\u0000$senderDeviceId\u0000$messageId\u0000${localBundle.deviceId}"
+                "local-user\u0000alice\u0000$senderDeviceId\u0000$messageId\u0000${localBundle.deviceId}"
             )
             val receipt = requireNotNull(db.olmInboundReceiptDao().getByReceiptId(receiptId))
             val repository = OlmSessionRepository(context)
@@ -523,7 +523,7 @@ class OlmInboundHandoffCoordinatorTest {
                 ledger.register("alice", normalMessageId, normalEnvelope, 500L),
             )
             val normalReceiptId = sha256(
-                "alice\u0000$senderDeviceId\u0000$normalMessageId\u0000${localBundle.deviceId}"
+                "local-user\u0000alice\u0000$senderDeviceId\u0000$normalMessageId\u0000${localBundle.deviceId}"
             )
             assertEquals(
                 OlmInboundHandoffResult.COMMITTED,
@@ -568,7 +568,7 @@ class OlmInboundHandoffCoordinatorTest {
                 ledger.register("alice", retryNormalMessageId, retryNormalEnvelope, 600L),
             )
             val retryNormalReceiptId = sha256(
-                "alice\u0000$senderDeviceId\u0000$retryNormalMessageId\u0000${localBundle.deviceId}"
+                "local-user\u0000alice\u0000$senderDeviceId\u0000$retryNormalMessageId\u0000${localBundle.deviceId}"
             )
             var normalMappingFailed = false
             try {

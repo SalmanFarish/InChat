@@ -8,12 +8,14 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "olm_inbound_receipts",
     indices = [
-        Index(value = ["senderUserId", "senderDeviceId", "messageId", "recipientDeviceId"], unique = true),
+        Index(value = ["recipientUserId", "senderUserId", "senderDeviceId", "messageId", "recipientDeviceId"], unique = true),
         Index(value = ["status", "receivedAtMillis"]),
     ],
 )
 data class OlmInboundReceiptEntity(
     @PrimaryKey val receiptId: String,
+    /** Null only for pre-v14 receipts whose receiving account cannot be inferred safely. */
+    val recipientUserId: String?,
     val senderUserId: String,
     val senderDeviceId: String,
     val messageId: String,
