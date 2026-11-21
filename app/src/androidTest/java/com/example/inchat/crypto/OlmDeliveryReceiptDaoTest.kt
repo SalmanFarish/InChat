@@ -79,7 +79,7 @@ class OlmDeliveryReceiptDaoTest {
     }
 
     @Test
-    fun acknowledgementFromTheSendersOwnOtherDeviceDoesNotMarkTheRecipientDelivered() = runBlocking {
+    fun senderCompanionAcknowledgementPersistsWithoutMarkingRemoteRecipientDelivered() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-delivery-receipt-self-device-test.db"
         context.deleteDatabase(name)
@@ -103,8 +103,25 @@ class OlmDeliveryReceiptDaoTest {
                 12_345L,
             )
 
-            assertNull(
-                database.olmDeliveryReceiptDao().getByDeliveryId("b".repeat(64)),
+            assertEquals(
+                "alice",
+                database.olmDeliveryReceiptDao().getByDeliveryId("b".repeat(64))?.recipientUserId,
+            )
+            assertEquals(
+                listOf("message-2"),
+                database.olmDeliveryReceiptDao().getDeliveredMessageIds(
+                    ownerUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                    recipientUserId = "alice",
+                ),
+            )
+            assertEquals(
+                emptyList<String>(),
+                database.olmDeliveryReceiptDao().getDeliveredMessageIds(
+                    ownerUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                    recipientUserId = "bob",
+                ),
             )
         } finally {
             database.close()

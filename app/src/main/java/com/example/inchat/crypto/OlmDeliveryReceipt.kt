@@ -14,8 +14,9 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Callable
 
 /**
- * Durable sender-side proof that a recipient device staged an encrypted
- * envelope in its local inbound receipt ledger. This record deliberately
+ * Durable sender-side proof that a target device staged an encrypted
+ * envelope in its local inbound receipt ledger. This includes remote
+ * recipients and the sender's own companion devices. The record deliberately
  * excludes both ciphertext and plaintext.
  */
 @Entity(
@@ -109,10 +110,9 @@ internal class RoomOlmDeliveryAcknowledgementRecorder(
         require(acknowledgement.messageId.matches(MESSAGE_ID_PATTERN))
         require(acknowledgement.deliveryId.matches(DELIVERY_ID_PATTERN))
 
-        // The sender's other devices receive sync copies too, but their receipt
-        // must not mark the message as delivered to the other account.
-        if (acknowledgement.recipientUserId == acknowledgement.senderUserId) return
-
+        // Keep sender-owned companion-device receipts as well. Queries for a
+        // remote recipient remain scoped by recipientUserId, so these local
+        // sync acknowledgements cannot mark the other account as delivered.
         val receipt = OlmDeliveryReceiptEntity(
             deliveryId = acknowledgement.deliveryId,
             ownerUserId = acknowledgement.senderUserId,

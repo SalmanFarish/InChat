@@ -110,10 +110,9 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
             metadataStore.persistIfAbsent(record)
         }
 
-        // Ack receipts outlive queue rows. Do not resurrect remote deliveries
-        // already acknowledged and deleted from the sender's outbox.
+        // Ack receipts outlive queue rows. Do not resurrect remote or
+        // sender-owned companion-device deliveries already acknowledged.
         val acknowledgedByRecipient = distribution.deliveries
-            .filter { it.recipientUserId != ownerUid }
             .groupBy { it.recipientUserId }
             .mapValues { (recipientUserId, _) ->
                 deliveryReceipts.getAcknowledgedRecipientDeviceIds(
@@ -124,8 +123,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
                 ).toSet()
             }
         val pendingDeliveries = distribution.deliveries.filter { delivery ->
-            delivery.recipientUserId == ownerUid ||
-                delivery.recipientDeviceId !in acknowledgedByRecipient[delivery.recipientUserId].orEmpty()
+            delivery.recipientDeviceId !in acknowledgedByRecipient[delivery.recipientUserId].orEmpty()
         }
         val inserted = if (pendingDeliveries.isEmpty()) 0 else queue.enqueue(
             ownerUserId = ownerUid,

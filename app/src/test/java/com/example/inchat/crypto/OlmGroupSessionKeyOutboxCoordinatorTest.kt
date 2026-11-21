@@ -116,6 +116,36 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         assertEquals(setOf("alice" to "alice-tablet"),
             queueStore.rows.map { it.recipientUserId to it.recipientDeviceId }.toSet())
     }
+    @Test
+    fun resumeDoesNotRequeueSenderCompanionDevicesAlreadyAcknowledgedBeforeRowRemoval() {
+        val queueStore = FakeStore()
+        val metadata = FakeMetadataStore()
+        val receipts = FakeDeliveryReceipts(
+            mapOf(("alice" to "group-key-7") to setOf("alice-tablet")),
+        )
+        val coordinator = OlmGroupSessionKeyOutboxCoordinator(
+            queue = OlmDeliveryQueue(queueStore),
+            metadataStore = metadata,
+            deliveryReceipts = receipts,
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            scheduleDelivery = { _, _ -> },
+        )
+
+        assertEquals(1, coordinator.enqueue(membership(), distribution()))
+        assertEquals(
+            setOf("bob" to "bob-phone"),
+            queueStore.rows.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+        )
+
+        queueStore.rows.clear()
+        assertEquals(1, coordinator.resume(membership(), distribution()))
+        assertEquals(
+            setOf("bob" to "bob-phone"),
+            queueStore.rows.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+        )
+    }
+
     private fun membership() = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = 7L,
