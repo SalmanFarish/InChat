@@ -75,6 +75,35 @@ class EncryptedGroupMessageRepositoryTest {
         assertTrue(repository.observeMessages("alice", "group-123").first().isEmpty())
     }
 
+    @Test
+    fun observeMessagesUsesStableTimestampAndMessageIdOrdering() = runBlocking {
+        val laterId = message().copy(
+            messageId = "message-z",
+            messageIndex = 19L,
+            sentAtMillis = 1_800_000_000_100L,
+            text = "Later message",
+        )
+        val firstById = message().copy(
+            messageId = "message-a",
+            messageIndex = 18L,
+            sentAtMillis = 1_800_000_000_000L,
+            text = "First message",
+        )
+
+        // Deliberately commit in reverse display order. The DAO must provide a
+        // deterministic timeline independent of delivery/commit arrival order.
+        val laterCiphertext = "later ciphertext".toByteArray(Charsets.UTF_8)
+        val firstCiphertext = "first ciphertext".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(laterId, receipt(laterId, laterCiphertext), laterCiphertext))
+        assertTrue(repository.commitStagedMessage(firstById, receipt(firstById, firstCiphertext), firstCiphertext))
+
+        assertEquals(
+            listOf("message-a", "message-z"),
+            repository.observeMessages("alice", "group-123").first().map { it.messageId },
+        )
+        assertTrue(repository.observeMessages("mallory", "group-123").first().isEmpty())
+    }
+
     private fun message() = DecryptedGroupMessage(
         ownerUserId = "alice",
         groupId = "group-123",
