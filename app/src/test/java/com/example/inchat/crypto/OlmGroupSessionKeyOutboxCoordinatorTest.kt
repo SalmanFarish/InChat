@@ -42,8 +42,10 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { _, _ -> scheduled = true },
         )
+        // The sender's other device is present, but the current remote
+        // member (bob) is deliberately omitted from this prepared fan-out.
         val incomplete = distribution().copy(
-            deliveries = listOf(delivery("bob", "bob-phone", "session-bob")),
+            deliveries = listOf(delivery("alice", "alice-tablet", "session-tablet")),
         )
 
         var rejected = false
