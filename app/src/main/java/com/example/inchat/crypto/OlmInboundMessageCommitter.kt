@@ -41,6 +41,15 @@ internal class OlmInboundMessageCommitter(
             check(receipt.status == OlmInboundReceiptStatus.PENDING.name) {
                 "Inbound receipt is not pending"
             }
+            // receiptId is account-derived, but the row itself is the authority
+            // at the transaction boundary. Never trust a hash alone to bind a
+            // staged message to the account that owns its durable receipt.
+            check(receipt.recipientUserId == encryptedMessage.ownerUserId) {
+                "Inbound receipt recipient does not match the encrypted message owner"
+            }
+            check(receipt.recipientDeviceId == encryptedMessage.recipientDeviceId) {
+                "Inbound receipt recipient device does not match the encrypted message"
+            }
             check(encryptedMessage.messageId == receipt.messageId) {
                 "Decrypted message ID does not match its inbound receipt"
             }
