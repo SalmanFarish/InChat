@@ -106,3 +106,32 @@ test("large-group recipient tag builder rejects invalid or oversized membership 
     /invalid/,
   );
 });
+
+test("fresh group membership yields only current non-sender recipients", async () => {
+  const { currentGroupNotificationRecipients } = await import("../src/message-notification.js");
+  assert.deepEqual(
+    currentGroupNotificationRecipients({
+      type: "group",
+      members: { bob: true, alice: true, carol: true },
+    }, "alice"),
+    ["bob", "carol"],
+  );
+});
+
+test("fresh group membership rejects a sender who has already been removed", async () => {
+  const { currentGroupNotificationRecipients } = await import("../src/message-notification.js");
+  assert.equal(
+    currentGroupNotificationRecipients({
+      type: "group",
+      members: { bob: true, carol: true },
+    }, "alice"),
+    null,
+  );
+});
+
+test("fresh group membership rejects malformed group snapshots", async () => {
+  const { currentGroupNotificationRecipients } = await import("../src/message-notification.js");
+  assert.equal(currentGroupNotificationRecipients(null, "alice"), null);
+  assert.equal(currentGroupNotificationRecipients({ type: "direct", members: { alice: true } }, "alice"), null);
+  assert.equal(currentGroupNotificationRecipients({ type: "group", members: [] }, "alice"), null);
+});
