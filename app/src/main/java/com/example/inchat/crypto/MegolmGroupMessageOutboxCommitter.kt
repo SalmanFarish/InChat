@@ -24,6 +24,11 @@ internal class MegolmGroupMessageOutboxCommitter(
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
     private val distributionPreparer: OlmGroupMessageDistributionPreparing,
+    /** Final live SAS-trusted roster check immediately before outbox insertion. */
+    private val validateTrustedTargetRoster: suspend (
+        membership: GroupCryptoMembershipSnapshot,
+        expectedTargets: Set<Pair<String, String>>,
+    ) -> Boolean,
     private val outboxCoordinator: OlmGroupMessageOutboxCoordinator,
     private val finalizeStagedMessage: (messageId: String) -> Boolean,
 ) {
@@ -64,6 +69,12 @@ internal class MegolmGroupMessageOutboxCommitter(
             sentAtMillis = staged.sentAtMillis,
             expectedTargetDevices = keyDistribution.targetDevices,
         )
+
+        // Re-resolve the live SAS-trusted device set after envelope creation.
+        // This closes the directory/trust race before Room outbox insertion.
+        require(validateTrustedTargetRoster(firstSnapshot, keyDistribution.targetDevices)) {
+            "Trusted group devices changed while preparing the encrypted message"
+        }
 
         // Re-read the atomic membership snapshot after key-directory/trust
         // lookups and Olm envelope preparation. If any member/role changed meanwhile,

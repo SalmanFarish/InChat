@@ -87,6 +87,31 @@ class MegolmGroupMessageOutboxCommitterTest {
     }
 
     @Test
+    fun trustedDeviceRosterChangeAfterPreparationLeavesNativeCiphertextStaged() {
+        val store = FakeStore()
+        var finalizeCalled = false
+        val committer = committer(
+            store = store,
+            membershipSnapshots = listOf(membership(7L), membership(7L)),
+            finalize = { finalizeCalled = true; true },
+            trustedRosterStillMatches = false,
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                committer.commit(stagedMessage(), keyDistribution())
+            }
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(finalizeCalled)
+    }
+
+    @Test
     fun failureToCommitOlmOutboxDoesNotFinalizeNativeCiphertext() {
         val store = FakeStore()
         var finalizeCalled = false
@@ -116,6 +141,7 @@ class MegolmGroupMessageOutboxCommitterTest {
         membershipSnapshots: List<GroupCryptoMembershipSnapshot>,
         finalize: (String) -> Boolean,
         invalidEnvelope: Boolean = false,
+        trustedRosterStillMatches: Boolean = true,
     ) : MegolmGroupMessageOutboxCommitter = run {
         val snapshots = membershipSnapshots.toMutableList()
         MegolmGroupMessageOutboxCommitter(
@@ -156,6 +182,11 @@ class MegolmGroupMessageOutboxCommitterTest {
                 assertEquals(1234L, sentAt)
                 assertEquals("1234567890abcdef", encrypted.sessionId)
             }
+        },
+        validateTrustedTargetRoster = { membership, targets ->
+            assertEquals("group-1", membership.groupId)
+            assertEquals(setOf("bob" to "bob-phone"), targets)
+            trustedRosterStillMatches
         },
         outboxCoordinator = OlmGroupMessageOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
