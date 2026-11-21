@@ -199,6 +199,61 @@ class OlmPendingReceiptProcessorConcurrencyTest {
     }
 
     @Test
+    fun accountSwitchBeforeMalformedReceiptQuarantineLeavesRowUntouched() = runBlocking {
+        val dao = InMemoryReceiptDao()
+        val encodedEnvelope = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = "sender-device",
+                recipientDeviceId = "recipient-device",
+                sessionId = "session-sender-device",
+                ciphertext = byteArrayOf(1, 7),
+            ),
+        )
+        val receiptId = olmInboundReceiptId(
+            "recipient", "alice", "sender-device", "message-quarantine-race", "recipient-device",
+        )
+        dao.insertIfAbsent(
+            OlmInboundReceiptEntity(
+                receiptId = receiptId,
+                recipientUserId = "recipient",
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = "message-quarantine-race",
+                recipientDeviceId = "recipient-device",
+                envelope = encodedEnvelope,
+                envelopeSha256 = "0".repeat(64),
+                status = OlmInboundReceiptStatus.PENDING.name,
+                receivedAtMillis = 5L,
+                processedAtMillis = null,
+            ),
+        )
+        var authReads = 0
+        val processor = OlmPendingReceiptProcessor(
+            receiptDao = dao,
+            remoteDevicesForUser = { error("Invalid receipt must not resolve remote devices") },
+            trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+            handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                error("Invalid receipt must not reach handoff")
+            },
+            finalizer = OlmCommittedReceiptFinalizer { _, _ ->
+                error("Invalid receipt must not be finalized")
+            },
+            authenticatedLocalUserId = {
+                authReads++
+                if (authReads == 1) "recipient" else "different-account"
+            },
+        )
+
+        val result = processor.processPending()
+
+        assertEquals(0, result.rejected)
+        assertEquals(
+            OlmInboundReceiptStatus.PENDING.name,
+            dao.getByReceiptId(receiptId)?.status,
+        )
+    }
+
+    @Test
     fun accountSwitchDuringTrustLookupCannotDeferReceiptUnderStaleAccount() = runBlocking {
         val dao = InMemoryReceiptDao()
         val encodedEnvelope = EncryptedOlmEnvelopeCodec.encode(
