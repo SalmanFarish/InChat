@@ -59,6 +59,16 @@ internal class MegolmGroupSessionKeyDistributor(
             "Native Megolm sender session does not match the current group epoch"
         }
 
+        val expectedDistributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = initial,
+            senderUserId = ownerUid,
+            senderDeviceId = senderDevice,
+            megolmSessionId = session.sessionId,
+        )
+        require(distributionId == expectedDistributionId) {
+            "Group-key distribution ID must be stable for this exact sender session and membership epoch"
+        }
+
         val keyBytes = exportOutboundSessionKey(initial)
         val encodedKey = try {
             require(keyBytes.size in MIN_KEY_BYTES..MAX_KEY_BYTES) {
