@@ -57,7 +57,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
         require(distribution.deliveries.isNotEmpty()) {
             "No SAS-trusted group device is available for key distribution"
         }
-        require(distribution.deliveries.size <= MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) {
+        require(distribution.deliveries.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
             "Group key distribution fan-out exceeds the device delivery limit"
         }
         require(

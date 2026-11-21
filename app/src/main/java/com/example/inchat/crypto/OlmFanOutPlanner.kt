@@ -10,7 +10,6 @@ internal data class OlmDeliveryTarget(val userId: String, val device: PublicDevi
 internal object OlmFanOutPlanner {
     private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
     private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
-    private const val MAX_DELIVERY_TARGETS = 256
     private const val MAX_DEVICES_PER_USER = 16
 
     /**
@@ -35,7 +34,7 @@ internal object OlmFanOutPlanner {
             if (userId == senderUserId && device.deviceId == senderDeviceId) return
             val key = "$userId::${device.deviceId}"
             targets.putIfAbsent(key, OlmDeliveryTarget(userId, device))
-            require(targets.size <= MAX_DELIVERY_TARGETS) {
+            require(targets.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
                 "Message fan-out exceeds the supported device count"
             }
         }

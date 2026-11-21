@@ -45,7 +45,7 @@ internal class OlmGroupMessageOutboxCoordinator(
         require(distribution.deliveries.isNotEmpty()) {
             "No trusted recipient devices are available for this group message"
         }
-        require(distribution.deliveries.size <= MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) {
+        require(distribution.deliveries.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
             "Group message fan-out exceeds the device delivery limit"
         }
         require(

@@ -23,14 +23,20 @@ class OlmGroupKeyDistributionRecordTest {
         val ids = setOf(recordId("alice", "phone"), recordId("alice", "tablet"), recordId("bob", "phone"))
         assertEquals(3, ids.size)
     }
-    @Test fun targetSetCannotExceedTheCoordinatorFanOutLimit() {
-        val oversized = List(501) { index -> "bob" to "device-$index" }
+    @Test fun targetSetCannotExceedTheQueueFanOutLimit() {
+        val exactLimit = (0 until MAX_OLM_DEVICE_DELIVERY_TARGETS)
+            .map { index -> "bob" to "device-$index" }
+        val persistedAtLimit = record(exactLimit).toEntity()
+        assertEquals(MAX_OLM_DEVICE_DELIVERY_TARGETS, persistedAtLimit.targetDevicePairs().size)
+
+        val oversized = (0..MAX_OLM_DEVICE_DELIVERY_TARGETS)
+            .map { index -> "bob" to "device-$index" }
         assertThrows(IllegalArgumentException::class.java) { record(oversized).toEntity() }
 
-        val persisted = record(listOf("bob" to "bob-phone")).toEntity()
-        val oversizedEncoded = (0..500).joinToString(",") { "bob/device-$it" }
+        val oversizedEncoded = oversized.sortedBy { it.second }
+            .joinToString(",") { "${it.first}/${it.second}" }
         assertThrows(IllegalArgumentException::class.java) {
-            persisted.copy(targetDevices = oversizedEncoded).targetDevicePairs()
+            persistedAtLimit.copy(targetDevices = oversizedEncoded).targetDevicePairs()
         }
     }
     private fun record(targets: List<Pair<String, String>>) = OlmGroupKeyDistributionRecord("alice", "alice-phone", "group-key-7", "group-1", 7L, "1234567890abcdef", targets)

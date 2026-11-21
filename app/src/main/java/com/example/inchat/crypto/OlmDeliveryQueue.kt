@@ -1,5 +1,8 @@
 package com.example.inchat.crypto
 
+/** Shared hard cap for any per-message Olm fan-out (direct or group). */
+internal const val MAX_OLM_DEVICE_DELIVERY_TARGETS = 256
+
 import java.security.MessageDigest
 
 /** State of one independently encrypted copy addressed to one device. */
@@ -108,6 +111,9 @@ internal class OlmDeliveryQueue(
             "Message ID has an invalid format"
         }
         require(prepared.isNotEmpty()) { "At least one encrypted delivery is required" }
+        require(prepared.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
+            "Encrypted delivery fan-out exceeds the supported device count"
+        }
         val rows = prepared.map { item ->
             require(USER_ID_PATTERN.matches(item.recipientUserId)) { "Recipient user ID has an invalid format" }
             require(DEVICE_ID_PATTERN.matches(item.recipientDeviceId)) { "Recipient device ID has an invalid format" }
