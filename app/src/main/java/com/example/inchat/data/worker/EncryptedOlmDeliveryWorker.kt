@@ -108,6 +108,7 @@ class EncryptedOlmDeliveryWorker(
             EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> Unit
         }
 
+        var groupKeyRecoveryRetryRequired = false
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
             val queue = OlmDeliveryQueue(
@@ -151,36 +152,49 @@ class EncryptedOlmDeliveryWorker(
                     },
                     recoveryStateReader = recoveryStateReader,
                 )
-                val recovery = OlmGroupKeyDistributionRecoveryRunner(
-                    metadataStore = metadataStore,
-                    recoveryStateReader = recoveryStateReader,
-                    membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
-                    authenticatedUserId = {
-                        FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                    },
-                    localDeviceId = {
-                        identityRepository.existingDeviceIdForDelivery().orEmpty()
-                    },
-                    ensureOutboundSession = megolmSessions::ensureOutboundSession,
-                    exportOutboundSessionKey = megolmSessions::exportOutboundSessionKey,
-                    prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected ->
-                        keyPreparer.prepare(
-                            distributionId = distributionId,
-                            membership = membership,
-                            megolmSessionId = sessionId,
-                            sessionKey = key,
-                            issuedAtMillis = issuedAt,
-                            selectedTargetDevices = selected,
-                        )
-                    },
-                    resumeDistribution = groupKeyOutbox::resume,
-                ).run()
-                Log.i(
-                    TAG,
-                    "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
-                        ", skipped=" + recovery.distributionsSkipped +
-                        ", queued=" + recovery.deliveriesQueued,
-                )
+                val recovery = try {
+                    OlmGroupKeyDistributionRecoveryRunner(
+                        metadataStore = metadataStore,
+                        recoveryStateReader = recoveryStateReader,
+                        membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                        authenticatedUserId = {
+                            FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                        },
+                        localDeviceId = {
+                            identityRepository.existingDeviceIdForDelivery().orEmpty()
+                        },
+                        ensureOutboundSession = megolmSessions::ensureOutboundSession,
+                        exportOutboundSessionKey = megolmSessions::exportOutboundSessionKey,
+                        prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected ->
+                            keyPreparer.prepare(
+                                distributionId = distributionId,
+                                membership = membership,
+                                megolmSessionId = sessionId,
+                                sessionKey = key,
+                                issuedAtMillis = issuedAt,
+                                selectedTargetDevices = selected,
+                            )
+                        },
+                        resumeDistribution = groupKeyOutbox::resume,
+                    ).run()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // A stale/untrusted group distribution must not block the
+                    // independent direct-device encrypted outbox from draining.
+                    groupKeyRecoveryRetryRequired = true
+                    Log.w(TAG, "Group-key recovery pass failed; existing encrypted deliveries will continue.", error)
+                    null
+                }
+                if (recovery != null) {
+                    Log.i(
+                        TAG,
+                        "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
+                            ", skipped=" + recovery.distributionsSkipped +
+                            ", queued=" + recovery.deliveriesQueued,
+                    )
+                }
+
             }
 
             val transport = FirebaseOlmEnvelopeTransport(
@@ -218,7 +232,7 @@ class EncryptedOlmDeliveryWorker(
                     ", acknowledged=" + result.acknowledged +
                     ", unmatchedAcks=" + result.unmatchedAcknowledgements,
             )
-            if (result.retryRequired) Result.retry() else Result.success()
+            if (result.retryRequired || groupKeyRecoveryRetryRequired) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
