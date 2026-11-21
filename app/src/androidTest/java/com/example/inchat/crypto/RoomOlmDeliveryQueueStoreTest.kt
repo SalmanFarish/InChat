@@ -630,6 +630,126 @@ class RoomOlmDeliveryQueueStoreTest {
         }
     }
 
+    @Test
+    fun terminalFailedTargetIsNotMistakenForMissingRecoveryWork() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-group-key-failed-recovery-target-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val distributionId = "group-key-failed"
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                distributionId,
+                listOf(prepared("bob-phone")),
+            )
+            val metadata = OlmGroupKeyDistributionRecord(
+                ownerUserId = "alice",
+                senderDeviceId = "sender-device",
+                distributionId = distributionId,
+                groupId = "group-1",
+                membershipEpoch = 7L,
+                megolmSessionId = "1234567890abcdef",
+                targetDevices = listOf("bob" to "bob-phone"),
+            ).toEntity()
+            db.olmGroupKeyDistributionMetadataStore().persistIfAbsent(
+                OlmGroupKeyDistributionRecord(
+                    ownerUserId = metadata.ownerUserId,
+                    senderDeviceId = metadata.senderDeviceId,
+                    distributionId = metadata.distributionId,
+                    groupId = metadata.groupId,
+                    membershipEpoch = metadata.membershipEpoch,
+                    megolmSessionId = metadata.megolmSessionId,
+                    targetDevices = metadata.targetDevicePairs(),
+                ),
+            )
+            db.openHelper.writableDatabase.execSQL(
+                "UPDATE olm_device_deliveries SET status = 'FAILED' WHERE messageId = ?",
+                arrayOf(distributionId),
+            )
+
+            val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                db.olmDeliveryQueueDao(),
+                db.olmDeliveryReceiptDao(),
+            ).read(metadata)
+            val plan = OlmGroupKeyDistributionRecoveryPlanner.plan(
+                metadata,
+                state.queuedTargets,
+                state.acknowledgedTargets,
+                state.failedTargets,
+            )
+
+            assertTrue(state.queuedTargets.isEmpty())
+            assertEquals(setOf("bob" to "bob-phone"), state.failedTargets)
+            assertTrue(plan.missingTargets.isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun recoveryStateReaderRejectsOutboxTargetOutsideSavedDistribution() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-group-key-unexpected-recovery-target-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val distributionId = "group-key-unexpected"
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()))
+            queue.enqueue(
+                "alice",
+                "sender-device",
+                distributionId,
+                listOf(prepared("mallory-phone")),
+            )
+            val metadata = OlmGroupKeyDistributionRecord(
+                ownerUserId = "alice",
+                senderDeviceId = "sender-device",
+                distributionId = distributionId,
+                groupId = "group-1",
+                membershipEpoch = 7L,
+                megolmSessionId = "1234567890abcdef",
+                targetDevices = listOf("bob" to "bob-phone"),
+            ).toEntity()
+            db.olmGroupKeyDistributionMetadataStore().persistIfAbsent(
+                OlmGroupKeyDistributionRecord(
+                    ownerUserId = metadata.ownerUserId,
+                    senderDeviceId = metadata.senderDeviceId,
+                    distributionId = metadata.distributionId,
+                    groupId = metadata.groupId,
+                    membershipEpoch = metadata.membershipEpoch,
+                    megolmSessionId = metadata.megolmSessionId,
+                    targetDevices = metadata.targetDevicePairs(),
+                ),
+            )
+
+            val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                db.olmDeliveryQueueDao(),
+                db.olmDeliveryReceiptDao(),
+            ).read(metadata)
+            var rejected = false
+            try {
+                OlmGroupKeyDistributionRecoveryPlanner.plan(
+                    metadata,
+                    state.queuedTargets,
+                    state.acknowledgedTargets,
+                    state.failedTargets,
+                )
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue(rejected)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun prepared(deviceId: String, senderDeviceId: String = "sender-device"): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)
