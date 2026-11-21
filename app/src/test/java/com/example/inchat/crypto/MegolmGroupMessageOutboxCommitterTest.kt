@@ -94,7 +94,7 @@ class MegolmGroupMessageOutboxCommitterTest {
             store = store,
             membershipSnapshots = listOf(membership(7L), membership(7L)),
             finalize = { finalizeCalled = true; true },
-            trustedRosterStillMatches = false,
+            currentTrustedTargets = setOf("bob" to "bob-new-phone"),
         )
 
         var rejected = false
@@ -141,7 +141,7 @@ class MegolmGroupMessageOutboxCommitterTest {
         membershipSnapshots: List<GroupCryptoMembershipSnapshot>,
         finalize: (String) -> Boolean,
         invalidEnvelope: Boolean = false,
-        trustedRosterStillMatches: Boolean = true,
+        currentTrustedTargets: Set<Pair<String, String>> = setOf("bob" to "bob-phone"),
     ) : MegolmGroupMessageOutboxCommitter = run {
         val snapshots = membershipSnapshots.toMutableList()
         MegolmGroupMessageOutboxCommitter(
@@ -183,10 +183,9 @@ class MegolmGroupMessageOutboxCommitterTest {
                 assertEquals("1234567890abcdef", encrypted.sessionId)
             }
         },
-        validateTrustedTargetRoster = { membership, targets ->
+        currentTrustedTargetDevices = { membership ->
             assertEquals("group-1", membership.groupId)
-            assertEquals(setOf("bob" to "bob-phone"), targets)
-            trustedRosterStillMatches
+            currentTrustedTargets
         },
         outboxCoordinator = OlmGroupMessageOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
