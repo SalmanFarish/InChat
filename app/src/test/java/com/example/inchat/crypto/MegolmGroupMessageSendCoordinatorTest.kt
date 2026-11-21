@@ -15,7 +15,8 @@ class MegolmGroupMessageSendCoordinatorTest {
         val session = session(membership, targets)
         var distributeCalls = 0
         var sendCalls = 0
-        var state = OlmGroupKeyDistributionReadinessState.Missing(distributionId(membership, session.sessionId))
+        var state: OlmGroupKeyDistributionReadinessState =
+            OlmGroupKeyDistributionReadinessState.Missing(distributionId(membership, session.sessionId))
 
         val coordinator = coordinator(
             membershipReads = listOf(membership, membership),

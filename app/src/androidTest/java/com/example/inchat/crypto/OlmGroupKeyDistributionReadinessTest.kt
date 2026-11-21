@@ -40,7 +40,7 @@ class OlmGroupKeyDistributionReadinessTest {
             OlmGroupKeyDistributionRecord(
                 ownerUserId = "alice",
                 senderDeviceId = "alice-phone",
-                distributionId = "group-key-7",
+                distributionId = distributionId(),
                 groupId = "group-1",
                 membershipEpoch = 7L,
                 megolmSessionId = "1234567890abcdef",
@@ -53,7 +53,7 @@ class OlmGroupKeyDistributionReadinessTest {
             receipt(
                 deliveryId = "a".repeat(64),
                 recipientDeviceId = "bob-phone",
-                messageId = "group-key-7",
+                messageId = distributionId(),
             ),
         )
 
@@ -75,7 +75,7 @@ class OlmGroupKeyDistributionReadinessTest {
             receipt(
                 deliveryId = "b".repeat(64),
                 recipientDeviceId = "bob-tablet",
-                messageId = "group-key-7",
+                messageId = distributionId(),
             ),
         )
         readiness.requireReady(
@@ -168,16 +168,25 @@ class OlmGroupKeyDistributionReadinessTest {
         acknowledgedAtMillis = 1_800_000_000_000L,
     )
 
-    private fun keyDistribution() = PreparedOlmGroupKeyDistribution(
-        distributionId = "group-key-7",
+    private fun distributionId() = OlmGroupSessionKeyDistributionId.create(
+        membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-1",
+            epoch = 7L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        ),
+        senderUserId = "alice",
+        senderDeviceId = "alice-phone",
+        megolmSessionId = "1234567890abcdef",
+    )
+
+    private fun keyDistribution() = OlmGroupKeyDistributionReadinessToken(
+        ownerUserId = "alice",
+        senderDeviceId = "alice-phone",
+        distributionId = distributionId(),
         groupId = "group-1",
         membershipEpoch = 7L,
         megolmSessionId = "1234567890abcdef",
-        deliveries = listOf(
-            keyDelivery("bob-phone", "session-phone"),
-            keyDelivery("bob-tablet", "session-tablet"),
-        ),
-        skippedUntrustedDeviceCount = 0,
+        targetDevices = setOf("bob" to "bob-phone", "bob" to "bob-tablet"),
     )
 
     private fun messageDistribution() = PreparedOlmGroupMessageDistribution(
