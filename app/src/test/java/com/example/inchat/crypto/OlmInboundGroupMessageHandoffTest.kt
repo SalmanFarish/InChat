@@ -3,7 +3,6 @@ package com.example.inchat.crypto
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import java.util.Base64
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
@@ -202,6 +201,139 @@ class OlmInboundGroupMessageHandoffTest {
         assertEquals(3, trustChecks)
         assertEquals(0, commitCalls)
         assertTrue(stagedCiphertext.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun senderTrustRevocationDuringMembershipLookupPreventsNativeStaging() = runBlocking {
+        var trustChecks = 0
+        var membershipReads = 0
+        var stagingCalls = 0
+        var commitCalls = 0
+        val handoff = handoff(
+            snapshots = mutableListOf(membership(), membership()),
+            stagedCiphertext = byteArrayOf(21, 22),
+            trustVerifier = OlmDeviceTrustVerifier { _, _, _ ->
+                trustChecks++
+                trustChecks == 1
+            },
+            onMembershipRead = { membershipReads++ },
+            stager = MegolmInboundGroupMessageStager { _, _, _, _ ->
+                stagingCalls++
+                staged(byteArrayOf(21, 22))
+            },
+            committer = EncryptedGroupMessageCommitter { _, _, _ ->
+                commitCalls++
+                true
+            },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (expected: IllegalStateException) {
+            rejected = expected.message.orEmpty().contains("trust was revoked before native decryption")
+        }
+        assertTrue("Trust revoked during membership lookup must block Megolm staging", rejected)
+        assertEquals(2, trustChecks)
+        assertEquals(2, membershipReads)
+        assertEquals(0, stagingCalls)
+        assertEquals(0, commitCalls)
+    }
+
+    @Test
+    fun currentMembershipMustContainBothSenderAndRecipientBeforeNativeStaging() = runBlocking {
+        var stagingCalls = 0
+        var commitCalls = 0
+        val membershipWithoutSender = membership().copy(
+            members = mapOf("bob" to "admin", "carol" to "member"),
+        )
+        val handoff = handoff(
+            snapshots = mutableListOf(membershipWithoutSender),
+            stagedCiphertext = byteArrayOf(23, 24),
+            committer = EncryptedGroupMessageCommitter { _, _, _ ->
+                commitCalls++
+                true
+            },
+            stager = MegolmInboundGroupMessageStager { _, _, _, _ ->
+                stagingCalls++
+                staged(byteArrayOf(23, 24))
+            },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("sender is not a current member")
+        }
+        assertTrue("A removed group sender must be rejected before Megolm staging", rejected)
+        assertEquals(0, stagingCalls)
+        assertEquals(0, commitCalls)
+    }
+
+    @Test
+    fun verifiedDeviceAndReceiptSenderMismatchIsRejectedBeforeMembershipLookup() = runBlocking {
+        var membershipReads = 0
+        var stagingCalls = 0
+        val handoff = handoff(
+            snapshots = mutableListOf(membership(), membership(), membership()),
+            stagedCiphertext = byteArrayOf(25, 26),
+            onMembershipRead = { membershipReads++ },
+            stager = MegolmInboundGroupMessageStager { _, _, _, _ ->
+                stagingCalls++
+                staged(byteArrayOf(25, 26))
+            },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(
+                receipt(),
+                remoteDevice().copy(deviceId = "different-phone"),
+                "alice",
+                "bob",
+                payload(),
+            )
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("does not match the durable Olm receipt")
+        }
+        assertTrue("A different verified device must not process this receipt", rejected)
+        assertEquals(0, membershipReads)
+        assertEquals(0, stagingCalls)
+    }
+
+    @Test
+    fun authenticatedMessageIdMustMatchTheOuterReceiptBeforeNativeStaging() = runBlocking {
+        var stagingCalls = 0
+        var commitCalls = 0
+        val handoff = handoff(
+            snapshots = mutableListOf(membership()),
+            stagedCiphertext = byteArrayOf(27, 28),
+            stager = MegolmInboundGroupMessageStager { _, _, _, _ ->
+                stagingCalls++
+                staged(byteArrayOf(27, 28))
+            },
+            committer = EncryptedGroupMessageCommitter { _, _, _ ->
+                commitCalls++
+                true
+            },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(
+                receipt().copy(messageId = "different-message-id"),
+                remoteDevice(),
+                "alice",
+                "bob",
+                payload(),
+            )
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("does not match its authenticated Olm receipt")
+        }
+        assertTrue("The group payload message ID must be bound to its outer receipt", rejected)
+        assertEquals(0, stagingCalls)
+        assertEquals(0, commitCalls)
     }
 
     private fun handoff(
