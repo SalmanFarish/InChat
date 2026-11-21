@@ -203,6 +203,34 @@ class OlmInboundGroupSessionKeyHandoffTest {
     }
 
     @Test
+    fun authenticatedAccountChangeDuringMembershipLookupPreventsNativeImport() = runBlocking {
+        var accountChecks = 0
+        var importCalls = 0
+        val handoff = DefaultOlmInboundGroupSessionKeyHandoff(
+            membershipForGroup = { membership() },
+            keyImporter = MegolmInboundSessionKeyImporter { _, _, _, _, _ ->
+                importCalls++
+                true
+            },
+            authenticatedLocalUserId = {
+                accountChecks++
+                if (accountChecks == 1) "bob" else "mallory"
+            },
+            trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (expected: IllegalStateException) {
+            rejected = expected.message.orEmpty().contains("Authenticated account changed")
+        }
+        assertTrue("Account replacement must fail closed before native key import", rejected)
+        assertEquals(2, accountChecks)
+        assertEquals(0, importCalls)
+    }
+
+    @Test
     fun untrustedSenderCannotReachTheNativeImporter() = runBlocking {
         var importCalls = 0
         val handoff = handoff(

@@ -110,6 +110,9 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
                 expected = membership,
                 latest = membershipForGroup(groupId),
             )
+            // Membership lookup and key decoding can suspend. Fence the import
+            // against sign-out/account replacement just like the message commit.
+            requireUnchangedGroupRecipient(localUserId, authenticatedLocalUserId())
             // Membership lookup suspends and can take long enough for local SAS
             // trust to be revoked. Recheck immediately before importing the key.
             check(
