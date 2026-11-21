@@ -240,7 +240,7 @@ class OlmPendingReceiptProcessorConcurrencyTest {
             },
             authenticatedLocalUserId = {
                 authReads++
-                if (authReads == 1) "recipient" else "different-account"
+                if (authReads <= 2) "recipient" else "different-account"
             },
         )
 
