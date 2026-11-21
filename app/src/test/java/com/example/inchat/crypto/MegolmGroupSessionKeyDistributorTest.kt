@@ -84,12 +84,39 @@ class MegolmGroupSessionKeyDistributorTest {
         assertArrayEquals(ByteArray(64), key)
     }
 
+    @Test
+    fun resumeRepreparesSameSessionAndUsesRecoveryCoordinator() = runBlocking {
+        val key = ByteArray(64) { (it + 3).toByte() }
+        var enqueueCalls = 0
+        var resumeCalls = 0
+        val distributor = distributor(
+            keyBytes = key,
+            snapshots = mutableListOf(membership(9L), membership(9L)),
+            enqueue = { _, _ -> enqueueCalls++; 99 },
+            resume = { current, prepared ->
+                resumeCalls++
+                assertEquals(9L, current.epoch)
+                assertEquals(distributionId(), prepared.distributionId)
+                assertEquals("session-id-123456", prepared.megolmSessionId)
+                1
+            },
+        )
+
+        val result = distributor.resume("group-1", distributionId(), 5678L)
+
+        assertEquals(0, enqueueCalls)
+        assertEquals(1, resumeCalls)
+        assertEquals(1, result.newlyQueuedDeliveryCount)
+        assertArrayEquals(ByteArray(64), key)
+    }
+
     private var capturedSessionKey: String = ""
 
     private fun distributor(
         keyBytes: ByteArray,
         snapshots: MutableList<GroupCryptoMembershipSnapshot>,
         enqueue: (GroupCryptoMembershipSnapshot, PreparedOlmGroupKeyDistribution) -> Int,
+        resume: (GroupCryptoMembershipSnapshot, PreparedOlmGroupKeyDistribution) -> Int = enqueue,
         preparedSessionId: String = "session-id-123456",
     ) = MegolmGroupSessionKeyDistributor(
         membershipForGroup = { groupId ->
@@ -126,6 +153,7 @@ class MegolmGroupSessionKeyDistributorTest {
             ).also { assertEquals("session-id-123456", sessionId) }
         },
         enqueueDistribution = enqueue,
+        resumeDistribution = resume,
     )
 
     private fun keyDelivery(userId: String, deviceId: String) = PreparedOlmGroupKeyDelivery(

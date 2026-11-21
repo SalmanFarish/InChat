@@ -28,11 +28,31 @@ internal class MegolmGroupSessionKeyDistributor(
         membership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupKeyDistribution,
     ) -> Int,
+    private val resumeDistribution: (
+        membership: GroupCryptoMembershipSnapshot,
+        distribution: PreparedOlmGroupKeyDistribution,
+    ) -> Int,
 ) {
     suspend fun distribute(
         groupId: String,
         distributionId: String,
         issuedAtMillis: Long,
+    ): MegolmGroupKeyDistributionResult =
+        prepareAndPersist(groupId, distributionId, issuedAtMillis, resuming = false)
+
+    /** Re-export the existing native session key and rebuild per-device envelopes for a saved distribution. */
+    suspend fun resume(
+        groupId: String,
+        distributionId: String,
+        issuedAtMillis: Long,
+    ): MegolmGroupKeyDistributionResult =
+        prepareAndPersist(groupId, distributionId, issuedAtMillis, resuming = true)
+
+    private suspend fun prepareAndPersist(
+        groupId: String,
+        distributionId: String,
+        issuedAtMillis: Long,
+        resuming: Boolean,
     ): MegolmGroupKeyDistributionResult {
         require(groupId.matches(ID)) { "Group ID is invalid" }
         require(distributionId.matches(ID)) { "Group-key distribution ID is invalid" }
@@ -112,7 +132,11 @@ internal class MegolmGroupSessionKeyDistributor(
             "Group membership or local identity changed during key distribution"
         }
 
-        val inserted = enqueueDistribution(latest, prepared)
+        val inserted = if (resuming) {
+            resumeDistribution(latest, prepared)
+        } else {
+            enqueueDistribution(latest, prepared)
+        }
         return MegolmGroupKeyDistributionResult(
             distributionId = distributionId,
             groupId = groupId,

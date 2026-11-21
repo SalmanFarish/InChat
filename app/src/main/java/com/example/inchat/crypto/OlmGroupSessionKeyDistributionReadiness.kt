@@ -14,9 +14,9 @@ internal fun interface OlmGroupKeyDistributionReadinessVerifier {
 }
 
 /**
- * Uses the existing metadata-only Olm delivery receipt table to make sure every
- * remote device that will receive a Megolm ciphertext has acknowledged this
- * exact epoch's key distribution. No new relay or database table is required.
+ * Requires the immutable Room distribution record and the existing delivery
+ * receipt ledger to agree before every remote target may receive Megolm content.
+ * The metadata ledger contains identities only; it never stores session keys.
  */
 internal class RoomOlmGroupKeyDistributionReadiness(
     private val deliveryReceipts: OlmDeliveryReceiptDao,

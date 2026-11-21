@@ -22,7 +22,34 @@ data class OlmGroupKeyDistributionEntity(
     val megolmSessionId: String,
     /** Canonical sorted user/device pairs; IDs cannot contain comma or slash. */
     val targetDevices: String,
-)
+) {
+    /** Decode and validate the persisted canonical target set for recovery. */
+    internal fun targetDevicePairs(): List<Pair<String, String>> {
+        require(targetDevices.isNotBlank()) { "Persisted group-key target set is empty" }
+        val decoded = targetDevices.split(',').map { item ->
+            val separator = item.indexOf('/')
+            require(separator > 0 && separator == item.lastIndexOf('/') && separator < item.lastIndex) {
+                "Persisted group-key target entry is malformed"
+            }
+            val userId = item.substring(0, separator)
+            val deviceId = item.substring(separator + 1)
+            require(USER_ID.matches(userId) && DEVICE_ID.matches(deviceId)) {
+                "Persisted group-key target identity is invalid"
+            }
+            userId to deviceId
+        }
+        val canonical = decoded.distinct().sortedWith(
+            compareBy<Pair<String, String>> { it.first }.thenBy { it.second },
+        )
+        require(decoded == canonical) { "Persisted group-key target set is not canonical" }
+        return decoded
+    }
+
+    private companion object {
+        val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
+        val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+    }
+}
 
 @Dao
 interface OlmGroupKeyDistributionDao {

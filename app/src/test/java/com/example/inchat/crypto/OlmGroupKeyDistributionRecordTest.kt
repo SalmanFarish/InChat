@@ -11,6 +11,11 @@ class OlmGroupKeyDistributionRecordTest {
         assertEquals(a, b)
         assertEquals("alice/alice-tablet,bob/bob-phone", a.targetDevices)
     }
+    @Test fun malformedOrNonCanonicalPersistedTargetsAreRejected() {
+        val valid = record(listOf("bob" to "bob-phone", "alice" to "alice-tablet")).toEntity()
+        assertThrows(IllegalArgumentException::class.java) { valid.copy(targetDevices = "bob/bob-phone,alice/alice-tablet").targetDevicePairs() }
+        assertThrows(IllegalArgumentException::class.java) { valid.copy(targetDevices = "alice/tablet/extra").targetDevicePairs() }
+    }
     @Test fun duplicateTargetsAreRejected() {
         assertThrows(IllegalArgumentException::class.java) { record(listOf("bob" to "bob-phone", "bob" to "bob-phone")).toEntity() }
     }

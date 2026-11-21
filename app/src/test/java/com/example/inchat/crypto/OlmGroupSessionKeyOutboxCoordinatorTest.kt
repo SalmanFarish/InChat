@@ -62,6 +62,35 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         assertTrue(!scheduled)
     }
 
+    @Test
+    fun metadataSurvivesOutboxInsertFailureAndCanBeResumed() {
+        val queueStore = FakeStore().apply { failNextInsert = true }
+        val metadata = FakeMetadataStore()
+        var scheduled = false
+        val coordinator = OlmGroupSessionKeyOutboxCoordinator(
+            queue = OlmDeliveryQueue(queueStore),
+            metadataStore = metadata,
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            scheduleDelivery = { _, _ -> scheduled = true },
+        )
+
+        var interrupted = false
+        try {
+            coordinator.enqueue(membership(), distribution())
+        } catch (_: IllegalStateException) {
+            interrupted = true
+        }
+        assertTrue(interrupted)
+        assertTrue(!scheduled)
+        assertEquals(0, queueStore.rows.size)
+        assertTrue(metadata.get("alice", "alice-phone", "group-key-7") != null)
+
+        assertEquals(2, coordinator.resume(membership(), distribution()))
+        assertEquals(2, queueStore.rows.size)
+        assertTrue(scheduled)
+    }
+
     private fun membership() = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = 7L,
@@ -110,8 +139,13 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
     }
     private class FakeStore : OlmDeliveryQueueStore {
         val rows = mutableListOf<QueuedOlmDeviceDelivery>()
+        var failNextInsert = false
 
         override fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int {
+            if (failNextInsert) {
+                failNextInsert = false
+                throw IllegalStateException("simulated outbox transaction failure")
+            }
             val inserted = deliveries.filter { candidate ->
                 rows.none { it.deliveryId == candidate.deliveryId }
             }

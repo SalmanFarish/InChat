@@ -19,6 +19,9 @@ import com.example.inchat.crypto.OlmDeliveryReceiptEntity
 import com.example.inchat.crypto.OlmDeviceDeliveryEntity
 import com.example.inchat.crypto.OlmGroupKeyDistributionDao
 import com.example.inchat.crypto.OlmGroupKeyDistributionEntity
+import com.example.inchat.crypto.OlmGroupKeyDistributionMetadataStore
+import com.example.inchat.crypto.RoomOlmGroupKeyDistributionMetadataStore
+import com.example.inchat.crypto.RoomOlmGroupKeyDistributionReadiness
 import com.example.inchat.crypto.OlmInboundReceiptDao
 import com.example.inchat.crypto.OlmInboundReceiptEntity
 import com.example.inchat.crypto.SasVerificationMessageDao
@@ -35,6 +38,14 @@ abstract class LocalChatDatabase : RoomDatabase() {
     abstract fun olmDeliveryReceiptDao(): OlmDeliveryReceiptDao
     abstract fun olmInboundReceiptDao(): OlmInboundReceiptDao
     abstract fun olmGroupKeyDistributionDao(): OlmGroupKeyDistributionDao
+
+    /** One database-backed metadata store shared by key distribution and readiness checks. */
+    internal fun olmGroupKeyDistributionMetadataStore(): OlmGroupKeyDistributionMetadataStore =
+        RoomOlmGroupKeyDistributionMetadataStore(this, olmGroupKeyDistributionDao())
+
+    /** Fail-closed Room verifier using both the immutable distribution ledger and delivery receipts. */
+    internal fun olmGroupKeyDistributionReadiness(): RoomOlmGroupKeyDistributionReadiness =
+        RoomOlmGroupKeyDistributionReadiness(olmDeliveryReceiptDao(), olmGroupKeyDistributionMetadataStore())
     abstract fun encryptedOlmMessageDao(): EncryptedOlmMessageDao
     abstract fun encryptedGroupMessageDao(): EncryptedGroupMessageDao
     abstract fun sasVerificationMessageDao(): SasVerificationMessageDao

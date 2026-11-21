@@ -17,6 +17,22 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
     fun enqueue(
         currentMembership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupKeyDistribution,
+    ): Int = enqueueInternal(currentMembership, distribution, requirePersistedMetadata = false)
+
+    /**
+     * Resume an interrupted distribution after its encrypted envelopes have been
+     * prepared again for the original session and exact target devices. Stable
+     * delivery IDs let the Room outbox retain completed rows and insert only gaps.
+     */
+    fun resume(
+        currentMembership: GroupCryptoMembershipSnapshot,
+        distribution: PreparedOlmGroupKeyDistribution,
+    ): Int = enqueueInternal(currentMembership, distribution, requirePersistedMetadata = true)
+
+    private fun enqueueInternal(
+        currentMembership: GroupCryptoMembershipSnapshot,
+        distribution: PreparedOlmGroupKeyDistribution,
+        requirePersistedMetadata: Boolean,
     ): Int {
         require(currentMembership.isValid()) {
             "Authoritative group membership snapshot is invalid"
@@ -69,19 +85,29 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
             "A device cannot distribute a group key to itself"
         }
 
-        // Persist non-secret identity and the complete target set before queue writes.
-        // An interrupted enqueue can now be rediscovered by a recovery coordinator.
-        metadataStore.persistIfAbsent(
-            OlmGroupKeyDistributionRecord(
-                ownerUserId = ownerUid,
-                senderDeviceId = deviceId,
-                distributionId = distribution.distributionId,
-                groupId = distribution.groupId,
-                membershipEpoch = distribution.membershipEpoch,
-                megolmSessionId = distribution.megolmSessionId,
-                targetDevices = distribution.deliveries.map { it.recipientUserId to it.recipientDeviceId },
-            ),
+        val record = OlmGroupKeyDistributionRecord(
+            ownerUserId = ownerUid,
+            senderDeviceId = deviceId,
+            distributionId = distribution.distributionId,
+            groupId = distribution.groupId,
+            membershipEpoch = distribution.membershipEpoch,
+            megolmSessionId = distribution.megolmSessionId,
+            targetDevices = distribution.deliveries.map { it.recipientUserId to it.recipientDeviceId },
         )
+        if (requirePersistedMetadata) {
+            val persisted = requireNotNull(
+                metadataStore.get(ownerUid, deviceId, distribution.distributionId),
+            ) { "Cannot resume a group-key distribution without its durable metadata record" }
+            require(persisted == record.toEntity()) {
+                "Prepared recovery envelopes do not match the persisted group-key distribution"
+            }
+            require(persisted.targetDevicePairs() == record.targetDevices.distinct().sortedWith(
+                compareBy<Pair<String, String>> { it.first }.thenBy { it.second },
+            )) { "Persisted recovery target set is inconsistent" }
+        } else {
+            // Persist non-secret identity and the complete target set before queue writes.
+            metadataStore.persistIfAbsent(record)
+        }
 
         val inserted = queue.enqueue(
             ownerUserId = ownerUid,
