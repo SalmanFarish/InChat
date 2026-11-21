@@ -9,6 +9,7 @@ import {
   buildAddressedMessagePushData,
   buildRecipientAccountTags,
   currentGroupNotificationRecipients,
+  hasCompleteGroupNotificationRegistry,
 } from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
@@ -2541,8 +2542,9 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           "groupNotificationDevices/" + chatId,
         );
 
-        const registryIsComplete = memberIds.every((memberId) =>
-          Object.prototype.hasOwnProperty.call(deviceRegistry || {}, memberId)
+        const registryIsComplete = hasCompleteGroupNotificationRegistry(
+          memberIds,
+          deviceRegistry,
         );
         const canUseDirectDelivery =
           memberIds.length <= GROUP_DIRECT_NOTIFICATION_MAX_RECIPIENTS &&
