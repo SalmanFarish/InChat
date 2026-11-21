@@ -172,6 +172,37 @@ class OlmInboundGroupSessionKeyHandoffTest {
     }
 
     @Test
+    fun senderTrustRevokedDuringMembershipLookupPreventsNativeImport() = runBlocking {
+        var trustChecks = 0
+        var importCalls = 0
+        val handoff = DefaultOlmInboundGroupSessionKeyHandoff(
+            membershipForGroup = { membership() },
+            keyImporter = MegolmInboundSessionKeyImporter { _, _, _, _, _ ->
+                importCalls++
+                true
+            },
+            authenticatedLocalUserId = { "bob" },
+            trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                trustChecks++
+                userId == "alice" &&
+                    deviceId == "alice-phone" &&
+                    identityKey == "alice-ed25519" &&
+                    trustChecks == 1
+            },
+        )
+
+        var rejected = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+        assertTrue("Revoked sender trust must fail closed before native key import", rejected)
+        assertEquals(2, trustChecks)
+        assertEquals(0, importCalls)
+    }
+
+    @Test
     fun untrustedSenderCannotReachTheNativeImporter() = runBlocking {
         var importCalls = 0
         val handoff = handoff(

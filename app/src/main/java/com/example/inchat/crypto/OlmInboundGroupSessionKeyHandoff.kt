@@ -110,6 +110,15 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
                 expected = membership,
                 latest = membershipForGroup(groupId),
             )
+            // Membership lookup suspends and can take long enough for local SAS
+            // trust to be revoked. Recheck immediately before importing the key.
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = remoteDeviceUserId,
+                    peerDeviceId = remoteDevice.deviceId,
+                    peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                )
+            ) { "Group key sender trust was revoked before native import" }
             // This import persists the signed session and its sender/epoch binding
             // in the same Keystore-protected native device-state envelope.
             keyImporter.importInboundSessionKey(
