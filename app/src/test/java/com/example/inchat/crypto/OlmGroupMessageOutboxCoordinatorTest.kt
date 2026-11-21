@@ -77,7 +77,7 @@ class OlmGroupMessageOutboxCoordinatorTest {
             scheduleDelivery = { _, _ -> scheduled = true },
         )
         val oversized = distribution(7L).copy(
-            deliveries = (0 until MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS + 1).map { index ->
+            deliveries = (0 until MAX_OLM_DEVICE_DELIVERY_TARGETS + 1).map { index ->
                 delivery("bob", "bob-device-$index", "session-$index")
             },
         )
