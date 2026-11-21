@@ -834,6 +834,57 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(2, store.rows.values.count { it.status == OlmDeliveryStatus.UPLOADED })
     }
 
+    @Test
+    fun receiptPersistenceFailureBlocksFurtherUploadsAndRetainsAcknowledgedCiphertext() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "already-received",
+            listOf(prepared("sender-device", "phone")),
+        )
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "still-pending",
+            listOf(prepared("sender-device", "tablet")),
+        )
+
+        val acknowledgedRow = store.rows.values.first { it.messageId == "already-received" }
+        val transportEvents = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = transportEvents,
+            acknowledgements = mutableListOf(acknowledgedRow.toAcknowledgement()),
+        )
+
+        var persistenceFailureObserved = false
+        try {
+            OlmDeliveryWorkerRunner(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                clock = { 10_000L },
+                recordAcknowledgement = { _, _ ->
+                    throw IllegalStateException("temporary Room receipt write failure")
+                },
+            ).run()
+        } catch (expected: IllegalStateException) {
+            persistenceFailureObserved = expected.message.orEmpty().contains("receipt write failure")
+        }
+
+        assertTrue(persistenceFailureObserved)
+        assertEquals(
+            listOf("read-acks", "delete-ack:" + acknowledgedRow.deliveryId),
+            transportEvents,
+        )
+        assertEquals(2, store.rows.size)
+        assertTrue(store.rows.containsKey(acknowledgedRow.deliveryId))
+        assertTrue(store.rows.values.any { it.messageId == "still-pending" })
+        assertFalse(transportEvents.any { it.startsWith("upload:") })
+    }
+
     private fun prepared(
         senderDeviceId: String,
         recipientDeviceId: String,
