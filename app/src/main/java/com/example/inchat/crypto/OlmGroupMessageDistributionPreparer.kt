@@ -43,9 +43,22 @@ internal fun interface OlmGroupMessageDistributionPreparing {
         messageId: String,
         encryptedMessage: EncryptedMegolmMessage,
         sentAtMillis: Long,
-        expectedTargetDevices: Set<Pair<String, String>>? = null,
+        expectedTargetDevices: Set<Pair<String, String>>?,
     ): PreparedOlmGroupMessageDistribution
 }
+
+/**
+ * Convenience overload for non-roster-pinned preparation call sites. Send
+ * coordinators that have a durable key-readiness token must use the explicit
+ * expected-target overload instead.
+ */
+internal suspend fun OlmGroupMessageDistributionPreparing.prepare(
+    membership: GroupCryptoMembershipSnapshot,
+    messageId: String,
+    encryptedMessage: EncryptedMegolmMessage,
+    sentAtMillis: Long,
+): PreparedOlmGroupMessageDistribution =
+    prepare(membership, messageId, encryptedMessage, sentAtMillis, null)
 
 internal class OlmGroupMessageDistributionPreparer(
     private val directory: OlmOutboundKeyDirectory,

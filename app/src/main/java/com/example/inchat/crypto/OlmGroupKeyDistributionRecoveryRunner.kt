@@ -21,8 +21,14 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
     private val membershipForGroup: suspend (String) -> GroupCryptoMembershipSnapshot?,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
-    private val existingOutboundSession: (GroupCryptoMembershipSnapshot) -> OutboundMegolmSessionInfo?,
-    private val exportOutboundSessionKey: (GroupCryptoMembershipSnapshot) -> ByteArray,
+    private val existingOutboundSession: (
+        GroupCryptoMembershipSnapshot,
+        expectedSessionId: String,
+    ) -> OutboundMegolmSessionInfo?,
+    private val exportOutboundSessionKey: (
+        GroupCryptoMembershipSnapshot,
+        expectedSessionId: String,
+    ) -> ByteArray,
     private val prepareDistribution: suspend (
         distributionId: String,
         membership: GroupCryptoMembershipSnapshot,
@@ -89,7 +95,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 return@forEach
             }
 
-            val session = existingOutboundSession(initial)
+            val session = existingOutboundSession(initial, metadata.megolmSessionId)
             if (session == null || session.groupId != metadata.groupId ||
                 session.membershipEpoch != metadata.membershipEpoch ||
                 session.sessionId != metadata.megolmSessionId
@@ -100,7 +106,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 return@forEach
             }
 
-            val keyBytes = exportOutboundSessionKey(initial)
+            val keyBytes = exportOutboundSessionKey(initial, metadata.megolmSessionId)
             val encodedKey = try {
                 require(keyBytes.size in MIN_KEY_BYTES..MAX_KEY_BYTES) {
                     "Native Megolm session key has an invalid size"

@@ -10,6 +10,26 @@ import org.junit.Test
 
 class MegolmGroupSessionKeyDistributorTest {
     @Test
+    fun groupDeviceRosterFingerprintIsStableAcrossSetIterationOrder() {
+        val first = linkedSetOf("bob" to "bob-phone", "alice" to "alice-tablet")
+        val second = linkedSetOf("alice" to "alice-tablet", "bob" to "bob-phone")
+        assertEquals(
+            GroupDeviceRosterFingerprint.create(membership(9L), first),
+            GroupDeviceRosterFingerprint.create(membership(9L), second),
+        )
+    }
+
+    @Test
+    fun groupDeviceRosterFingerprintChangesWhenTrustedDeviceSetChanges() {
+        val oldRoster = setOf("bob" to "bob-phone")
+        val newRoster = setOf("bob" to "bob-phone", "bob" to "bob-tablet")
+        assertTrue(
+            GroupDeviceRosterFingerprint.create(membership(9L), oldRoster) !=
+                GroupDeviceRosterFingerprint.create(membership(9L), newRoster),
+        )
+    }
+
+    @Test
     fun preparesAndQueuesExactCurrentSessionThenReturnsPendingAcknowledgementState() = runBlocking {
         val key = ByteArray(64) { (it + 1).toByte() }
         val expectedKey = key.copyOf()
@@ -135,6 +155,20 @@ class MegolmGroupSessionKeyDistributorTest {
         assertArrayEquals(ByteArray(64), key)
     }
 
+    @Test
+    fun groupDeviceRosterFingerprintChangesWhenMembershipRolesChangeAtSameEpoch() {
+        val currentMembership = membership(9L)
+        val changedMembership = currentMembership.copy(
+            members = mapOf("alice" to "member", "bob" to "admin", "carol" to "member"),
+        )
+        val targets = setOf("bob" to "bob-phone", "carol" to "carol-phone")
+
+        assertTrue(
+            GroupDeviceRosterFingerprint.create(currentMembership, targets) !=
+                GroupDeviceRosterFingerprint.create(changedMembership, targets),
+        )
+    }
+
     private var capturedSessionKey: String = ""
 
     private fun distributor(
@@ -150,8 +184,13 @@ class MegolmGroupSessionKeyDistributorTest {
         },
         authenticatedUserId = { "alice" },
         localDeviceId = { "alice-phone" },
-        ensureOutboundSession = { membership ->
+        currentTrustedTargetDevices = { membership ->
             assertEquals(9L, membership.epoch)
+            setOf("bob" to "bob-phone", "carol" to "carol-phone")
+        },
+        ensureOutboundSession = { membership, targets ->
+            assertEquals(9L, membership.epoch)
+            assertEquals(setOf("bob" to "bob-phone", "carol" to "carol-phone"), targets)
             OutboundMegolmSessionInfo(
                 sessionId = "session-id-123456",
                 groupId = membership.groupId,
@@ -159,7 +198,11 @@ class MegolmGroupSessionKeyDistributorTest {
                 created = false,
             )
         },
-        exportOutboundSessionKey = { keyBytes },
+        exportOutboundSessionKey = { membership, sessionId ->
+            assertEquals(9L, membership.epoch)
+            assertEquals("session-id-123456", sessionId)
+            keyBytes
+        },
         prepareDistribution = { distributionKeyId, membership, sessionId, sessionKey, issuedAt ->
             capturedSessionKey = sessionKey
             assertEquals(distributionId(), distributionKeyId)
@@ -175,6 +218,7 @@ class MegolmGroupSessionKeyDistributorTest {
                     keyDelivery("carol", "carol-phone"),
                 ),
                 skippedUntrustedDeviceCount = 1,
+                targetDevices = listOf("bob" to "bob-phone", "carol" to "carol-phone"),
             ).also { assertEquals("session-id-123456", sessionId) }
         },
         enqueueDistribution = enqueue,

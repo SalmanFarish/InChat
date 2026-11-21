@@ -44,10 +44,14 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = {
-                OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
             },
-            exportOutboundSessionKey = { keyBytes },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                keyBytes
+            },
             prepareDistribution = { id, snapshot, session, key, issuedAt, selected ->
                 assertEquals(distributionId, id)
                 assertEquals(membership, snapshot)
@@ -135,10 +139,14 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = {
-                OutboundMegolmSessionInfo(sessionId, initialMembership.groupId, initialMembership.epoch, created = false)
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
             },
-            exportOutboundSessionKey = { ByteArray(32) { 9 } },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                ByteArray(32) { 9 }
+            },
             prepareDistribution = { id, snapshot, session, _, _, _ ->
                 PreparedOlmGroupKeyDistribution(
                     distributionId = id,
@@ -206,10 +214,14 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = {
-                OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
             },
-            exportOutboundSessionKey = { ByteArray(32) { 5 } },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                ByteArray(32) { 5 }
+            },
             prepareDistribution = { id, snapshot, session, _, _, _ ->
                 PreparedOlmGroupKeyDistribution(
                     distributionId = id,
@@ -279,10 +291,10 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = {
-                OutboundMegolmSessionInfo("fedcba0987654321", membership.groupId, membership.epoch, created = true)
+            existingOutboundSession = { snapshot, _ ->
+                OutboundMegolmSessionInfo("fedcba0987654321", snapshot.groupId, snapshot.epoch, created = false)
             },
-            exportOutboundSessionKey = {
+            exportOutboundSessionKey = { _, _ ->
                 exported = true
                 ByteArray(32)
             },
@@ -334,10 +346,14 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = {
-                OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
             },
-            exportOutboundSessionKey = { ByteArray(32) { 4 } },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                ByteArray(32) { 4 }
+            },
             prepareDistribution = { _, _, _, _, _, _ ->
                 throw IllegalStateException("temporary directory failure")
             },
@@ -391,8 +407,8 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            existingOutboundSession = { null },
-            exportOutboundSessionKey = {
+            existingOutboundSession = { _, _ -> null },
+            exportOutboundSessionKey = { _, _ ->
                 exported = true
                 ByteArray(32)
             },

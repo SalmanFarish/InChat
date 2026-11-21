@@ -50,6 +50,9 @@ struct StoredOutboundGroupSession {
     membership_epoch: u64,
     sender_user_id: String,
     sender_device_id: String,
+    /// SHA-256 over the canonical membership/role snapshot and sorted
+    /// SAS-trusted account/device roster. Empty only for legacy state.
+    target_roster_fingerprint: String,
     session: OutboundGroupSession,
 }
 
@@ -128,8 +131,10 @@ struct DeviceCryptoState {
     pending_group_decryptions: std::collections::BTreeMap<String, PendingGroupDecryption>,
     /// Sender ratchets advanced with ciphertext waiting for durable per-device outbox commit.
     pending_outbound_group_messages: std::collections::BTreeMap<String, PendingOutboundMegolmMessage>,
-    /// One active sender ratchet per local device, group, and membership epoch.
+    /// One active sender ratchet per local device and group.
     outbound_group_sessions: std::collections::BTreeMap<String, StoredOutboundGroupSession>,
+    /// Retired sender ratchets remain available for incomplete key distributions and staged messages.
+    retired_outbound_group_sessions: std::collections::BTreeMap<String, StoredOutboundGroupSession>,
     /// Inbound group ratchets keyed by their complete sender/epoch/session identity.
     inbound_group_sessions: std::collections::BTreeMap<String, StoredInboundGroupSession>,
 }
@@ -185,18 +190,34 @@ fn existing_outbound_group_session_id(
     Ok(stored.session.session_id())
 }
 
+fn outbound_group_session_archive_key(
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    session_id: &str,
+) -> String {
+    format!("{group_id}|{membership_epoch}|{sender_user_id}|{sender_device_id}|{session_id}")
+}
+
+fn valid_roster_fingerprint(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn ensure_outbound_group_session(
     state: &mut DeviceCryptoState,
     group_id: &str,
     membership_epoch: u64,
     sender_user_id: &str,
     sender_device_id: &str,
+    target_roster_fingerprint: &str,
 ) -> Result<(String, bool), &'static str> {
     if !valid_group_id(group_id) ||
         membership_epoch == 0 ||
         !valid_user_id(sender_user_id) ||
-        !valid_device_id(sender_device_id) {
-        return Err("Outbound Megolm session metadata is invalid");
+        !valid_device_id(sender_device_id) ||
+        !valid_roster_fingerprint(target_roster_fingerprint) {
+        return Err("Outbound Megolm session metadata or target roster fingerprint is invalid");
     }
 
     if let Some(existing) = state.outbound_group_sessions.get(group_id) {
@@ -208,8 +229,35 @@ fn ensure_outbound_group_session(
                 existing.sender_device_id != sender_device_id {
                 return Err("Outbound Megolm session sender identity does not match");
             }
-            return Ok((existing.session.session_id(), false));
+            if existing.target_roster_fingerprint == target_roster_fingerprint {
+                return Ok((existing.session.session_id(), false));
+            }
         }
+    }
+
+    // Keep the previous exact ratchet so unfinished distribution recovery can
+    // export that session's key. Never silently replace the only copy.
+    if let Some(previous) = state.outbound_group_sessions.remove(group_id) {
+        let previous_session_id = previous.session.session_id();
+        let archive_key = outbound_group_session_archive_key(
+            group_id,
+            previous.membership_epoch,
+            &previous.sender_user_id,
+            &previous.sender_device_id,
+            &previous_session_id,
+        );
+        if state.retired_outbound_group_sessions.contains_key(&archive_key) {
+            state.outbound_group_sessions.insert(group_id.to_owned(), previous);
+            return Err("Retired outbound Megolm session identity already exists");
+        }
+        if state.outbound_group_sessions.len() + state.retired_outbound_group_sessions.len() >= 1_000 {
+            // Restore the active value before returning; failed rotation is atomic.
+            state.outbound_group_sessions.insert(group_id.to_owned(), previous);
+            return Err("Too many retained outbound Megolm sessions; retire completed distributions first");
+        }
+        state.retired_outbound_group_sessions.insert(archive_key, previous);
+    } else if state.outbound_group_sessions.len() + state.retired_outbound_group_sessions.len() >= 1_000 {
+        return Err("Too many retained outbound Megolm sessions");
     }
 
     let session = OutboundGroupSession::new();
@@ -220,10 +268,79 @@ fn ensure_outbound_group_session(
             membership_epoch,
             sender_user_id: sender_user_id.to_owned(),
             sender_device_id: sender_device_id.to_owned(),
+            target_roster_fingerprint: target_roster_fingerprint.to_ascii_lowercase(),
             session,
         },
     );
     Ok((session_id, true))
+}
+
+fn find_outbound_group_session_by_id<'a>(
+    state: &'a DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    expected_session_id: &str,
+) -> Option<&'a StoredOutboundGroupSession> {
+    let active = state.outbound_group_sessions.get(group_id).filter(|stored| {
+        stored.membership_epoch == membership_epoch &&
+            stored.sender_user_id == sender_user_id &&
+            stored.sender_device_id == sender_device_id &&
+            stored.session.session_id() == expected_session_id
+    });
+    if active.is_some() {
+        return active;
+    }
+    let archive_key = outbound_group_session_archive_key(
+        group_id,
+        membership_epoch,
+        sender_user_id,
+        sender_device_id,
+        expected_session_id,
+    );
+    state.retired_outbound_group_sessions.get(&archive_key).filter(|stored| {
+        stored.membership_epoch == membership_epoch &&
+            stored.sender_user_id == sender_user_id &&
+            stored.sender_device_id == sender_device_id &&
+            stored.session.session_id() == expected_session_id
+    })
+}
+
+fn existing_outbound_group_session_id_exact(
+    state: &DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    expected_session_id: &str,
+) -> Result<String, &'static str> {
+    if !valid_group_id(group_id) ||
+        membership_epoch == 0 ||
+        !valid_user_id(sender_user_id) ||
+        !valid_device_id(sender_device_id) ||
+        expected_session_id.len() < 16 ||
+        expected_session_id.len() > 128 {
+        return Err("Existing outbound Megolm session identity is invalid");
+    }
+    let stored = find_outbound_group_session_by_id(
+        state, group_id, membership_epoch, sender_user_id, sender_device_id, expected_session_id,
+    ).ok_or("Exact outbound Megolm session does not exist")?;
+    Ok(stored.session.session_id())
+}
+
+fn export_outbound_group_session_key_for_id(
+    state: &DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    expected_session_id: &str,
+) -> Result<Vec<u8>, &'static str> {
+    let stored = find_outbound_group_session_by_id(
+        state, group_id, membership_epoch, sender_user_id, sender_device_id, expected_session_id,
+    ).ok_or("Exact outbound Megolm session does not exist")?;
+    Ok(stored.session.export_session_key())
 }
 
 fn export_outbound_group_session_key(
@@ -735,7 +852,9 @@ fn encode_device_crypto_state(
         if !valid_group_id(group_id) ||
             stored.membership_epoch == 0 ||
             !valid_user_id(&stored.sender_user_id) ||
-            stored.sender_device_id != device_id {
+            stored.sender_device_id != device_id ||
+            !(stored.target_roster_fingerprint.is_empty() ||
+                valid_roster_fingerprint(&stored.target_roster_fingerprint)) {
             return Err("Saved outbound Megolm session metadata is invalid");
         }
         let session_id = stored.session.session_id();
@@ -750,6 +869,51 @@ fn encode_device_crypto_state(
                 "membershipEpoch": stored.membership_epoch,
                 "senderUserId": stored.sender_user_id,
                 "senderDeviceId": stored.sender_device_id,
+                "targetRosterFingerprint": stored.target_roster_fingerprint,
+                "sessionId": session_id,
+                "pickle": pickle_value,
+            }),
+        );
+    }
+
+    let mut retired_outbound_group_sessions = serde_json::Map::new();
+    if state.retired_outbound_group_sessions.len() + state.outbound_group_sessions.len() > 1_000 {
+        return Err("Olm device state contains too many outbound Megolm sessions");
+    }
+    for (archive_key, stored) in &state.retired_outbound_group_sessions {
+        let group_id = archive_key.split('|').next()
+            .filter(|id| valid_group_id(id))
+            .ok_or("Retired outbound Megolm archive key has an invalid group ID")?;
+        if stored.membership_epoch == 0 ||
+            !valid_user_id(&stored.sender_user_id) ||
+            stored.sender_device_id != device_id ||
+            !(stored.target_roster_fingerprint.is_empty() ||
+                valid_roster_fingerprint(&stored.target_roster_fingerprint)) {
+            return Err("Saved retired outbound Megolm session metadata is invalid");
+        }
+        let session_id = stored.session.session_id();
+        if archive_key != &outbound_group_session_archive_key(
+            group_id,
+            stored.membership_epoch,
+            &stored.sender_user_id,
+            &stored.sender_device_id,
+            &session_id,
+        ) {
+            return Err("Retired outbound Megolm archive key does not match its metadata");
+        }
+        let mut pickle = stored.session.serialize_for_encrypted_storage()?;
+        let pickle_result = serde_json::from_slice::<Value>(&pickle);
+        pickle.zeroize();
+        let pickle_value =
+            pickle_result.map_err(|_| "Retired outbound Megolm pickle could not be encoded")?;
+        retired_outbound_group_sessions.insert(
+            archive_key.clone(),
+            json!({
+                "groupId": group_id,
+                "membershipEpoch": stored.membership_epoch,
+                "senderUserId": stored.sender_user_id,
+                "senderDeviceId": stored.sender_device_id,
+                "targetRosterFingerprint": stored.target_roster_fingerprint,
                 "sessionId": session_id,
                 "pickle": pickle_value,
             }),
@@ -782,7 +946,7 @@ fn encode_device_crypto_state(
         inbound_group_sessions.insert(
             key.clone(),
             json!({
-                "groupId": stored.group_id,
+                "groupId": group_id,
                 "membershipEpoch": stored.membership_epoch,
                 "senderUserId": stored.sender_user_id,
                 "senderDeviceId": stored.sender_device_id,
@@ -799,6 +963,7 @@ fn encode_device_crypto_state(
         "pendingGroupDecryptions": pending_group_decryptions,
         "pendingOutboundGroupMessages": pending_outbound_group_messages,
         "outboundGroupSessions": outbound_group_sessions,
+        "retiredOutboundGroupSessions": retired_outbound_group_sessions,
         "inboundGroupSessions": inbound_group_sessions
     }))
     .map_err(|_| "Olm device crypto state serialization failed")?;
@@ -858,6 +1023,7 @@ fn decode_device_crypto_state(
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             });
         }
@@ -1137,6 +1303,14 @@ fn decode_device_crypto_state(
                 if sender_device_id != expected_device_id {
                     return Err("Saved outbound Megolm session belongs to another device");
                 }
+                let target_roster_fingerprint = value
+                    .get("targetRosterFingerprint")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !target_roster_fingerprint.is_empty() &&
+                    !valid_roster_fingerprint(target_roster_fingerprint) {
+                    return Err("Saved outbound Megolm target roster fingerprint is invalid");
+                }
                 let session_id = value
                     .get("sessionId")
                     .and_then(Value::as_str)
@@ -1162,12 +1336,74 @@ fn decode_device_crypto_state(
                         membership_epoch,
                         sender_user_id: sender_user_id.to_owned(),
                         sender_device_id: sender_device_id.to_owned(),
+                        target_roster_fingerprint: target_roster_fingerprint.to_ascii_lowercase(),
                         session,
                     },
                 );
             }
         } else if envelope.get("outboundGroupSessions").is_some() {
             return Err("Saved outbound Megolm sessions have an invalid format");
+        }
+
+        let mut retired_outbound_group_sessions = std::collections::BTreeMap::new();
+        if let Some(values) = envelope
+            .get("retiredOutboundGroupSessions")
+            .and_then(Value::as_object)
+        {
+            if values.len() + outbound_group_sessions.len() > 1_000 {
+                return Err("Saved Olm state contains too many retained outbound Megolm sessions");
+            }
+            for (archive_key, value) in values {
+                let group_id = value.get("groupId").and_then(Value::as_str)
+                    .filter(|id| valid_group_id(id))
+                    .ok_or("Saved retired outbound Megolm group ID is invalid")?;
+                let membership_epoch = value.get("membershipEpoch").and_then(Value::as_u64)
+                    .filter(|epoch| *epoch > 0)
+                    .ok_or("Saved retired outbound Megolm epoch is invalid")?;
+                let sender_user_id = value.get("senderUserId").and_then(Value::as_str)
+                    .filter(|uid| valid_user_id(uid))
+                    .ok_or("Saved retired outbound Megolm sender account is invalid")?;
+                let sender_device_id = value.get("senderDeviceId").and_then(Value::as_str)
+                    .filter(|id| valid_device_id(id) && *id == expected_device_id)
+                    .ok_or("Saved retired outbound Megolm sender device is invalid")?;
+                let target_roster_fingerprint = value.get("targetRosterFingerprint")
+                    .and_then(Value::as_str)
+                    .filter(|fingerprint| fingerprint.is_empty() || valid_roster_fingerprint(fingerprint))
+                    .ok_or("Saved retired outbound Megolm roster fingerprint is invalid")?;
+                let session_id = value.get("sessionId").and_then(Value::as_str)
+                    .filter(|id| id.len() >= 16 && id.len() <= 128)
+                    .ok_or("Saved retired outbound Megolm session ID is invalid")?;
+                if archive_key != &outbound_group_session_archive_key(
+                    group_id, membership_epoch, sender_user_id, sender_device_id, session_id,
+                ) {
+                    return Err("Saved retired outbound Megolm archive key does not match its metadata");
+                }
+                let pickle_value = value.get("pickle")
+                    .ok_or("Saved retired outbound Megolm session has no pickle")?;
+                let mut pickle_bytes = serde_json::to_vec(pickle_value)
+                    .map_err(|_| "Saved retired outbound Megolm pickle could not be decoded")?;
+                if pickle_bytes.len() > crate::megolm::MAX_GROUP_SESSION_STATE_BYTES {
+                    pickle_bytes.zeroize();
+                    return Err("Saved retired outbound Megolm pickle exceeds the size limit");
+                }
+                let session = OutboundGroupSession::restore_from_encrypted_storage(&pickle_bytes)?;
+                pickle_bytes.zeroize();
+                if session.session_id() != session_id {
+                    return Err("Saved retired outbound Megolm session ID does not match its pickle");
+                }
+                retired_outbound_group_sessions.insert(
+                    archive_key.clone(),
+                    StoredOutboundGroupSession {
+                        membership_epoch,
+                        sender_user_id: sender_user_id.to_owned(),
+                        sender_device_id: sender_device_id.to_owned(),
+                        target_roster_fingerprint: target_roster_fingerprint.to_ascii_lowercase(),
+                        session,
+                    },
+                );
+            }
+        } else if envelope.get("retiredOutboundGroupSessions").is_some() {
+            return Err("Saved retired outbound Megolm sessions have an invalid format");
         }
 
         let mut inbound_group_sessions = std::collections::BTreeMap::new();
@@ -1249,6 +1485,7 @@ fn decode_device_crypto_state(
             pending_group_decryptions,
             pending_outbound_group_messages,
             outbound_group_sessions,
+            retired_outbound_group_sessions,
             inbound_group_sessions,
         })
     })();
@@ -1280,6 +1517,7 @@ fn encode_device_account_state(
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         },
     )
@@ -1554,6 +1792,7 @@ fn ensure_device_identity<'local>(
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
                 outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
                 inbound_group_sessions: std::collections::BTreeMap::new(),
             },
             true,
@@ -2879,9 +3118,10 @@ mod tests {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
-                pending_group_decryptions: std::collections::BTreeMap::new(),
-                pending_outbound_group_messages: std::collections::BTreeMap::new(),
+            pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
@@ -2891,13 +3131,8 @@ mod tests {
         assert!(state.outbound_group_sessions.is_empty());
 
         let (first_id, created) = super::ensure_outbound_group_session(
-            &mut state,
-            "group-1",
-            3,
-            "sender-user",
-            "sender-device",
-        )
-        .unwrap();
+            &mut state, "group-1", 3, "sender-user", "sender-device", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ).unwrap();
         assert!(created);
         assert_eq!(
             super::existing_outbound_group_session_id(
@@ -2905,60 +3140,67 @@ mod tests {
             ).unwrap(),
             first_id,
         );
+
+        let (same_roster_id, created) = super::ensure_outbound_group_session(
+            &mut state, "group-1", 3, "sender-user", "sender-device", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ).unwrap();
+        assert!(!created);
+        assert_eq!(same_roster_id, first_id);
+        assert_eq!(state.retired_outbound_group_sessions.len(), 0);
+
+        let (rotated_id, created) = super::ensure_outbound_group_session(
+            &mut state, "group-1", 3, "sender-user", "sender-device", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ).unwrap();
+        assert!(created);
+        assert_ne!(rotated_id, first_id);
+        assert_eq!(state.retired_outbound_group_sessions.len(), 1);
+        assert_eq!(
+            super::existing_outbound_group_session_id_exact(
+                &state, "group-1", 3, "sender-user", "sender-device", &first_id,
+            ).unwrap(),
+            first_id,
+        );
+        assert!(
+            !super::export_outbound_group_session_key_for_id(
+                &state, "group-1", 3, "sender-user", "sender-device", &first_id,
+            ).unwrap().is_empty()
+        );
+
         let session_count = state.outbound_group_sessions.len();
         assert!(super::existing_outbound_group_session_id(
             &state, "group-1", 2, "sender-user", "sender-device",
         ).is_err());
         assert_eq!(state.outbound_group_sessions.len(), session_count);
 
-        let (same_epoch_id, created) = super::ensure_outbound_group_session(
-            &mut state,
-            "group-1",
-            3,
-            "sender-user",
-            "sender-device",
-        )
-        .unwrap();
-        assert!(!created);
-        assert_eq!(same_epoch_id, first_id);
-
-        assert!(super::ensure_outbound_group_session(
-            &mut state,
-            "group-1",
-            2,
-            "sender-user",
-            "sender-device",
-        )
-        .is_err());
-
         let (next_epoch_id, created) = super::ensure_outbound_group_session(
-            &mut state,
-            "group-1",
-            4,
-            "sender-user",
-            "sender-device",
-        )
-        .unwrap();
+            &mut state, "group-1", 4, "sender-user", "sender-device", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ).unwrap();
         assert!(created);
-        assert_ne!(next_epoch_id, first_id);
-        assert!(super::export_outbound_group_session_key(
-            &state,
-            "group-1",
-            3,
-            "sender-user",
-            "sender-device",
-        )
-        .is_err());
+        assert_ne!(next_epoch_id, rotated_id);
+        assert_eq!(state.retired_outbound_group_sessions.len(), 2);
+
+        // The archive survives encrypted device-state serialization and restart.
+        let encoded = super::encode_device_crypto_state("sender-device", &state)
+            .expect("active and retired Megolm sessions should serialize");
+        let restored = super::decode_device_crypto_state(encoded, "sender-device")
+            .expect("active and retired Megolm sessions should restore");
+        assert_eq!(restored.outbound_group_sessions.len(), 1);
+        assert_eq!(restored.retired_outbound_group_sessions.len(), 2);
+        assert_eq!(
+            super::existing_outbound_group_session_id_exact(
+                &restored, "group-1", 3, "sender-user", "sender-device", &first_id,
+            ).unwrap(),
+            first_id,
+        );
+        assert!(
+            !super::export_outbound_group_session_key_for_id(
+                &restored, "group-1", 3, "sender-user", "sender-device", &first_id,
+            ).unwrap().is_empty()
+        );
         assert!(
             !super::export_outbound_group_session_key(
-                &state,
-                "group-1",
-                4,
-                "sender-user",
-                "sender-device",
-            )
-            .unwrap()
-            .is_empty()
+                &restored, "group-1", 4, "sender-user", "sender-device",
+            ).unwrap().is_empty()
         );
     }
 
@@ -2974,6 +3216,7 @@ mod tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
@@ -3084,6 +3327,7 @@ mod tests {
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
@@ -3163,6 +3407,7 @@ mod tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let encoded = super::encode_device_crypto_state("session-device", &state)
@@ -3220,6 +3465,7 @@ mod tests {
                 membership_epoch: 4,
                 sender_user_id: "sender-user".to_owned(),
                 sender_device_id: "sender-device".to_owned(),
+                target_roster_fingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
                 session: sender,
             },
         );
@@ -3295,6 +3541,7 @@ mod tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions,
         };
 
@@ -3337,6 +3584,7 @@ mod tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let encoded = super::encode_device_crypto_state(device_id, &state)
@@ -3675,6 +3923,7 @@ mod transfer_tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let source_id = "source-device";
@@ -3742,6 +3991,7 @@ mod transfer_tests {
                 membership_epoch: 11,
                 sender_user_id: "sender-user".to_owned(),
                 sender_device_id: sender_device_id.to_owned(),
+                target_roster_fingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
                 session: group_session,
             },
         );
@@ -3802,6 +4052,7 @@ mod transfer_tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let source_id = "source-device";
@@ -3873,15 +4124,18 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     group_id: JString<'local>,
     membership_epoch: jni::sys::jlong,
     sender_user_id: JString<'local>,
+    target_roster_fingerprint: JString<'local>,
 ) -> jstring {
     let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let target_roster_fingerprint: String = match env.get_string(&target_roster_fingerprint) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
     if membership_epoch <= 0 { return std::ptr::null_mut(); }
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut state = load_device_crypto_state(&mut env, &store, &device_id)?;
         let (session_id, created) = ensure_outbound_group_session(
-            &mut state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
+            &mut state, &group_id, membership_epoch as u64, &sender_user_id, &device_id,
+            &target_roster_fingerprint,
         )?;
         if created {
             let blob = encode_device_crypto_state(&device_id, &state)?;
@@ -3942,6 +4196,44 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeG
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeGetExistingOutboundMegolmSessionById<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+    expected_session_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let expected_session_id: String = match env.get_string(&expected_session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let session_id = existing_outbound_group_session_id_exact(
+            &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id,
+            &expected_session_id,
+        )?;
+        serde_json::to_string(&json!({
+            "sessionId": session_id,
+            "membershipEpoch": membership_epoch,
+            "created": false
+        })).map_err(|_| "Could not encode exact existing outbound Megolm session metadata")
+    }));
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeExportOutboundMegolmSessionKey<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
@@ -3959,6 +4251,39 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
         let state = load_device_crypto_state(&mut env, &store, &device_id)?;
         export_outbound_group_session_key(
             &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
+        )
+    }));
+    match result {
+        Ok(Ok(mut key)) => {
+            let output = env.byte_array_from_slice(&key);
+            key.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeExportOutboundMegolmSessionKeyById<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+    expected_session_id: JString<'local>,
+) -> jbyteArray {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let expected_session_id: String = match env.get_string(&expected_session_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        export_outbound_group_session_key_for_id(
+            &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id,
+            &expected_session_id,
         )
     }));
     match result {
@@ -4341,6 +4666,7 @@ mod pending_megolm_receive_tests {
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions: std::collections::BTreeMap::new(),
+                retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let key = sender.export_session_key();
@@ -4559,6 +4885,7 @@ mod pending_outbound_megolm_tests {
                 membership_epoch: 7,
                 sender_user_id: "alice".to_owned(),
                 sender_device_id: "local-device".to_owned(),
+                target_roster_fingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
                 session,
             },
         );

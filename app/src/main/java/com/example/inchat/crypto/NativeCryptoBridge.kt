@@ -148,6 +148,7 @@ internal object NativeCryptoBridge {
         groupId: String,
         membershipEpoch: Long,
         senderUserId: String,
+        targetRosterFingerprint: String,
     ): String?
 
     /** Read an existing sender ratchet without creating or rotating one. */
@@ -158,6 +159,26 @@ internal object NativeCryptoBridge {
         membershipEpoch: Long,
         senderUserId: String,
     ): String?
+
+    /** Read an active or archived sender ratchet by its exact immutable session ID. */
+    external fun nativeGetExistingOutboundMegolmSessionById(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+        expectedSessionId: String,
+    ): String?
+
+    /** Export a Megolm key from the exact active or archived session ID. */
+    external fun nativeExportOutboundMegolmSessionKeyById(
+        store: CryptoStateStore,
+        deviceId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        senderUserId: String,
+        expectedSessionId: String,
+    ): ByteArray?
 
     /** Export a Megolm session key; callers must distribute it only via authenticated Olm. */
     external fun nativeExportOutboundMegolmSessionKey(

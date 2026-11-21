@@ -15,8 +15,15 @@ internal class MegolmGroupSessionKeyDistributor(
     private val membershipForGroup: suspend (groupId: String) -> GroupCryptoMembershipSnapshot?,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
-    private val ensureOutboundSession: (GroupCryptoMembershipSnapshot) -> OutboundMegolmSessionInfo,
-    private val exportOutboundSessionKey: (GroupCryptoMembershipSnapshot) -> ByteArray,
+    private val currentTrustedTargetDevices: suspend (GroupCryptoMembershipSnapshot) -> Set<Pair<String, String>>,
+    private val ensureOutboundSession: (
+        GroupCryptoMembershipSnapshot,
+        Set<Pair<String, String>>,
+    ) -> OutboundMegolmSessionInfo,
+    private val exportOutboundSessionKey: (
+        GroupCryptoMembershipSnapshot,
+        sessionId: String,
+    ) -> ByteArray,
     private val prepareDistribution: suspend (
         distributionId: String,
         membership: GroupCryptoMembershipSnapshot,
@@ -70,13 +77,31 @@ internal class MegolmGroupSessionKeyDistributor(
             "Authenticated account is not a current group member"
         }
 
-        val session = ensureOutboundSession(initial)
+        val trustedTargets = currentTrustedTargetDevices(initial)
+        require(trustedTargets.isNotEmpty() && trustedTargets.size <= MAX_GROUP_TARGET_DEVICES) {
+            "Current SAS-trusted group device roster has an invalid size"
+        }
+        require(trustedTargets.all { (targetUserId, targetDeviceId) ->
+            targetUserId in initial.memberUserIds &&
+                targetUserId.matches(USER_ID) &&
+                targetDeviceId.matches(DEVICE_ID) &&
+                !(targetUserId == ownerUid && targetDeviceId == senderDevice)
+        }) {
+            "Current SAS-trusted group device roster contains an invalid target"
+        }
+        require((initial.memberUserIds - ownerUid).all { memberId ->
+            trustedTargets.any { it.first == memberId }
+        }) {
+            "Every current remote group member must have a trusted device"
+        }
+
+        val session = ensureOutboundSession(initial, trustedTargets)
         require(
             session.groupId == groupId &&
                 session.membershipEpoch == initial.epoch &&
                 session.sessionId.matches(SESSION_ID)
         ) {
-            "Native Megolm sender session does not match the current group epoch"
+            "Native Megolm sender session does not match the current group epoch and device roster"
         }
 
         val expectedDistributionId = OlmGroupSessionKeyDistributionId.create(
@@ -89,7 +114,7 @@ internal class MegolmGroupSessionKeyDistributor(
             "Group-key distribution ID must be stable for this exact sender session and membership epoch"
         }
 
-        val keyBytes = exportOutboundSessionKey(initial)
+        val keyBytes = exportOutboundSessionKey(initial, session.sessionId)
         val encodedKey = try {
             require(keyBytes.size in MIN_KEY_BYTES..MAX_KEY_BYTES) {
                 "Native Megolm session key has an invalid size"
@@ -111,7 +136,9 @@ internal class MegolmGroupSessionKeyDistributor(
                 prepared.groupId == groupId &&
                 prepared.membershipEpoch == initial.epoch &&
                 prepared.megolmSessionId == session.sessionId &&
-                prepared.deliveries.isNotEmpty()
+                prepared.deliveries.isNotEmpty() &&
+                prepared.targetDevices.size == trustedTargets.size &&
+                prepared.targetDevices.toSet() == trustedTargets
         ) {
             "Prepared group-key fan-out does not match the current Megolm session"
         }
@@ -127,7 +154,8 @@ internal class MegolmGroupSessionKeyDistributor(
                 latest.epoch == initial.epoch &&
                 latest.members == initial.members &&
                 authenticatedUserId() == ownerUid &&
-                localDeviceId() == senderDevice
+                localDeviceId() == senderDevice &&
+                currentTrustedTargetDevices(latest) == trustedTargets
         ) {
             "Group membership or local identity changed during key distribution"
         }
@@ -151,6 +179,9 @@ internal class MegolmGroupSessionKeyDistributor(
     private companion object {
         const val MIN_KEY_BYTES = 32
         const val MAX_KEY_BYTES = 1024
+        const val MAX_GROUP_TARGET_DEVICES = 256
+        val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
+        val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         val ID = Regex("[A-Za-z0-9_-]{1,128}")
         val SESSION_ID = Regex("[A-Za-z0-9_+/-]{16,128}={0,2}")
     }

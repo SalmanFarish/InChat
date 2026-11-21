@@ -29,7 +29,13 @@ internal class MegolmGroupMessageSender(
         require(membership.isValid()) {
             "Authoritative group membership snapshot is invalid"
         }
-        val outboundSession = sessions.ensureOutboundSession(membership)
+        // Verify current receipts and target roster before touching the Megolm ratchet.
+        // The sender only uses the exact already-distributed session; it never creates
+        // a substitute session as a side effect of a message send.
+        requireKeyDistributionReady(membership, keyDistribution)
+        val outboundSession = requireNotNull(
+            sessions.getExistingOutboundSession(membership, keyDistribution.megolmSessionId),
+        ) { "The exact acknowledged Megolm sender session is no longer available" }
         require(
             keyDistribution.groupId == membership.groupId &&
                 keyDistribution.membershipEpoch == membership.epoch &&
@@ -37,10 +43,6 @@ internal class MegolmGroupMessageSender(
         ) {
             "The current outbound Megolm session key has not been distributed for this membership epoch"
         }
-
-        // Check durable key receipts before advancing the native Megolm ratchet.
-        // The outbox committer repeats the check after envelope preparation.
-        requireKeyDistributionReady(membership, keyDistribution)
 
         val staged = sessions.prepareOutboundMessage(
             membership = membership,

@@ -2,6 +2,7 @@ package com.example.inchat.crypto
 
 import android.content.Context
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import java.security.MessageDigest
 import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,6 +43,51 @@ internal data class StagedMegolmDecryption(
 )
 
 /**
+ * Stable identity of the group membership/role snapshot and complete
+ * SAS-trusted recipient device set. Sorted, NUL-delimited fields make the
+ * input canonical before SHA-256.
+ */
+internal object GroupDeviceRosterFingerprint {
+    fun create(
+        membership: GroupCryptoMembershipSnapshot,
+        targetDevices: Set<Pair<String, String>>,
+    ): String {
+        require(membership.isValid()) {
+            "Authoritative group membership snapshot is invalid"
+        }
+        require(targetDevices.isNotEmpty() && targetDevices.size <= MAX_TARGET_DEVICES) {
+            "Trusted group device roster has an invalid size"
+        }
+        val canonical = buildString {
+            append("InChat/Megolm/GroupSessionScope/v2\u0000")
+            append(membership.groupId).append('\u0000')
+            append(membership.epoch).append('\u0000')
+            membership.members.toSortedMap().forEach { (userId, role) ->
+                require(userId.matches(USER_ID) && role.isNotBlank()) {
+                    "Group membership snapshot contains an invalid member identity or role"
+                }
+                append(userId).append('\u0000').append(role).append('\u0000')
+            }
+            append("trusted-devices\u0000")
+            targetDevices.sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
+                .forEach { (userId, deviceId) ->
+                    require(userId.matches(USER_ID) && deviceId.matches(DEVICE_ID)) {
+                        "Trusted group device roster contains an invalid identity"
+                    }
+                    append(userId).append('\u0000').append(deviceId).append('\u0000')
+                }
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+
+    private const val MAX_TARGET_DEVICES = 256
+    private val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
+    private val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+}
+
+/**
  * Narrow Android adapter for the isolated native Megolm session store.
  *
  * This class only accepts a single validated membership snapshot. Callers must
@@ -69,15 +115,22 @@ internal class MegolmSessionRepository(
         return store.withExclusiveAccess { block(store, deviceId) }
     }
 
-    /** Ensure one sender ratchet exists for this exact group membership epoch. */
+    /**
+     * Ensure one sender ratchet exists for this exact membership epoch and
+     * current SAS-trusted device roster. A roster change rotates the active
+     * session while the native layer retains the previous ratchet for recovery.
+     */
     fun ensureOutboundSession(
         membership: GroupCryptoMembershipSnapshot,
+        trustedTargetDevices: Set<Pair<String, String>>,
     ): OutboundMegolmSessionInfo {
         require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
         val ownerUid = authenticatedUserId()
         require(ownerUid in membership.memberUserIds) {
             "Authenticated account is not a current group member"
         }
+        requireValidGroupTargetSet(membership, ownerUid, localBundle.deviceId, trustedTargetDevices)
+        val rosterFingerprint = GroupDeviceRosterFingerprint.create(membership, trustedTargetDevices)
         val encoded = withNativeState { store, deviceId ->
             NativeCryptoBridge.nativeEnsureOutboundMegolmSession(
                 store,
@@ -85,11 +138,12 @@ internal class MegolmSessionRepository(
                 membership.groupId,
                 membership.epoch,
                 ownerUid,
+                rosterFingerprint,
             )
         } ?: throw IllegalStateException("Could not create or restore the outbound Megolm session")
         val result = JSONObject(encoded)
         val sessionId = result.getString("sessionId")
-        require(sessionId.isNotBlank() && sessionId.length <= MAX_SESSION_ID_LENGTH) {
+        require(sessionId.matches(SESSION_ID)) {
             "Native Megolm session ID is invalid"
         }
         require(result.getLong("membershipEpoch") == membership.epoch) {
@@ -101,6 +155,30 @@ internal class MegolmSessionRepository(
             membershipEpoch = membership.epoch,
             created = result.getBoolean("created"),
         )
+    }
+
+    private fun requireValidGroupTargetSet(
+        membership: GroupCryptoMembershipSnapshot,
+        ownerUid: String,
+        senderDeviceId: String,
+        targets: Set<Pair<String, String>>,
+    ) {
+        require(targets.isNotEmpty() && targets.size <= MAX_GROUP_TARGET_DEVICES) {
+            "Trusted group device roster has an invalid size"
+        }
+        require(targets.all { (userId, deviceId) ->
+            userId in membership.memberUserIds &&
+                userId.matches(USER_ID) &&
+                deviceId.matches(DEVICE_ID) &&
+                !(userId == ownerUid && deviceId == senderDeviceId)
+        }) {
+            "Trusted group device roster contains an invalid or non-member target"
+        }
+        require((membership.memberUserIds - ownerUid).all { memberId ->
+            targets.any { it.first == memberId }
+        }) {
+            "Trusted group device roster omits a current member"
+        }
     }
 
     /**
@@ -138,6 +216,44 @@ internal class MegolmSessionRepository(
     }
 
     /**
+     * Look up an exact active or archived outbound session. Recovery must use
+     * this overload so a rotated session can never be substituted silently.
+     */
+    fun getExistingOutboundSession(
+        membership: GroupCryptoMembershipSnapshot,
+        expectedSessionId: String,
+    ): OutboundMegolmSessionInfo? {
+        require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
+        require(expectedSessionId.matches(SESSION_ID)) { "Expected Megolm session ID is invalid" }
+        val ownerUid = authenticatedUserId()
+        require(ownerUid in membership.memberUserIds) {
+            "Authenticated account is not a current group member"
+        }
+        val encoded = withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeGetExistingOutboundMegolmSessionById(
+                store,
+                deviceId,
+                membership.groupId,
+                membership.epoch,
+                ownerUid,
+                expectedSessionId,
+            )
+        } ?: return null
+        val result = JSONObject(encoded)
+        require(result.getString("sessionId") == expectedSessionId &&
+            result.getLong("membershipEpoch") == membership.epoch &&
+            !result.getBoolean("created")) {
+            "Native exact-session recovery metadata is invalid"
+        }
+        return OutboundMegolmSessionInfo(
+            sessionId = expectedSessionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            created = false,
+        )
+    }
+
+    /**
      * Export the decryption capability for distribution only inside authenticated
      * Olm envelopes. The caller must clear the returned bytes after encoding.
      */
@@ -160,6 +276,34 @@ internal class MegolmSessionRepository(
                 )
             },
         ) { "Could not export the current outbound Megolm session key" }
+    }
+
+    /**
+     * Export the key for one exact active or archived session. This is the
+     * only export used by durable group-key recovery.
+     */
+    fun exportOutboundSessionKey(
+        membership: GroupCryptoMembershipSnapshot,
+        expectedSessionId: String,
+    ): ByteArray {
+        require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
+        require(expectedSessionId.matches(SESSION_ID)) { "Expected Megolm session ID is invalid" }
+        val ownerUid = authenticatedUserId()
+        require(ownerUid in membership.memberUserIds) {
+            "Authenticated account is not a current group member"
+        }
+        return requireNotNull(
+            withNativeState { store, deviceId ->
+                NativeCryptoBridge.nativeExportOutboundMegolmSessionKeyById(
+                    store,
+                    deviceId,
+                    membership.groupId,
+                    membership.epoch,
+                    ownerUid,
+                    expectedSessionId,
+                )
+            },
+        ) { "Could not export the exact outbound Megolm session key" }
     }
 
     /**
@@ -559,6 +703,8 @@ internal class MegolmSessionRepository(
     }
 
     private companion object {
+        const val MAX_GROUP_TARGET_DEVICES = 256
+        val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_PENDING_DECRYPTIONS = 64
         const val MAX_PENDING_OUTBOUND_MESSAGES = 128
