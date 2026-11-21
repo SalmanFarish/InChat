@@ -5,6 +5,7 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
+import { buildAddressedMessagePushData } from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -2451,16 +2452,16 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                   {
                     message: {
                       token: recipient.token,
-                      data: {
+                      data: buildAddressedMessagePushData({
                         type: "group_message",
-                        chatId: chatId,
-                        messageId: messageId,
+                        chatId,
+                        messageId,
                         senderId: uid,
                         recipientUserId: recipient.memberId,
                         senderName: senderNickname,
-                        groupName: groupName,
+                        groupName,
                         message: messageText,
-                      },
+                      }),
                       android: {
                         priority: "high",
                       },
@@ -2550,6 +2551,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                   chatId: chatId,
                   messageId: messageId,
                   senderId: uid,
+                  deliveryScope: "group_topic",
                   senderName: senderNickname,
                   groupName: groupName,
                   message: messageText,
@@ -2645,15 +2647,15 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           {
             message: {
               token: receiverToken,
-              data: {
+              data: buildAddressedMessagePushData({
                 type: "chat_message",
-                chatId: chatId,
-                messageId: messageId,
+                chatId,
+                messageId,
                 senderId: uid,
                 recipientUserId: receiverId,
                 senderName: senderNickname,
                 message: messageText,
-              },
+              }),
               android: {
                 priority: "high",
               },

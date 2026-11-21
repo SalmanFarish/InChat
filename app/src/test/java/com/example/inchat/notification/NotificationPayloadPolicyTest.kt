@@ -152,16 +152,37 @@ class NotificationPayloadPolicyTest {
 
     @Test
     fun legacyTopicPushWithoutRecipientUidRemainsCompatibleOnlyForSignedInGroups() {
+        val topicPayload = mapOf(
+            "type" to NotificationPayloadPolicy.TYPE_GROUP,
+            "deliveryScope" to "group_topic",
+        )
         assertTrue(
+            NotificationPayloadPolicy.isIntendedForAccount(topicPayload, "account-one"),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(topicPayload, ""),
+        )
+    }
+
+    @Test
+    fun unmarkedUnaddressedGroupPushIsRejected() {
+        assertFalse(
             NotificationPayloadPolicy.isIntendedForAccount(
-                mapOf("type" to NotificationPayloadPolicy.TYPE_GROUP),
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_GROUP,
+                    "chatId" to "group-1",
+                    "messageId" to "message-1",
+                ),
                 "account-one",
             ),
         )
         assertFalse(
             NotificationPayloadPolicy.isIntendedForAccount(
-                mapOf("type" to NotificationPayloadPolicy.TYPE_GROUP),
-                "",
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_GROUP,
+                    "deliveryScope" to "other",
+                ),
+                "account-one",
             ),
         )
     }

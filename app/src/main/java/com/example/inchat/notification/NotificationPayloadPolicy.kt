@@ -115,9 +115,10 @@ internal object NotificationPayloadPolicy {
             return targetUserId.isNotBlank() && targetUserId == signedInUserId
         }
 
-        // The only supported unaddressed notification is the legacy large-group
-        // topic broadcast. Direct messages must always identify their recipient.
-        return data["type"] == TYPE_GROUP
+        // The only supported unaddressed notification is the large-group topic
+        // broadcast, explicitly marked by the trusted Worker.
+        return data["type"] == TYPE_GROUP &&
+            data["deliveryScope"] == "group_topic"
     }
 
     /**
