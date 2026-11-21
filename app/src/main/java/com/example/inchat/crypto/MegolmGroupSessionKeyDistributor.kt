@@ -78,6 +78,9 @@ internal class MegolmGroupSessionKeyDistributor(
         }
 
         val trustedTargets = currentTrustedTargetDevices(initial)
+        require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
+            "Authenticated group sender identity changed during trusted-device lookup"
+        }
         require(trustedTargets.isNotEmpty() && trustedTargets.size <= MAX_GROUP_TARGET_DEVICES) {
             "Current SAS-trusted group device roster has an invalid size"
         }
@@ -97,6 +100,9 @@ internal class MegolmGroupSessionKeyDistributor(
 
         val expectedRosterFingerprint = GroupDeviceRosterFingerprint.create(initial, trustedTargets)
         val session = ensureOutboundSession(initial, trustedTargets)
+        require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
+            "Authenticated group sender identity changed while preparing the outbound session"
+        }
         require(
             session.groupId == groupId &&
                 session.membershipEpoch == initial.epoch &&

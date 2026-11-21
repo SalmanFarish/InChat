@@ -214,6 +214,62 @@ class MegolmGroupSessionKeyDistributorTest {
         )
     }
 
+    @Test
+    fun accountSwitchDuringTrustedDeviceLookupPreventsNativeSessionCreation() = runBlocking {
+        var currentUser = "alice"
+        var ensureCalls = 0
+        var enqueueCalls = 0
+        val key = ByteArray(64) { 31 }
+        val expectedKey = key.copyOf()
+        val distributor = distributor(
+            keyBytes = key,
+            snapshots = mutableListOf(membership(9L), membership(9L)),
+            enqueue = { _, _ -> enqueueCalls++; 1 },
+            authenticatedUser = { currentUser },
+            afterTrustedTargetLookup = { currentUser = "mallory" },
+            onEnsureSession = { ensureCalls++ },
+        )
+
+        var rejected = false
+        try {
+            distributor.distribute("group-1", distributionId(), 1234L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Account replacement must be caught before creating a native group session", rejected)
+        assertEquals(0, ensureCalls)
+        assertEquals(0, enqueueCalls)
+        assertArrayEquals(expectedKey, key)
+    }
+
+    @Test
+    fun deviceIdentityChangeDuringTrustedDeviceLookupPreventsNativeSessionCreation() = runBlocking {
+        var currentDevice = "alice-phone"
+        var ensureCalls = 0
+        var enqueueCalls = 0
+        val key = ByteArray(64) { 32 }
+        val expectedKey = key.copyOf()
+        val distributor = distributor(
+            keyBytes = key,
+            snapshots = mutableListOf(membership(9L), membership(9L)),
+            enqueue = { _, _ -> enqueueCalls++; 1 },
+            localDevice = { currentDevice },
+            afterTrustedTargetLookup = { currentDevice = "other-device" },
+            onEnsureSession = { ensureCalls++ },
+        )
+
+        var rejected = false
+        try {
+            distributor.distribute("group-1", distributionId(), 1234L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Device identity replacement must be caught before native session creation", rejected)
+        assertEquals(0, ensureCalls)
+        assertEquals(0, enqueueCalls)
+        assertArrayEquals(expectedKey, key)
+    }
+
     private var capturedSessionKey: String = ""
 
     private fun distributor(
@@ -222,18 +278,24 @@ class MegolmGroupSessionKeyDistributorTest {
         enqueue: (GroupCryptoMembershipSnapshot, PreparedOlmGroupKeyDistribution) -> Int,
         resume: (GroupCryptoMembershipSnapshot, PreparedOlmGroupKeyDistribution) -> Int = enqueue,
         preparedSessionId: String = "session-id-123456",
+        authenticatedUser: () -> String = { "alice" },
+        localDevice: () -> String = { "alice-phone" },
+        afterTrustedTargetLookup: () -> Unit = {},
+        onEnsureSession: () -> Unit = {},
     ) = MegolmGroupSessionKeyDistributor(
         membershipForGroup = { groupId ->
             assertEquals("group-1", groupId)
             if (snapshots.isEmpty()) null else snapshots.removeAt(0)
         },
-        authenticatedUserId = { "alice" },
-        localDeviceId = { "alice-phone" },
+        authenticatedUserId = authenticatedUser,
+        localDeviceId = localDevice,
         currentTrustedTargetDevices = { membership ->
             assertEquals(9L, membership.epoch)
+            afterTrustedTargetLookup()
             setOf("bob" to "bob-phone", "carol" to "carol-phone")
         },
         ensureOutboundSession = { membership, targets ->
+            onEnsureSession()
             assertEquals(9L, membership.epoch)
             assertEquals(setOf("bob" to "bob-phone", "carol" to "carol-phone"), targets)
             OutboundMegolmSessionInfo(

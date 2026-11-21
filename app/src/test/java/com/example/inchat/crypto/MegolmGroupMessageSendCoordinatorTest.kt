@@ -238,6 +238,70 @@ class MegolmGroupMessageSendCoordinatorTest {
         assertEquals(0, sendCalls)
     }
 
+    @Test
+    fun accountSwitchDuringTrustedRosterLookupPreventsNativeSessionCreation() = runBlocking {
+        var currentUser = "alice"
+        var ensureCalls = 0
+        var sendCalls = 0
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val coordinator = coordinator(
+            membershipReads = listOf(membership),
+            targets = targets,
+            session = session,
+            readiness = { OlmGroupKeyDistributionReadinessState.Ready(token) },
+            distribute = { _, _, _ -> error("Identity switch must be caught before distribution") },
+            send = { _, _, _, _, _ -> sendCalls++; error("Identity switch must block sending") },
+            currentTargets = { currentUser = "mallory"; targets },
+            authenticatedUser = { currentUser },
+            ensureSession = { _, _ -> ensureCalls++; session },
+        )
+
+        var rejected = false
+        try {
+            coordinator.send("group-1", "message-account-switch", "hello", 783L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Account replacement must be caught before native session creation", rejected)
+        assertEquals(0, ensureCalls)
+        assertEquals(0, sendCalls)
+    }
+
+    @Test
+    fun deviceIdentityChangeDuringTrustedRosterLookupPreventsNativeSessionCreation() = runBlocking {
+        var currentDevice = "alice-phone"
+        var ensureCalls = 0
+        var sendCalls = 0
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val coordinator = coordinator(
+            membershipReads = listOf(membership),
+            targets = targets,
+            session = session,
+            readiness = { OlmGroupKeyDistributionReadinessState.Ready(token) },
+            distribute = { _, _, _ -> error("Device switch must be caught before distribution") },
+            send = { _, _, _, _, _ -> sendCalls++; error("Device switch must block sending") },
+            currentTargets = { currentDevice = "other-device"; targets },
+            localDevice = { currentDevice },
+            ensureSession = { _, _ -> ensureCalls++; session },
+        )
+
+        var rejected = false
+        try {
+            coordinator.send("group-1", "message-device-switch", "hello", 784L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Device identity replacement must be caught before native session creation", rejected)
+        assertEquals(0, ensureCalls)
+        assertEquals(0, sendCalls)
+    }
+
     private fun coordinator(
         membershipReads: List<GroupCryptoMembershipSnapshot?>,
         targets: Set<Pair<String, String>>,
@@ -252,19 +316,22 @@ class MegolmGroupMessageSendCoordinatorTest {
             OlmGroupKeyDistributionReadinessToken,
         ) -> MegolmGroupMessageOutboxCommitResult,
         currentTargets: suspend (GroupCryptoMembershipSnapshot) -> Set<Pair<String, String>> = { targets },
+        authenticatedUser: () -> String = { "alice" },
+        localDevice: () -> String = { "alice-phone" },
+        ensureSession: (GroupCryptoMembershipSnapshot, Set<Pair<String, String>>) -> OutboundMegolmSessionInfo = { _, requestedTargets ->
+            assertEquals(targets, requestedTargets)
+            session
+        },
     ): MegolmGroupMessageSendCoordinator {
         val remainingMembershipReads = membershipReads.toMutableList()
         return MegolmGroupMessageSendCoordinator(
             membershipForGroup = {
                 if (remainingMembershipReads.isEmpty()) null else remainingMembershipReads.removeAt(0)
             },
-            authenticatedUserId = { "alice" },
-            localDeviceId = { "alice-phone" },
+            authenticatedUserId = authenticatedUser,
+            localDeviceId = localDevice,
             currentTrustedTargetDevices = currentTargets,
-            ensureOutboundSession = { _, requestedTargets ->
-                assertEquals(targets, requestedTargets)
-                session
-            },
+            ensureOutboundSession = ensureSession,
             evaluateKeyReadiness = { _, _, _, _ -> readiness() },
             distributeKey = distribute,
             sendEncryptedMessage = send,

@@ -85,8 +85,14 @@ internal class MegolmGroupMessageSendCoordinator(
         }
 
         val trustedTargets = currentTrustedTargetDevices(membership)
+        require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
+            "Authenticated group sender identity changed during trusted-device lookup"
+        }
         requireValidTargets(membership, ownerUid, senderDevice, trustedTargets)
         val session = ensureOutboundSession(membership, trustedTargets)
+        require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
+            "Authenticated group sender identity changed while preparing the outbound session"
+        }
         val expectedFingerprint = GroupDeviceRosterFingerprint.create(membership, trustedTargets)
         require(
             session.groupId == groupId &&
