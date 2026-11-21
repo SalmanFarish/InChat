@@ -24,9 +24,11 @@ class EncryptedGroupMessageRepositoryTest {
         com.example.inchat.data.local.LocalChatDatabase::class.java,
     ).allowMainThreadQueries().build()
     private val keyAlias = EncryptedGroupMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+    private var activeAccount = "alice"
     private val repository = EncryptedGroupMessageRepository(
         dao = database.encryptedGroupMessageDao(),
         vault = EncryptedGroupMessageVault(keyAlias),
+        authenticatedUserId = { activeAccount },
     )
 
     @After
@@ -48,13 +50,13 @@ class EncryptedGroupMessageRepositoryTest {
         )
 
         assertEquals(message, repository.getMessage("alice", "group-123", "message-123"))
-        assertNull(repository.getMessage("mallory", "group-123", "message-123"))
+        assertRejected { repository.getMessage("mallory", "group-123", "message-123") }
         assertNull(repository.getMessage("alice", "another-group", "message-123"))
         assertEquals(
             listOf(message),
             repository.observeMessages("alice", "group-123").first(),
         )
-        assertTrue(repository.observeMessages("mallory", "group-123").first().isEmpty())
+        assertRejected { repository.observeMessages("mallory", "group-123").first() }
     }
 
     @Test
@@ -166,7 +168,7 @@ class EncryptedGroupMessageRepositoryTest {
             listOf("message-a", "message-b", "message-z"),
             repository.observeMessages("alice", "group-123").first().map { it.messageId },
         )
-        assertTrue(repository.observeMessages("mallory", "group-123").first().isEmpty())
+        assertRejected { repository.observeMessages("mallory", "group-123").first() }
     }
 
     @Test
@@ -207,6 +209,41 @@ class EncryptedGroupMessageRepositoryTest {
         }
     }
 
+
+    @Test
+    fun authenticatedAccountSwitchRevokesExistingTimelineAndFutureCommits() = runBlocking {
+        val message = message().copy(messageId = "account-switch-message")
+        val ciphertext = "account-switch ciphertext".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val existingFlow = repository.observeMessages("alice", "group-123")
+        assertEquals(listOf(message), existingFlow.first())
+
+        activeAccount = "mallory"
+        assertRejected {
+            existingFlow.first()
+        }
+        assertRejected {
+            repository.getMessage("alice", "group-123", message.messageId)
+        }
+
+        val nextMessage = message.copy(messageId = "after-account-switch")
+        val nextCiphertext = "must not commit after account switch".toByteArray(Charsets.UTF_8)
+        assertRejected {
+            repository.commitStagedMessage(
+                nextMessage,
+                receipt(nextMessage, nextCiphertext),
+                nextCiphertext,
+            )
+        }
+        assertNull(
+            database.encryptedGroupMessageDao().getMessage(
+                "alice",
+                "group-123",
+                nextMessage.messageId,
+            ),
+        )
+    }
 
     @Test
     fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
