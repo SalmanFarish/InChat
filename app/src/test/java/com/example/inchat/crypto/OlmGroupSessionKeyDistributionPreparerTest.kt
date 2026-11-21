@@ -133,6 +133,75 @@ class OlmGroupSessionKeyDistributionPreparerTest {
     }
 
     @Test
+    fun rechecksLiveDirectoryIdentityAndSasTrustBeforeRecoveryEnqueue() = runBlocking {
+        val sender = bundle("sender-current")
+        val originalBob = bundle("bob-phone")
+        val changedBob = originalBob.copy(ed25519IdentityKey = "rotated-ed25519-bob-phone")
+        val liveDevices = mutableMapOf(
+            "alice" to listOf(sender),
+            "bob" to listOf(changedBob),
+        )
+        val directory = FakeDirectory("alice", liveDevices)
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory = directory,
+            sessions = FakeSessions(sender.deviceId),
+            trustVerifier = verifier(setOf(trustKey("bob", originalBob))),
+        )
+        val prepared = PreparedOlmGroupKeyDistribution(
+            distributionId = "distribution-recovery",
+            groupId = "group-1",
+            membershipEpoch = 3L,
+            megolmSessionId = "1234567890abcdef",
+            deliveries = listOf(
+                PreparedOlmGroupKeyDelivery(
+                    recipientUserId = "bob",
+                    recipientDeviceId = "bob-phone",
+                    sessionId = "olm-session-bob",
+                    envelope = "opaque-encrypted-envelope",
+                ),
+            ),
+            skippedUntrustedDeviceCount = 0,
+            targetDevices = listOf("bob" to "bob-phone"),
+        )
+
+        assertEquals(false, preparer.arePreparedTargetsStillTrusted(prepared))
+        assertEquals(listOf("bob"), directory.readUsers)
+    }
+
+    @Test
+    fun rejectsPreparedTargetRemovedFromLiveDirectoryBeforeRecoveryEnqueue() = runBlocking {
+        val sender = bundle("sender-current")
+        val bob = bundle("bob-phone")
+        val directory = FakeDirectory(
+            authenticatedUserId = "alice",
+            devices = mapOf("alice" to listOf(sender), "bob" to emptyList()),
+        )
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory = directory,
+            sessions = FakeSessions(sender.deviceId),
+            trustVerifier = verifier(setOf(trustKey("bob", bob))),
+        )
+        val prepared = PreparedOlmGroupKeyDistribution(
+            distributionId = "distribution-recovery",
+            groupId = "group-1",
+            membershipEpoch = 3L,
+            megolmSessionId = "1234567890abcdef",
+            deliveries = listOf(
+                PreparedOlmGroupKeyDelivery(
+                    recipientUserId = "bob",
+                    recipientDeviceId = "bob-phone",
+                    sessionId = "olm-session-bob",
+                    envelope = "opaque-encrypted-envelope",
+                ),
+            ),
+            skippedUntrustedDeviceCount = 0,
+            targetDevices = listOf("bob" to "bob-phone"),
+        )
+
+        assertEquals(false, preparer.arePreparedTargetsStillTrusted(prepared))
+    }
+
+    @Test
     fun rejectsRecoveryTargetOutsideCurrentTrustedPlanBeforeClaimingAnyPrekey() = runBlocking {
         val sender = bundle("sender-current")
         val bob = bundle("bob-phone")
