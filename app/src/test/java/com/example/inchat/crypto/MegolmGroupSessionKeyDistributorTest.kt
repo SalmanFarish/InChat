@@ -108,13 +108,13 @@ class MegolmGroupSessionKeyDistributorTest {
             )
         },
         exportOutboundSessionKey = { keyBytes },
-        prepareDistribution = { distributionId, membership, sessionId, sessionKey, issuedAt ->
+        prepareDistribution = { distributionKeyId, membership, sessionId, sessionKey, issuedAt ->
             capturedSessionKey = sessionKey
-            assertEquals(distributionId(), distributionId)
+            assertEquals(distributionId(), distributionKeyId)
             assertEquals(9L, membership.epoch)
             assertEquals(1234L, issuedAt)
             PreparedOlmGroupKeyDistribution(
-                distributionId = distributionId,
+                distributionId = distributionKeyId,
                 groupId = membership.groupId,
                 membershipEpoch = membership.epoch,
                 megolmSessionId = preparedSessionId,
