@@ -244,6 +244,86 @@ class OlmPendingReceiptProcessorTest {
         }
     }
 
+    @Test
+    fun deferredReceiptRestoresForRetryAndSurvivesTransientHandoffFailure() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-deferred-retry-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient-device")
+            val trustedDevice = device("sender-device", "sender-identity")
+            val encoded = envelope("sender-device", "recipient-device", 1)
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "deferred-retry", encoded, 100L),
+            )
+            val id = receiptId("alice", "sender-device", "deferred-retry", "recipient-device")
+            assertEquals(1, dao.markWaitingForDevice(id))
+
+            var handoffAttempts = 0
+            var trustAvailable = false
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = { listOf(trustedDevice) },
+                trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                    trustAvailable &&
+                        userId == "alice" &&
+                        deviceId == trustedDevice.deviceId &&
+                        identityKey == trustedDevice.ed25519IdentityKey
+                },
+                handoff = OlmInboundReceiptHandoff { receiptId, _, _, _, _ ->
+                    handoffAttempts++
+                    if (handoffAttempts == 1) error("Transient native handoff failure")
+                    assertEquals(1, dao.markProcessed(receiptId, 200L))
+                    assertEquals(1, dao.markFinalized(receiptId))
+                    OlmInboundHandoffResult.COMMITTED
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
+                    dao.markFinalized(receiptId) == 1
+                },
+                authenticatedLocalUserId = { "recipient" },
+            )
+
+            val stillUntrusted = processor.processPending(limit = 10)
+            assertEquals(1, stillUntrusted.deferredScanned)
+            assertEquals(1, stillUntrusted.waitingForTrust)
+            assertEquals(0, handoffAttempts)
+            assertEquals(
+                OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
+                dao.getByReceiptId(id)?.status,
+            )
+
+            trustAvailable = true
+            val transientFailure = processor.processPending(limit = 10)
+            assertEquals(1, transientFailure.deferredScanned)
+            assertEquals(1, transientFailure.failed)
+            assertEquals(1, handoffAttempts)
+            assertEquals(
+                "A failed resumed receipt must be left pending for the next durable retry",
+                OlmInboundReceiptStatus.PENDING.name,
+                dao.getByReceiptId(id)?.status,
+            )
+
+            val recovered = processor.processPending(limit = 10)
+            assertEquals(1, recovered.pendingScanned)
+            assertEquals(1, recovered.committed)
+            assertEquals(0, recovered.failed)
+            assertEquals(2, handoffAttempts)
+            assertEquals(
+                OlmInboundReceiptStatus.FINALIZED.name,
+                dao.getByReceiptId(id)?.status,
+            )
+            assertEquals(0, dao.getPending(10).size)
+            assertEquals(0, dao.getWaitingForDevice(10).size)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun sha256(value: String): String =
         java.security.MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
