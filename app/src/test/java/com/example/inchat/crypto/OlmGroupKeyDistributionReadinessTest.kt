@@ -77,6 +77,32 @@ class OlmGroupKeyDistributionReadinessTest {
     }
 
     @Test
+    fun rechecksAcknowledgementsAfterPreflightBeforeOutboxCommit() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val receipts = FakeDeliveryReceipts(setOf("bob-phone"))
+        val verifier = RoomOlmGroupKeyDistributionReadiness(receipts, metadata)
+        val token = verifier.requireAcknowledged(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            currentMembership = membership(),
+            megolmSessionId = "1234567890abcdef",
+        )
+
+        receipts.acknowledgedDevices = emptySet()
+
+        assertRejected {
+            verifier.requireReady(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                currentMembership = membership(),
+                keyDistribution = token,
+                messageDistribution = messageDistribution(),
+            )
+        }
+    }
+
+    @Test
     fun refusesAcknowledgementForTargetOutsideImmutableMetadata() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
@@ -170,7 +196,7 @@ class OlmGroupKeyDistributionReadinessTest {
     }
 
     private class FakeDeliveryReceipts(
-        private val acknowledgedDevices: Set<String>,
+        var acknowledgedDevices: Set<String>,
     ) : OlmDeliveryReceiptDao {
         override fun insertIfAbsent(receipt: OlmDeliveryReceiptEntity) = -1L
         override fun getByDeliveryId(deliveryId: String): OlmDeliveryReceiptEntity? = null
