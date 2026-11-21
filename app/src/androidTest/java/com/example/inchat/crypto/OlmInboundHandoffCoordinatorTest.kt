@@ -279,6 +279,45 @@ class OlmInboundHandoffCoordinatorTest {
                 db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
 
+            var trustChecks = 0
+            val trustRevokedDuringDecryptionCoordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = { "local-user" },
+                trustVerifier = OlmDeviceTrustVerifier { _, _, _ ->
+                    trustChecks++
+                    trustChecks == 1
+                },
+                encryptedMessageDao = db.encryptedOlmMessageDao(),
+            )
+            var trustRevocationRejected = false
+            try {
+                trustRevokedDuringDecryptionCoordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> decryptedMessage(payload) }
+            } catch (expected: IllegalStateException) {
+                trustRevocationRejected = expected.message.orEmpty()
+                    .contains("revoked during native decryption")
+            }
+            assertTrue(
+                "Sender trust revoked during native staging must prevent the Room commit",
+                trustRevocationRejected,
+            )
+            assertEquals(2, trustChecks)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(
+                null,
+                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, messageId),
+            )
+
             var mappingFailed = false
             try {
                 coordinator.process(

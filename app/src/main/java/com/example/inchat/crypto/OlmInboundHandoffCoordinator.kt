@@ -144,6 +144,18 @@ internal class OlmInboundHandoffCoordinator(
                     )
             }
 
+            // Native staging can suspend while trust is revoked elsewhere in the app.
+            // Recheck before routing or committing either direct or group payloads.
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = remoteDeviceUserId,
+                    peerDeviceId = remoteDevice.deviceId,
+                    peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                )
+            ) {
+                "Remote device trust was revoked during native decryption"
+            }
+
             // The outer Olm envelope and SAS-trusted sender device are already
             // authenticated. Route the typed group payload only after this point,
             // before attempting the strict direct-message schema decoder.
