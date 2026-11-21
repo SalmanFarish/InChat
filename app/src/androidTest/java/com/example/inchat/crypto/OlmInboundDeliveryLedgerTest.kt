@@ -46,6 +46,69 @@ class OlmInboundDeliveryLedgerTest {
     }
 
     @Test
+    fun finalizedAndRejectedReceiptsRemainTerminalAcrossDuplicateDelivery() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-terminal-receipts-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "receiver-device")
+            val finalizedEnvelope = envelope("receiver-device", "sender-device", 51)
+            val rejectedEnvelope = envelope("receiver-device", "sender-device", 52)
+
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "terminal-finalized", finalizedEnvelope, 100L),
+            )
+            assertTrue(ledger.markProcessed("alice", "terminal-finalized", "sender-device"))
+            val finalizedId = olmInboundReceiptId(
+                "alice", "sender-device", "terminal-finalized", "receiver-device",
+            )
+            assertEquals(1, dao.markFinalized(finalizedId))
+
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "terminal-rejected", rejectedEnvelope, 200L),
+            )
+            val rejectedId = olmInboundReceiptId(
+                "alice", "sender-device", "terminal-rejected", "receiver-device",
+            )
+            assertEquals(1, dao.markRejected(rejectedId))
+
+            val finalizedBefore = requireNotNull(dao.getByReceiptId(finalizedId))
+            val rejectedBefore = requireNotNull(dao.getByReceiptId(rejectedId))
+            assertEquals(
+                OlmInboundRegistration.DUPLICATE_PROCESSED,
+                ledger.register("alice", "terminal-finalized", finalizedEnvelope, 999L),
+            )
+            assertEquals(
+                OlmInboundRegistration.DUPLICATE_REJECTED,
+                ledger.register("alice", "terminal-rejected", rejectedEnvelope, 999L),
+            )
+            assertEquals(
+                OlmInboundRegistration.CONFLICT,
+                ledger.register(
+                    "alice",
+                    "terminal-finalized",
+                    envelope("receiver-device", "sender-device", 53),
+                    1_000L,
+                ),
+            )
+
+            assertEquals(finalizedBefore, dao.getByReceiptId(finalizedId))
+            assertEquals(rejectedBefore, dao.getByReceiptId(rejectedId))
+            assertEquals(0, dao.getPending(10).size)
+            assertEquals(0, dao.getWaitingForDevice(10).size)
+            assertEquals(0, dao.getAwaitingFinalization(10).size)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun duplicateRegistrationRejectsCorruptedStoredReceiptWithoutReplacingIt() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbound-corrupt-existing-receipt-test.db"
