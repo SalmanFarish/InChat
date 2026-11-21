@@ -81,10 +81,6 @@ internal object NotificationPayloadPolicy {
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
 
     /**
-     * Verifies an explicitly addressed FCM message against the current account.
-     * Only signed-in recipients may receive legacy large-group topic messages.
-     */
-    /**
      * Only render recognized message types with enough identifiers to update
      * the correct conversation and deduplicate redelivered messages.
      */
