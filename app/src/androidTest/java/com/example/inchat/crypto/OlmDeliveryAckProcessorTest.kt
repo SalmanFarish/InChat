@@ -138,6 +138,39 @@ class OlmDeliveryAckProcessorTest {
         assertEquals(listOf(row.deliveryId), transport.removedDeliveryIds)
     }
 
+    @Test
+    fun receiptPersistenceFailureKeepsLocalCiphertextForAcknowledgementRecovery() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "receipt-write-failure", listOf(prepared()))
+        val row = store.rows.values.single()
+        val transport = FakeAckTransport(listOf(row.toAcknowledgement()))
+
+        var persistenceFailureObserved = false
+        try {
+            OlmDeliveryAckProcessor(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ ->
+                    throw IllegalStateException("temporary Room receipt write failure")
+                },
+            ).processPending()
+        } catch (expected: IllegalStateException) {
+            persistenceFailureObserved = expected.message.orEmpty().contains("receipt write failure")
+        }
+
+        assertTrue(persistenceFailureObserved)
+        assertFalse(transport.hasPendingAcknowledgements())
+        assertEquals(listOf(row.deliveryId), transport.removedDeliveryIds)
+        assertEquals(
+            "The ciphertext row must remain until its durable ACK receipt is committed",
+            row,
+            store.rows[row.deliveryId],
+        )
+    }
+
     private fun QueuedOlmDeviceDelivery.toAcknowledgement() = OlmDeliveryAcknowledgement(
         deliveryId = deliveryId,
         recipientUserId = recipientUserId,
