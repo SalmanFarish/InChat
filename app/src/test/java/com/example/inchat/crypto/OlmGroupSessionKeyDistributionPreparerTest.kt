@@ -178,6 +178,52 @@ class OlmGroupSessionKeyDistributionPreparerTest {
     }
 
     @Test
+    fun defersOldDistributionWhenOriginalDeviceIsRemovedEvenIfNewDeviceIsTrusted() = runBlocking {
+        val sender = bundle("sender-current")
+        val senderTablet = bundle("sender-tablet")
+        val newBob = bundle("bob-new-phone")
+        val directory = FakeDirectory(
+            authenticatedUserId = "alice",
+            devices = mapOf(
+                "alice" to listOf(sender, senderTablet),
+                "bob" to listOf(newBob),
+            ),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory = directory,
+            sessions = sessions,
+            trustVerifier = verifier(
+                setOf(
+                    trustKey("alice", senderTablet),
+                    trustKey("bob", newBob),
+                ),
+            ),
+        )
+        var deferred = false
+        try {
+            preparer.prepare(
+                distributionId = "distribution-old-roster",
+                membership = membership("group-1", 3L, "alice", "bob"),
+                megolmSessionId = "1234567890abcdef",
+                sessionKey = sessionKey(),
+                issuedAtMillis = 123456L,
+                selectedTargetDevices = setOf("bob" to "bob-phone"),
+                expectedTargetDevices = setOf(
+                    "alice" to "sender-tablet",
+                    "bob" to "bob-phone",
+                ),
+            )
+        } catch (_: OlmGroupKeyDistributionDeferredException) {
+            deferred = true
+        }
+
+        assertTrue("Removed original target must defer the old distribution", deferred)
+        assertTrue(directory.claimedPreKeys.isEmpty())
+        assertTrue(sessions.createdSessions.isEmpty())
+    }
+
+    @Test
     fun rechecksLiveDirectoryIdentityAndSasTrustBeforeRecoveryEnqueue() = runBlocking {
         val sender = bundle("sender-current")
         val originalBob = bundle("bob-phone")

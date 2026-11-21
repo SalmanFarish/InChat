@@ -65,17 +65,39 @@ internal class MegolmGroupMessageSender(
      */
     suspend fun resumePendingMessage(
         messageId: String,
+        membership: GroupCryptoMembershipSnapshot,
         keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ): MegolmGroupMessageOutboxCommitResult {
+        require(membership.isValid()) {
+            "Authoritative group membership snapshot is invalid"
+        }
+        // A staged old ciphertext is not permission to bypass a roster/role
+        // rotation. Revalidate current receipts and require the active ratchet
+        // to match this exact membership and trusted-device target set.
+        requireKeyDistributionReady(membership, keyDistribution)
+        val activeSession = sessions.getExistingOutboundSession(membership)
+        require(
+            isOutboundMegolmSessionReadyFor(
+                session = activeSession,
+                membership = membership,
+                targetDevices = keyDistribution.targetDevices,
+                expectedSessionId = keyDistribution.megolmSessionId,
+            )
+        ) {
+            "Pending Megolm ciphertext belongs to a no-longer-active group session"
+        }
+
         val staged = sessions.readPendingOutboundMessage(messageId)
         require(
             staged.ownerUserId == keyDistribution.ownerUserId &&
                 staged.senderDeviceId == keyDistribution.senderDeviceId &&
+                staged.groupId == membership.groupId &&
+                staged.membershipEpoch == membership.epoch &&
                 staged.groupId == keyDistribution.groupId &&
                 staged.membershipEpoch == keyDistribution.membershipEpoch &&
                 staged.encryptedMessage.sessionId == keyDistribution.megolmSessionId
         ) {
-            "Pending Megolm ciphertext does not match the supplied acknowledged session key"
+            "Pending Megolm ciphertext does not match the current acknowledged group session"
         }
         return outboxCommitter.commit(staged, keyDistribution)
     }
