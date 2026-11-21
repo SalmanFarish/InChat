@@ -11,6 +11,9 @@ internal fun extractOlmGroupMessageRouteGroupId(authenticatedOlmPlaintext: Strin
         require(json.opt("messageType") == "group_message") {
             "Authenticated Olm payload is not a Megolm group message"
         }
+        require(json.opt("groupId") is String) {
+            "Authenticated group ID must be a string"
+        }
         json.getString("groupId")
     } catch (error: Exception) {
         throw IllegalArgumentException("Authenticated group-message routing is malformed", error)
@@ -136,6 +139,4 @@ internal class DefaultOlmInboundGroupMessageHandoff(
         }
     }
 
-    private companion object {
-    }
 }

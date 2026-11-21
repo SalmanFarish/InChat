@@ -5,6 +5,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -65,10 +66,18 @@ internal class EncryptedGroupMessageRepository(
      */
     fun observeMessagesForMember(
         ownerUserId: String,
-        membership: GroupCryptoMembershipSnapshot,
+        groupId: String,
+        membershipSnapshots: Flow<GroupCryptoMembershipSnapshot?>,
     ): Flow<List<DecryptedGroupMessage>> {
-        requireReadableMembership(ownerUserId, membership)
-        return observeMessages(ownerUserId, membership.groupId)
+        require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
+        require(ID.matches(groupId)) { "Group ID has an invalid format" }
+        return combine(
+            dao.observeMessages(ownerUserId, groupId),
+            membershipSnapshots,
+        ) { records, membership ->
+            requireReadableMembership(ownerUserId, groupId, membership)
+            records.map(vault::decrypt)
+        }.flowOn(ioDispatcher)
     }
 
     suspend fun getMessageForMember(
@@ -76,18 +85,19 @@ internal class EncryptedGroupMessageRepository(
         membership: GroupCryptoMembershipSnapshot,
         messageId: String,
     ): DecryptedGroupMessage? {
-        requireReadableMembership(ownerUserId, membership)
+        requireReadableMembership(ownerUserId, membership.groupId, membership)
         return getMessage(ownerUserId, membership.groupId, messageId)
     }
 
     private fun requireReadableMembership(
         ownerUserId: String,
-        membership: GroupCryptoMembershipSnapshot,
+        expectedGroupId: String,
+        membership: GroupCryptoMembershipSnapshot?,
     ) {
+        val current = requireNotNull(membership) { "Group membership snapshot is unavailable" }
         require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
-        require(membership.isValid()) { "Group membership snapshot is invalid" }
-        require(ID.matches(membership.groupId)) { "Group ID has an invalid format" }
-        require(ownerUserId in membership.memberUserIds) {
+        require(current.isValid() && current.groupId == expectedGroupId) { "Group membership snapshot is invalid" }
+        require(ownerUserId in current.memberUserIds) {
             "Authenticated account is not a current member of this group"
         }
     }

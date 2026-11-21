@@ -28,7 +28,7 @@ class OlmInboundGroupMessageHandoffTest {
 
     @Test
     fun rejectsMalformedJsonAndInvalidGroupIdentifiers() {
-        assertInvalidRoute("""{"messageType":"group_message"""")
+        assertInvalidRoute("{\"messageType\":\"group_message\"")
         assertInvalidRoute("""{"messageType":"group_message","groupId":"../other-group"}""")
         assertInvalidRoute("""{"messageType":"group_message","groupId":""}""")
         val oversizedGroupId = "x".repeat(129)

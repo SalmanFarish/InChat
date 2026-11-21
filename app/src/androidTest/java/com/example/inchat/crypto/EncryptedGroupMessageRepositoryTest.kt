@@ -8,6 +8,7 @@ import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -125,7 +126,7 @@ class EncryptedGroupMessageRepositoryTest {
         )
         assertEquals(
             listOf(message),
-            repository.observeMessagesForMember("alice", currentMembership).first(),
+            repository.observeMessagesForMember("alice", "group-123", flowOf(currentMembership)).first(),
         )
         assertEquals(
             message,
@@ -136,7 +137,7 @@ class EncryptedGroupMessageRepositoryTest {
             members = mapOf("bob" to "admin", "carol" to "member"),
         )
         assertRejected {
-            repository.observeMessagesForMember("alice", nonMemberSnapshot)
+            repository.observeMessagesForMember("alice", "group-123", flowOf(nonMemberSnapshot))
         }
         assertRejected {
             repository.getMessageForMember("mallory", currentMembership, message.messageId)
@@ -144,12 +145,13 @@ class EncryptedGroupMessageRepositoryTest {
         assertRejected {
             repository.observeMessagesForMember(
                 "alice",
-                currentMembership.copy(epoch = 0L),
+                "group-123",
+                flowOf(currentMembership.copy(epoch = 0L)),
             )
         }
     }
 
-    private fun assertRejected(block: () -> Any?) {
+    private suspend fun assertRejected(block: suspend () -> Any?) {
         try {
             block()
             throw AssertionError("Expected membership-gated encrypted read to be rejected")
