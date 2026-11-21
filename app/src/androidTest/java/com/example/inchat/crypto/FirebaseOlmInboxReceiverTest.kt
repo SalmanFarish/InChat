@@ -186,6 +186,93 @@ class FirebaseOlmInboxReceiverTest {
     }
 
     @Test
+    fun committedRemoteRemovalWithLostCompletionIsSafeToRetry() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-remove-commit-recovery-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "7".repeat(64), "alice", "sender-device", "message-remove-commit", envelope(1),
+            )
+            val transport = FakeTransport(
+                items = mutableListOf(item),
+                failFirstRemovalAfterCommit = true,
+            )
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 400L })
+
+            try {
+                receiver.receivePending()
+                throw AssertionError("Expected lost remote-removal completion")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("after commit"))
+            }
+
+            assertTrue("The remote item was removed despite the lost completion", transport.items.isEmpty())
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", item.messageId, item.envelope, 401L),
+            )
+
+            val retry = receiver.receivePending()
+            assertEquals(0, retry.stored)
+            assertEquals(0, retry.alreadyPending)
+            assertTrue(transport.items.isEmpty())
+            assertEquals(1, transport.acknowledgedDeliveryIds.size)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun laterInboxItemsRemainRecoverableWhenEarlierRemovalFails() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-batch-removal-recovery-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val first = FirebaseOlmInboxItem(
+                "1".repeat(64), "alice", "sender-device", "message-batch-1", envelope(1),
+            )
+            val second = FirebaseOlmInboxItem(
+                "2".repeat(64), "alice", "sender-device", "message-batch-2", envelope(2),
+            )
+            val transport = FakeTransport(
+                items = mutableListOf(first, second),
+                failFirstRemovalAfterCommit = true,
+            )
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 500L })
+
+            assertTrue(runCatching { receiver.receivePending() }.isFailure)
+            assertEquals(1, transport.items.size)
+            assertEquals(second.deliveryId, transport.items.single().deliveryId)
+            assertEquals(listOf(first.deliveryId), transport.acknowledgedDeliveryIds)
+
+            val retry = receiver.receivePending()
+            assertEquals(1, retry.stored)
+            assertEquals(listOf(second.deliveryId), transport.acknowledgedDeliveryIds)
+            assertTrue(transport.items.isEmpty())
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", first.messageId, first.envelope, 501L),
+            )
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", second.messageId, second.envelope, 502L),
+            )
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun conflictingCiphertextIsNotAcknowledged() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbox-conflict-receiver-test.db"
@@ -284,6 +371,7 @@ class FirebaseOlmInboxReceiverTest {
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,
         private var failFirstAcknowledgement: Boolean = false,
+        private var failFirstRemovalAfterCommit: Boolean = false,
     ) : OlmInboxTransport {
         val acknowledgementAttempts = mutableListOf<String>()
         val acknowledgedDeliveryIds = mutableListOf<String>()
@@ -309,6 +397,10 @@ class FirebaseOlmInboxReceiverTest {
             }
             removedDeliveryIds += deliveryId
             items.removeAll { it.deliveryId == deliveryId }
+            if (failFirstRemovalAfterCommit) {
+                failFirstRemovalAfterCommit = false
+                throw IllegalStateException("temporary remote removal failure after commit")
+            }
         }
     }
 
