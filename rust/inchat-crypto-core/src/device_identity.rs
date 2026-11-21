@@ -842,7 +842,7 @@ fn encode_device_crypto_state(
         );
     }
 
-    if state.outbound_group_sessions.len() > 1_000 ||
+    if state.outbound_group_sessions.len() + state.retired_outbound_group_sessions.len() > 1_000 ||
         state.inbound_group_sessions.len() > 10_000 {
         return Err("Olm device state contains too many Megolm sessions");
     }
@@ -946,7 +946,7 @@ fn encode_device_crypto_state(
         inbound_group_sessions.insert(
             key.clone(),
             json!({
-                "groupId": group_id,
+                "groupId": stored.group_id,
                 "membershipEpoch": stored.membership_epoch,
                 "senderUserId": stored.sender_user_id,
                 "senderDeviceId": stored.sender_device_id,
@@ -3476,6 +3476,7 @@ mod tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions,
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
@@ -4002,6 +4003,7 @@ mod transfer_tests {
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions,
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
         let transaction_id = "0123456789abcdef0123456789abcdef";
@@ -4896,6 +4898,7 @@ mod pending_outbound_megolm_tests {
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
             outbound_group_sessions,
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
             inbound_group_sessions: std::collections::BTreeMap::new(),
         }
     }
