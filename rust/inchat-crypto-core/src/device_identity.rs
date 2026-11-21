@@ -162,6 +162,29 @@ fn inbound_group_session_key(
     )
 }
 
+fn existing_outbound_group_session_id(
+    state: &DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+) -> Result<String, &'static str> {
+    if !valid_group_id(group_id) ||
+        membership_epoch == 0 ||
+        !valid_user_id(sender_user_id) ||
+        !valid_device_id(sender_device_id) {
+        return Err("Existing outbound Megolm session metadata is invalid");
+    }
+    let stored = state.outbound_group_sessions.get(group_id)
+        .ok_or("Outbound Megolm session does not exist")?;
+    if stored.membership_epoch != membership_epoch ||
+        stored.sender_user_id != sender_user_id ||
+        stored.sender_device_id != sender_device_id {
+        return Err("Existing outbound Megolm session does not match its owner or epoch");
+    }
+    Ok(stored.session.session_id())
+}
+
 fn ensure_outbound_group_session(
     state: &mut DeviceCryptoState,
     group_id: &str,
@@ -2862,6 +2885,11 @@ mod tests {
             inbound_group_sessions: std::collections::BTreeMap::new(),
         };
 
+        assert!(super::existing_outbound_group_session_id(
+            &state, "group-1", 3, "sender-user", "sender-device",
+        ).is_err());
+        assert!(state.outbound_group_sessions.is_empty());
+
         let (first_id, created) = super::ensure_outbound_group_session(
             &mut state,
             "group-1",
@@ -2871,6 +2899,17 @@ mod tests {
         )
         .unwrap();
         assert!(created);
+        assert_eq!(
+            super::existing_outbound_group_session_id(
+                &state, "group-1", 3, "sender-user", "sender-device",
+            ).unwrap(),
+            first_id,
+        );
+        let session_count = state.outbound_group_sessions.len();
+        assert!(super::existing_outbound_group_session_id(
+            &state, "group-1", 2, "sender-user", "sender-device",
+        ).is_err());
+        assert_eq!(state.outbound_group_sessions.len(), session_count);
 
         let (same_epoch_id, created) = super::ensure_outbound_group_session(
             &mut state,
@@ -3883,15 +3922,11 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeG
     if membership_epoch <= 0 { return std::ptr::null_mut(); }
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = load_device_crypto_state(&mut env, &store, &device_id)?;
-        let stored = state.outbound_group_sessions.get(&group_id)
-            .ok_or("Outbound Megolm session does not exist")?;
-        if stored.membership_epoch != membership_epoch as u64 ||
-            stored.sender_user_id != sender_user_id ||
-            stored.sender_device_id != device_id {
-            return Err("Existing outbound Megolm session does not match its owner or epoch");
-        }
+        let session_id = existing_outbound_group_session_id(
+            &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
+        )?;
         serde_json::to_string(&json!({
-            "sessionId": stored.session.session_id(),
+            "sessionId": session_id,
             "membershipEpoch": membership_epoch,
             "created": false
         })).map_err(|_| "Could not encode existing outbound Megolm session metadata")
