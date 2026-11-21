@@ -27,10 +27,10 @@ class MegolmGroupSessionKeyDistributorTest {
             },
         )
 
-        val result = distributor.distribute("group-1", "key-dist-9", 1234L)
+        val result = distributor.distribute("group-1", distributionId(), 1234L)
 
         assertEquals(1, enqueueCalls)
-        assertEquals("key-dist-9", result.distributionId)
+        assertEquals(distributionId(), result.distributionId)
         assertEquals(9L, result.membershipEpoch)
         assertEquals(2, result.recipientDeviceCount)
         assertEquals(2, result.newlyQueuedDeliveryCount)
@@ -51,7 +51,7 @@ class MegolmGroupSessionKeyDistributorTest {
 
         var rejected = false
         try {
-            distributor.distribute("group-1", "key-dist-9", 1234L)
+            distributor.distribute("group-1", distributionId(), 1234L)
         } catch (_: IllegalArgumentException) {
             rejected = true
         }
@@ -74,7 +74,7 @@ class MegolmGroupSessionKeyDistributorTest {
 
         var rejected = false
         try {
-            distributor.distribute("group-1", "key-dist-9", 1234L)
+            distributor.distribute("group-1", distributionId(), 1234L)
         } catch (_: IllegalArgumentException) {
             rejected = true
         }
@@ -110,7 +110,7 @@ class MegolmGroupSessionKeyDistributorTest {
         exportOutboundSessionKey = { keyBytes },
         prepareDistribution = { distributionId, membership, sessionId, sessionKey, issuedAt ->
             capturedSessionKey = sessionKey
-            assertEquals("key-dist-9", distributionId)
+            assertEquals(distributionId(), distributionId)
             assertEquals(9L, membership.epoch)
             assertEquals(1234L, issuedAt)
             PreparedOlmGroupKeyDistribution(
@@ -133,6 +133,13 @@ class MegolmGroupSessionKeyDistributorTest {
         recipientDeviceId = deviceId,
         sessionId = "olm-session-$deviceId",
         envelope = "authenticated-olm-envelope",
+    )
+
+    private fun distributionId() = OlmGroupSessionKeyDistributionId.create(
+        membership = membership(9L),
+        senderUserId = "alice",
+        senderDeviceId = "alice-phone",
+        megolmSessionId = "session-id-123456",
     )
 
     private fun membership(epoch: Long) = GroupCryptoMembershipSnapshot(
