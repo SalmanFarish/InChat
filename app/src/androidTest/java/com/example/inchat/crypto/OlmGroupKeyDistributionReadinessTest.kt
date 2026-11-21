@@ -8,6 +8,8 @@ import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -33,7 +35,19 @@ class OlmGroupKeyDistributionReadinessTest {
         )
         val keyDistribution = keyDistribution()
         val messageDistribution = messageDistribution()
-        val readiness = RoomOlmGroupKeyDistributionReadiness(dao)
+        val metadataStore = database.olmGroupKeyDistributionMetadataStore()
+        metadataStore.persistIfAbsent(
+            OlmGroupKeyDistributionRecord(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                distributionId = "group-key-7",
+                groupId = "group-1",
+                membershipEpoch = 7L,
+                megolmSessionId = "1234567890abcdef",
+                targetDevices = listOf("bob" to "bob-phone", "bob" to "bob-tablet"),
+            ),
+        )
+        val readiness = RoomOlmGroupKeyDistributionReadiness(dao, metadataStore)
 
         dao.insertIfAbsent(
             receipt(
@@ -71,6 +85,52 @@ class OlmGroupKeyDistributionReadinessTest {
             keyDistribution,
             messageDistribution,
         )
+    }
+
+    @Test
+    fun distributionMetadataIsDurableImmutableAndIdempotent() {
+        val store = database.olmGroupKeyDistributionMetadataStore()
+        val record = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = "group-key-8",
+            groupId = "group-1",
+            membershipEpoch = 8L,
+            megolmSessionId = "abcdef0123456789",
+            targetDevices = listOf("bob" to "bob-tablet", "bob" to "bob-phone"),
+        )
+
+        store.persistIfAbsent(record)
+        store.persistIfAbsent(record.copy(targetDevices = record.targetDevices.reversed()))
+
+        val persisted = store.get("alice", "alice-phone", "group-key-8")
+        assertEquals(record.toEntity(), persisted)
+        assertEquals(
+            listOf("bob" to "bob-phone", "bob" to "bob-tablet"),
+            persisted?.targetDevicePairs(),
+        )
+        assertThrows(IllegalStateException::class.java) {
+            store.persistIfAbsent(record.copy(megolmSessionId = "fedcba9876543210"))
+        }
+    }
+
+    @Test
+    fun distributionMetadataIsScopedToAccountAndSenderDevice() {
+        val store = database.olmGroupKeyDistributionMetadataStore()
+        val record = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = "group-key-9",
+            groupId = "group-1",
+            membershipEpoch = 9L,
+            megolmSessionId = "0123456789abcdef",
+            targetDevices = listOf("bob" to "bob-phone"),
+        )
+        store.persistIfAbsent(record)
+
+        assertEquals(null, store.get("mallory", "alice-phone", "group-key-9"))
+        assertEquals(null, store.get("alice", "alice-tablet", "group-key-9"))
+        assertEquals(listOf(record.toEntity()), store.getAllForDevice("alice", "alice-phone"))
     }
 
     private fun receipt(
