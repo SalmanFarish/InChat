@@ -27,7 +27,9 @@ internal class EncryptedOlmMessageRepository(
         return dao.observeMessages(ownerUserId, conversationId)
             .map { encryptedRows ->
                 requireAuthenticatedOwner(ownerUserId)
-                encryptedRows.map(vault::decrypt)
+                val decrypted = encryptedRows.map(vault::decrypt)
+                requireAuthenticatedOwner(ownerUserId)
+                decrypted
             }
             .flowOn(ioDispatcher)
     }
@@ -44,7 +46,9 @@ internal class EncryptedOlmMessageRepository(
         return withContext(ioDispatcher) {
             val row = dao.getMessage(ownerUserId, conversationId, messageId)
             requireAuthenticatedOwner(ownerUserId)
-            row?.let(vault::decrypt)
+            val decrypted = row?.let(vault::decrypt)
+            requireAuthenticatedOwner(ownerUserId)
+            decrypted
         }
     }
 
