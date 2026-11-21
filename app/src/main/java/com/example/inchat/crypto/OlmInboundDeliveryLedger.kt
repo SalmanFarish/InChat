@@ -3,6 +3,53 @@ package com.example.inchat.crypto
 import java.security.MessageDigest
 
 internal enum class OlmInboundRegistration { NEW, PENDING_RETRY, DUPLICATE_PROCESSED, DUPLICATE_REJECTED, CONFLICT }
+ 
+/** Stable receiver receipt identity, bound to both endpoint devices and message ID. */
+internal fun olmInboundReceiptId(
+    senderUserId: String,
+    senderDeviceId: String,
+    messageId: String,
+    recipientDeviceId: String,
+): String = sha256InboundIdentity(
+    "$senderUserId\u0000$senderDeviceId\u0000$messageId\u0000$recipientDeviceId",
+)
+
+/** Reject corrupted or mismatched durable receipt metadata before touching a ratchet. */
+internal fun validateOlmInboundReceiptIntegrity(receipt: OlmInboundReceiptEntity) {
+    require(Regex("[A-Za-z0-9_-]{1,128}").matches(receipt.senderUserId)) {
+        "Inbound receipt sender account is invalid"
+    }
+    require(Regex("[A-Za-z0-9_-]{1,64}").matches(receipt.senderDeviceId)) {
+        "Inbound receipt sender device is invalid"
+    }
+    require(Regex("[A-Za-z0-9_-]{1,128}").matches(receipt.messageId)) {
+        "Inbound receipt message ID is invalid"
+    }
+    require(Regex("[A-Za-z0-9_-]{1,64}").matches(receipt.recipientDeviceId)) {
+        "Inbound receipt recipient device is invalid"
+    }
+    require(receipt.receivedAtMillis >= 0L) { "Inbound receipt receive time is invalid" }
+    require(
+        receipt.receiptId == olmInboundReceiptId(
+            receipt.senderUserId, receipt.senderDeviceId, receipt.messageId, receipt.recipientDeviceId,
+        ),
+    ) { "Inbound receipt identity does not match its durable metadata" }
+    val digest = sha256InboundIdentity(receipt.envelope)
+    require(receipt.envelopeSha256.equals(digest, ignoreCase = true)) {
+        "Inbound receipt envelope digest does not match its stored ciphertext"
+    }
+    val envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
+    require(
+        envelope.senderDeviceId == receipt.senderDeviceId &&
+            envelope.recipientDeviceId == receipt.recipientDeviceId,
+    ) { "Inbound receipt envelope routing does not match its durable metadata" }
+}
+
+private fun sha256InboundIdentity(value: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+
 
 /**
  * Durable receiver-side deduplication ledger. PENDING receipts can be retried
@@ -33,8 +80,8 @@ internal class OlmInboundDeliveryLedger(
         require(envelope.recipientDeviceId == localDeviceId) {
             "Inbound envelope is addressed to a different device"
         }
-        val receiptId = sha256("$senderUserId\u0000${envelope.senderDeviceId}\u0000$messageId\u0000$localDeviceId")
-        val envelopeDigest = sha256(encodedEnvelope)
+        val receiptId = olmInboundReceiptId(senderUserId, envelope.senderDeviceId, messageId, localDeviceId)
+        val envelopeDigest = sha256InboundIdentity(encodedEnvelope)
         val row = OlmInboundReceiptEntity(
             receiptId = receiptId,
             senderUserId = senderUserId,
@@ -64,14 +111,9 @@ internal class OlmInboundDeliveryLedger(
         require(USER_ID_PATTERN.matches(senderUserId))
         require(MESSAGE_ID_PATTERN.matches(messageId))
         require(DEVICE_ID_PATTERN.matches(senderDeviceId))
-        val receiptId = sha256("$senderUserId\u0000$senderDeviceId\u0000$messageId\u0000$localDeviceId")
+        val receiptId = olmInboundReceiptId(senderUserId, senderDeviceId, messageId, localDeviceId)
         return dao.markProcessed(receiptId, System.currentTimeMillis()) == 1
     }
-
-    private fun sha256(value: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
 
     private companion object {
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")

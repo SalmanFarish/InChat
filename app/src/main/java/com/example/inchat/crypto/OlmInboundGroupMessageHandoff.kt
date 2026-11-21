@@ -109,6 +109,13 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             receivedAtMillis = receipt.receivedAtMillis,
         )
         try {
+            // Decryption can take time. Re-read the authoritative membership
+            // after native staging and immediately before durable message commit;
+            // a removal/role change during decryption must not be accepted.
+            requireUnchangedGroupCryptoMembershipSnapshot(
+                expected = currentMembership,
+                latest = membershipForGroup(groupId),
+            )
             val ciphertextDigest = MessageDigest.getInstance("SHA-256")
                 .digest(staged.ciphertext)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }

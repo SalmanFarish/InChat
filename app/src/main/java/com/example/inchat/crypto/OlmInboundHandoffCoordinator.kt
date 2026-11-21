@@ -82,6 +82,7 @@ internal class OlmInboundHandoffCoordinator(
             val receipt = requireNotNull(receiptDao.getByReceiptId(receiptId)) {
                 "Inbound receipt does not exist"
             }
+            validateOlmInboundReceiptIntegrity(receipt)
             require(localUserId == authenticatedLocalUserId()) {
                 "Inbound recipient account does not match the authenticated local account"
             }
@@ -262,6 +263,7 @@ internal class OlmInboundHandoffCoordinator(
             val receipt = requireNotNull(receiptDao.getByReceiptId(receiptId)) {
                 "Inbound receipt does not exist"
             }
+            validateOlmInboundReceiptIntegrity(receipt)
             require(receipt.recipientDeviceId == sessionRepository.localDeviceId) {
                 "Inbound receipt is addressed to a different local device"
             }
