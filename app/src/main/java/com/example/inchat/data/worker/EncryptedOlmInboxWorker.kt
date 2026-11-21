@@ -139,7 +139,7 @@ class EncryptedOlmInboxWorker(
             )
             val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
                 membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
-                sessionRepository = megolmSessionRepository,
+                keyImporter = megolmSessionRepository,
                 authenticatedLocalUserId = {
                     FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 },

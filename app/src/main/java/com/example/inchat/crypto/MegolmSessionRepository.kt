@@ -55,7 +55,7 @@ internal class MegolmSessionRepository(
     context: Context,
     private val identityRepository: DeviceIdentityRepository = DeviceIdentityRepository(context.applicationContext),
     private val authenticatedUserId: () -> String,
-) {
+) : MegolmInboundSessionKeyImporter {
     private val appContext = context.applicationContext
 
     private val localBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -132,7 +132,7 @@ internal class MegolmSessionRepository(
      * Import a session key only after the Olm control payload has been validated
      * against the authenticated receipt, SAS-trusted sender and current snapshot.
      */
-    fun importInboundSessionKey(
+    override fun importInboundSessionKey(
         membership: GroupCryptoMembershipSnapshot,
         senderUserId: String,
         senderDeviceId: String,

@@ -15,6 +15,17 @@ internal fun interface OlmInboundGroupSessionKeyHandoff {
     ): Boolean
 }
 
+/** Narrow native boundary for importing a previously authenticated Megolm session key. */
+internal fun interface MegolmInboundSessionKeyImporter {
+    fun importInboundSessionKey(
+        membership: GroupCryptoMembershipSnapshot,
+        senderUserId: String,
+        senderDeviceId: String,
+        expectedSessionId: String,
+        sessionKey: ByteArray,
+    ): Boolean
+}
+
 /**
  * Verifies the exact current group epoch and sender device before importing a
  * Megolm key. The native import preserves an existing receive ratchet on exact
@@ -22,7 +33,7 @@ internal fun interface OlmInboundGroupSessionKeyHandoff {
  */
 internal class DefaultOlmInboundGroupSessionKeyHandoff(
     private val membershipForGroup: suspend (groupId: String) -> GroupCryptoMembershipSnapshot?,
-    private val sessionRepository: MegolmSessionRepository,
+    private val keyImporter: MegolmInboundSessionKeyImporter,
     private val authenticatedLocalUserId: () -> String,
     private val trustVerifier: OlmDeviceTrustVerifier,
 ) : OlmInboundGroupSessionKeyHandoff {
@@ -98,7 +109,7 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
             )
             // This import persists the signed session and its sender/epoch binding
             // in the same Keystore-protected native device-state envelope.
-            sessionRepository.importInboundSessionKey(
+            keyImporter.importInboundSessionKey(
                 membership = currentMembership,
                 senderUserId = payload.senderUserId,
                 senderDeviceId = payload.senderDeviceId,
