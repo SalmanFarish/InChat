@@ -39,6 +39,13 @@ internal fun interface OlmInboundGroupMessageHandoff {
     ): Boolean
 }
 
+/** Rejects a group handoff whose authenticated account changed while suspending. */
+internal fun requireUnchangedGroupRecipient(expectedUserId: String, currentUserId: String) {
+    check(expectedUserId == currentUserId) {
+        "Authenticated account changed during group-message decryption"
+    }
+}
+
 /**
  * Validates the inner group route against one atomic Worker-authored membership
  * snapshot, stages native Megolm decryption, then commits ciphertext + replay
@@ -125,6 +132,9 @@ internal class DefaultOlmInboundGroupMessageHandoff(
                 expected = currentMembership,
                 latest = membershipForGroup(groupId),
             )
+            // Both native decryption and the membership refresh suspend. A sign-out
+            // or account switch must fence the final ciphertext/replay commit.
+            requireUnchangedGroupRecipient(localUserId, authenticatedLocalUserId())
             // Decryption and membership refresh can both take time. Do not
             // commit the decrypted group message if the sender was untrusted
             // or revoked while native staging was in progress.

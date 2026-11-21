@@ -16,6 +16,24 @@ class OlmInboundGroupMessageHandoffTest {
     }
 
     @Test
+    fun rejectsAuthenticatedAccountChangeBeforeGroupMessageCommit() {
+        try {
+            requireUnchangedGroupRecipient("local-user", "different-account")
+            fail("An account switch during group decryption must be rejected")
+        } catch (expected: IllegalStateException) {
+            assertEquals(
+                "Authenticated account changed during group-message decryption",
+                expected.message,
+            )
+        }
+    }
+
+    @Test
+    fun acceptsUnchangedAuthenticatedAccount() {
+        requireUnchangedGroupRecipient("local-user", "local-user")
+    }
+
+    @Test
     fun rejectsWrongPayloadTypeBeforeMembershipLookup() {
         assertInvalidRoute("""{"messageType":"direct_message","groupId":"group-123"}""")
     }
