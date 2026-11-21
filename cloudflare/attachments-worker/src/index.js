@@ -1722,11 +1722,38 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
 
-    const chat = await adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "chats/" + chatId,
-    );
+    const [chat, mirroredRegistrationToken] = await Promise.all([
+      adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        "chats/" + chatId,
+      ),
+      adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        "groupNotificationDevices/" + chatId + "/" + uid,
+      ),
+    ]);
+
+    // Account deletion must also clean tokens left behind by a failed token
+    // rotation. The per-group mirror is the durable reference to those tokens.
+    // Keep all deletion writes uncommitted if any unsubscribe is retryable.
+    const groupTopic = await groupTopicName(env, chatId);
+    const groupTokenCleanup = await cleanupGroupNotificationTokens({
+      previousToken: mirroredRegistrationToken,
+      currentToken: registrationToken,
+      unsubscribe: (token) => unsubscribeTopicForAccountCleanup(
+        adminAuth.token,
+        adminAuth.projectId,
+        groupTopic,
+        token,
+      ),
+    });
+    if (!groupTokenCleanup.complete) {
+      throw new Error(
+        "Could not remove all registered group notification tokens for account deletion.",
+      );
+    }
 
     if (!chat || chat.type !== "group") {
       updates["typing/" + chatId + "/" + uid] = null;
@@ -1743,16 +1770,6 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       );
 
     const wasMember = memberEntries.some(([memberId]) => memberId === uid);
-
-    // Clear a possible stale topic as well as a current membership.
-    if (hasRegistrationToken) {
-      await unsubscribeTopicForAccountCleanup(
-        adminAuth.token,
-        adminAuth.projectId,
-        await groupTopicName(env, chatId),
-        registrationToken,
-      );
-    }
 
     if (!wasMember) {
       updates["typing/" + chatId + "/" + uid] = null;
