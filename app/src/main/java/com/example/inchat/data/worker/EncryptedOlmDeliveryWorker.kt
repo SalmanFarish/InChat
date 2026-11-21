@@ -185,7 +185,6 @@ class EncryptedOlmDeliveryWorker(
                             )
                         },
                     ).run()
-                    groupKeyRecoveryRetryRequired = recovery.distributionsFailed > 0
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -196,6 +195,7 @@ class EncryptedOlmDeliveryWorker(
                     null
                 }
                 if (recovery != null) {
+                    groupKeyRecoveryRetryRequired = recovery.distributionsFailed > 0
                     Log.i(
                         TAG,
                         "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
