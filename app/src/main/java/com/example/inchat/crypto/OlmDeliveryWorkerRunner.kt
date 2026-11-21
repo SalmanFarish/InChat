@@ -94,11 +94,24 @@ internal class OlmDeliveryWorkerRunner(
                 }
             }
 
-            queue.markUploaded(
-                delivery = delivery,
-                nowMillis = clock().coerceAtLeast(0L),
-            )
+            val markedUploaded = withContext(ioDispatcher) {
+                queue.markUploaded(
+                    delivery = delivery,
+                    nowMillis = clock().coerceAtLeast(0L),
+                )
+            }
             uploaded++
+            if (!markedUploaded) {
+                // The upload completed after this claim expired or was reclaimed.
+                // Do not report the pass as settled: another worker owns the row,
+                // and WorkManager should promptly re-run acknowledgement/recovery.
+                return OlmDeliveryWorkerRunResult(
+                    uploaded = uploaded,
+                    acknowledged = acknowledgements.removed,
+                    unmatchedAcknowledgements = acknowledgements.unmatched,
+                    retryRequired = true,
+                )
+            }
         }
 
         // Re-run once after a successful batch so a delayed recipient ack can be
