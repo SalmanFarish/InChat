@@ -28,7 +28,7 @@ interface OlmInboundReceiptDao {
     fun restorePending(receiptId: String): Int
 
     /** Permanently quarantine malformed envelopes so they cannot starve valid messages. */
-    @Query("UPDATE olm_inbound_receipts SET status = 'REJECTED' WHERE receiptId = :receiptId AND status IN ('PENDING', 'WAITING_FOR_DEVICE')")
+    @Query("UPDATE olm_inbound_receipts SET status = 'REJECTED', processedAtMillis = NULL WHERE receiptId = :receiptId AND status IN ('PENDING', 'WAITING_FOR_DEVICE')")
     fun markRejected(receiptId: String): Int
 
     /** Receipts whose Room commit succeeded but native plaintext cleanup may need recovery. */

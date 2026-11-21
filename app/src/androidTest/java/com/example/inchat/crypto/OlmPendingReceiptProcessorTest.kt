@@ -232,6 +232,11 @@ class OlmPendingReceiptProcessorTest {
                     OlmInboundReceiptStatus.REJECTED.name,
                     dao.getByReceiptId(corrupt.receiptId)?.status,
                 )
+                assertEquals(
+                    "Quarantine must restore the REJECTED row's null processed timestamp invariant",
+                    null,
+                    dao.getByReceiptId(corrupt.receiptId)?.processedAtMillis,
+                )
             }
         } finally {
             database.close()
