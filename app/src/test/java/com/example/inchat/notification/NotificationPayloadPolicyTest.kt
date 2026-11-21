@@ -102,11 +102,42 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
-    fun legacyTopicPushWithoutRecipientUidRemainsCompatible() {
+    fun legacyTopicPushWithoutRecipientUidRemainsCompatibleOnlyForSignedInGroups() {
         assertTrue(
             NotificationPayloadPolicy.isIntendedForAccount(
                 mapOf("type" to NotificationPayloadPolicy.TYPE_GROUP),
                 "account-one",
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_GROUP),
+                "",
+            ),
+        )
+    }
+
+    @Test
+    fun unaddressedOrBlankRecipientDirectPushIsRejected() {
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_CHAT),
+                "account-one",
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_CHAT,
+                    "recipientUserId" to " ",
+                ),
+                "account-one",
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_CHAT),
+                "",
             ),
         )
     }

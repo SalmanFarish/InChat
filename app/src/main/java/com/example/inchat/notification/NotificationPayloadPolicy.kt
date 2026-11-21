@@ -90,10 +90,17 @@ internal object NotificationPayloadPolicy {
      * Payloads without a recipient remain supported for legacy topic delivery.
      */
     fun isIntendedForAccount(data: Map<String, String>, currentUserId: String): Boolean {
-        val targetUserId = data["recipientUserId"]?.trim().orEmpty()
-        if (targetUserId.isBlank()) return true
         val signedInUserId = currentUserId.trim()
-        return signedInUserId.isNotBlank() && targetUserId == signedInUserId
+        if (signedInUserId.isBlank()) return false
+
+        if ("recipientUserId" in data) {
+            val targetUserId = data["recipientUserId"]?.trim().orEmpty()
+            return targetUserId.isNotBlank() && targetUserId == signedInUserId
+        }
+
+        // The only supported unaddressed notification is the legacy large-group
+        // topic broadcast. Direct messages must always identify their recipient.
+        return data["type"] == TYPE_GROUP
     }
 
     fun isEncryptedOlmWakeupType(data: Map<String, String>): Boolean =
