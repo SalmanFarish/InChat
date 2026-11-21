@@ -2,6 +2,7 @@ package com.example.inchat.crypto
 
 import java.security.MessageDigest
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,7 @@ internal class EncryptedGroupMessageRepository(
     private val dao: EncryptedGroupMessageDao,
     private val vault: EncryptedGroupMessageVault = EncryptedGroupMessageVault(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val authenticatedUserId: () -> String? = { FirebaseAuth.getInstance().currentUser?.uid },
 ) : EncryptedGroupMessageCommitter {
     override suspend fun commitStagedMessage(
         message: DecryptedGroupMessage,
@@ -26,6 +28,7 @@ internal class EncryptedGroupMessageRepository(
         originalCiphertext: ByteArray,
     ): Boolean {
         validateScope(message.ownerUserId, message.groupId)
+        requireAuthenticatedOwner(message.ownerUserId)
         require(originalCiphertext.isNotEmpty() && originalCiphertext.size <= MAX_CIPHERTEXT_BYTES) {
             "Original Megolm ciphertext has an invalid size"
         }
@@ -53,9 +56,15 @@ internal class EncryptedGroupMessageRepository(
         ) { "Group receipt metadata does not match staged plaintext" }
 
         return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(message.ownerUserId)
             val allowKeyCreation = !dao.hasStoredMessages()
             val encrypted = vault.encrypt(message, allowKeyCreation)
-            dao.commitDecryptedMessage(receipt, encrypted)
+            requireAuthenticatedOwner(message.ownerUserId)
+            val committed = dao.commitDecryptedMessage(receipt, encrypted)
+            // A switch during the Room transaction cannot expose this row to
+            // another account; report failure so the original receipt can retry.
+            requireAuthenticatedOwner(message.ownerUserId)
+            committed
         }
     }
 
@@ -71,12 +80,16 @@ internal class EncryptedGroupMessageRepository(
     ): Flow<List<DecryptedGroupMessage>> {
         require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
         require(ID.matches(groupId)) { "Group ID has an invalid format" }
+        requireAuthenticatedOwner(ownerUserId)
         return combine(
             dao.observeMessages(ownerUserId, groupId),
             membershipSnapshots,
         ) { records, membership ->
+            requireAuthenticatedOwner(ownerUserId)
             requireReadableMembership(ownerUserId, groupId, membership)
-            records.map(vault::decrypt)
+            val decrypted = records.map(vault::decrypt)
+            requireAuthenticatedOwner(ownerUserId)
+            decrypted
         }.flowOn(ioDispatcher)
     }
 
@@ -86,6 +99,7 @@ internal class EncryptedGroupMessageRepository(
         messageId: String,
     ): DecryptedGroupMessage? {
         requireReadableMembership(ownerUserId, membership.groupId, membership)
+        requireAuthenticatedOwner(ownerUserId)
         return getMessage(ownerUserId, membership.groupId, messageId)
     }
 
@@ -104,8 +118,14 @@ internal class EncryptedGroupMessageRepository(
 
     fun observeMessages(ownerUserId: String, groupId: String): Flow<List<DecryptedGroupMessage>> {
         validateScope(ownerUserId, groupId)
+        requireAuthenticatedOwner(ownerUserId)
         return dao.observeMessages(ownerUserId, groupId)
-            .map { records -> records.map(vault::decrypt) }
+            .map { records ->
+                requireAuthenticatedOwner(ownerUserId)
+                val decrypted = records.map(vault::decrypt)
+                requireAuthenticatedOwner(ownerUserId)
+                decrypted
+            }
             .flowOn(ioDispatcher)
     }
 
@@ -116,8 +136,12 @@ internal class EncryptedGroupMessageRepository(
     ): DecryptedGroupMessage? {
         validateScope(ownerUserId, groupId)
         require(MESSAGE_ID.matches(messageId)) { "Group message ID is invalid" }
+        requireAuthenticatedOwner(ownerUserId)
         return withContext(ioDispatcher) {
-            dao.getMessage(ownerUserId, groupId, messageId)?.let(vault::decrypt)
+            requireAuthenticatedOwner(ownerUserId)
+            val decrypted = dao.getMessage(ownerUserId, groupId, messageId)?.let(vault::decrypt)
+            requireAuthenticatedOwner(ownerUserId)
+            decrypted
         }
     }
 
