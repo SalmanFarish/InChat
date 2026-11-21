@@ -29,6 +29,19 @@ internal fun validateOlmInboundReceiptIntegrity(receipt: OlmInboundReceiptEntity
         "Inbound receipt recipient device is invalid"
     }
     require(receipt.receivedAtMillis >= 0L) { "Inbound receipt receive time is invalid" }
+    val status = runCatching { OlmInboundReceiptStatus.valueOf(receipt.status) }
+        .getOrElse { throw IllegalArgumentException("Inbound receipt status is invalid", it) }
+    when (status) {
+        OlmInboundReceiptStatus.PENDING,
+        OlmInboundReceiptStatus.WAITING_FOR_DEVICE,
+        OlmInboundReceiptStatus.REJECTED -> require(receipt.processedAtMillis == null) {
+            "Unprocessed inbound receipt must not have a processed timestamp"
+        }
+        OlmInboundReceiptStatus.PROCESSED,
+        OlmInboundReceiptStatus.FINALIZED -> require(
+            receipt.processedAtMillis != null && receipt.processedAtMillis >= 0L,
+        ) { "Processed inbound receipt must have a valid processed timestamp" }
+    }
     require(
         receipt.receiptId == olmInboundReceiptId(
             receipt.senderUserId, receipt.senderDeviceId, receipt.messageId, receipt.recipientDeviceId,
@@ -97,6 +110,9 @@ internal class OlmInboundDeliveryLedger(
         val inserted = dao.insertIfAbsent(row)
         val stored = dao.getByReceiptId(receiptId)
             ?: error("Inbound receipt could not be read after insertion")
+        if (runCatching { validateOlmInboundReceiptIntegrity(stored) }.isFailure) {
+            return OlmInboundRegistration.CONFLICT
+        }
         if (stored.envelopeSha256 != envelopeDigest) return OlmInboundRegistration.CONFLICT
         if (inserted != -1L) return OlmInboundRegistration.NEW
         return when (stored.status) {
@@ -112,7 +128,10 @@ internal class OlmInboundDeliveryLedger(
         require(MESSAGE_ID_PATTERN.matches(messageId))
         require(DEVICE_ID_PATTERN.matches(senderDeviceId))
         val receiptId = olmInboundReceiptId(senderUserId, senderDeviceId, messageId, localDeviceId)
-        return dao.markProcessed(receiptId, System.currentTimeMillis()) == 1
+        val stored = dao.getByReceiptId(receiptId) ?: return false
+        if (runCatching { validateOlmInboundReceiptIntegrity(stored) }.isFailure) return false
+        if (stored.status != OlmInboundReceiptStatus.PENDING.name) return false
+        return dao.markProcessed(receiptId, System.currentTimeMillis().coerceAtLeast(0L)) == 1
     }
 
     private companion object {

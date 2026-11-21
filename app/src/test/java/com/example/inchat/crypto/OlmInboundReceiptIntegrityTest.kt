@@ -52,6 +52,29 @@ class OlmInboundReceiptIntegrityTest {
     }
 
     @Test
+    fun rejectsUnknownStatusAndInconsistentProcessedTimestamps() {
+        assertRejected {
+            validateOlmInboundReceiptIntegrity(receipt().copy(status = "UNKNOWN"))
+        }
+        assertRejected {
+            validateOlmInboundReceiptIntegrity(
+                receipt().copy(status = OlmInboundReceiptStatus.PROCESSED.name),
+            )
+        }
+        assertRejected {
+            validateOlmInboundReceiptIntegrity(
+                receipt().copy(processedAtMillis = 20L),
+            )
+        }
+        validateOlmInboundReceiptIntegrity(
+            receipt().copy(
+                status = OlmInboundReceiptStatus.PROCESSED.name,
+                processedAtMillis = 20L,
+            ),
+        )
+    }
+
+    @Test
     fun rejectsEnvelopeRouteMismatchAndNegativeReceiveTime() {
         val wrongRoute = EncryptedOlmEnvelopeCodec.encode(
             EncryptedOlmEnvelope(

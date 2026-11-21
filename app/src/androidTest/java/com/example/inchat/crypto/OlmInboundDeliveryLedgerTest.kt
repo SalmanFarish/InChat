@@ -46,6 +46,43 @@ class OlmInboundDeliveryLedgerTest {
     }
 
     @Test
+    fun duplicateRegistrationRejectsCorruptedStoredReceiptWithoutReplacingIt() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbound-corrupt-existing-receipt-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val encoded = envelope("receiver-device", "sender-device", 41)
+            val receiptId = olmInboundReceiptId(
+                "alice", "sender-device", "corrupt-existing", "receiver-device",
+            )
+            val corrupted = OlmInboundReceiptEntity(
+                receiptId = receiptId,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = "corrupt-existing",
+                recipientDeviceId = "receiver-device",
+                envelope = encoded,
+                envelopeSha256 = "0".repeat(64),
+                status = OlmInboundReceiptStatus.PENDING.name,
+                receivedAtMillis = 100L,
+                processedAtMillis = null,
+            )
+            assertTrue(db.olmInboundReceiptDao().insertIfAbsent(corrupted) != -1L)
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            assertEquals(
+                OlmInboundRegistration.CONFLICT,
+                ledger.register("alice", "corrupt-existing", encoded, 101L),
+            )
+            assertEquals(corrupted, db.olmInboundReceiptDao().getByReceiptId(receiptId))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun pendingReceiptQueryReturnsOldestUnprocessedReceiptsOnlyAndHonorsLimit() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-inbound-pending-query-test.db"
