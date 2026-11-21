@@ -123,24 +123,23 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         }
     }
 
-    override fun requireReady(
+    /**
+     * Must run before preparing a new Megolm message. The returned token proves
+     * that the full immutable key target set is acknowledged, so callers can
+     * avoid advancing the sender ratchet while a group member is still waiting.
+     */
+    fun requireAcknowledged(
         ownerUserId: String,
         senderDeviceId: String,
         currentMembership: GroupCryptoMembershipSnapshot,
         keyDistribution: PreparedOlmGroupKeyDistribution,
-        messageDistribution: PreparedOlmGroupMessageDistribution,
-    ) {
+    ): OlmGroupKeyDistributionReadinessToken {
         require(currentMembership.isValid() && ownerUserId in currentMembership.memberUserIds) {
             "Current group membership snapshot is invalid for key readiness"
         }
-        require(
-            keyDistribution.groupId == currentMembership.groupId &&
-                keyDistribution.membershipEpoch == currentMembership.epoch &&
-                messageDistribution.groupId == currentMembership.groupId &&
-                messageDistribution.membershipEpoch == currentMembership.epoch &&
-                keyDistribution.megolmSessionId == messageDistribution.megolmSessionId
-        ) {
-            "Group membership changed after the key or message distribution was prepared"
+        require(keyDistribution.groupId == currentMembership.groupId &&
+            keyDistribution.membershipEpoch == currentMembership.epoch) {
+            "Group membership changed after key distribution preparation"
         }
         val state = evaluate(
             ownerUserId = ownerUserId,
@@ -155,16 +154,43 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         require(keyDistribution.distributionId == token.distributionId) {
             "Prepared group-key distribution ID does not match the persisted ready distribution"
         }
-
-        val preparedKeyTargets = keyDistribution.deliveries.map {
+        val declaredTargets = keyDistribution.targetDevices
+        require(declaredTargets.isNotEmpty() &&
+            declaredTargets.size == declaredTargets.distinct().size &&
+            declaredTargets.toSet() == token.targetDevices
+        ) {
+            "Prepared group-key distribution does not describe its complete immutable target set"
+        }
+        val preparedTargets = keyDistribution.deliveries.map {
             it.recipientUserId to it.recipientDeviceId
         }
-        require(preparedKeyTargets.isNotEmpty() &&
-            preparedKeyTargets.distinct().size == preparedKeyTargets.size &&
-            preparedKeyTargets.all { it in token.targetDevices }
+        require(preparedTargets.isNotEmpty() &&
+            preparedTargets.distinct().size == preparedTargets.size &&
+            preparedTargets.all { it in token.targetDevices }
         ) {
             "Prepared group-key envelopes contain duplicate or unexpected targets"
         }
+        return token
+    }
+
+    override fun requireReady(
+        ownerUserId: String,
+        senderDeviceId: String,
+        currentMembership: GroupCryptoMembershipSnapshot,
+        keyDistribution: PreparedOlmGroupKeyDistribution,
+        messageDistribution: PreparedOlmGroupMessageDistribution,
+    ) {
+        require(messageDistribution.groupId == currentMembership.groupId &&
+            messageDistribution.membershipEpoch == currentMembership.epoch &&
+            keyDistribution.megolmSessionId == messageDistribution.megolmSessionId) {
+            "Group membership changed after the key or message distribution was prepared"
+        }
+        val token = requireAcknowledged(
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            currentMembership = currentMembership,
+            keyDistribution = keyDistribution,
+        )
         val messageTargets = messageDistribution.deliveries.map {
             it.recipientUserId to it.recipientDeviceId
         }

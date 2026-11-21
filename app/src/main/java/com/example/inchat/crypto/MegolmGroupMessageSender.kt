@@ -13,6 +13,11 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 internal class MegolmGroupMessageSender(
     private val sessions: MegolmSessionRepository,
     private val outboxCommitter: MegolmGroupMessageOutboxCommitter,
+    /** Fail-closed check that all remote member devices acknowledged the exact session key. */
+    private val requireKeyDistributionReady: (
+        membership: GroupCryptoMembershipSnapshot,
+        keyDistribution: PreparedOlmGroupKeyDistribution,
+    ) -> Unit,
 ) {
     suspend fun send(
         membership: GroupCryptoMembershipSnapshot,
@@ -32,6 +37,10 @@ internal class MegolmGroupMessageSender(
         ) {
             "The current outbound Megolm session key has not been distributed for this membership epoch"
         }
+
+        // Check durable key receipts before advancing the native Megolm ratchet.
+        // The outbox committer repeats the check after envelope preparation.
+        requireKeyDistributionReady(membership, keyDistribution)
 
         val staged = sessions.prepareOutboundMessage(
             membership = membership,
