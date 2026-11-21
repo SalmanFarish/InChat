@@ -109,6 +109,27 @@ class OlmGroupSessionKeyDistributionPayloadTest {
         }
     }
 
+
+    @Test
+    fun rejectsSessionKeysOutsideNativeByteLengthBounds() {
+        val payload = validPayload()
+        val tooShort = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(31) { it.toByte() })
+        val tooLong = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(1025) { it.toByte() })
+
+        assertRejected {
+            OlmGroupSessionKeyDistributionPayloadCodec.encode(
+                payload.copy(sessionKey = tooShort),
+            )
+        }
+        assertRejected {
+            OlmGroupSessionKeyDistributionPayloadCodec.encode(
+                payload.copy(sessionKey = tooLong),
+            )
+        }
+    }
+
     @Test
     fun rejectsSelfDeliveryAndInvalidEpochOrGroupIdentifiers() {
         val payload = validPayload()

@@ -220,12 +220,18 @@ internal object OlmGroupSessionKeyDistributionPayloadCodec {
         } catch (error: IllegalArgumentException) {
             throw IllegalArgumentException("Megolm session key is not valid Base64URL", error)
         }
-        require(decodedKey.size in MIN_SESSION_KEY_BYTES..MAX_SESSION_KEY_BYTES) {
-            "Megolm session key has an invalid size"
-        }
-        val canonicalKey = Base64.getUrlEncoder().withoutPadding().encodeToString(decodedKey)
-        require(canonicalKey == payload.sessionKey) {
-            "Megolm session key must use canonical unpadded Base64URL"
+        try {
+            require(decodedKey.size in MIN_SESSION_KEY_BYTES..MAX_SESSION_KEY_BYTES) {
+                "Megolm session key has an invalid size"
+            }
+            val canonicalKey = Base64.getUrlEncoder().withoutPadding().encodeToString(decodedKey)
+            require(canonicalKey == payload.sessionKey) {
+                "Megolm session key must use canonical unpadded Base64URL"
+            }
+        } finally {
+            // Validation runs during both encode and decode. Do not leave an
+            // extra heap copy of the group decryption capability behind.
+            decodedKey.fill(0)
         }
     }
 }
