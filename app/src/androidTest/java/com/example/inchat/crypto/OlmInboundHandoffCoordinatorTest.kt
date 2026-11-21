@@ -87,6 +87,37 @@ class OlmInboundHandoffCoordinatorTest {
                     .commit(receiptId, message, 200L)
             )
 
+            // Simulate auth switching immediately after native staging is finalized
+            // but before the durable receipt can be marked FINALIZED. The processor
+            // must leave the committed receipt recoverable for the original account.
+            var finalizationAccountReads = 0
+            val accountSwitchDuringFinalize = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = {
+                    finalizationAccountReads++
+                    if (finalizationAccountReads <= 2) "local-user" else "different-account"
+                },
+                trustVerifier = trustedDevice("alice", senderBundle),
+                encryptedMessageDao = db.encryptedOlmMessageDao(),
+            )
+            var finalizationAccountSwitchRejected = false
+            try {
+                accountSwitchDuringFinalize.finalizePreviouslyCommitted(receiptId, "local-user")
+            } catch (expected: IllegalStateException) {
+                finalizationAccountSwitchRejected = expected.message.orEmpty()
+                    .contains("Authenticated account changed")
+            }
+            assertTrue(
+                "An account switch during finalization must stop receipt state mutation",
+                finalizationAccountSwitchRejected,
+            )
+            assertEquals(
+                OlmInboundReceiptStatus.PROCESSED.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+
             val reopenedRepository = OlmSessionRepository(context)
             val coordinator = OlmInboundHandoffCoordinator(
                 database = db,
