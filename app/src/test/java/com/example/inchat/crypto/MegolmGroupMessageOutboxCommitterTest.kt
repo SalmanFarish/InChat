@@ -125,7 +125,8 @@ class MegolmGroupMessageOutboxCommitterTest {
         },
         authenticatedUserId = { "alice" },
         localDeviceId = { "alice-phone" },
-        distributionPreparer = OlmGroupMessageDistributionPreparing { membership, messageId, encrypted, sentAt ->
+        distributionPreparer = OlmGroupMessageDistributionPreparing { membership, messageId, encrypted, sentAt, expectedTargets ->
+            assertEquals(setOf("bob" to "bob-phone"), expectedTargets)
             PreparedOlmGroupMessageDistribution(
                 messageId = messageId,
                 groupId = membership.groupId,

@@ -126,6 +126,36 @@ class OlmGroupMessageDistributionPreparerTest {
     }
 
     @Test
+    fun rejectsChangedTrustedTargetSetBeforeClaimingPrekeysOrCreatingSessions() = runBlocking {
+        val sender = bundle("sender-current")
+        val recipient = bundle("recipient-phone")
+        val directory = FakeDirectory(
+            "alice",
+            mapOf("alice" to listOf(sender), "bob" to listOf(recipient)),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val preparer = OlmGroupMessageDistributionPreparer(
+            directory,
+            sessions,
+            verifier(setOf("bob::recipient-phone::ed25519-recipient-phone")),
+        )
+
+        assertRejected {
+            runBlocking {
+                preparer.prepare(
+                    membership = membership("group-1", 5L, "alice", "bob"),
+                    messageId = "message-1",
+                    encryptedMessage = EncryptedMegolmMessage("1234567890abcdef", 0L, ByteArray(80)),
+                    sentAtMillis = 1234L,
+                    expectedTargetDevices = setOf("bob" to "bob-new-phone"),
+                )
+            }
+        }
+        assertTrue(directory.claimedPreKeys.isEmpty())
+        assertTrue(sessions.createdSessions.isEmpty())
+    }
+
+    @Test
     fun usesSignedFallbackWhenRecipientOneTimePrekeyCannotBeClaimed() = runBlocking {
         val sender = bundle("sender-current")
         val recipient = bundle("recipient-phone")

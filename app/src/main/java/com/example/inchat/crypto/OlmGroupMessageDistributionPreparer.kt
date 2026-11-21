@@ -43,6 +43,7 @@ internal fun interface OlmGroupMessageDistributionPreparing {
         messageId: String,
         encryptedMessage: EncryptedMegolmMessage,
         sentAtMillis: Long,
+        expectedTargetDevices: Set<Pair<String, String>>? = null,
     ): PreparedOlmGroupMessageDistribution
 }
 
@@ -72,11 +73,20 @@ internal class OlmGroupMessageDistributionPreparer(
         messageId: String,
         encryptedMessage: EncryptedMegolmMessage,
         sentAtMillis: Long,
+        expectedTargetDevices: Set<Pair<String, String>>?,
     ): PreparedOlmGroupMessageDistribution {
         require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
         require(messageId.matches(MESSAGE_ID)) { "Group message ID is invalid" }
         require(sentAtMillis >= 0L) { "Group message timestamp is invalid" }
         val resolved = resolvePlan(membership)
+        val plannedTargets = resolved.plan.targets.mapTo(linkedSetOf()) {
+            it.userId to it.device.deviceId
+        }
+        if (expectedTargetDevices != null) {
+            require(expectedTargetDevices.isNotEmpty() && plannedTargets == expectedTargetDevices) {
+                "Trusted group devices changed before encrypted envelope preparation"
+            }
+        }
         val deliveries = resolved.plan.targets.map { target ->
             check(
                 trustVerifier.isVerified(

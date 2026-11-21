@@ -62,6 +62,7 @@ internal class MegolmGroupMessageOutboxCommitter(
             messageId = staged.messageId,
             encryptedMessage = staged.encryptedMessage,
             sentAtMillis = staged.sentAtMillis,
+            expectedTargetDevices = keyDistribution.targetDevices,
         )
 
         // Re-read the atomic membership snapshot after key-directory/trust
