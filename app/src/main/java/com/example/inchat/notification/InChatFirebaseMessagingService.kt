@@ -75,6 +75,12 @@ class InChatFirebaseMessagingService :
             return
         }
 
+        val recipientUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (!NotificationPayloadPolicy.isIntendedForAccount(remoteMessage.data, recipientUserId)) {
+            Log.w("InChatFCM", "Ignored a message notification addressed to another account.")
+            return
+        }
+
         val presentation = NotificationPayloadPolicy.from(
             data = remoteMessage.data,
             fallbackTitle = remoteMessage.notification?.title,
@@ -102,8 +108,8 @@ class InChatFirebaseMessagingService :
             chatId = presentation.chatId,
             otherUserId = presentation.senderId,
             messageId = presentation.messageId,
-            includeMessageHistory = presentation.includeMessageHistory,
-            recipientUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty(),
+            includeMessageHistory = presentation.includeMessageHistory && recipientUserId.isNotBlank(),
+            recipientUserId = recipientUserId,
         )
     }
 

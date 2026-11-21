@@ -75,6 +75,28 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun addressedPushIsAcceptedOnlyByItsIntendedSignedInAccount() {
+        val payload = mapOf(
+            "type" to NotificationPayloadPolicy.TYPE_CHAT,
+            "recipientUserId" to "account-one",
+        )
+
+        assertTrue(NotificationPayloadPolicy.isIntendedForAccount(payload, "account-one"))
+        assertFalse(NotificationPayloadPolicy.isIntendedForAccount(payload, "account-two"))
+        assertFalse(NotificationPayloadPolicy.isIntendedForAccount(payload, ""))
+    }
+
+    @Test
+    fun legacyTopicPushWithoutRecipientUidRemainsCompatible() {
+        assertTrue(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_GROUP),
+                "account-one",
+            ),
+        )
+    }
+
+    @Test
     fun encryptedOlmWakeupAcceptsOnlyItsMinimalDeliveryReference() {
         assertTrue(
             NotificationPayloadPolicy.isEncryptedOlmWakeup(

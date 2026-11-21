@@ -64,7 +64,9 @@ internal object NotificationPayloadPolicy {
         val identity = accountId.length.toString() + ":" + accountId + conversationId
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(identity.toByteArray(Charsets.UTF_8))
-        val hex = digest.joinToString("") { byte -> "%02x".format(byte) }
+        val hex = digest.joinToString("") { byte ->
+            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+        }
         return "messages_$hex"
     }
 
@@ -76,6 +78,17 @@ internal object NotificationPayloadPolicy {
      * fields. Even malformed payloads of this type must never fall through to
      * the legacy plaintext notification handler.
      */
+    /**
+     * Verifies an explicitly addressed FCM message against the current account.
+     * Payloads without a recipient remain supported for legacy topic delivery.
+     */
+    fun isIntendedForAccount(data: Map<String, String>, currentUserId: String): Boolean {
+        val targetUserId = data["recipientUserId"]?.trim().orEmpty()
+        if (targetUserId.isBlank()) return true
+        val signedInUserId = currentUserId.trim()
+        return signedInUserId.isNotBlank() && targetUserId == signedInUserId
+    }
+
     fun isEncryptedOlmWakeupType(data: Map<String, String>): Boolean =
         data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP
 
