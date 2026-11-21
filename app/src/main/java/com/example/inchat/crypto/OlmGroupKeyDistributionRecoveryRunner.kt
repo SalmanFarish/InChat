@@ -36,6 +36,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
         sessionKey: String,
         issuedAtMillis: Long,
         selectedTargetDevices: Set<Pair<String, String>>,
+        expectedTargetDevices: Set<Pair<String, String>>,
     ) -> PreparedOlmGroupKeyDistribution,
     private val resumeDistribution: (
         membership: GroupCryptoMembershipSnapshot,
@@ -123,6 +124,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 encodedKey,
                 nowMillis().coerceAtLeast(0L),
                 plan.missingTargets.toSet(),
+                metadata.targetDevicePairs().toSet(),
             )
             require(
                 prepared.distributionId == metadata.distributionId &&

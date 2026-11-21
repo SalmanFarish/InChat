@@ -133,6 +133,51 @@ class OlmGroupSessionKeyDistributionPreparerTest {
     }
 
     @Test
+    fun recoveryKeepsOriginalImmutableTargetsWhenNewTrustedDeviceAppears() = runBlocking {
+        val sender = bundle("sender-current")
+        val senderTablet = bundle("sender-tablet")
+        val originalBob = bundle("bob-phone")
+        val newBob = bundle("bob-new-phone")
+        val directory = FakeDirectory(
+            authenticatedUserId = "alice",
+            devices = mapOf(
+                "alice" to listOf(sender, senderTablet),
+                "bob" to listOf(originalBob, newBob),
+            ),
+        )
+        val trusted = setOf(
+            trustKey("alice", senderTablet),
+            trustKey("bob", originalBob),
+            trustKey("bob", newBob),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory = directory,
+            sessions = sessions,
+            trustVerifier = verifier(trusted),
+        )
+        val immutableTargets = setOf("alice" to "sender-tablet", "bob" to "bob-phone")
+        val selected = setOf("bob" to "bob-phone")
+
+        val result = preparer.prepare(
+            distributionId = "distribution-old-roster",
+            membership = membership("group-1", 3L, "alice", "bob"),
+            megolmSessionId = "1234567890abcdef",
+            sessionKey = sessionKey(),
+            issuedAtMillis = 123456L,
+            selectedTargetDevices = selected,
+            expectedTargetDevices = immutableTargets,
+        )
+
+        assertEquals(immutableTargets, result.targetDevices.toSet())
+        assertEquals(selected, result.deliveries.map {
+            it.recipientUserId to it.recipientDeviceId
+        }.toSet())
+        assertEquals(listOf("bob" to "bob-phone"), directory.claimedPreKeys)
+        assertTrue(sessions.createdSessions.none { it.first == "bob-new-phone" })
+    }
+
+    @Test
     fun rechecksLiveDirectoryIdentityAndSasTrustBeforeRecoveryEnqueue() = runBlocking {
         val sender = bundle("sender-current")
         val originalBob = bundle("bob-phone")

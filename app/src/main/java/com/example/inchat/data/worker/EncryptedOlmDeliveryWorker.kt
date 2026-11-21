@@ -169,7 +169,7 @@ class EncryptedOlmDeliveryWorker(
                         exportOutboundSessionKey = { membership, sessionId ->
                             megolmSessions.exportOutboundSessionKey(membership, sessionId)
                         },
-                        prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected ->
+                        prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected, expected ->
                             keyPreparer.prepare(
                                 distributionId = distributionId,
                                 membership = membership,
@@ -177,6 +177,7 @@ class EncryptedOlmDeliveryWorker(
                                 sessionKey = key,
                                 issuedAtMillis = issuedAt,
                                 selectedTargetDevices = selected,
+                                expectedTargetDevices = expected,
                             )
                         },
                         resumeDistribution = groupKeyOutbox::resume,

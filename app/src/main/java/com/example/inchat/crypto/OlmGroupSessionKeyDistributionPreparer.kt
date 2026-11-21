@@ -58,6 +58,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         sessionKey: String,
         issuedAtMillis: Long,
         selectedTargetDevices: Set<Pair<String, String>>? = null,
+        expectedTargetDevices: Set<Pair<String, String>>? = null,
     ): PreparedOlmGroupKeyDistribution {
         require(membership.isValid()) {
             "Authoritative group crypto membership snapshot is invalid"
@@ -91,12 +92,21 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         )
 
         val allTargets = plan.targets.map { it.userId to it.device.deviceId }.toSet()
-        val selectedTargets = selectedTargetDevices ?: allTargets
+        val immutableTargets = expectedTargetDevices ?: allTargets
+        require(immutableTargets.isNotEmpty()) {
+            "The immutable group-key target set cannot be empty"
+        }
+        if (!allTargets.containsAll(immutableTargets)) {
+            throw OlmGroupKeyDistributionDeferredException(
+                "An original group-key target is no longer a current SAS-trusted device",
+            )
+        }
+        val selectedTargets = selectedTargetDevices ?: immutableTargets
         require(selectedTargets.isNotEmpty()) {
             "At least one missing group-key target is required for envelope preparation"
         }
-        require(selectedTargets.all { it in allTargets }) {
-            "Recovery selected a device outside the current SAS-trusted group plan"
+        require(selectedTargets.all { it in immutableTargets }) {
+            "Recovery selected a device outside the immutable group-key target set"
         }
         val targetsToPrepare = plan.targets.filter {
             (it.userId to it.device.deviceId) in selectedTargets
@@ -193,7 +203,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             megolmSessionId = megolmSessionId,
             deliveries = deliveries,
             skippedUntrustedDeviceCount = plan.skippedUntrustedDeviceCount,
-            targetDevices = allTargets.sortedWith(
+            targetDevices = immutableTargets.sortedWith(
                 compareBy<Pair<String, String>> { it.first }.thenBy { it.second },
             ),
         )

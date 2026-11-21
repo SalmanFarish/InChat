@@ -52,13 +52,14 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 assertEquals(sessionId, expectedSessionId)
                 keyBytes
             },
-            prepareDistribution = { id, snapshot, session, key, issuedAt, selected ->
+            prepareDistribution = { id, snapshot, session, key, issuedAt, selected, expected ->
                 assertEquals(distributionId, id)
                 assertEquals(membership, snapshot)
                 assertEquals(sessionId, session)
                 assertTrue(key.isNotBlank())
                 assertEquals(1234L, issuedAt)
                 preparedTargets = selected
+                assertEquals(metadata.targetDevicePairs().toSet(), expected)
                 PreparedOlmGroupKeyDistribution(
                     distributionId = id,
                     groupId = snapshot.groupId,
@@ -147,7 +148,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 assertEquals(sessionId, expectedSessionId)
                 ByteArray(32) { 9 }
             },
-            prepareDistribution = { id, snapshot, session, _, _, _ ->
+            prepareDistribution = { id, snapshot, session, _, _, _, expected ->
                 PreparedOlmGroupKeyDistribution(
                     distributionId = id,
                     groupId = snapshot.groupId,
@@ -222,7 +223,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 assertEquals(sessionId, expectedSessionId)
                 ByteArray(32) { 5 }
             },
-            prepareDistribution = { id, snapshot, session, _, _, _ ->
+            prepareDistribution = { id, snapshot, session, _, _, _, expected ->
                 PreparedOlmGroupKeyDistribution(
                     distributionId = id,
                     groupId = snapshot.groupId,
@@ -298,7 +299,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 exported = true
                 ByteArray(32)
             },
-            prepareDistribution = { _, _, _, _, _, _ ->
+            prepareDistribution = { _, _, _, _, _, _, expected ->
                 prepared = true
                 error("Must not prepare a rotated session")
             },
@@ -354,7 +355,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 assertEquals(sessionId, expectedSessionId)
                 ByteArray(32) { 4 }
             },
-            prepareDistribution = { _, _, _, _, _, _ ->
+            prepareDistribution = { _, _, _, _, _, _, expected ->
                 throw IllegalStateException("temporary directory failure")
             },
             resumeDistribution = { _, _ -> error("Must not enqueue failed preparation") },
@@ -412,7 +413,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 exported = true
                 ByteArray(32)
             },
-            prepareDistribution = { _, _, _, _, _, _ ->
+            prepareDistribution = { _, _, _, _, _, _, expected ->
                 prepared = true
                 error("Must not prepare a missing session")
             },
