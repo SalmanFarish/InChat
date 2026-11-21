@@ -14,6 +14,14 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.DeviceKeyDirectoryRepository
+import com.example.inchat.crypto.MegolmSessionRepository
+import com.example.inchat.crypto.OlmGroupKeyDistributionRecoveryRunner
+import com.example.inchat.crypto.OlmGroupSessionKeyDistributionPreparer
+import com.example.inchat.crypto.OlmGroupSessionKeyOutboxCoordinator
+import com.example.inchat.crypto.OlmSessionRepository
+import com.example.inchat.crypto.RoomOlmGroupKeyDistributionRecoveryStateStore
+import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
 import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.crypto.TrustedDeviceRepository
@@ -105,6 +113,76 @@ class EncryptedOlmDeliveryWorker(
             val queue = OlmDeliveryQueue(
                 RoomOlmDeliveryQueueStore(database, database.olmDeliveryQueueDao()),
             )
+            val metadataStore = database.olmGroupKeyDistributionMetadataStore()
+            val savedGroupKeyDistributions = metadataStore.getAllForDevice(
+                ownerUserId = ownerUserId,
+                senderDeviceId = senderDeviceId,
+            )
+            if (savedGroupKeyDistributions.isNotEmpty()) {
+                val identityRepository = DeviceIdentityRepository(applicationContext)
+                val olmSessions = OlmSessionRepository(applicationContext, identityRepository)
+                val megolmSessions = MegolmSessionRepository(
+                    context = applicationContext,
+                    identityRepository = identityRepository,
+                    authenticatedUserId = {
+                        FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                    },
+                )
+                val groupRepository = GroupChatRepository()
+                val keyPreparer = OlmGroupSessionKeyDistributionPreparer(
+                    directory = DeviceKeyDirectoryRepository(),
+                    sessions = olmSessions,
+                    trustVerifier = TrustedDeviceRepository(applicationContext),
+                )
+                val recoveryStateReader = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                    queueDao = database.olmDeliveryQueueDao(),
+                    receiptDao = database.olmDeliveryReceiptDao(),
+                )
+                val groupKeyOutbox = OlmGroupSessionKeyOutboxCoordinator(
+                    queue = queue,
+                    metadataStore = metadataStore,
+                    deliveryReceipts = database.olmDeliveryReceiptDao(),
+                    authenticatedUserId = { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() },
+                    localDeviceId = {
+                        identityRepository.existingDeviceIdForDelivery().orEmpty()
+                    },
+                    scheduleDelivery = { owner, device ->
+                        schedule(applicationContext, owner, device)
+                    },
+                    recoveryStateReader = recoveryStateReader,
+                )
+                val recovery = OlmGroupKeyDistributionRecoveryRunner(
+                    metadataStore = metadataStore,
+                    recoveryStateReader = recoveryStateReader,
+                    membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                    authenticatedUserId = {
+                        FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                    },
+                    localDeviceId = {
+                        identityRepository.existingDeviceIdForDelivery().orEmpty()
+                    },
+                    ensureOutboundSession = megolmSessions::ensureOutboundSession,
+                    exportOutboundSessionKey = megolmSessions::exportOutboundSessionKey,
+                    prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected ->
+                        keyPreparer.prepare(
+                            distributionId = distributionId,
+                            membership = membership,
+                            megolmSessionId = sessionId,
+                            sessionKey = key,
+                            issuedAtMillis = issuedAt,
+                            selectedTargetDevices = selected,
+                        )
+                    },
+                    resumeDistribution = groupKeyOutbox::resume,
+                ).run()
+                Log.i(
+                    TAG,
+                    "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
+                        ", skipped=" + recovery.distributionsSkipped +
+                        ", queued=" + recovery.deliveriesQueued,
+                )
+            }
+
             val transport = FirebaseOlmEnvelopeTransport(
                 trustVerifier = TrustedDeviceRepository(applicationContext),
                 expectedAuthenticatedUserId = ownerUserId,
