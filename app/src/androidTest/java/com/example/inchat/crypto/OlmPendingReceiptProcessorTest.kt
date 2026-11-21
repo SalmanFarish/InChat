@@ -174,6 +174,7 @@ class OlmPendingReceiptProcessorTest {
                 ),
                 digest: String = sha256(encoded),
                 processedAtMillis: Long? = null,
+                status: String = OlmInboundReceiptStatus.PENDING.name,
             ) = OlmInboundReceiptEntity(
                 receiptId = rowReceiptId,
                 senderUserId = "alice",
@@ -182,7 +183,7 @@ class OlmPendingReceiptProcessorTest {
                 recipientDeviceId = "recipient-device",
                 envelope = encoded,
                 envelopeSha256 = digest,
-                status = OlmInboundReceiptStatus.PENDING.name,
+                status = status,
                 receivedAtMillis = 100L,
                 processedAtMillis = processedAtMillis,
             )
@@ -191,6 +192,11 @@ class OlmPendingReceiptProcessorTest {
                 row("bad-digest", digest = "0".repeat(64)),
                 row("bad-identity", rowReceiptId = "f".repeat(64)),
                 row("bad-pending-timestamp", processedAtMillis = 99L),
+                row(
+                    "bad-deferred-digest",
+                    digest = "1".repeat(64),
+                    status = OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
+                ),
             )
             corruptedRows.forEach { assertTrue(dao.insertIfAbsent(it) != -1L) }
 
@@ -214,11 +220,13 @@ class OlmPendingReceiptProcessorTest {
             val result = processor.processPending(limit = 10)
 
             assertEquals(3, result.pendingScanned)
-            assertEquals(3, result.rejected)
+            assertEquals(1, result.deferredScanned)
+            assertEquals(4, result.rejected)
             assertEquals(0, result.failed)
             assertEquals(0, directoryReads)
             assertEquals(0, handoffCalls)
             assertEquals(0, dao.getPending(10).size)
+            assertEquals(0, dao.getWaitingForDevice(10).size)
             corruptedRows.forEach { corrupt ->
                 assertEquals(
                     OlmInboundReceiptStatus.REJECTED.name,
