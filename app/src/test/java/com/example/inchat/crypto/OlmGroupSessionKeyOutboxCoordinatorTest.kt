@@ -97,6 +97,80 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
     }
 
     @Test
+    fun partialResumeAcceptsOnlyTargetsProvenMissingByDurableRecoveryState() {
+        val queueStore = FakeStore()
+        val metadata = FakeMetadataStore()
+        val fullDistribution = distribution()
+        val recoveryReader = object : OlmGroupKeyDistributionRecoveryStateReader {
+            override fun read(metadata: OlmGroupKeyDistributionEntity) =
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = setOf("alice" to "alice-tablet"),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                )
+        }
+        val coordinator = OlmGroupSessionKeyOutboxCoordinator(
+            queue = OlmDeliveryQueue(queueStore),
+            metadataStore = metadata,
+            deliveryReceipts = FakeDeliveryReceipts(),
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            scheduleDelivery = { _, _ -> },
+            recoveryStateReader = recoveryReader,
+        )
+        coordinator.enqueue(membership(), fullDistribution)
+        queueStore.rows.clear()
+
+        val partial = fullDistribution.copy(
+            deliveries = listOf(delivery("bob", "bob-phone", "session-bob")),
+        )
+        assertEquals(1, coordinator.resume(membership(), partial))
+        assertEquals(
+            setOf("bob" to "bob-phone"),
+            queueStore.rows.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+        )
+    }
+
+    @Test
+    fun partialResumeRejectsTargetsAlreadyQueuedOrAcknowledged() {
+        val queueStore = FakeStore()
+        val metadata = FakeMetadataStore()
+        val fullDistribution = distribution()
+        val coordinator = OlmGroupSessionKeyOutboxCoordinator(
+            queue = OlmDeliveryQueue(queueStore),
+            metadataStore = metadata,
+            deliveryReceipts = FakeDeliveryReceipts(),
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            scheduleDelivery = { _, _ -> },
+            recoveryStateReader = object : OlmGroupKeyDistributionRecoveryStateReader {
+                override fun read(metadata: OlmGroupKeyDistributionEntity) =
+                    OlmGroupKeyDistributionRecoveryState(
+                        queuedTargets = setOf("alice" to "alice-tablet"),
+                        acknowledgedTargets = setOf("bob" to "bob-phone"),
+                        failedTargets = emptySet(),
+                    )
+            },
+        )
+        coordinator.enqueue(membership(), fullDistribution)
+        queueStore.rows.clear()
+
+        var rejected = false
+        try {
+            coordinator.resume(
+                membership(),
+                fullDistribution.copy(
+                    deliveries = listOf(delivery("bob", "bob-phone", "session-bob")),
+                ),
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertTrue(queueStore.rows.isEmpty())
+    }
+
+    @Test
     fun resumeDoesNotRequeueRemoteDevicesAlreadyAcknowledgedBeforeRowRemoval() {
         val queueStore = FakeStore()
         val metadata = FakeMetadataStore()
@@ -187,6 +261,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         override fun observeDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): Flow<List<String>> = flowOf(emptyList())
         override fun getDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): List<String> = emptyList()
         override fun getAcknowledgedRecipientDeviceIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): List<String> = acknowledged[recipientUserId to messageId].orEmpty().toList()
+        override fun getAcknowledgedTargetIdentitiesForDistribution(ownerUserId: String, senderDeviceId: String, distributionId: String): List<String> = emptyList()
         override fun observeHasRecipientAcknowledgement(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): Flow<Boolean> = flowOf(false)
     }
     private class FakeMetadataStore : OlmGroupKeyDistributionMetadataStore {

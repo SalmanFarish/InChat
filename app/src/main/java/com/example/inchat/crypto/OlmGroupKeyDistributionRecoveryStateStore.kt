@@ -10,12 +10,17 @@ internal data class OlmGroupKeyDistributionRecoveryState(
     val failedTargets: Set<Pair<String, String>>,
 )
 
+/** Read-only contract for the durable queue/acknowledgement snapshot. */
+internal interface OlmGroupKeyDistributionRecoveryStateReader {
+    fun read(metadata: OlmGroupKeyDistributionEntity): OlmGroupKeyDistributionRecoveryState
+}
+
 /** Reads and validates the durable Room state consumed by the pure recovery planner. */
 internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
     private val queueDao: OlmDeliveryQueueDao,
     private val receiptDao: OlmDeliveryReceiptDao,
-) {
-    fun read(metadata: OlmGroupKeyDistributionEntity): OlmGroupKeyDistributionRecoveryState {
+) : OlmGroupKeyDistributionRecoveryStateReader {
+    override fun read(metadata: OlmGroupKeyDistributionEntity): OlmGroupKeyDistributionRecoveryState {
         metadata.requireValidForRecovery()
         val queueRows = queueDao.getTargetStatesForDistribution(
             ownerUserId = metadata.ownerUserId,

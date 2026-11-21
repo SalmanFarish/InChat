@@ -14,6 +14,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
+    private val recoveryStateReader: OlmGroupKeyDistributionRecoveryStateReader? = null,
 ) {
     fun enqueue(
         currentMembership: GroupCryptoMembershipSnapshot,
@@ -54,36 +55,46 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
         require(distribution.megolmSessionId.matches(SESSION_ID)) {
             "Group key distribution Megolm session ID is invalid"
         }
-        require(distribution.deliveries.isNotEmpty()) {
-            "No SAS-trusted group device is available for key distribution"
-        }
-        require(distribution.deliveries.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
-            "Group key distribution fan-out exceeds the device delivery limit"
-        }
-        require(
-            distribution.deliveries.map { it.recipientUserId }.toSet()
-                .containsAll(currentMembership.memberUserIds - ownerUid)
+        val immutableTargets = distribution.targetDevices
+        val immutableTargetSet = immutableTargets.toSet()
+        val preparedTargetSet = distribution.deliveries.map {
+            it.recipientUserId to it.recipientDeviceId
+        }.toSet()
+        require(immutableTargets.isNotEmpty() &&
+            immutableTargets.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS &&
+            immutableTargetSet.size == immutableTargets.size
         ) {
-            "Prepared group fan-out omits a current member"
+            "Group-key immutable target set is empty, duplicated, or oversized"
+        }
+        require(immutableTargets.all { (userId, targetDeviceId) ->
+            userId in currentMembership.memberUserIds &&
+                targetDeviceId.matches(DEVICE_ID) &&
+                !(userId == ownerUid && targetDeviceId == deviceId)
+        }) {
+            "Group-key immutable target set contains an invalid or non-member device"
+        }
+        require((currentMembership.memberUserIds - ownerUid).all { memberId ->
+            immutableTargets.any { it.first == memberId }
+        }) {
+            "Group-key immutable target set omits a current member"
+        }
+        require(preparedTargetSet.isNotEmpty() &&
+            preparedTargetSet.size == distribution.deliveries.size &&
+            preparedTargetSet.all { it in immutableTargetSet }
+        ) {
+            "Prepared group-key envelopes contain duplicate or unexpected targets"
         }
         require(distribution.deliveries.all { delivery ->
-            delivery.recipientUserId in currentMembership.memberUserIds &&
-                delivery.recipientDeviceId.matches(DEVICE_ID) &&
-                delivery.sessionId.isNotBlank() &&
+            delivery.sessionId.isNotBlank() &&
                 delivery.sessionId.length <= MAX_SESSION_ID_LENGTH &&
                 delivery.envelope.isNotBlank()
         }) {
-            "Prepared group-key delivery contains an invalid or non-member target"
+            "Prepared group-key delivery contains an invalid envelope"
         }
-        require(distribution.deliveries.map {
-            "${it.recipientUserId}\u0000${it.recipientDeviceId}"
-        }.distinct().size == distribution.deliveries.size) {
-            "Group key distribution contains duplicate recipient devices"
-        }
-        require(distribution.deliveries.none {
-            it.recipientUserId == ownerUid && it.recipientDeviceId == deviceId
-        }) {
-            "A device cannot distribute a group key to itself"
+        if (!requirePersistedMetadata) {
+            require(preparedTargetSet == immutableTargetSet) {
+                "Initial group-key distribution must prepare every immutable target"
+            }
         }
 
         val record = OlmGroupKeyDistributionRecord(
@@ -93,7 +104,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
             groupId = distribution.groupId,
             membershipEpoch = distribution.membershipEpoch,
             megolmSessionId = distribution.megolmSessionId,
-            targetDevices = distribution.deliveries.map { it.recipientUserId to it.recipientDeviceId },
+            targetDevices = immutableTargets,
         )
         if (requirePersistedMetadata) {
             val persisted = requireNotNull(
@@ -105,6 +116,21 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
             require(persisted.targetDevicePairs() == record.targetDevices.distinct().sortedWith(
                 compareBy<Pair<String, String>> { it.first }.thenBy { it.second },
             )) { "Persisted recovery target set is inconsistent" }
+            if (preparedTargetSet != immutableTargetSet) {
+                val stateReader = requireNotNull(recoveryStateReader) {
+                    "Partial group-key recovery requires a durable queue/acknowledgement state reader"
+                }
+                val state = stateReader.read(persisted)
+                val recoveryPlan = OlmGroupKeyDistributionRecoveryPlanner.plan(
+                    metadata = persisted,
+                    queuedTargets = state.queuedTargets,
+                    acknowledgedTargets = state.acknowledgedTargets,
+                    failedTargets = state.failedTargets,
+                )
+                require(preparedTargetSet.all { it in recoveryPlan.missingTargets }) {
+                    "Recovery envelopes may be prepared only for targets absent from queue and acknowledgement state"
+                }
+            }
         } else {
             // Persist non-secret identity and the complete target set before queue writes.
             metadataStore.persistIfAbsent(record)
