@@ -97,7 +97,7 @@ internal class OlmInboundHandoffCoordinator(
             }
 
             if (receipt.status == OlmInboundReceiptStatus.PROCESSED.name) {
-                check(finalizeCommittedReceipt(receiptId, receipt.status)) {
+                check(finalizeCommittedReceipt(receiptId, receipt.status, localUserId)) {
                     "Could not finalize previously committed inbound plaintext"
                 }
                 return@withContext OlmInboundHandoffResult.ALREADY_COMMITTED
@@ -180,7 +180,7 @@ internal class OlmInboundHandoffCoordinator(
                     authenticatedOlmPlaintext = staged.plaintext,
                 )
                 markOuterReceiptProcessed(receiptId)
-                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
+                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                     "Megolm key imported, but its authenticated Olm receipt could not be finalized"
                 }
                 return@withContext if (imported) {
@@ -300,14 +300,24 @@ internal class OlmInboundHandoffCoordinator(
             require(receipt.recipientDeviceId == sessionRepository.localDeviceId) {
                 "Inbound receipt is addressed to a different local device"
             }
-            finalizeCommittedReceipt(receiptId, receipt.status)
+            finalizeCommittedReceipt(receiptId, receipt.status, localUserId)
         }
     }
 
-    private fun finalizeCommittedReceipt(receiptId: String, status: String): Boolean {
+    private fun finalizeCommittedReceipt(
+        receiptId: String,
+        status: String,
+        localUserId: String,
+    ): Boolean {
         if (status == OlmInboundReceiptStatus.FINALIZED.name) return true
         check(status == OlmInboundReceiptStatus.PROCESSED.name) {
             "Only a committed inbound receipt can be finalized"
+        }
+        // Native finalization is idempotent. If auth changes during this
+        // sequence, leave the Room receipt PROCESSED so the correct account
+        // scope can safely finish it on the next pass.
+        check(localUserId == authenticatedLocalUserId()) {
+            "Authenticated account changed before inbound native finalization"
         }
         // The group native stage is independent of the Olm stage. Remove it
         // first, only after the group ciphertext/replay transaction and outer
@@ -318,8 +328,14 @@ internal class OlmInboundHandoffCoordinator(
                 "Could not finalize committed Megolm plaintext"
             }
         }
+        check(localUserId == authenticatedLocalUserId()) {
+            "Authenticated account changed during Megolm finalization"
+        }
         check(sessionRepository.finalizeInboundDecryption(receiptId)) {
             "Could not finalize committed inbound plaintext"
+        }
+        check(localUserId == authenticatedLocalUserId()) {
+            "Authenticated account changed during Olm finalization"
         }
         val marked = receiptDao.markFinalized(receiptId)
         check(marked == 1 || receiptDao.getByReceiptId(receiptId)?.status == OlmInboundReceiptStatus.FINALIZED.name) {
