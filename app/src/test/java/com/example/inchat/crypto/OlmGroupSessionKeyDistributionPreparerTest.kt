@@ -80,6 +80,90 @@ class OlmGroupSessionKeyDistributionPreparerTest {
     }
 
     @Test
+    fun preparesOnlySelectedRecoveryTargetsAfterValidatingTheFullTrustedPlan() = runBlocking {
+        val sender = bundle("sender-current")
+        val senderTablet = bundle("sender-tablet")
+        val bob = bundle("bob-phone")
+        val carol = bundle("carol-phone")
+        val directory = FakeDirectory(
+            authenticatedUserId = "alice",
+            devices = mapOf(
+                "alice" to listOf(sender, senderTablet),
+                "bob" to listOf(bob),
+                "carol" to listOf(carol),
+            ),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory = directory,
+            sessions = sessions,
+            trustVerifier = verifier(
+                setOf(
+                    trustKey("alice", senderTablet),
+                    trustKey("bob", bob),
+                    trustKey("carol", carol),
+                ),
+            ),
+        )
+
+        val selected = setOf("carol" to "carol-phone")
+        val result = preparer.prepare(
+            distributionId = "distribution-recovery",
+            membership = membership("group-1", 3L, "alice", "bob", "carol"),
+            megolmSessionId = "1234567890abcdef",
+            sessionKey = sessionKey(),
+            issuedAtMillis = 123456L,
+            selectedTargetDevices = selected,
+        )
+
+        assertEquals(selected, result.deliveries.map {
+            it.recipientUserId to it.recipientDeviceId
+        }.toSet())
+        assertEquals(
+            setOf(
+                "alice" to "sender-tablet",
+                "bob" to "bob-phone",
+                "carol" to "carol-phone",
+            ),
+            result.targetDevices.toSet(),
+        )
+        assertEquals(1, sessions.createdSessions.size)
+        assertEquals(listOf("alice", "bob", "carol"), directory.readUsers.sorted())
+        assertEquals(listOf("carol" to "carol-phone"), directory.claimedPreKeys)
+    }
+
+    @Test
+    fun rejectsRecoveryTargetOutsideCurrentTrustedPlanBeforeClaimingAnyPrekey() = runBlocking {
+        val sender = bundle("sender-current")
+        val bob = bundle("bob-phone")
+        val directory = FakeDirectory(
+            authenticatedUserId = "alice",
+            devices = mapOf("alice" to listOf(sender), "bob" to listOf(bob)),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val preparer = OlmGroupSessionKeyDistributionPreparer(
+            directory,
+            sessions,
+            verifier(setOf(trustKey("bob", bob))),
+        )
+
+        assertRejected {
+            runBlocking {
+                preparer.prepare(
+                    distributionId = "distribution-recovery",
+                    membership = membership("group-1", 3L, "alice", "bob"),
+                    megolmSessionId = "1234567890abcdef",
+                    sessionKey = sessionKey(),
+                    issuedAtMillis = 123456L,
+                    selectedTargetDevices = setOf("mallory" to "mallory-phone"),
+                )
+            }
+        }
+        assertTrue(directory.claimedPreKeys.isEmpty())
+        assertTrue(sessions.createdSessions.isEmpty())
+    }
+
+    @Test
     fun usesSignedFallbackWhenEveryRecipientOneTimeKeyIsAlreadyClaimed() = runBlocking {
         val sender = bundle("sender-current")
         val recipient = bundle("recipient-phone")

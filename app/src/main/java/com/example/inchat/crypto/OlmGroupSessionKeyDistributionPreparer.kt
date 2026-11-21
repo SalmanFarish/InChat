@@ -28,6 +28,10 @@ internal data class PreparedOlmGroupKeyDistribution(
     val megolmSessionId: String,
     val deliveries: List<PreparedOlmGroupKeyDelivery>,
     val skippedUntrustedDeviceCount: Int,
+    /** Complete immutable trusted target set, even when only a subset is prepared for recovery. */
+    val targetDevices: List<Pair<String, String>> = deliveries.map {
+        it.recipientUserId to it.recipientDeviceId
+    },
 )
 
 /**
@@ -49,6 +53,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         megolmSessionId: String,
         sessionKey: String,
         issuedAtMillis: Long,
+        selectedTargetDevices: Set<Pair<String, String>>? = null,
     ): PreparedOlmGroupKeyDistribution {
         require(membership.isValid()) {
             "Authoritative group crypto membership snapshot is invalid"
@@ -81,10 +86,22 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             trustVerifier = trustVerifier,
         )
 
+        val allTargets = plan.targets.map { it.userId to it.device.deviceId }.toSet()
+        val selectedTargets = selectedTargetDevices ?: allTargets
+        require(selectedTargets.isNotEmpty()) {
+            "At least one missing group-key target is required for envelope preparation"
+        }
+        require(selectedTargets.all { it in allTargets }) {
+            "Recovery selected a device outside the current SAS-trusted group plan"
+        }
+        val targetsToPrepare = plan.targets.filter {
+            (it.userId to it.device.deviceId) in selectedTargets
+        }
+
         // Validate the shared distribution metadata and signed key before
         // consuming any one-time prekey. Every per-device payload below differs
         // only in its recipient account/device binding.
-        val firstTarget = plan.targets.first()
+        val firstTarget = targetsToPrepare.first()
         OlmGroupSessionKeyDistributionPayloadCodec.encode(
             OlmGroupSessionKeyDistributionPayload(
                 distributionId = distributionId,
@@ -100,7 +117,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             )
         )
 
-        val deliveries = plan.targets.map { target ->
+        val deliveries = targetsToPrepare.map { target ->
             // Trust is checked again immediately before claiming a prekey and
             // creating a session, rather than relying only on the earlier plan.
             check(
@@ -172,6 +189,9 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             megolmSessionId = megolmSessionId,
             deliveries = deliveries,
             skippedUntrustedDeviceCount = plan.skippedUntrustedDeviceCount,
+            targetDevices = allTargets.sortedWith(
+                compareBy<Pair<String, String>> { it.first }.thenBy { it.second },
+            ),
         )
     }
 
