@@ -97,7 +97,7 @@ internal object OlmGroupSessionKeyDistributionPlanner {
             senderDevices = trustedSenderDevices,
         )
         // Fail before the preparer claims one-time prekeys or creates Olm sessions.
-        require(targets.size <= MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) {
+        require(targets.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
             "Group-key distribution fan-out exceeds the device delivery limit"
         }
         return OlmGroupKeyDeliveryPlan(
