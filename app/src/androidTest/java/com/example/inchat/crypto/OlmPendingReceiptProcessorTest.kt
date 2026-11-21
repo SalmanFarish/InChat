@@ -324,6 +324,75 @@ class OlmPendingReceiptProcessorTest {
         }
     }
 
+    @Test
+    fun processedReceiptRetriesNativeFinalizationWithoutRepeatingHandoff() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-finalize-retry-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient-device")
+            val encoded = envelope("sender-device", "recipient-device", 1)
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "committed-finalize-retry", encoded, 100L),
+            )
+            assertTrue(ledger.markProcessed("alice", "committed-finalize-retry", "sender-device"))
+            val id = receiptId(
+                "alice", "sender-device", "committed-finalize-retry", "recipient-device",
+            )
+
+            var finalizationAttempts = 0
+            var handoffCalls = 0
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = { error("Committed receipts must not resolve sender devices") },
+                trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+                handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                    handoffCalls++
+                    error("Committed receipts must never repeat the decrypt/commit handoff")
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
+                    finalizationAttempts++
+                    if (finalizationAttempts == 1) false
+                    else dao.markFinalized(receiptId) == 1
+                },
+                authenticatedLocalUserId = { "recipient" },
+            )
+
+            val first = processor.processPending(limit = 10)
+            assertEquals(1, first.finalizationChecked)
+            assertEquals(0, first.finalized)
+            assertEquals(1, first.failed)
+            assertEquals(0, first.pendingScanned)
+            assertEquals(0, handoffCalls)
+            assertEquals(
+                OlmInboundReceiptStatus.PROCESSED.name,
+                dao.getByReceiptId(id)?.status,
+            )
+
+            val second = processor.processPending(limit = 10)
+            assertEquals(1, second.finalizationChecked)
+            assertEquals(1, second.finalized)
+            assertEquals(0, second.failed)
+            assertEquals(0, handoffCalls)
+            assertEquals(
+                OlmInboundReceiptStatus.FINALIZED.name,
+                dao.getByReceiptId(id)?.status,
+            )
+
+            val third = processor.processPending(limit = 10)
+            assertEquals(0, third.finalizationChecked)
+            assertEquals(2, finalizationAttempts)
+            assertEquals(0, handoffCalls)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun sha256(value: String): String =
         java.security.MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
