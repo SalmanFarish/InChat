@@ -137,8 +137,9 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 "Recovery preparer returned a target that is not currently missing"
             }
 
-            require(validatePreparedTargets(prepared)) {
-                "A recovered target device was removed or is no longer SAS-trusted"
+            if (!validatePreparedTargets(prepared)) {
+                skipped += 1
+                return@forEach
             }
 
             val latest = membershipForGroup(metadata.groupId)
@@ -159,6 +160,10 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
             queued += resumeDistribution(latest!!, prepared)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
+            } catch (_: OlmGroupKeyDistributionDeferredException) {
+                // A missing/revoked SAS trust prerequisite is expected to wait
+                // for user action or directory change, not trigger rapid retries.
+                skipped += 1
             } catch (error: Exception) {
                 failed += 1
                 try {

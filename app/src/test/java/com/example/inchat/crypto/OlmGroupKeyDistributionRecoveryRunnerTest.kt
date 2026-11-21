@@ -239,10 +239,11 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         val result = kotlinx.coroutines.runBlocking { runner.run() }
 
         assertEquals(1, result.distributionsScanned)
-        assertEquals(1, result.distributionsFailed)
+        assertEquals(0, result.distributionsFailed)
+        assertEquals(1, result.distributionsSkipped)
         assertEquals(0, result.deliveriesQueued)
         assertFalse(resumed)
-        assertTrue(failureReported)
+        assertFalse(failureReported)
     }
 
     @Test

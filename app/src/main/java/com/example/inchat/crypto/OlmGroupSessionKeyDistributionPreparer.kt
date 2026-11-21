@@ -5,6 +5,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
+/** Expected trust/membership prerequisite that should wait for user or directory changes. */
+internal class OlmGroupKeyDistributionDeferredException(message: String) :
+    IllegalArgumentException(message)
+
 /** Additional Olm operation needed to encrypt one typed group control payload. */
 internal interface OlmGroupKeyOutboundSessionRepository : OlmOutboundSessionRepository {
     fun encryptGroupSessionKeyDistributionEnvelope(
@@ -120,14 +124,14 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         val deliveries = targetsToPrepare.map { target ->
             // Trust is checked again immediately before claiming a prekey and
             // creating a session, rather than relying only on the earlier plan.
-            check(
-                trustVerifier.isVerified(
-                    peerUserId = target.userId,
-                    peerDeviceId = target.device.deviceId,
-                    peerEd25519IdentityKey = target.device.ed25519IdentityKey,
+            if (!trustVerifier.isVerified(
+                peerUserId = target.userId,
+                peerDeviceId = target.device.deviceId,
+                peerEd25519IdentityKey = target.device.ed25519IdentityKey,
+            )) {
+                throw OlmGroupKeyDistributionDeferredException(
+                    "Recipient device trust changed before group-key preparation",
                 )
-            ) {
-                "Recipient device trust changed before group-key preparation"
             }
             require(target.device.oneTimeKeys.size <= MAX_ONE_TIME_KEYS) {
                 "Recipient device publishes too many one-time prekeys"
