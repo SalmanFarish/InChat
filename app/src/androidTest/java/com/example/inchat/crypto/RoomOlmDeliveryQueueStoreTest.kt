@@ -594,17 +594,19 @@ class RoomOlmDeliveryQueueStoreTest {
                 ),
             )
             db.olmGroupKeyDistributionMetadataStore().persistIfAbsent(metadata)
-            RoomOlmDeliveryAcknowledgementRecorder(db, db.olmDeliveryReceiptDao()).record(
-                OlmDeliveryAcknowledgement(
-                    deliveryId = "c".repeat(64),
-                    recipientUserId = "carol",
-                    recipientDeviceId = "carol-phone",
-                    messageId = distributionId,
-                    senderUserId = owner,
-                    senderDeviceId = senderDevice,
-                ),
-                1234L,
-            )
+            kotlinx.coroutines.runBlocking {
+                RoomOlmDeliveryAcknowledgementRecorder(db, db.olmDeliveryReceiptDao()).record(
+                    OlmDeliveryAcknowledgement(
+                        deliveryId = "c".repeat(64),
+                        recipientUserId = "carol",
+                        recipientDeviceId = "carol-phone",
+                        messageId = distributionId,
+                        senderUserId = owner,
+                        senderDeviceId = senderDevice,
+                    ),
+                    1234L,
+                )
+            }
 
             val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
                 queueDao = db.olmDeliveryQueueDao(),
