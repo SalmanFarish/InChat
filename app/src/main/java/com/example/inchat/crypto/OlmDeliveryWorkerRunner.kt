@@ -86,21 +86,11 @@ internal class OlmDeliveryWorkerRunner(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    // Retain the exact ciphertext for retry if push dispatch
-                    // fails after the relay accepted this immutable delivery.
-                    withContext(ioDispatcher) {
-                        queue.retry(
-                            delivery = delivery,
-                            nowMillis = clock().coerceAtLeast(0L),
-                            errorCode = ENCRYPTED_PUSH_ERROR,
-                        )
-                    }
-                    return OlmDeliveryWorkerRunResult(
-                        uploaded = uploaded,
-                        acknowledged = acknowledgements.removed,
-                        unmatchedAcknowledgements = acknowledgements.unmatched,
-                        retryRequired = true,
-                    )
+                    // Push is only a wake-up hint. The relay already durably
+                    // accepted this immutable delivery, and the recipient's
+                    // inbox poll is the recovery path if push dispatch fails.
+                    // Do not spend the ciphertext upload retry budget or
+                    // re-upload a delivery solely because a notification failed.
                 }
             }
 
@@ -124,7 +114,6 @@ internal class OlmDeliveryWorkerRunner(
     private companion object {
         const val DEFAULT_BATCH_SIZE = 25
         const val RELAY_UPLOAD_ERROR = "relay_upload_failed"
-        const val ENCRYPTED_PUSH_ERROR = "encrypted_push_dispatch_failed"
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     }

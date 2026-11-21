@@ -247,8 +247,7 @@ class OlmDeliveryWorkerRunnerTest {
 
         val recovered = OlmDeliveryWorkerRunner(
             queue = queue,
-            transport = FakeTransport(
-                events = mutableListOf(),
+            transport = FakeTransport(                events = mutableListOf(),
                 acknowledgements = mutableListOf(),
                 uploadedDeliveryIds = uploadedDeliveryIds,
             ),
@@ -497,8 +496,7 @@ class OlmDeliveryWorkerRunnerTest {
             queue = queue,
             transport = transport,
             senderUserId = "alice",
-            senderDeviceId = "sender-device",
-            clock = { nowMillis },
+            senderDeviceId = "sender-device",            clock = { nowMillis },
         )
 
         val firstPass = runner.run()
@@ -745,7 +743,7 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
-    fun failedEncryptedPushDispatchRetriesTheSameDurableDelivery() = runBlocking {
+    fun failedEncryptedPushDispatchDoesNotRetryAnAlreadyStoredRelayDelivery() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
         queue.enqueue(
@@ -755,51 +753,33 @@ class OlmDeliveryWorkerRunnerTest {
             prepared = listOf(prepared("sender-device", "bob-phone")),
         )
 
-        var nowMillis = 10_000L
-        var failPushOnce = true
+        var pushAttempts = 0
         val uploadedIds = mutableListOf<String>()
         val transport = FakeTransport(
             events = mutableListOf(),
             acknowledgements = mutableListOf(),
             uploadedDeliveryIds = uploadedIds,
         )
-        val runner = OlmDeliveryWorkerRunner(
+        val result = OlmDeliveryWorkerRunner(
             queue = queue,
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
-            clock = { nowMillis },
+            clock = { 10_000L },
             notifyEncryptedRecipient = {
-                if (failPushOnce) {
-                    failPushOnce = false
-                    throw IllegalStateException("temporary push endpoint failure")
-                }
+                pushAttempts++
+                throw IllegalStateException("temporary push endpoint failure")
             },
-        )
+        ).run()
 
-        val first = runner.run()
-        val original = store.rows.values.single()
-        assertEquals(0, first.uploaded)
-        assertTrue(first.retryRequired)
-        assertEquals("encrypted_push_dispatch_failed", original.lastError)
-        assertEquals(OlmDeliveryStatus.QUEUED, original.status)
-        assertEquals(12_000L, original.nextAttemptAtMillis)
-
-        nowMillis = 11_999L
-        val beforeRetry = runner.run()
-        assertEquals(0, beforeRetry.uploaded)
-        assertFalse(beforeRetry.retryRequired)
-        assertEquals(listOf(original.deliveryId), uploadedIds)
-
-        nowMillis = 12_000L
-        val recovered = runner.run()
-        val finalRow = store.rows.values.single()
-        assertEquals(1, recovered.uploaded)
-        assertFalse(recovered.retryRequired)
-        assertEquals(listOf(original.deliveryId, original.deliveryId), uploadedIds)
-        assertEquals(original.deliveryId, finalRow.deliveryId)
-        assertEquals(OlmDeliveryStatus.UPLOADED, finalRow.status)
-        assertEquals(2, finalRow.attemptCount)
+        val stored = store.rows.values.single()
+        assertEquals(1, result.uploaded)
+        assertFalse(result.retryRequired)
+        assertEquals(1, pushAttempts)
+        assertEquals(listOf(stored.deliveryId), uploadedIds)
+        assertEquals(1, stored.attemptCount)
+        assertEquals(OlmDeliveryStatus.UPLOADED, stored.status)
+        assertEquals(null, stored.lastError)
     }
 
     @Test
