@@ -1,9 +1,9 @@
 package com.example.inchat.crypto
 
+import java.security.MessageDigest
+
 /** Shared hard cap for any per-message Olm fan-out (direct or group). */
 internal const val MAX_OLM_DEVICE_DELIVERY_TARGETS = 256
-
-import java.security.MessageDigest
 
 /** State of one independently encrypted copy addressed to one device. */
 internal enum class OlmDeliveryStatus {
