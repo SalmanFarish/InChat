@@ -35,6 +35,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
         membership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupKeyDistribution,
     ) -> Int,
+    private val validatePreparedTargets: suspend (PreparedOlmGroupKeyDistribution) -> Boolean = { true },
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val onDistributionFailure: (OlmGroupKeyDistributionEntity, Exception) -> Unit = { _, _ -> },
 ) {
@@ -134,6 +135,10 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 preparedTargets.all { it in plan.missingTargets }
             ) {
                 "Recovery preparer returned a target that is not currently missing"
+            }
+
+            require(validatePreparedTargets(prepared)) {
+                "A recovered target device was removed or is no longer SAS-trusted"
             }
 
             val latest = membershipForGroup(metadata.groupId)

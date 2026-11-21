@@ -195,6 +195,32 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         )
     }
 
+    /**
+     * Re-read the live public directory and local SAS trust immediately before
+     * recovered envelopes are committed to the durable outbox. This closes the
+     * preparation-to-enqueue window for device removal and trust revocation.
+     */
+    suspend fun arePreparedTargetsStillTrusted(
+        distribution: PreparedOlmGroupKeyDistribution,
+    ): Boolean {
+        val devicesByUser = distribution.deliveries
+            .map { it.recipientUserId }
+            .distinct()
+            .sorted()
+            .associateWith { userId -> directory.getUserDevices(userId) }
+
+        return distribution.deliveries.all { delivery ->
+            val currentDevice = devicesByUser[delivery.recipientUserId]
+                ?.firstOrNull { it.deviceId == delivery.recipientDeviceId }
+                ?: return@all false
+            trustVerifier.isVerified(
+                peerUserId = delivery.recipientUserId,
+                peerDeviceId = delivery.recipientDeviceId,
+                peerEd25519IdentityKey = currentDevice.ed25519IdentityKey,
+            )
+        }
+    }
+
     private companion object {
         const val MAX_ONE_TIME_KEYS = 20
     }

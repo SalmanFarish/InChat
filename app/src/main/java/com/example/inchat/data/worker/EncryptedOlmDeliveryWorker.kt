@@ -176,6 +176,7 @@ class EncryptedOlmDeliveryWorker(
                             )
                         },
                         resumeDistribution = groupKeyOutbox::resume,
+                        validatePreparedTargets = keyPreparer::arePreparedTargetsStillTrusted,
                         onDistributionFailure = { metadata, error ->
                             Log.w(
                                 TAG,
