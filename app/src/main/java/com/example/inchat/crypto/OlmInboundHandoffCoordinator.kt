@@ -205,7 +205,7 @@ internal class OlmInboundHandoffCoordinator(
                     authenticatedOlmPlaintext = staged.plaintext,
                 )
                 markOuterReceiptProcessed(receiptId)
-                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
+                check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                     "Group message committed, but native receive stages could not be finalized; retry safely"
                 }
                 return@withContext if (inserted) {
@@ -270,7 +270,7 @@ internal class OlmInboundHandoffCoordinator(
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
                 "Inbound message and receipt were not committed"
             }
-            check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name)) {
+            check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                 "Message committed, but native plaintext staging could not be finalized; retry safely"
             }
             OlmInboundHandoffResult.COMMITTED
