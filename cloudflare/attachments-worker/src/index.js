@@ -1663,13 +1663,18 @@ async function clearPersonalNotificationTopic(
 
 
 async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
-  const [membershipIndex, readIndex, inbox, registrationToken] =
+  const [membershipIndex, readIndex, inbox, registrationTokenValue] =
     await Promise.all([
       adminDatabaseRequest(env, adminAuth.token, "groupMemberships/" + uid),
       adminDatabaseRequest(env, adminAuth.token, "groupReads/" + uid),
       adminDatabaseRequest(env, adminAuth.token, "userChats/" + uid),
       adminDatabaseRequest(env, adminAuth.token, "privateUsers/" + uid + "/fcmToken"),
     ]);
+
+  const registrationToken =
+    typeof registrationTokenValue === "string" ?
+      registrationTokenValue.trim() :
+      "";
 
   const groupIds = new Set([
     ...Object.keys(membershipIndex || {}),
