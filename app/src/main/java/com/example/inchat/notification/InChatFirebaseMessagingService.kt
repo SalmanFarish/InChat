@@ -262,6 +262,14 @@ class InChatFirebaseMessagingService :
         // A conversation's notification and PendingIntent IDs must be stable
         // across process restarts, but String.hashCode() has easy collisions
         // (for example, distinct strings can overwrite one another's alerts).
+        val notificationTag = NotificationPayloadPolicy.notificationTagForChat(
+            chatId = chatId,
+            recipientUserId = recipientUserId,
+        )
+        // PendingIntent matching ignores extras. A stable data URI keeps
+        // otherwise-identical MainActivity intents distinct per account/chat.
+        intent.data = android.net.Uri.parse("inchat://notification/$notificationTag")
+
         val notificationId = NotificationPayloadPolicy.notificationIdForChat(
             chatId = chatId,
             fallbackId = DEFAULT_NOTIFICATION_ID,
@@ -334,6 +342,7 @@ class InChatFirebaseMessagingService :
             NotificationManagerCompat
                 .from(this)
                 .notify(
+                    notificationTag,
                     notificationId,
                     notification
                 )

@@ -53,6 +53,21 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun notificationTagsAreFullLengthStableAndAccountScoped() {
+        val first = NotificationPayloadPolicy.notificationTagForChat("AaAaAa", "account-one")
+        val hashCollisionPeer = NotificationPayloadPolicy.notificationTagForChat("BBBBBB", "account-one")
+        val secondAccount = NotificationPayloadPolicy.notificationTagForChat("AaAaAa", "account-two")
+
+        assertEquals(64, first.length)
+        assertTrue(first != hashCollisionPeer)
+        assertTrue(first != secondAccount)
+        assertEquals(
+            first,
+            NotificationPayloadPolicy.notificationTagForChat("AaAaAa", "account-one"),
+        )
+    }
+
+    @Test
     fun notificationHistoryKeysAreStableOpaqueAndAccountScoped() {
         val first = NotificationPayloadPolicy.notificationHistoryKey("account-one", "shared-chat")
         val second = NotificationPayloadPolicy.notificationHistoryKey("account-two", "shared-chat")

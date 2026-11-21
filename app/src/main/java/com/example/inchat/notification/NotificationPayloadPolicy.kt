@@ -45,30 +45,37 @@ internal object NotificationPayloadPolicy {
         recipientUserId: String = "",
     ): Int {
         if (chatId.isBlank()) return fallbackId
-        val accountId = recipientUserId.trim()
-        val conversationId = chatId.trim()
-        val identity = accountId.length.toString() + ":" + accountId + conversationId
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(identity.toByteArray(Charsets.UTF_8))
+        val digest = accountConversationDigest(chatId, recipientUserId)
         val candidate = ByteBuffer.wrap(digest, 0, Int.SIZE_BYTES).int and Int.MAX_VALUE
         return candidate.takeIf { it != 0 && it != fallbackId } ?: (fallbackId + 1)
     }
 
     /**
+     * Full-length account/conversation identity used as the Android notification
+     * tag and PendingIntent data. The 31-bit notification ID alone is not unique.
+     */
+    fun notificationTagForChat(chatId: String, recipientUserId: String): String =
+        digestHex(accountConversationDigest(chatId, recipientUserId))
+
+    /**
      * Returns an opaque, account-scoped SharedPreferences key. Hashing avoids
      * putting account and conversation identifiers into preference key names.
      */
-    fun notificationHistoryKey(recipientUserId: String, chatId: String): String {
+    fun notificationHistoryKey(recipientUserId: String, chatId: String): String =
+        "messages_" + notificationTagForChat(chatId, recipientUserId)
+
+    private fun accountConversationDigest(chatId: String, recipientUserId: String): ByteArray {
         val accountId = recipientUserId.trim()
         val conversationId = chatId.trim()
         val identity = accountId.length.toString() + ":" + accountId + conversationId
-        val digest = MessageDigest.getInstance("SHA-256")
+        return MessageDigest.getInstance("SHA-256")
             .digest(identity.toByteArray(Charsets.UTF_8))
-        val hex = digest.joinToString("") { byte ->
+    }
+
+    private fun digestHex(digest: ByteArray): String =
+        digest.joinToString("") { byte ->
             (byte.toInt() and 0xff).toString(16).padStart(2, '0')
         }
-        return "messages_$hex"
-    }
 
     private const val GENERIC_TITLE = "InChat"
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
