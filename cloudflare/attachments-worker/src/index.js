@@ -5,6 +5,7 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
+import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -1455,6 +1456,59 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     registrationToken,
     true,
   );
+
+  // Topic membership is token-scoped, while group membership can change
+  // during the two FCM subscription calls above. Re-read authoritative state
+  // before confirming registration so a removed member cannot leave a stale
+  // token subscribed to a large-group broadcast.
+  const [latestChat, latestToken] = await Promise.all([
+    adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
+    adminDatabaseRequest(env, adminAuth.token, "privateUsers/" + targetUid + "/fcmToken"),
+  ]);
+  if (!isCurrentGroupTopicSubscription({
+    chat: latestChat,
+    uid: targetUid,
+    requestedToken: registrationToken,
+    currentToken: latestToken,
+  })) {
+    const cleanupResults = await Promise.allSettled([
+      changeTopicSubscription(
+        adminAuth.token,
+        adminAuth.projectId,
+        await userTopicName(env, targetUid),
+        registrationToken,
+        false,
+      ),
+      changeTopicSubscription(
+        adminAuth.token,
+        adminAuth.projectId,
+        groupTopic,
+        registrationToken,
+        false,
+      ),
+    ]);
+    const cleanupFailures = cleanupResults.filter(
+      (cleanup) => cleanup.status === "rejected",
+    );
+    if (cleanupFailures.length > 0) {
+      console.error("Stale group topic subscription cleanup was incomplete.", {
+        chatId,
+        targetUid,
+        failureCount: cleanupFailures.length,
+      });
+      return json({
+        success: false,
+        retryable: true,
+        error: "Group membership changed during notification registration; cleanup must be retried.",
+      }, 503);
+    }
+
+    return json({
+      success: true,
+      skipped: true,
+      reason: "Group membership or FCM token changed during notification registration.",
+    });
+  }
 
   return json({
     success: true,

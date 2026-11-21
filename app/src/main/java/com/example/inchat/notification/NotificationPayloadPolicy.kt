@@ -81,13 +81,8 @@ internal object NotificationPayloadPolicy {
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
 
     /**
-     * Identifies the reserved encrypted wake-up type before validating its
-     * fields. Even malformed payloads of this type must never fall through to
-     * the legacy plaintext notification handler.
-     */
-    /**
      * Verifies an explicitly addressed FCM message against the current account.
-     * Payloads without a recipient remain supported for legacy topic delivery.
+     * Only signed-in recipients may receive legacy large-group topic messages.
      */
     fun isIntendedForAccount(data: Map<String, String>, currentUserId: String): Boolean {
         val signedInUserId = currentUserId.trim()
@@ -103,6 +98,10 @@ internal object NotificationPayloadPolicy {
         return data["type"] == TYPE_GROUP
     }
 
+    /**
+     * Identifies the reserved encrypted wake-up type before validating its
+     * fields. Malformed reserved payloads must never fall through to plaintext.
+     */
     fun isEncryptedOlmWakeupType(data: Map<String, String>): Boolean =
         data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP
 
