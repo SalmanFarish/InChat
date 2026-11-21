@@ -10,6 +10,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 internal class OlmGroupSessionKeyOutboxCoordinator(
     private val queue: OlmDeliveryQueue,
     private val metadataStore: OlmGroupKeyDistributionMetadataStore,
+    private val deliveryReceipts: OlmDeliveryReceiptDao,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
@@ -109,11 +110,28 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
             metadataStore.persistIfAbsent(record)
         }
 
-        val inserted = queue.enqueue(
+        // Ack receipts outlive queue rows. Do not resurrect remote deliveries
+        // already acknowledged and deleted from the sender's outbox.
+        val acknowledgedByRecipient = distribution.deliveries
+            .filter { it.recipientUserId != ownerUid }
+            .groupBy { it.recipientUserId }
+            .mapValues { (recipientUserId, _) ->
+                deliveryReceipts.getAcknowledgedRecipientDeviceIds(
+                    ownerUserId = ownerUid,
+                    senderDeviceId = deviceId,
+                    recipientUserId = recipientUserId,
+                    messageId = distribution.distributionId,
+                ).toSet()
+            }
+        val pendingDeliveries = distribution.deliveries.filter { delivery ->
+            delivery.recipientUserId == ownerUid ||
+                delivery.recipientDeviceId !in acknowledgedByRecipient[delivery.recipientUserId].orEmpty()
+        }
+        val inserted = if (pendingDeliveries.isEmpty()) 0 else queue.enqueue(
             ownerUserId = ownerUid,
             senderDeviceId = deviceId,
             messageId = distribution.distributionId,
-            prepared = distribution.deliveries.map { delivery ->
+            prepared = pendingDeliveries.map { delivery ->
                 PreparedOlmDelivery(
                     recipientUserId = delivery.recipientUserId,
                     recipientDeviceId = delivery.recipientDeviceId,
@@ -122,8 +140,7 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
                 )
             },
         )
-        // Unique WorkManager scheduling repairs the DB-commit/scheduler crash window.
-        scheduleDelivery(ownerUid, deviceId)
+        if (pendingDeliveries.isNotEmpty()) scheduleDelivery(ownerUid, deviceId)
         return inserted
     }
 

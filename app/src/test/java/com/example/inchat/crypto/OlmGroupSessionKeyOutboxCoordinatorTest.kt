@@ -4,6 +4,8 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 class OlmGroupSessionKeyOutboxCoordinatorTest {
     @Test
@@ -13,6 +15,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         val coordinator = OlmGroupSessionKeyOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
             metadataStore = FakeMetadataStore(),
+            deliveryReceipts = FakeDeliveryReceipts(),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { owner, device -> scheduled += owner to device },
@@ -40,6 +43,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         val coordinator = OlmGroupSessionKeyOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
             metadataStore = FakeMetadataStore(),
+            deliveryReceipts = FakeDeliveryReceipts(),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { _, _ -> scheduled = true },
@@ -70,6 +74,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         val coordinator = OlmGroupSessionKeyOutboxCoordinator(
             queue = OlmDeliveryQueue(queueStore),
             metadataStore = metadata,
+            deliveryReceipts = FakeDeliveryReceipts(),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { _, _ -> scheduled = true },
@@ -91,6 +96,26 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         assertTrue(scheduled)
     }
 
+    @Test
+    fun resumeDoesNotRequeueRemoteDevicesAlreadyAcknowledgedBeforeRowRemoval() {
+        val queueStore = FakeStore()
+        val metadata = FakeMetadataStore()
+        val receipts = FakeDeliveryReceipts(mapOf(("bob" to "group-key-7") to setOf("bob-phone")))
+        val coordinator = OlmGroupSessionKeyOutboxCoordinator(
+            queue = OlmDeliveryQueue(queueStore),
+            metadataStore = metadata,
+            deliveryReceipts = receipts,
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            scheduleDelivery = { _, _ -> },
+        )
+        coordinator.enqueue(membership(), distribution())
+        queueStore.rows.clear()
+        val inserted = coordinator.resume(membership(), distribution())
+        assertEquals(1, inserted)
+        assertEquals(setOf("alice" to "alice-tablet"),
+            queueStore.rows.map { it.recipientUserId to it.recipientDeviceId }.toSet())
+    }
     private fun membership() = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = 7L,
@@ -124,6 +149,16 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
             ),
         )
 
+    private class FakeDeliveryReceipts(
+        private val acknowledged: Map<Pair<String, String>, Set<String>> = emptyMap(),
+    ) : OlmDeliveryReceiptDao {
+        override fun insertIfAbsent(receipt: OlmDeliveryReceiptEntity) = -1L
+        override fun getByDeliveryId(deliveryId: String): OlmDeliveryReceiptEntity? = null
+        override fun observeDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): Flow<List<String>> = flowOf(emptyList())
+        override fun getDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): List<String> = emptyList()
+        override fun getAcknowledgedRecipientDeviceIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): List<String> = acknowledged[recipientUserId to messageId].orEmpty().toList()
+        override fun observeHasRecipientAcknowledgement(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): Flow<Boolean> = flowOf(false)
+    }
     private class FakeMetadataStore : OlmGroupKeyDistributionMetadataStore {
         private val records = mutableMapOf<String, OlmGroupKeyDistributionEntity>()
         override fun persistIfAbsent(record: OlmGroupKeyDistributionRecord) {
