@@ -156,6 +156,86 @@ class OlmPendingReceiptProcessorTest {
         }
     }
 
+
+    @Test
+    fun corruptDurableReceiptsAreQuarantinedBeforeDirectoryOrRatchetAccess() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-corrupt-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val encoded = envelope("sender-device", "recipient-device", 1)
+            fun row(
+                messageId: String,
+                rowReceiptId: String = receiptId(
+                    "alice", "sender-device", messageId, "recipient-device",
+                ),
+                digest: String = sha256(encoded),
+                processedAtMillis: Long? = null,
+            ) = OlmInboundReceiptEntity(
+                receiptId = rowReceiptId,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = messageId,
+                recipientDeviceId = "recipient-device",
+                envelope = encoded,
+                envelopeSha256 = digest,
+                status = OlmInboundReceiptStatus.PENDING.name,
+                receivedAtMillis = 100L,
+                processedAtMillis = processedAtMillis,
+            )
+
+            val corruptedRows = listOf(
+                row("bad-digest", digest = "0".repeat(64)),
+                row("bad-identity", rowReceiptId = "f".repeat(64)),
+                row("bad-pending-timestamp", processedAtMillis = 99L),
+            )
+            corruptedRows.forEach { assertTrue(dao.insertIfAbsent(it) != -1L) }
+
+            var directoryReads = 0
+            var handoffCalls = 0
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = {
+                    directoryReads++
+                    error("Corrupt receipt must be rejected before device-directory access")
+                },
+                trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+                handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                    handoffCalls++
+                    error("Corrupt receipt must never reach the native handoff")
+                },
+                finalizer = OlmCommittedReceiptFinalizer { _, _ -> true },
+                authenticatedLocalUserId = { "recipient" },
+            )
+
+            val result = processor.processPending(limit = 10)
+
+            assertEquals(3, result.pendingScanned)
+            assertEquals(3, result.rejected)
+            assertEquals(0, result.failed)
+            assertEquals(0, directoryReads)
+            assertEquals(0, handoffCalls)
+            assertEquals(0, dao.getPending(10).size)
+            corruptedRows.forEach { corrupt ->
+                assertEquals(
+                    OlmInboundReceiptStatus.REJECTED.name,
+                    dao.getByReceiptId(corrupt.receiptId)?.status,
+                )
+            }
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    private fun sha256(value: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
     private fun device(deviceId: String, identityKey: String) = PublicDeviceKeyBundle(
         deviceId = deviceId,
         ed25519IdentityKey = identityKey,

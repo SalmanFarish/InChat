@@ -115,6 +115,10 @@ internal class OlmPendingReceiptProcessor(
                 val envelope: EncryptedOlmEnvelope
                 val ciphertextKind: OlmInboundCiphertextKind
                 try {
+                    // Quarantine corrupt durable metadata before resolving remote
+                    // devices or invoking the native ratchet handoff. Otherwise a
+                    // bad digest/status/identity would remain PENDING and retry forever.
+                    validateOlmInboundReceiptIntegrity(receipt)
                     envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
                     require(envelope.senderDeviceId == receipt.senderDeviceId) {
                         "Stored envelope sender does not match its receipt"
