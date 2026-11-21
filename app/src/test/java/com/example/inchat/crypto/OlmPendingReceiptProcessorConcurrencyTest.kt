@@ -198,6 +198,71 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         assertEquals(OlmInboundReceiptStatus.PENDING.name, dao.getByReceiptId(receiptId)?.status)
     }
 
+    @Test
+    fun accountSwitchDuringTrustLookupCannotDeferReceiptUnderStaleAccount() = runBlocking {
+        val dao = InMemoryReceiptDao()
+        val encodedEnvelope = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = "sender-device",
+                recipientDeviceId = "recipient-device",
+                sessionId = "session-sender-device",
+                ciphertext = byteArrayOf(1, 7),
+            ),
+        )
+        val receiptId = olmInboundReceiptId(
+            "recipient", "alice", "sender-device", "message-trust-race", "recipient-device",
+        )
+        dao.insertIfAbsent(
+            OlmInboundReceiptEntity(
+                receiptId = receiptId,
+                recipientUserId = "recipient",
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = "message-trust-race",
+                recipientDeviceId = "recipient-device",
+                envelope = encodedEnvelope,
+                envelopeSha256 = sha256(encodedEnvelope),
+                status = OlmInboundReceiptStatus.PENDING.name,
+                receivedAtMillis = 4L,
+                processedAtMillis = null,
+            ),
+        )
+        var authenticatedUserId = "recipient"
+        val remoteDevice = PublicDeviceKeyBundle(
+            deviceId = "sender-device",
+            ed25519IdentityKey = "sender-identity",
+            curve25519IdentityKey = "sender-curve",
+            curve25519IdentityKeySignature = "sender-signature",
+            fallbackKey = SignedOlmPreKey("fallback", "fallback-id", "fallback-key", "fallback-signature"),
+            oneTimeKeys = emptyList(),
+        )
+        val processor = OlmPendingReceiptProcessor(
+            receiptDao = dao,
+            remoteDevicesForUser = { listOf(remoteDevice) },
+            trustVerifier = OlmDeviceTrustVerifier { _, _, _ ->
+                authenticatedUserId = "different-account"
+                false
+            },
+            handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                error("Stale account must not reach handoff")
+            },
+            finalizer = OlmCommittedReceiptFinalizer { _, _ ->
+                error("No committed receipt should be finalized")
+            },
+            authenticatedLocalUserId = { authenticatedUserId },
+        )
+
+        val result = processor.processPending()
+
+        assertEquals(0, result.waitingForTrust)
+        assertEquals(0, result.committed)
+        assertEquals(0, result.failed)
+        assertEquals(
+            OlmInboundReceiptStatus.PENDING.name,
+            dao.getByReceiptId(receiptId)?.status,
+        )
+    }
+
     private class InMemoryReceiptDao : OlmInboundReceiptDao {
         private val rows = linkedMapOf<String, OlmInboundReceiptEntity>()
 
