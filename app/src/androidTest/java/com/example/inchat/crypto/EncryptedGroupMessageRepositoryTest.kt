@@ -246,6 +246,36 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun authenticatedAccountSwitchRevokesMembershipGatedTimelineAndReads() = runBlocking {
+        val message = message().copy(messageId = "membership-account-switch")
+        val ciphertext = "membership account-switch ciphertext".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val liveMembership = MutableStateFlow<GroupCryptoMembershipSnapshot?>(membership)
+        val existingFlow = repository.observeMessagesForMember(
+            "alice",
+            "group-123",
+            liveMembership,
+        )
+        assertEquals(listOf(message), existingFlow.first())
+        assertEquals(
+            message,
+            repository.getMessageForMember("alice", membership, message.messageId),
+        )
+
+        activeAccount = "mallory"
+        assertRejected { existingFlow.first() }
+        assertRejected {
+            repository.getMessageForMember("alice", membership, message.messageId)
+        }
+    }
+
+    @Test
     fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
         val message = message()
         val ciphertext = "membership-revocation ciphertext".toByteArray(Charsets.UTF_8)
