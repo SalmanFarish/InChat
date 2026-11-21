@@ -103,6 +103,71 @@ class OlmGroupKeyDistributionReadinessTest {
     }
 
     @Test
+    fun finalOutboxGateRejectsNewlyTrustedDeviceMissingFromKeyDistribution() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone")), metadata)
+        val token = verifier.requireAcknowledged(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            currentMembership = membership(),
+            megolmSessionId = "1234567890abcdef",
+        )
+        val changedMessageTargets = messageDistribution().copy(
+            deliveries = messageDistribution().deliveries + messageDelivery(
+                "bob",
+                "bob-new-phone",
+                "session-new-device",
+            ),
+        )
+
+        assertRejected {
+            verifier.requireReady(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                currentMembership = membership(),
+                keyDistribution = token,
+                messageDistribution = changedMessageTargets,
+            )
+        }
+    }
+
+    @Test
+    fun senderPreflightRejectsTrustedDeviceRosterChangeBeforeStaging() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone")), metadata)
+        val token = verifier.requireAcknowledged(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            currentMembership = membership(),
+            megolmSessionId = "1234567890abcdef",
+        )
+        val preflight = RoomOlmGroupMessageSendPreflight(
+            readiness = verifier,
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            currentTrustedTargets = {
+                setOf(
+                    "alice" to "alice-tablet",
+                    "bob" to "bob-phone",
+                    "bob" to "bob-new-phone",
+                )
+            },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                preflight.requireReady(membership(), token)
+            }
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("Expected device-roster mismatch to block before staging", rejected)
+    }
+
+    @Test
     fun refusesAcknowledgementForTargetOutsideImmutableMetadata() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())

@@ -93,6 +93,12 @@ internal class OlmGroupMessageOutboxCoordinator(
         }) {
             "A group message cannot be delivered back to the sending device"
         }
+        val messageTargets = distribution.deliveries.map {
+            it.recipientUserId to it.recipientDeviceId
+        }.toSet()
+        require(messageTargets == keyDistribution.targetDevices) {
+            "Trusted group devices changed; a fresh Megolm session key distribution is required"
+        }
 
         keyDistributionReadiness.requireReady(
             ownerUserId = ownerUid,

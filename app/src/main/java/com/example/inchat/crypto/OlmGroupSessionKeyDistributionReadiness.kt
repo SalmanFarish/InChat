@@ -175,9 +175,9 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         }
         require(messageTargets.isNotEmpty() &&
             messageTargets.distinct().size == messageTargets.size &&
-            keyDistribution.targetDevices.containsAll(messageTargets)
+            keyDistribution.targetDevices == messageTargets.toSet()
         ) {
-            "A group message cannot be sent to a device that was not given this Megolm session key"
+            "Trusted group devices changed; a fresh Megolm session key distribution is required"
         }
     }
 
@@ -197,5 +197,41 @@ internal class RoomOlmGroupKeyDistributionReadiness(
     private companion object {
         val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+    }
+}
+
+/**
+ * Performs the sender-side gate before Megolm ratchet advancement. This ensures
+ * that the acknowledged key target set is still exactly the set of SAS-trusted
+ * devices that would receive the next group message.
+ */
+internal class RoomOlmGroupMessageSendPreflight(
+    private val readiness: RoomOlmGroupKeyDistributionReadiness,
+    private val authenticatedUserId: () -> String,
+    private val localDeviceId: () -> String,
+    private val currentTrustedTargets: suspend (GroupCryptoMembershipSnapshot) -> Set<Pair<String, String>>,
+) {
+    suspend fun requireReady(
+        membership: GroupCryptoMembershipSnapshot,
+        token: OlmGroupKeyDistributionReadinessToken,
+    ) {
+        require(membership.isValid()) {
+            "Authoritative group membership snapshot is invalid"
+        }
+        val ownerUid = authenticatedUserId()
+        val senderDevice = localDeviceId()
+        val latestToken = readiness.requireAcknowledged(
+            ownerUserId = ownerUid,
+            senderDeviceId = senderDevice,
+            currentMembership = membership,
+            megolmSessionId = token.megolmSessionId,
+        )
+        require(latestToken == token) {
+            "Group-key readiness token changed before message staging"
+        }
+        val currentTargets = currentTrustedTargets(membership)
+        require(currentTargets.isNotEmpty() && currentTargets == token.targetDevices) {
+            "Trusted group devices changed; a fresh Megolm session key distribution is required"
+        }
     }
 }

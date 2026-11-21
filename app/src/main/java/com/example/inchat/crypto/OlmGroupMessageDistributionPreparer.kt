@@ -51,6 +51,22 @@ internal class OlmGroupMessageDistributionPreparer(
     private val sessions: OlmGroupMessageOutboundSessionRepository,
     private val trustVerifier: OlmDeviceTrustVerifier,
 ) : OlmGroupMessageDistributionPreparing {
+
+    private data class ResolvedPlan(
+        val senderUserId: String,
+        val senderDeviceId: String,
+        val plan: OlmGroupKeyDeliveryPlan,
+    )
+
+    /**
+     * Read-only preview of the exact device set that would receive a group
+     * message. It does not claim prekeys or create Olm sessions.
+     */
+    suspend fun currentTrustedTargetDevices(
+        membership: GroupCryptoMembershipSnapshot,
+    ): Set<Pair<String, String>> = resolvePlan(membership).plan.targets
+        .mapTo(linkedSetOf()) { target -> target.userId to target.device.deviceId }
+
     override suspend fun prepare(
         membership: GroupCryptoMembershipSnapshot,
         messageId: String,
@@ -58,29 +74,10 @@ internal class OlmGroupMessageDistributionPreparer(
         sentAtMillis: Long,
     ): PreparedOlmGroupMessageDistribution {
         require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
-        val senderUserId = directory.authenticatedUserId
-        val senderDeviceId = sessions.localDeviceId
-        require(senderUserId in membership.memberUserIds) {
-            "Authenticated sender is not a current group member"
-        }
-
-        val otherMembers = membership.memberUserIds - senderUserId
-        val recipientDevices = coroutineScope {
-            otherMembers.sorted().map { uid ->
-                async { uid to directory.getUserDevices(uid) }
-            }.awaitAll().toMap()
-        }
-        val senderDevices = directory.getUserDevices(senderUserId)
-        val plan = OlmGroupSessionKeyDistributionPlanner.plan(
-            senderUserId = senderUserId,
-            senderDeviceId = senderDeviceId,
-            currentMemberUserIds = membership.memberUserIds,
-            recipientDevicesByUser = recipientDevices,
-            senderDevices = senderDevices,
-            trustVerifier = trustVerifier,
-        )
-
-        val deliveries = plan.targets.map { target ->
+        require(messageId.matches(MESSAGE_ID)) { "Group message ID is invalid" }
+        require(sentAtMillis >= 0L) { "Group message timestamp is invalid" }
+        val resolved = resolvePlan(membership)
+        val deliveries = resolved.plan.targets.map { target ->
             check(
                 trustVerifier.isVerified(
                     peerUserId = target.userId,
@@ -116,8 +113,8 @@ internal class OlmGroupMessageDistributionPreparer(
                 messageId = messageId,
                 groupId = membership.groupId,
                 membershipEpoch = membership.epoch,
-                senderUserId = senderUserId,
-                senderDeviceId = senderDeviceId,
+                senderUserId = resolved.senderUserId,
+                senderDeviceId = resolved.senderDeviceId,
                 recipientUserId = target.userId,
                 recipientDeviceId = target.device.deviceId,
                 megolmSessionId = encryptedMessage.sessionId,
@@ -142,11 +139,40 @@ internal class OlmGroupMessageDistributionPreparer(
             membershipEpoch = membership.epoch,
             megolmSessionId = encryptedMessage.sessionId,
             deliveries = deliveries,
-            skippedUntrustedDeviceCount = plan.skippedUntrustedDeviceCount,
+            skippedUntrustedDeviceCount = resolved.plan.skippedUntrustedDeviceCount,
         )
+    }
+
+    private suspend fun resolvePlan(
+        membership: GroupCryptoMembershipSnapshot,
+    ): ResolvedPlan {
+        require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
+        val senderUserId = directory.authenticatedUserId
+        val senderDeviceId = sessions.localDeviceId
+        require(senderUserId in membership.memberUserIds) {
+            "Authenticated sender is not a current group member"
+        }
+
+        val otherMembers = membership.memberUserIds - senderUserId
+        val recipientDevices = coroutineScope {
+            otherMembers.sorted().map { uid ->
+                async { uid to directory.getUserDevices(uid) }
+            }.awaitAll().toMap()
+        }
+        val senderDevices = directory.getUserDevices(senderUserId)
+        val plan = OlmGroupSessionKeyDistributionPlanner.plan(
+            senderUserId = senderUserId,
+            senderDeviceId = senderDeviceId,
+            currentMemberUserIds = membership.memberUserIds,
+            recipientDevicesByUser = recipientDevices,
+            senderDevices = senderDevices,
+            trustVerifier = trustVerifier,
+        )
+        return ResolvedPlan(senderUserId, senderDeviceId, plan)
     }
 
     private companion object {
         const val MAX_ONE_TIME_KEYS = 20
+        val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
     }
 }

@@ -14,7 +14,7 @@ internal class MegolmGroupMessageSender(
     private val sessions: MegolmSessionRepository,
     private val outboxCommitter: MegolmGroupMessageOutboxCommitter,
     /** Fail-closed check that all remote member devices acknowledged the exact session key. */
-    private val requireKeyDistributionReady: (
+    private val requireKeyDistributionReady: suspend (
         membership: GroupCryptoMembershipSnapshot,
         keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ) -> Unit,
