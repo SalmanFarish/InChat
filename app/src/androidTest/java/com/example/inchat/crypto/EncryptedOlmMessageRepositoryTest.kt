@@ -82,7 +82,7 @@ class EncryptedOlmMessageRepositoryTest {
             bytes.fill(0)
             dao.upsertMessage(corrupted)
 
-            val repository = EncryptedOlmMessageRepository(dao, vault)
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "bob" })
             var rejected = false
             try {
                 repository.getMessage("bob", "alice_bob", "corrupted")
