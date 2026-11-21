@@ -2514,11 +2514,31 @@ async function processMessageEvent(request, env, uid, adminAuth) {
       const push = (async () => {
         if (notificationAlreadySent) return true;
 
+        // Membership can change while this message event waits in the
+        // notification queue. Re-read the authoritative group immediately
+        // before choosing recipients so removed members are not included in
+        // either addressed fan-out or the topic membership-tag snapshot.
+        const currentChat = await adminDatabaseRequest(
+          env,
+          adminAuth.token,
+          "chats/" + chatId,
+        );
+        if (
+          !currentChat ||
+          currentChat.type !== "group" ||
+          !currentChat.members ||
+          !Object.prototype.hasOwnProperty.call(currentChat.members, uid)
+        ) {
+          notificationReason =
+            "Group notification suppressed because the sender is no longer a current member.";
+          return false;
+        }
+
         const groupName =
-          typeof chat.name === "string" && chat.name.trim() !== "" ?
-            chat.name.trim() :
+          typeof currentChat.name === "string" && currentChat.name.trim() !== "" ?
+            currentChat.name.trim() :
             "Group";
-        const memberIds = Object.keys(chat.members || {})
+        const memberIds = Object.keys(currentChat.members)
           .filter((memberId) => memberId !== uid);
         const deviceRegistry = await adminDatabaseRequest(
           env,
