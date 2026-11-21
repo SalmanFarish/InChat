@@ -170,6 +170,25 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
     }
 
     @Test
+    fun accountSwitchDuringAckRemovalFailsClosedAfterDeletingOnlyCapturedAccountPath() = runBlocking {
+        val store = FakeRelayStore()
+        val item = inboxItem()
+        store.seedAcknowledgement(item)
+        var signedInUser = "alice"
+        store.afterAcknowledgementRemove = { signedInUser = "mallory" }
+        val transport = transport(store, user = { signedInUser })
+
+        val result = runCatching {
+            transport.removeMyDeliveryAcknowledgement("sender-device", item.deliveryId)
+        }
+
+        assertTrue("The transport must notice the account switch after the awaited removal", result.isFailure)
+        assertEquals("mallory", signedInUser)
+        assertEquals(listOf("alice/sender-device/" + item.deliveryId), store.removedAcknowledgementPaths)
+        assertTrue(store.acknowledgements.isEmpty())
+    }
+
+    @Test
     fun accountSwitchDuringDirectoryReadPreventsAnEncryptedUpload() = runBlocking {
         val store = FakeRelayStore()
         var signedInUser = "alice"
@@ -259,6 +278,8 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         var failNextAcknowledgementPutAfterCommit = false
         var failNextInboxRemoveAfterCommit = false
         var afterInboxRead: (() -> Unit)? = null
+        var afterAcknowledgementRemove: (() -> Unit)? = null
+        val removedAcknowledgementPaths = mutableListOf<String>()
 
         override suspend fun putInbox(
             recipientUid: String,
@@ -341,7 +362,21 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             senderDeviceId: String,
             deliveryId: String,
         ) {
+            removedAcknowledgementPaths += "$senderUid/$senderDeviceId/$deliveryId"
             acknowledgements.remove(deliveryId)
+            afterAcknowledgementRemove?.invoke()
+        }
+
+        fun seedAcknowledgement(item: FirebaseOlmInboxItem) {
+            acknowledgements[item.deliveryId] = FirebaseOlmRelayRecord(
+                item.deliveryId,
+                mapOf(
+                    "recipientUid" to "bob",
+                    "recipientDeviceId" to "recipient-device",
+                    "messageId" to item.messageId,
+                    "acknowledgedAt" to 1234L,
+                ),
+            )
         }
 
         fun seedInbox(item: FirebaseOlmInboxItem) {
