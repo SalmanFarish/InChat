@@ -74,6 +74,22 @@ class OlmInboundReceiptIntegrityTest {
         )
     }
 
+
+    @Test
+    fun rejectedReceiptMustNotRetainProcessedTimestamp() {
+        validateOlmInboundReceiptIntegrity(
+            receipt().copy(status = OlmInboundReceiptStatus.REJECTED.name),
+        )
+        assertRejected {
+            validateOlmInboundReceiptIntegrity(
+                receipt().copy(
+                    status = OlmInboundReceiptStatus.REJECTED.name,
+                    processedAtMillis = 20L,
+                ),
+            )
+        }
+    }
+
     @Test
     fun rejectsEnvelopeRouteMismatchAndNegativeReceiveTime() {
         val wrongRoute = EncryptedOlmEnvelopeCodec.encode(
