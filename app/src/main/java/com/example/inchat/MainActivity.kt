@@ -137,6 +137,15 @@ class MainActivity :
                     .EXTRA_NOTIFICATION_TYPE
             )
 
+        val recipientUserId =
+            intent
+                .getStringExtra(
+                    InChatFirebaseMessagingService
+                        .EXTRA_RECIPIENT_USER_ID
+                )
+                ?.trim()
+                .orEmpty()
+
         val chatId =
             intent
                 .getStringExtra(
@@ -180,6 +189,7 @@ class MainActivity :
         }
 
         if (
+            recipientUserId.isBlank() ||
             chatId.isBlank() ||
             (isChatNotification && otherUserId.isBlank())
         ) {
@@ -188,6 +198,7 @@ class MainActivity :
 
         notificationTarget.value =
             NotificationChatTarget(
+                recipientUserId = recipientUserId,
                 chatId = chatId,
                 otherUserId = otherUserId,
                 otherUserNickname =

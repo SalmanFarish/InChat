@@ -44,6 +44,9 @@ class InChatFirebaseMessagingService :
         const val EXTRA_CHAT_ID =
             "chatId"
 
+        const val EXTRA_RECIPIENT_USER_ID =
+            "recipientUserId"
+
         const val EXTRA_OTHER_USER_ID =
             "otherUserId"
 
@@ -100,6 +103,7 @@ class InChatFirebaseMessagingService :
             otherUserId = presentation.senderId,
             messageId = presentation.messageId,
             includeMessageHistory = presentation.includeMessageHistory,
+            recipientUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty(),
         )
     }
 
@@ -184,6 +188,7 @@ class InChatFirebaseMessagingService :
         otherUserId: String,
         messageId: String,
         includeMessageHistory: Boolean,
+        recipientUserId: String,
     ) {
         createNotificationChannel()
 
@@ -228,6 +233,11 @@ class InChatFirebaseMessagingService :
                 )
 
                 putExtra(
+                    EXTRA_RECIPIENT_USER_ID,
+                    recipientUserId
+                )
+
+                putExtra(
                     EXTRA_OTHER_USER_ID,
                     otherUserId
                 )
@@ -249,6 +259,7 @@ class InChatFirebaseMessagingService :
         val notificationId = NotificationPayloadPolicy.notificationIdForChat(
             chatId = chatId,
             fallbackId = DEFAULT_NOTIFICATION_ID,
+            recipientUserId = recipientUserId,
         )
 
         val pendingIntent =
@@ -303,6 +314,7 @@ class InChatFirebaseMessagingService :
                     senderName = senderName,
                     messageText = messageText,
                     messageId = messageId,
+                    recipientUserId = recipientUserId,
                     isGroupMessage = notificationType == NOTIFICATION_TYPE_GROUP,
                     groupName = notificationTitle
                 )
@@ -339,6 +351,7 @@ class InChatFirebaseMessagingService :
         senderName: String,
         messageText: String,
         messageId: String,
+        recipientUserId: String,
         isGroupMessage: Boolean,
         groupName: String
     ): NotificationCompat.MessagingStyle {
@@ -348,7 +361,12 @@ class InChatFirebaseMessagingService :
                 MODE_PRIVATE
             )
 
-        val historyKey = "messages_$chatId"
+        // Legacy unscoped history is intentionally not reused: it cannot be
+        // safely attributed after multiple accounts have used this installation.
+        val historyKey = NotificationPayloadPolicy.notificationHistoryKey(
+            recipientUserId = recipientUserId,
+            chatId = chatId,
+        )
         val now = System.currentTimeMillis()
         val cutoff = now - 24L * 60L * 60L * 1000L
 

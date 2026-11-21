@@ -39,12 +39,33 @@ internal object NotificationPayloadPolicy {
      * across process restarts and devices; reserve the fallback ID for invalid
      * or missing conversation identifiers.
      */
-    fun notificationIdForChat(chatId: String, fallbackId: Int): Int {
+    fun notificationIdForChat(
+        chatId: String,
+        fallbackId: Int,
+        recipientUserId: String = "",
+    ): Int {
         if (chatId.isBlank()) return fallbackId
+        val accountId = recipientUserId.trim()
+        val conversationId = chatId.trim()
+        val identity = accountId.length.toString() + ":" + accountId + conversationId
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest(chatId.toByteArray(Charsets.UTF_8))
+            .digest(identity.toByteArray(Charsets.UTF_8))
         val candidate = ByteBuffer.wrap(digest, 0, Int.SIZE_BYTES).int and Int.MAX_VALUE
         return candidate.takeIf { it != 0 && it != fallbackId } ?: (fallbackId + 1)
+    }
+
+    /**
+     * Returns an opaque, account-scoped SharedPreferences key. Hashing avoids
+     * putting account and conversation identifiers into preference key names.
+     */
+    fun notificationHistoryKey(recipientUserId: String, chatId: String): String {
+        val accountId = recipientUserId.trim()
+        val conversationId = chatId.trim()
+        val identity = accountId.length.toString() + ":" + accountId + conversationId
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(identity.toByteArray(Charsets.UTF_8))
+        val hex = digest.joinToString("") { byte -> "%02x".format(byte) }
+        return "messages_$hex"
     }
 
     private const val GENERIC_TITLE = "InChat"

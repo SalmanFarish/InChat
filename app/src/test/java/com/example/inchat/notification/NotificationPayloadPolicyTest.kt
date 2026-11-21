@@ -27,6 +27,46 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun sameConversationIsNamespacedByReceivingAccount() {
+        val firstAccountId = NotificationPayloadPolicy.notificationIdForChat(
+            chatId = "shared-chat-id",
+            fallbackId = 1001,
+            recipientUserId = "account-one",
+        )
+        val secondAccountId = NotificationPayloadPolicy.notificationIdForChat(
+            chatId = "shared-chat-id",
+            fallbackId = 1001,
+            recipientUserId = "account-two",
+        )
+
+        assertTrue(firstAccountId > 0)
+        assertTrue(secondAccountId > 0)
+        assertTrue(firstAccountId != secondAccountId)
+        assertEquals(
+            firstAccountId,
+            NotificationPayloadPolicy.notificationIdForChat(
+                chatId = "shared-chat-id",
+                fallbackId = 1001,
+                recipientUserId = "account-one",
+            ),
+        )
+    }
+
+    @Test
+    fun notificationHistoryKeysAreStableOpaqueAndAccountScoped() {
+        val first = NotificationPayloadPolicy.notificationHistoryKey("account-one", "shared-chat")
+        val second = NotificationPayloadPolicy.notificationHistoryKey("account-two", "shared-chat")
+
+        assertEquals(
+            first,
+            NotificationPayloadPolicy.notificationHistoryKey("account-one", "shared-chat"),
+        )
+        assertTrue(first != second)
+        assertFalse(first.contains("account-one"))
+        assertFalse(first.contains("shared-chat"))
+    }
+
+    @Test
     fun blankConversationUsesTheNotificationFallbackId() {
         assertEquals(
             1001,

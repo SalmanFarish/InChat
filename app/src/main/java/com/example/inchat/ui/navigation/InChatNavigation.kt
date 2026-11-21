@@ -90,6 +90,7 @@ import com.example.inchat.ui.theme.JetBrainsMono
 import kotlinx.coroutines.launch
 
 data class NotificationChatTarget(
+    val recipientUserId: String,
     val chatId: String,
     val otherUserId: String,
     val otherUserNickname: String,
@@ -241,6 +242,7 @@ fun InChatApp(
      */
 
     LaunchedEffect(
+        notificationTarget?.recipientUserId,
         notificationTarget?.chatId,
         notificationTarget?.otherUserId,
         notificationTarget?.isGroup,
@@ -250,6 +252,13 @@ fun InChatApp(
         val target =
             notificationTarget
                 ?: return@LaunchedEffect
+
+        if (target.recipientUserId != uid) {
+            // A notification can outlive the session that received it.
+            // Never route its conversation into a different signed-in account.
+            onNotificationHandled()
+            return@LaunchedEffect
+        }
 
         if (target.isGroup) {
             navController.navigate(
