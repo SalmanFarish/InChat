@@ -180,6 +180,14 @@ class OlmGroupMessageOutboxCoordinatorTest {
             maxAttempts: Int,
         ): QueuedOlmDeviceDelivery? = null
 
+        override fun retryFailed(
+            deliveryId: String,
+            messageId: String,
+            ownerUserId: String,
+            senderDeviceId: String,
+            nowMillis: Long,
+        ) = false
+
         override fun updateInFlight(
             deliveryId: String,
             messageId: String,
