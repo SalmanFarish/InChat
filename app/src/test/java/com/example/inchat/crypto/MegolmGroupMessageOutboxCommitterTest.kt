@@ -136,21 +136,79 @@ class MegolmGroupMessageOutboxCommitterTest {
         assertFalse(finalizeCalled)
     }
 
+    @Test
+    fun accountSwitchDuringFinalMembershipRefreshPreventsOutboxCommit() {
+        val store = FakeStore()
+        var currentUser = "alice"
+        var finalizeCalled = false
+        val committer = committer(
+            store = store,
+            membershipSnapshots = listOf(membership(7L), membership(7L)),
+            finalize = { finalizeCalled = true; true },
+            authenticatedUser = { currentUser },
+            onLatestMembershipRead = { currentUser = "mallory" },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                committer.commit(stagedMessage(), keyDistribution())
+            }
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed before outbox commit")
+        }
+
+        assertTrue("Account replacement must block the final outbox commit", rejected)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(finalizeCalled)
+    }
+
+    @Test
+    fun deviceIdentityChangeDuringFinalMembershipRefreshPreventsOutboxCommit() {
+        val store = FakeStore()
+        var currentDevice = "alice-phone"
+        var finalizeCalled = false
+        val committer = committer(
+            store = store,
+            membershipSnapshots = listOf(membership(7L), membership(7L)),
+            finalize = { finalizeCalled = true; true },
+            localDevice = { currentDevice },
+            onLatestMembershipRead = { currentDevice = "replacement-device" },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                committer.commit(stagedMessage(), keyDistribution())
+            }
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed before outbox commit")
+        }
+
+        assertTrue("Device replacement must block the final outbox commit", rejected)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(finalizeCalled)
+    }
+
     private fun committer(
         store: FakeStore,
         membershipSnapshots: List<GroupCryptoMembershipSnapshot>,
         finalize: (String) -> Boolean,
         invalidEnvelope: Boolean = false,
         currentTrustedTargets: Set<Pair<String, String>> = setOf("bob" to "bob-phone"),
+        authenticatedUser: () -> String = { "alice" },
+        localDevice: () -> String = { "alice-phone" },
+        onLatestMembershipRead: () -> Unit = {},
     ) : MegolmGroupMessageOutboxCommitter = run {
         val snapshots = membershipSnapshots.toMutableList()
         MegolmGroupMessageOutboxCommitter(
         membershipForGroup = { groupId ->
             assertEquals("group-1", groupId)
+            if (snapshots.size == 1) onLatestMembershipRead()
             if (snapshots.isEmpty()) null else snapshots.removeAt(0)
         },
-        authenticatedUserId = { "alice" },
-        localDeviceId = { "alice-phone" },
+        authenticatedUserId = authenticatedUser,
+        localDeviceId = localDevice,
         distributionPreparer = OlmGroupMessageDistributionPreparing { membership, messageId, encrypted, sentAt, expectedTargets ->
             assertEquals(setOf("bob" to "bob-phone"), expectedTargets)
             PreparedOlmGroupMessageDistribution(
@@ -189,8 +247,8 @@ class MegolmGroupMessageOutboxCommitterTest {
         },
         outboxCoordinator = OlmGroupMessageOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
-            authenticatedUserId = { "alice" },
-            localDeviceId = { "alice-phone" },
+            authenticatedUserId = authenticatedUser,
+            localDeviceId = localDevice,
             keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, keys, messages ->
                 assertEquals(keys.groupId, messages.groupId)
                 assertEquals(keys.membershipEpoch, messages.membershipEpoch)

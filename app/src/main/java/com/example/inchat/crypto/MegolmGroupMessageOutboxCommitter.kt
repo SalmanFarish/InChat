@@ -90,6 +90,13 @@ internal class MegolmGroupMessageOutboxCommitter(
             "Group membership changed while preparing the encrypted message"
         }
 
+        // Envelope preparation, trust lookup and the authoritative membership
+        // refresh all suspend. Fence the last Room commit against an account or
+        // installation identity replacement during any of those operations.
+        require(authenticatedUserId() == ownerUid && localDeviceId() == deviceId) {
+            "Authenticated group sender identity changed before outbox commit"
+        }
+
         val queued = outboxCoordinator.enqueue(
             currentMembership = latestSnapshot,
             distribution = distribution,

@@ -67,7 +67,7 @@ class OlmInboundGroupMessageHandoffTest {
         var stagingCalls = 0
         var commitCalls = 0
         var committedMessage: DecryptedGroupMessage? = null
-        val snapshots = mutableListOf(membership(), membership(), membership())
+        val snapshots = mutableListOf<GroupCryptoMembershipSnapshot?>(membership(), membership(), membership())
         val handoff = handoff(
             snapshots = snapshots,
             stagedCiphertext = stagedCiphertext,
