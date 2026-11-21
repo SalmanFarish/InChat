@@ -252,6 +252,21 @@ internal class OlmInboundHandoffCoordinator(
                 "Encrypted message timestamp does not match the authenticated payload"
             }
 
+            // Keep the direct-message commit boundary fenced as well: Keystore
+            // encryption and Room work must not proceed on stale sender trust.
+            check(localUserId == authenticatedLocalUserId()) {
+                "Authenticated account changed before inbound message commit"
+            }
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = remoteDeviceUserId,
+                    peerDeviceId = remoteDevice.deviceId,
+                    peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                )
+            ) {
+                "Remote device trust was revoked before inbound message commit"
+            }
+
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
                 "Inbound message and receipt were not committed"
             }
