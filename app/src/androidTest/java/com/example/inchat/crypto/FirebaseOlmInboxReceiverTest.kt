@@ -244,19 +244,18 @@ class FirebaseOlmInboxReceiverTest {
             )
             val transport = FakeTransport(
                 items = mutableListOf(first, second),
-                failFirstRemovalAfterCommit = true,
+                failFirstRemoval = true,
             )
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 500L })
 
             assertTrue(runCatching { receiver.receivePending() }.isFailure)
-            assertEquals(1, transport.items.size)
-            assertEquals(second.deliveryId, transport.items.single().deliveryId)
-            assertEquals(listOf(first.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals("Only the failed first delivery should remain", listOf(first), transport.items)
+            assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
 
             val retry = receiver.receivePending()
             assertEquals(1, retry.stored)
-            assertEquals(listOf(second.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
             assertTrue(transport.items.isEmpty())
             assertEquals(
                 OlmInboundRegistration.PENDING_RETRY,
