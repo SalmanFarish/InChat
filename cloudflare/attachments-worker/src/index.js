@@ -8,6 +8,7 @@ import { processEncryptedOlmPush } from "./olm-push.js";
 import { buildAddressedMessagePushData } from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
+import { cleanupGroupNotificationTokens } from "./group-topic-subscription.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -1034,6 +1035,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
   const updates = {};
   let activityMessageId = "";
+  let removedUidForNotificationCleanup = "";
   let previewMembers = chat.members || {};
   let cryptoMembershipEpoch = currentGroupCryptoMembershipEpoch(
     chat.cryptoMembershipEpoch,
@@ -1247,6 +1249,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
 
     if (action === "remove" || action === "leave") {
       const removedUid = action === "leave" ? uid : targetUid;
+      removedUidForNotificationCleanup = removedUid;
       updates["groupMemberships/" + removedUid + "/" + chatId] = null;
       updates["groupReads/" + removedUid + "/" + chatId] = null;
       updates["chats/" + chatId + "/groupReadCursors/" + removedUid] = null;
@@ -1286,12 +1289,56 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     console.warn("Could not rebuild group inbox previews after membership change", previewError);
   }
 
+  let notificationCleanupPending = false;
+  if (removedUidForNotificationCleanup) {
+    const registrationPath =
+      "groupNotificationDevices/" + chatId + "/" + removedUidForNotificationCleanup;
+    const [currentTokenValue, previousTokenValue] = await Promise.all([
+      adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        "privateUsers/" + removedUidForNotificationCleanup + "/fcmToken",
+      ),
+      adminDatabaseRequest(env, adminAuth.token, registrationPath),
+    ]);
+    const groupTopic = await groupTopicName(env, chatId);
+    const cleanup = await cleanupGroupNotificationTokens({
+      previousToken: previousTokenValue,
+      currentToken: currentTokenValue,
+      unsubscribe: (token) => unsubscribeTopicForAccountCleanup(
+        adminAuth.token,
+        adminAuth.projectId,
+        groupTopic,
+        token,
+      ),
+    });
+
+    if (cleanup.complete) {
+      await adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        registrationPath,
+        "DELETE",
+      );
+    } else {
+      // Preserve the mirrored token so the existing Android follow-up request
+      // or a retry of this membership operation still has what it needs.
+      notificationCleanupPending = true;
+      console.warn("Group membership changed but FCM topic cleanup is pending.", {
+        chatId,
+        removedUid: removedUidForNotificationCleanup,
+        failedTokenCount: cleanup.failedTokens.length,
+      });
+    }
+  }
+
   return json({
     success: true,
     action: action,
     chatId: chatId,
     messageId: activityMessageId,
     cryptoMembershipEpoch: cryptoMembershipEpoch,
+    ...(notificationCleanupPending ? { notificationCleanupPending: true } : {}),
   });
 }
 

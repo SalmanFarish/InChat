@@ -40,3 +40,36 @@ export function previousGroupNotificationToken(previousToken, currentToken) {
   const current = typeof currentToken === "string" ? currentToken.trim() : "";
   return previous && previous !== current ? previous : "";
 }
+
+/**
+ * Attempts to remove both the current and previously mirrored token from a
+ * group topic. The caller must retain its mirror unless every cleanup succeeds.
+ */
+export async function cleanupGroupNotificationTokens({
+  previousToken,
+  currentToken,
+  unsubscribe,
+}) {
+  if (typeof unsubscribe !== "function") {
+    throw new TypeError("An unsubscribe operation is required.");
+  }
+
+  const tokens = [...new Set(
+    [previousToken, currentToken]
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )];
+  const results = await Promise.allSettled(
+    tokens.map((token) => Promise.resolve().then(() => unsubscribe(token))),
+  );
+  const failedTokens = results
+    .map((result, index) => result.status === "rejected" ? tokens[index] : "")
+    .filter(Boolean);
+
+  return {
+    complete: failedTokens.length === 0,
+    tokens,
+    failedTokens,
+  };
+}
