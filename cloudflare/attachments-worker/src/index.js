@@ -7,6 +7,7 @@ import {
 import { processEncryptedOlmPush } from "./olm-push.js";
 import { buildAddressedMessagePushData } from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
+import { previousGroupNotificationToken } from "./group-topic-subscription.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -1380,18 +1381,73 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
 
   const registrationPath =
     "groupNotificationDevices/" + chatId + "/" + targetUid;
-  const registrationToken = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "privateUsers/" + targetUid + "/fcmToken",
+  const [registrationTokenValue, previousRegistrationValue] = await Promise.all([
+    adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      "privateUsers/" + targetUid + "/fcmToken",
+    ),
+    adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      registrationPath,
+    ),
+  ]);
+  const registrationToken =
+    typeof registrationTokenValue === "string" && registrationTokenValue.trim() ?
+      registrationTokenValue.trim() :
+      "";
+  const previousRegistrationToken =
+    typeof previousRegistrationValue === "string" && previousRegistrationValue.trim() ?
+      previousRegistrationValue.trim() :
+      "";
+  const staleToken = previousGroupNotificationToken(
+    previousRegistrationToken,
+    registrationToken,
   );
-  const hasRegistrationToken =
-    typeof registrationToken === "string" &&
-    registrationToken.trim() !== "";
+  const groupTopic = await groupTopicName(env, chatId);
+  const personalTopic = await userTopicName(env, targetUid);
+
+  async function cleanupToken(token, includePersonalTopic) {
+    const operations = [
+      unsubscribeTopicForAccountCleanup(
+        adminAuth.token,
+        adminAuth.projectId,
+        groupTopic,
+        token,
+      ),
+    ];
+    if (includePersonalTopic) {
+      operations.push(
+        unsubscribeTopicForAccountCleanup(
+          adminAuth.token,
+          adminAuth.projectId,
+          personalTopic,
+          token,
+        ),
+      );
+    }
+    const results = await Promise.allSettled(operations);
+    return results.every((result) => result.status === "fulfilled");
+  }
 
   if (!subscribe) {
-    // Remove the mirrored token even when this account no longer has a
-    // registered FCM token. This keeps the direct-recipient index accurate.
+    // The per-group mirror is the only durable reference to an older token.
+    // Clean both the current and previously registered tokens before deleting it.
+    const tokensToRemove = [...new Set(
+      [registrationToken, previousRegistrationToken].filter(Boolean),
+    )];
+    const cleanupResults = await Promise.all(
+      tokensToRemove.map((token) => cleanupToken(token, false)),
+    );
+    if (cleanupResults.some((completed) => !completed)) {
+      return json({
+        success: false,
+        retryable: true,
+        error: "Group topic cleanup failed; the previous token reference was retained for retry.",
+      }, 503);
+    }
+
     await adminDatabaseRequest(
       env,
       adminAuth.token,
@@ -1399,41 +1455,37 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
       "DELETE",
     );
 
-    if (!hasRegistrationToken) {
-      return json({
-        success: true,
-        skipped: true,
-        reason: "No FCM token is registered for this member.",
-      });
-    }
-
-    const result = await changeTopicSubscription(
-      adminAuth.token,
-      adminAuth.projectId,
-      await groupTopicName(env, chatId),
-      registrationToken,
-      false,
-    );
-
     return json({
       success: true,
       chatId: chatId,
       targetUid: targetUid,
-      ...result,
+      unsubscribed: true,
+      ...(tokensToRemove.length === 0 ? {
+        skipped: true,
+        reason: "No FCM token is registered for this member.",
+      } : {}),
     });
   }
 
-  // Keep an empty record for members without notifications enabled. It lets
-  // the sender distinguish "synced with no token" from "not synced yet".
-  await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    registrationPath,
-    "PUT",
-    hasRegistrationToken ? registrationToken : "",
-  );
+  // Never overwrite the last known token until its group and personal topic
+  // subscriptions have been removed. If cleanup fails, a retry still has the
+  // token needed to finish the operation.
+  if (staleToken && !(await cleanupToken(staleToken, true))) {
+    return json({
+      success: false,
+      retryable: true,
+      error: "Previous FCM token topic cleanup failed; registration was not replaced.",
+    }, 503);
+  }
 
-  if (!hasRegistrationToken) {
+  if (!registrationToken) {
+    await adminDatabaseRequest(
+      env,
+      adminAuth.token,
+      registrationPath,
+      "PUT",
+      "",
+    );
     return json({
       success: true,
       skipped: true,
@@ -1441,11 +1493,20 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     });
   }
 
-  const groupTopic = await groupTopicName(env, chatId);
+  // Empty records distinguish a member with no token from an unsynchronized
+  // member. Keep the mirror update after stale-token cleanup has succeeded.
+  await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    registrationPath,
+    "PUT",
+    registrationToken,
+  );
+
   await changeTopicSubscription(
     adminAuth.token,
     adminAuth.projectId,
-    await userTopicName(env, targetUid),
+    personalTopic,
     registrationToken,
     true,
   );
@@ -1459,9 +1520,8 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   );
 
   // Topic membership is token-scoped, while group membership can change
-  // during the two FCM subscription calls above. Re-read authoritative state
-  // before confirming registration so a removed member cannot leave a stale
-  // token subscribed to a large-group broadcast.
+  // during the asynchronous FCM operations above. Re-read authoritative state
+  // before confirming registration so a removed member cannot stay subscribed.
   const [latestChat, latestToken] = await Promise.all([
     adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
     adminDatabaseRequest(env, adminAuth.token, "privateUsers/" + targetUid + "/fcmToken"),
@@ -1472,36 +1532,33 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     requestedToken: registrationToken,
     currentToken: latestToken,
   })) {
-    const cleanupResults = await Promise.allSettled([
-      changeTopicSubscription(
-        adminAuth.token,
-        adminAuth.projectId,
-        await userTopicName(env, targetUid),
-        registrationToken,
-        false,
-      ),
-      changeTopicSubscription(
-        adminAuth.token,
-        adminAuth.projectId,
-        groupTopic,
-        registrationToken,
-        false,
-      ),
-    ]);
-    const cleanupFailures = cleanupResults.filter(
-      (cleanup) => cleanup.status === "rejected",
-    );
-    if (cleanupFailures.length > 0) {
-      console.error("Stale group topic subscription cleanup was incomplete.", {
-        chatId,
-        targetUid,
-        failureCount: cleanupFailures.length,
-      });
+    const cleaned = await cleanupToken(registrationToken, true);
+    if (!cleaned) {
       return json({
         success: false,
         retryable: true,
         error: "Group membership changed during notification registration; cleanup must be retried.",
       }, 503);
+    }
+
+    const currentRole = latestChat?.members && latestChat.members[targetUid];
+    if (!currentRole && latestChat?.type === "group") {
+      await adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        registrationPath,
+        "DELETE",
+      );
+    } else {
+      // Keep the member marked as synchronized but with no active token. A
+      // subsequent token registration will repopulate this record.
+      await adminDatabaseRequest(
+        env,
+        adminAuth.token,
+        registrationPath,
+        "PUT",
+        "",
+      );
     }
 
     return json({

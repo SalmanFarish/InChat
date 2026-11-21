@@ -30,3 +30,13 @@ export function isCurrentGroupTopicSubscription({
   const role = members[uid];
   return typeof role === "string" && role.trim() !== "";
 }
+
+/**
+ * Returns the previously registered token only when it differs from the
+ * current token. The caller must clean this token before replacing its mirror.
+ */
+export function previousGroupNotificationToken(previousToken, currentToken) {
+  const previous = typeof previousToken === "string" ? previousToken.trim() : "";
+  const current = typeof currentToken === "string" ? currentToken.trim() : "";
+  return previous && previous !== current ? previous : "";
+}

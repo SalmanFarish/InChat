@@ -64,3 +64,12 @@ test("rejects missing, malformed, or deleted group membership state", () => {
     );
   }
 });
+
+test("returns the old group token only when the FCM registration changed", async () => {
+  const { previousGroupNotificationToken } = await import("../src/group-topic-subscription.js");
+
+  assert.equal(previousGroupNotificationToken("old-token", "new-token"), "old-token");
+  assert.equal(previousGroupNotificationToken("same-token", "same-token"), "");
+  assert.equal(previousGroupNotificationToken(" ", "new-token"), "");
+  assert.equal(previousGroupNotificationToken("old-token", ""), "old-token");
+});
