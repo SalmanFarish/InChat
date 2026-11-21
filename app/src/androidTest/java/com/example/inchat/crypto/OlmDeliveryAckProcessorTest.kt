@@ -244,6 +244,28 @@ class OlmDeliveryAckProcessorTest {
             return claimed
         }
 
+
+        override fun retryFailed(
+            deliveryId: String,
+            messageId: String,
+            ownerUserId: String,
+            senderDeviceId: String,
+            nowMillis: Long,
+        ): Boolean {
+            val row = rows[deliveryId] ?: return false
+            if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.FAILED
+            ) return false
+            rows[deliveryId] = row.copy(
+                status = OlmDeliveryStatus.QUEUED,
+                attemptCount = 0,
+                nextAttemptAtMillis = nowMillis,
+                leaseUntilMillis = 0L,
+                lastError = null,
+            )
+            return true
+        }
+
         override fun updateInFlight(
             deliveryId: String,
             messageId: String,
