@@ -9,6 +9,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
  */
 internal class OlmGroupSessionKeyOutboxCoordinator(
     private val queue: OlmDeliveryQueue,
+    private val metadataStore: OlmGroupKeyDistributionMetadataStore,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
@@ -67,6 +68,20 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
         }) {
             "A device cannot distribute a group key to itself"
         }
+
+        // Persist non-secret identity and the complete target set before queue writes.
+        // An interrupted enqueue can now be rediscovered by a recovery coordinator.
+        metadataStore.persistIfAbsent(
+            OlmGroupKeyDistributionRecord(
+                ownerUserId = ownerUid,
+                senderDeviceId = deviceId,
+                distributionId = distribution.distributionId,
+                groupId = distribution.groupId,
+                membershipEpoch = distribution.membershipEpoch,
+                megolmSessionId = distribution.megolmSessionId,
+                targetDevices = distribution.deliveries.map { it.recipientUserId to it.recipientDeviceId },
+            ),
+        )
 
         val inserted = queue.enqueue(
             ownerUserId = ownerUid,

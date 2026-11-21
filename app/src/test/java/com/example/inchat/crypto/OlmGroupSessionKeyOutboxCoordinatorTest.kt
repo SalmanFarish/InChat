@@ -12,6 +12,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         val scheduled = mutableListOf<Pair<String, String>>()
         val coordinator = OlmGroupSessionKeyOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
+            metadataStore = FakeMetadataStore(),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { owner, device -> scheduled += owner to device },
@@ -38,6 +39,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         var scheduled = false
         val coordinator = OlmGroupSessionKeyOutboxCoordinator(
             queue = OlmDeliveryQueue(store),
+            metadataStore = FakeMetadataStore(),
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
             scheduleDelivery = { _, _ -> scheduled = true },
@@ -93,6 +95,19 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
             ),
         )
 
+    private class FakeMetadataStore : OlmGroupKeyDistributionMetadataStore {
+        private val records = mutableMapOf<String, OlmGroupKeyDistributionEntity>()
+        override fun persistIfAbsent(record: OlmGroupKeyDistributionRecord) {
+            val entity = record.toEntity()
+            val existing = records[entity.recordId]
+            check(existing == null || existing == entity) { "conflicting metadata" }
+            records[entity.recordId] = entity
+        }
+        override fun get(ownerUserId: String, senderDeviceId: String, distributionId: String) =
+            records[OlmGroupKeyDistributionRecord.recordId(ownerUserId, senderDeviceId, distributionId)]
+        override fun getAllForDevice(ownerUserId: String, senderDeviceId: String) =
+            records.values.filter { it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId }
+    }
     private class FakeStore : OlmDeliveryQueueStore {
         val rows = mutableListOf<QueuedOlmDeviceDelivery>()
 

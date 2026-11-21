@@ -17,14 +17,16 @@ import com.example.inchat.crypto.OlmDeliveryQueueDao
 import com.example.inchat.crypto.OlmDeliveryReceiptDao
 import com.example.inchat.crypto.OlmDeliveryReceiptEntity
 import com.example.inchat.crypto.OlmDeviceDeliveryEntity
+import com.example.inchat.crypto.OlmGroupKeyDistributionDao
+import com.example.inchat.crypto.OlmGroupKeyDistributionEntity
 import com.example.inchat.crypto.OlmInboundReceiptDao
 import com.example.inchat.crypto.OlmInboundReceiptEntity
 import com.example.inchat.crypto.SasVerificationMessageDao
 import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
-    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class],
-    version = 12,
+    entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class, OlmGroupKeyDistributionEntity::class],
+    version = 13,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -32,6 +34,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
     abstract fun olmDeliveryQueueDao(): OlmDeliveryQueueDao
     abstract fun olmDeliveryReceiptDao(): OlmDeliveryReceiptDao
     abstract fun olmInboundReceiptDao(): OlmInboundReceiptDao
+    abstract fun olmGroupKeyDistributionDao(): OlmGroupKeyDistributionDao
     abstract fun encryptedOlmMessageDao(): EncryptedOlmMessageDao
     abstract fun encryptedGroupMessageDao(): EncryptedGroupMessageDao
     abstract fun sasVerificationMessageDao(): SasVerificationMessageDao
@@ -329,13 +332,20 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS olm_group_key_distributions (recordId TEXT NOT NULL, ownerUserId TEXT NOT NULL, senderDeviceId TEXT NOT NULL, distributionId TEXT NOT NULL, groupId TEXT NOT NULL, membershipEpoch INTEGER NOT NULL, megolmSessionId TEXT NOT NULL, targetDevices TEXT NOT NULL, PRIMARY KEY(recordId))")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_olm_group_key_distributions_ownerUserId_senderDeviceId_groupId_membershipEpoch ON olm_group_key_distributions(ownerUserId, senderDeviceId, groupId, membershipEpoch)")
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build().also { INSTANCE = it }
             }
     }
