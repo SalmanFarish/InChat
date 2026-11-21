@@ -8,6 +8,7 @@ import { processEncryptedOlmPush } from "./olm-push.js";
 import {
   buildAddressedMessagePushData,
   buildRecipientAccountTags,
+  currentGroupNotificationRecipients,
 } from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
@@ -2523,12 +2524,8 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           adminAuth.token,
           "chats/" + chatId,
         );
-        if (
-          !currentChat ||
-          currentChat.type !== "group" ||
-          !currentChat.members ||
-          !Object.prototype.hasOwnProperty.call(currentChat.members, uid)
-        ) {
+        const memberIds = currentGroupNotificationRecipients(currentChat, uid);
+        if (memberIds === null) {
           notificationReason =
             "Group notification suppressed because the sender is no longer a current member.";
           return false;
@@ -2538,8 +2535,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
           typeof currentChat.name === "string" && currentChat.name.trim() !== "" ?
             currentChat.name.trim() :
             "Group";
-        const memberIds = Object.keys(currentChat.members)
-          .filter((memberId) => memberId !== uid);
         const deviceRegistry = await adminDatabaseRequest(
           env,
           adminAuth.token,
