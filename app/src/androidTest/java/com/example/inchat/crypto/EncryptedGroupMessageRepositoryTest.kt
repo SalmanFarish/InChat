@@ -78,6 +78,61 @@ class EncryptedGroupMessageRepositoryTest {
         assertTrue(repository.observeMessages("alice", "group-123").first().isEmpty())
     }
 
+
+    @Test
+    fun conflictingReplayIndexOrMessageIdentityRollsBackBothRoomRows() = runBlocking {
+        val original = message().copy(messageId = "replay-original")
+        val originalCiphertext = "original authenticated ciphertext".toByteArray(Charsets.UTF_8)
+        val originalReceipt = receipt(original, originalCiphertext)
+        assertTrue(repository.commitStagedMessage(original, originalReceipt, originalCiphertext))
+
+        val conflictingReplay = originalReceipt.copy(
+            receiptId = sha256("different-receipt"),
+            ciphertextSha256 = sha256("different ciphertext"),
+        )
+        var replayRejected = false
+        try {
+            repository.commitStagedMessage(original, conflictingReplay, "different ciphertext".toByteArray())
+        } catch (_: IllegalStateException) {
+            replayRejected = true
+        }
+        assertTrue("A replay-index collision with changed authenticated metadata must fail", replayRejected)
+
+        val messageIdCollision = original.copy(
+            messageIndex = original.messageIndex + 1L,
+            text = "must not replace the original",
+        )
+        val collisionCiphertext = "different Megolm index ciphertext".toByteArray(Charsets.UTF_8)
+        var messageRejected = false
+        try {
+            repository.commitStagedMessage(
+                messageIdCollision,
+                receipt(messageIdCollision, collisionCiphertext),
+                collisionCiphertext,
+            )
+        } catch (_: IllegalStateException) {
+            messageRejected = true
+        }
+        assertTrue("A message-ID collision must fail closed", messageRejected)
+
+        assertTrue(
+            "Failed message-ID insertion must roll back its newly inserted replay row",
+            !database.encryptedGroupMessageDao().hasReplay(
+                original.ownerUserId,
+                original.groupId,
+                original.senderUserId,
+                original.senderDeviceId,
+                original.megolmSessionId,
+                messageIdCollision.messageIndex,
+            ),
+        )
+        assertEquals(
+            original,
+            repository.getMessage(original.ownerUserId, original.groupId, original.messageId),
+        )
+        assertEquals(listOf(original), repository.observeMessages(original.ownerUserId, original.groupId).first())
+    }
+
     @Test
     fun observeMessagesUsesStableTimestampAndMessageIdOrdering() = runBlocking {
         val latest = message().copy(
