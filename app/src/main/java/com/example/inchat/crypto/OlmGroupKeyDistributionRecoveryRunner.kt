@@ -6,6 +6,7 @@ import java.util.Base64
 internal data class OlmGroupKeyRecoveryRunResult(
     val distributionsScanned: Int,
     val distributionsSkipped: Int,
+    val distributionsFailed: Int,
     val deliveriesQueued: Int,
 )
 
@@ -35,15 +36,18 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
         distribution: PreparedOlmGroupKeyDistribution,
     ) -> Int,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val onDistributionFailure: (OlmGroupKeyDistributionEntity, Exception) -> Unit = { _, _ -> },
 ) {
     suspend fun run(): OlmGroupKeyRecoveryRunResult {
         val ownerUid = authenticatedUserId()
         val senderDeviceId = localDeviceId()
         val records = metadataStore.getAllForDevice(ownerUid, senderDeviceId)
         var skipped = 0
+        var failed = 0
         var queued = 0
 
         records.forEach { metadata ->
+            try {
             metadata.requireValidForRecovery()
             require(metadata.ownerUserId == ownerUid && metadata.senderDeviceId == senderDeviceId) {
                 "Recovery metadata escaped the active account/device scope"
@@ -148,11 +152,22 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
             // Coordinator re-reads durable queue/ack state before accepting a
             // partial resume, closing the race with another worker pass.
             queued += resumeDistribution(latest!!, prepared)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                failed += 1
+                try {
+                    onDistributionFailure(metadata, error)
+                } catch (_: Exception) {
+                    // Diagnostic callbacks must not stop recovery of other rows.
+                }
+            }
         }
 
         return OlmGroupKeyRecoveryRunResult(
             distributionsScanned = records.size,
             distributionsSkipped = skipped,
+            distributionsFailed = failed,
             deliveriesQueued = queued,
         )
     }

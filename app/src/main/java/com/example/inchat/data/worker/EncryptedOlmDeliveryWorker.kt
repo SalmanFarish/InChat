@@ -176,7 +176,16 @@ class EncryptedOlmDeliveryWorker(
                             )
                         },
                         resumeDistribution = groupKeyOutbox::resume,
+                        onDistributionFailure = { metadata, error ->
+                            Log.w(
+                                TAG,
+                                "Group-key recovery failed for " + metadata.groupId +
+                                    "/" + metadata.distributionId + ".",
+                                error,
+                            )
+                        },
                     ).run()
+                    groupKeyRecoveryRetryRequired = recovery.distributionsFailed > 0
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -191,6 +200,7 @@ class EncryptedOlmDeliveryWorker(
                         TAG,
                         "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
                             ", skipped=" + recovery.distributionsSkipped +
+                            ", failed=" + recovery.distributionsFailed +
                             ", queued=" + recovery.deliveriesQueued,
                     )
                 }

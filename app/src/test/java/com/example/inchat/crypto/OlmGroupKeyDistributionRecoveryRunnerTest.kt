@@ -149,6 +149,62 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertFalse(prepared)
     }
 
+    @Test
+    fun isolatesOneDistributionPreparationFailureAndReportsItForRetry() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("alice" to "alice-tablet", "bob" to "bob-phone"),
+        ).toEntity()
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            ensureOutboundSession = {
+                OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
+            },
+            exportOutboundSessionKey = { ByteArray(32) { 4 } },
+            prepareDistribution = { _, _, _, _, _, _ ->
+                throw IllegalStateException("temporary directory failure")
+            },
+            resumeDistribution = { _, _ -> error("Must not enqueue failed preparation") },
+            onDistributionFailure = { failedMetadata, error ->
+                assertEquals(metadata.distributionId, failedMetadata.distributionId)
+                assertEquals("temporary directory failure", error.message)
+                failureReported = true
+            },
+        )
+
+        val result = kotlinx.coroutines.runBlocking { runner.run() }
+
+        assertEquals(1, result.distributionsScanned)
+        assertEquals(0, result.distributionsSkipped)
+        assertEquals(1, result.distributionsFailed)
+        assertEquals(0, result.deliveriesQueued)
+        assertTrue(failureReported)
+    }
+
     private fun membership() = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = 7L,
