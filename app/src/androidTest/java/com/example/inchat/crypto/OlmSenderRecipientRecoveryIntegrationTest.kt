@@ -239,6 +239,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 transport = transport,
                 ledger = OlmInboundDeliveryLedger(
                     recipientDatabase.olmInboundReceiptDao(),
+                    recipientUserId,
                     recipientBundle.deviceId,
                 ),
                 deviceId = recipientBundle.deviceId,
@@ -254,9 +255,12 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             assertTrue(lostAcknowledgementCompletion)
             assertEquals(1, relay.inboxCount())
             assertEquals(1, relay.acknowledgementCount())
-            val receiptId = sha256(
-                senderUserId + "\u0000" + senderDeviceId + "\u0000" + messageId +
-                    "\u0000" + recipientBundle.deviceId,
+            val receiptId = olmInboundReceiptId(
+                recipientUserId,
+                senderUserId,
+                senderDeviceId,
+                messageId,
+                recipientBundle.deviceId,
             )
             assertEquals(
                 OlmInboundReceiptStatus.PENDING.name,
@@ -274,6 +278,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
             )
             val recipientLedger = OlmInboundDeliveryLedger(
                 recipientDatabase.olmInboundReceiptDao(),
+                recipientUserId,
                 recipientBundle.deviceId,
             )
             val recoveredReceive = FirebaseOlmInboxReceiver(
