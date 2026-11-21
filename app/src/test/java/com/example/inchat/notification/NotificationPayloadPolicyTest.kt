@@ -90,6 +90,55 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun messagePayloadRequiresKnownTypeAndStableRoutingIdentifiers() {
+        assertTrue(
+            NotificationPayloadPolicy.isValidMessagePayload(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_CHAT,
+                    "chatId" to "chat-1",
+                    "messageId" to "message-1",
+                    "senderId" to "sender-1",
+                ),
+            ),
+        )
+        assertTrue(
+            NotificationPayloadPolicy.isValidMessagePayload(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_GROUP,
+                    "chatId" to "group-1",
+                    "messageId" to "message-2",
+                ),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isValidMessagePayload(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_CHAT,
+                    "chatId" to "chat-1",
+                    "messageId" to "message-1",
+                ),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isValidMessagePayload(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_GROUP,
+                    "chatId" to "group-1",
+                ),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isValidMessagePayload(
+                mapOf(
+                    "type" to "unknown",
+                    "chatId" to "chat-1",
+                    "messageId" to "message-1",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun addressedPushIsAcceptedOnlyByItsIntendedSignedInAccount() {
         val payload = mapOf(
             "type" to NotificationPayloadPolicy.TYPE_CHAT,

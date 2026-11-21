@@ -75,6 +75,11 @@ class InChatFirebaseMessagingService :
             return
         }
 
+        if (!NotificationPayloadPolicy.isValidMessagePayload(remoteMessage.data)) {
+            Log.w("InChatFCM", "Ignored a message notification with invalid routing identifiers.")
+            return
+        }
+
         val recipientUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         if (!NotificationPayloadPolicy.isIntendedForAccount(remoteMessage.data, recipientUserId)) {
             Log.w("InChatFCM", "Ignored a message notification addressed to another account.")

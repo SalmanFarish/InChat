@@ -84,6 +84,28 @@ internal object NotificationPayloadPolicy {
      * Verifies an explicitly addressed FCM message against the current account.
      * Only signed-in recipients may receive legacy large-group topic messages.
      */
+    /**
+     * Only render recognized message types with enough identifiers to update
+     * the correct conversation and deduplicate redelivered messages.
+     */
+    fun isValidMessagePayload(data: Map<String, String>): Boolean {
+        val type = data["type"]
+        if (type !in setOf(TYPE_CHAT, TYPE_GROUP, TYPE_ENCRYPTED_CHAT, TYPE_ENCRYPTED_GROUP)) {
+            return false
+        }
+
+        if (data["chatId"]?.trim().isNullOrEmpty() ||
+            data["messageId"]?.trim().isNullOrEmpty()
+        ) {
+            return false
+        }
+
+        return when (type) {
+            TYPE_CHAT, TYPE_ENCRYPTED_CHAT -> !data["senderId"]?.trim().isNullOrEmpty()
+            else -> true
+        }
+    }
+
     fun isIntendedForAccount(data: Map<String, String>, currentUserId: String): Boolean {
         val signedInUserId = currentUserId.trim()
         if (signedInUserId.isBlank()) return false
