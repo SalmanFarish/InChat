@@ -62,6 +62,43 @@ class OlmGroupMessageOutboxCoordinatorTest {
         assertTrue(!scheduled)
     }
 
+    @Test
+    fun rejectsGroupMessageFanOutAboveSharedLimitBeforeReadinessOrQueueWrites() {
+        val store = FakeStore()
+        var readinessCalled = false
+        var scheduled = false
+        val coordinator = OlmGroupMessageOutboxCoordinator(
+            queue = OlmDeliveryQueue(store),
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, _, _ ->
+                readinessCalled = true
+            },
+            scheduleDelivery = { _, _ -> scheduled = true },
+        )
+        val oversized = distribution(7L).copy(
+            deliveries = (0 until MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS + 1).map { index ->
+                delivery("bob", "bob-device-$index", "session-$index")
+            },
+        )
+
+        var rejected = false
+        try {
+            coordinator.enqueue(
+                currentMembership = membership(7L),
+                distribution = oversized,
+                keyDistribution = keyDistribution(7L),
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertTrue(store.rows.isEmpty())
+        assertTrue(!readinessCalled)
+        assertTrue(!scheduled)
+    }
+
     private fun membership(epoch: Long) = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = epoch,

@@ -45,7 +45,7 @@ internal class OlmGroupMessageOutboxCoordinator(
         require(distribution.deliveries.isNotEmpty()) {
             "No trusted recipient devices are available for this group message"
         }
-        require(distribution.deliveries.size <= MAX_DELIVERIES) {
+        require(distribution.deliveries.size <= MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) {
             "Group message fan-out exceeds the device delivery limit"
         }
         require(
@@ -104,7 +104,6 @@ internal class OlmGroupMessageOutboxCoordinator(
     }
 
     private companion object {
-        const val MAX_DELIVERIES = 500
         const val MAX_SESSION_ID_LENGTH = 128
         val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
