@@ -81,6 +81,48 @@ class EncryptedGroupMessageDaoTest {
         )
     }
 
+    @Test
+    fun receiptIdCollisionWithDifferentReplayKeyRollsBackTheSecondCommit() = runBlockingTest {
+        val dao = database.encryptedGroupMessageDao()
+        val sharedReceiptId = "f".repeat(64)
+        val originalReceipt = receipt(receiptId = sharedReceiptId)
+        val originalMessage = message()
+        assertTrue(dao.commitDecryptedMessage(originalReceipt, originalMessage))
+
+        // A receipt ID is globally unique as well as the Megolm replay key.
+        // Reusing it for a different index must fail closed and roll back both
+        // attempted inserts, leaving the original message and replay intact.
+        val conflictingReceipt = receipt(
+            receiptId = sharedReceiptId,
+            messageIndex = 11L,
+        ).copy(messageId = "message-receipt-collision")
+        val conflictingMessage = originalMessage.copy(
+            messageId = "message-receipt-collision",
+            messageIndex = 11L,
+        )
+
+        var rejected = false
+        try {
+            dao.commitDecryptedMessage(conflictingReceipt, conflictingMessage)
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+
+        assertTrue("A receipt ID cannot be rebound to another replay key", rejected)
+        assertTrue(dao.getMessage("alice", "group-1", "message-1") != null)
+        assertTrue(dao.getMessage("alice", "group-1", "message-receipt-collision") == null)
+        assertFalse(
+            dao.hasReplay(
+                "alice", "group-1", "bob", "bob-phone", "1234567890abcdef", 11L,
+            ),
+        )
+        assertTrue(
+            dao.hasReplay(
+                "alice", "group-1", "bob", "bob-phone", "1234567890abcdef", 9L,
+            ),
+        )
+    }
+
     private fun receipt(
         receiptId: String = "d".repeat(64),
         messageIndex: Long = 9L,
