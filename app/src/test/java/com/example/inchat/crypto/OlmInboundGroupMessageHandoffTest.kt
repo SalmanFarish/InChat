@@ -401,6 +401,7 @@ class OlmInboundGroupMessageHandoffTest {
 
     private fun receipt() = OlmInboundReceiptEntity(
         receiptId = "a".repeat(64),
+        recipientUserId = "bob",
         senderUserId = "alice",
         senderDeviceId = "alice-phone",
         messageId = "group-message-7",
