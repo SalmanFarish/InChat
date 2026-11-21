@@ -150,6 +150,12 @@ internal class EncryptedGroupMessageRepository(
         require(ID.matches(groupId)) { "Group message group ID is invalid" }
     }
 
+    private fun requireAuthenticatedOwner(ownerUserId: String) {
+        require(authenticatedUserId() == ownerUserId) {
+            "Authenticated account does not own this encrypted group message"
+        }
+    }
+
     private companion object {
         val ID = Regex("[A-Za-z0-9_-]{1,128}")
         val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
