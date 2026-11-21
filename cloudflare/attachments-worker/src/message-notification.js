@@ -1,6 +1,30 @@
 const ALLOWED_TYPES = new Set(["chat_message", "group_message"]);
 
 /**
+ * Returns current group recipients only when the sender is still a member.
+ * A null result means the membership snapshot is not safe for notification.
+ */
+export function currentGroupNotificationRecipients(chat, senderUid) {
+  if (
+    !chat ||
+    typeof chat !== "object" ||
+    chat.type !== "group" ||
+    !chat.members ||
+    typeof chat.members !== "object" ||
+    Array.isArray(chat.members) ||
+    typeof senderUid !== "string" ||
+    senderUid.trim() === "" ||
+    !Object.prototype.hasOwnProperty.call(chat.members, senderUid)
+  ) {
+    return null;
+  }
+
+  return Object.keys(chat.members)
+    .filter((memberId) => memberId !== senderUid && memberId.trim() !== "")
+    .sort();
+}
+
+/**
  * Returns a compact, one-way account tag for membership checks on broadcast
  * topic pushes. Tags reveal no raw Firebase UIDs and are deterministic per UID.
  */
