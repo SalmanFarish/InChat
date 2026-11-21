@@ -101,6 +101,15 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             expected = membership,
             latest = membershipForGroup(groupId),
         )
+        // Membership reads suspend. Recheck local SAS trust immediately before
+        // advancing the native Megolm receive ratchet.
+        check(
+            trustVerifier.isVerified(
+                peerUserId = remoteDeviceUserId,
+                peerDeviceId = remoteDevice.deviceId,
+                peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+            )
+        ) { "Group sender trust was revoked before native decryption" }
 
         val staged = sessionRepository.prepareInboundMessage(
             membership = currentMembership,
@@ -116,6 +125,16 @@ internal class DefaultOlmInboundGroupMessageHandoff(
                 expected = currentMembership,
                 latest = membershipForGroup(groupId),
             )
+            // Decryption and membership refresh can both take time. Do not
+            // commit the decrypted group message if the sender was untrusted
+            // or revoked while native staging was in progress.
+            check(
+                trustVerifier.isVerified(
+                    peerUserId = remoteDeviceUserId,
+                    peerDeviceId = remoteDevice.deviceId,
+                    peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                )
+            ) { "Group sender trust was revoked before message commit" }
             val ciphertextDigest = MessageDigest.getInstance("SHA-256")
                 .digest(staged.ciphertext)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
