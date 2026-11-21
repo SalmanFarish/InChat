@@ -65,6 +65,37 @@ class OlmGroupMessageDistributionPreparerTest {
     }
 
     @Test
+    fun readOnlyTrustedTargetPreviewMatchesFanoutWithoutClaimingPrekeysOrCreatingSessions() = runBlocking {
+        val sender = bundle("sender-current")
+        val senderOther = bundle("sender-tablet")
+        val recipient = bundle("recipient-phone")
+        val directory = FakeDirectory(
+            "alice",
+            mapOf(
+                "alice" to listOf(sender, senderOther),
+                "bob" to listOf(recipient),
+            ),
+        )
+        val sessions = FakeSessions(sender.deviceId)
+        val trusted = setOf(
+            "alice::sender-tablet::ed25519-sender-tablet",
+            "bob::recipient-phone::ed25519-recipient-phone",
+        )
+        val preparer = OlmGroupMessageDistributionPreparer(directory, sessions, verifier(trusted))
+
+        val targets = preparer.currentTrustedTargetDevices(
+            membership("group-1", 5L, "alice", "bob"),
+        )
+
+        assertEquals(
+            setOf("alice" to "sender-tablet", "bob" to "recipient-phone"),
+            targets,
+        )
+        assertTrue(directory.claimedPreKeys.isEmpty())
+        assertTrue(sessions.createdSessions.isEmpty())
+    }
+
+    @Test
     fun refusesFanoutWhenAnyMemberHasNoTrustedDeviceBeforeClaimingPrekeys() = runBlocking {
         val sender = bundle("sender-current")
         val bob = bundle("bob-phone")
