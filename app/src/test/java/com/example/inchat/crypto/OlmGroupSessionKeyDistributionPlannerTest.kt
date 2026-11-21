@@ -100,6 +100,51 @@ class OlmGroupSessionKeyDistributionPlannerTest {
         }
     }
 
+    @Test
+    fun enforcesTheSharedFanOutLimitAtThePlanningBoundary() {
+        val senderCurrent = bundle("sender-current")
+        val senderCompanions = (1..4).map { bundle("sender-tablet-$it") }
+        val remoteUsers = (1..31).map { "member-$it" }
+        val remoteDevices = remoteUsers.associateWith { userId ->
+            (1..16).map { bundle("$userId-device-$it") }
+        }
+        val trustedAtLimit = buildSet {
+            senderCompanions.forEach { add(trustKey("alice", it)) }
+            remoteDevices.forEach { (userId, devices) ->
+                devices.forEach { add(trustKey(userId, it)) }
+            }
+        }
+
+        val exactLimit = OlmGroupSessionKeyDistributionPlanner.plan(
+            senderUserId = "alice",
+            senderDeviceId = senderCurrent.deviceId,
+            currentMemberUserIds = (listOf("alice") + remoteUsers).toSet(),
+            recipientDevicesByUser = remoteDevices,
+            senderDevices = listOf(senderCurrent) + senderCompanions,
+            trustVerifier = verifier(trustedAtLimit),
+        )
+        assertEquals(500, exactLimit.targets.size)
+
+        val overflowingUsers = (1..32).map { "overflow-member-$it" }
+        val overflowingDevices = overflowingUsers.associateWith { userId ->
+            (1..16).map { bundle("$userId-device-$it") }
+        }
+        val trustedOverflow = overflowingDevices.flatMap { (userId, devices) ->
+            devices.map { trustKey(userId, it) }
+        }.toSet()
+
+        assertRejected {
+            OlmGroupSessionKeyDistributionPlanner.plan(
+                senderUserId = "alice",
+                senderDeviceId = senderCurrent.deviceId,
+                currentMemberUserIds = (listOf("alice") + overflowingUsers).toSet(),
+                recipientDevicesByUser = overflowingDevices,
+                senderDevices = listOf(senderCurrent),
+                trustVerifier = verifier(trustedOverflow),
+            )
+        }
+    }
+
     private fun verifier(trusted: Set<String>) = OlmDeviceTrustVerifier {
             peerUserId, peerDeviceId, identityKey ->
         trustKey(peerUserId, peerDeviceId, identityKey) in trusted

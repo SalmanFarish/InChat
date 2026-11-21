@@ -115,6 +115,27 @@ class OlmGroupKeyDistributionReadinessTest {
     }
 
     @Test
+    fun recoveryScanRejectsPersistedMetadataWithTamperedRecordIdentity() {
+        val record = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = "group-key-tampered",
+            groupId = "group-1",
+            membershipEpoch = 10L,
+            megolmSessionId = "0123456789abcdef",
+            targetDevices = listOf("bob" to "bob-phone"),
+        )
+        database.olmGroupKeyDistributionDao().insertIfAbsent(
+            record.toEntity().copy(recordId = "forged-record-id"),
+        )
+
+        val store = database.olmGroupKeyDistributionMetadataStore()
+        assertThrows(IllegalArgumentException::class.java) {
+            store.getAllForDevice("alice", "alice-phone")
+        }
+    }
+
+    @Test
     fun distributionMetadataIsScopedToAccountAndSenderDevice() {
         val store = database.olmGroupKeyDistributionMetadataStore()
         val record = OlmGroupKeyDistributionRecord(

@@ -10,6 +10,9 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import java.util.concurrent.Callable
 
+/** Shared upper bound for group-key fan-out, persistence, and recovery. */
+internal const val MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS = 500
+
 /** Non-secret, immutable description of one group-key distribution. */
 @Entity(tableName = "olm_group_key_distributions", indices = [Index(value = ["ownerUserId", "senderDeviceId", "groupId", "membershipEpoch"])])
 data class OlmGroupKeyDistributionEntity(
@@ -26,7 +29,7 @@ data class OlmGroupKeyDistributionEntity(
     /** Decode and validate the persisted canonical target set for recovery. */
     internal fun targetDevicePairs(): List<Pair<String, String>> {
         require(targetDevices.isNotBlank()) { "Persisted group-key target set is empty" }
-        require(targetDevices.count { it == ',' } < MAX_TARGET_DEVICES) { "Persisted group-key target set exceeds the device limit" }
+        require(targetDevices.count { it == ',' } < MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) { "Persisted group-key target set exceeds the device limit" }
         val decoded = targetDevices.split(',').map { item ->
             val separator = item.indexOf('/')
             require(separator > 0 && separator == item.lastIndexOf('/') && separator < item.lastIndex) {
@@ -46,8 +49,23 @@ data class OlmGroupKeyDistributionEntity(
         return decoded
     }
 
+    /** Reject tampered identity fields before a caller uses this row for recovery. */
+    internal fun requireValidForRecovery() {
+        val canonical = OlmGroupKeyDistributionRecord(
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            distributionId = distributionId,
+            groupId = groupId,
+            membershipEpoch = membershipEpoch,
+            megolmSessionId = megolmSessionId,
+            targetDevices = targetDevicePairs(),
+        ).toEntity()
+        require(canonical == this) {
+            "Persisted group-key distribution identity or metadata is invalid"
+        }
+    }
+
     private companion object {
-        const val MAX_TARGET_DEVICES = 500
         val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
     }
@@ -77,7 +95,7 @@ internal data class OlmGroupKeyDistributionRecord(
     internal fun toEntity(): OlmGroupKeyDistributionEntity {
         val sorted = targetDevices.distinct().sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
         require(sorted.size == targetDevices.size && sorted.isNotEmpty()) { "Group-key targets must be non-empty and unique" }
-        require(sorted.size <= MAX_TARGET_DEVICES) { "Group-key targets exceed the device delivery limit" }
+        require(sorted.size <= MAX_OLM_GROUP_KEY_DISTRIBUTION_TARGETS) { "Group-key targets exceed the device delivery limit" }
         require(sorted.all { (user, device) -> USER_ID.matches(user) && DEVICE_ID.matches(device) })
         require(USER_ID.matches(ownerUserId) && DEVICE_ID.matches(senderDeviceId))
         require(ID.matches(distributionId) && ID.matches(groupId) && SESSION_ID.matches(megolmSessionId) && membershipEpoch >= 0L)
@@ -91,7 +109,6 @@ internal data class OlmGroupKeyDistributionRecord(
 
     companion object {
         internal fun recordId(owner: String, device: String, distribution: String) = "$owner:$device:$distribution"
-        private const val MAX_TARGET_DEVICES = 500
         private val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         private val ID = Regex("[A-Za-z0-9_-]{1,128}")
@@ -119,5 +136,8 @@ internal class RoomOlmGroupKeyDistributionMetadataStore(
     }
     override fun get(ownerUserId: String, senderDeviceId: String, distributionId: String) =
         dao.get(OlmGroupKeyDistributionRecord.recordId(ownerUserId, senderDeviceId, distributionId))
-    override fun getAllForDevice(ownerUserId: String, senderDeviceId: String) = dao.getAllForDevice(ownerUserId, senderDeviceId)
+            ?.also { it.requireValidForRecovery() }
+
+    override fun getAllForDevice(ownerUserId: String, senderDeviceId: String) =
+        dao.getAllForDevice(ownerUserId, senderDeviceId).onEach { it.requireValidForRecovery() }
 }
