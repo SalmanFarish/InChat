@@ -201,6 +201,62 @@ class OlmInboundMessageCommitterTest {
     }
 
     @Test
+    fun receiptOwnedByAnotherAccountCannotCommitLocalMessage() = runBlocking {
+        withDatabase("olm-inbound-receipt-owner-mismatch.db") { db ->
+            val receiptId = receiptId("foreign-owner-message")
+            val encodedEnvelope = envelope()
+            assertTrue(
+                db.olmInboundReceiptDao().insertIfAbsent(
+                    OlmInboundReceiptEntity(
+                        receiptId = receiptId,
+                        recipientUserId = "different-account",
+                        senderUserId = "alice",
+                        senderDeviceId = "sender-device",
+                        messageId = "foreign-owner-message",
+                        recipientDeviceId = "receiver-device",
+                        envelope = encodedEnvelope,
+                        envelopeSha256 = java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(encodedEnvelope.toByteArray())
+                            .joinToString("") { "%02x".format(it.toInt() and 0xff) },
+                        status = OlmInboundReceiptStatus.PENDING.name,
+                        receivedAtMillis = 100L,
+                        processedAtMillis = null,
+                    ),
+                ) > 0,
+            )
+            val committer = OlmInboundMessageCommitter(
+                db,
+                db.encryptedOlmMessageDao(),
+                db.olmInboundReceiptDao(),
+            )
+
+            try {
+                committer.commit(
+                    receiptId,
+                    message(messageId = "foreign-owner-message"),
+                    200L,
+                )
+                throw AssertionError("A receipt owned by another account must not commit")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("recipient does not match"))
+            }
+
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(
+                null,
+                db.encryptedOlmMessageDao().getMessage(
+                    "local-user",
+                    "alice_local-user",
+                    "foreign-owner-message",
+                ),
+            )
+        }
+    }
+
+    @Test
     fun processedReceiptCannotBeCommittedAgain() = runBlocking {
         withDatabase("olm-inbound-atomic-duplicate.db") { db ->
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
