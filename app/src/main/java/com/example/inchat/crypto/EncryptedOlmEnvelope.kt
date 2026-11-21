@@ -1,6 +1,6 @@
 package com.example.inchat.crypto
 
-import android.util.Base64
+import java.util.Base64
 import org.json.JSONException
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -39,7 +39,7 @@ internal object EncryptedOlmEnvelopeCodec {
             .put("sessionId", envelope.sessionId)
             .put(
                 "ciphertext",
-                Base64.encodeToString(envelope.ciphertext, Base64.NO_WRAP or Base64.URL_SAFE),
+                Base64.getUrlEncoder().encodeToString(envelope.ciphertext),
             )
             .toString()
         require(json.toByteArray(StandardCharsets.UTF_8).size <= MAX_ENCODED_BYTES) {
@@ -68,7 +68,7 @@ internal object EncryptedOlmEnvelopeCodec {
             "Unsupported encrypted-message algorithm"
         }
         val ciphertext = try {
-            Base64.decode(json.getString("ciphertext"), Base64.URL_SAFE or Base64.NO_WRAP)
+            Base64.getUrlDecoder().decode(json.getString("ciphertext"))
         } catch (error: IllegalArgumentException) {
             throw IllegalArgumentException("Encrypted Olm ciphertext is not valid Base64", error)
         }

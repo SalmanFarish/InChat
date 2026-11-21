@@ -85,14 +85,21 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
         } catch (error: IllegalArgumentException) {
             throw IllegalArgumentException("Megolm session key is not valid Base64URL", error)
         }
-        require(sessionKey.isNotEmpty() && sessionKey.size <= MAX_SESSION_KEY_BYTES) {
-            "Megolm session key has an invalid size"
-        }
         return try {
+            require(sessionKey.isNotEmpty() && sessionKey.size <= MAX_SESSION_KEY_BYTES) {
+                "Megolm session key has an invalid size"
+            }
+            // Membership is server-authored and can change while the encrypted
+            // payload is being decoded. Re-read it immediately before the native
+            // import, requiring the full member/role map and epoch to be identical.
+            val currentMembership = requireUnchangedGroupCryptoMembershipSnapshot(
+                expected = membership,
+                latest = membershipForGroup(groupId),
+            )
             // This import persists the signed session and its sender/epoch binding
             // in the same Keystore-protected native device-state envelope.
             sessionRepository.importInboundSessionKey(
-                membership = membership,
+                membership = currentMembership,
                 senderUserId = payload.senderUserId,
                 senderDeviceId = payload.senderDeviceId,
                 expectedSessionId = payload.megolmSessionId,

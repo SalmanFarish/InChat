@@ -83,9 +83,16 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             expectedRecipientDeviceId = receipt.recipientDeviceId,
         )
         OlmGroupMessagePayloadCodec.requireCurrentMembers(payload, membership.memberUserIds)
+        // Re-read immediately before advancing the local Megolm receive ratchet.
+        // Matching the whole map as well as the epoch prevents accepting a stale
+        // snapshot if a backend membership writer ever fails to advance its epoch.
+        val currentMembership = requireUnchangedGroupCryptoMembershipSnapshot(
+            expected = membership,
+            latest = membershipForGroup(groupId),
+        )
 
         val staged = sessionRepository.prepareInboundMessage(
-            membership = membership,
+            membership = currentMembership,
             payload = payload,
             receiptId = receipt.receiptId,
             receivedAtMillis = receipt.receivedAtMillis,
