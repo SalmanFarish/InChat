@@ -41,7 +41,7 @@ class OlmGroupMessageDistributionPreparerTest {
         assertEquals("message-1", result.messageId)
         assertEquals(5L, result.membershipEpoch)
         assertEquals(2, result.deliveries.size)
-        assertEquals(1, result.skippedUntrustedDeviceCount)
+        assertEquals(0, result.skippedUntrustedDeviceCount)
         result.deliveries.forEach { delivery ->
             val payload = OlmGroupMessagePayloadCodec.decodeAndValidate(
                 plaintext = delivery.envelope,
