@@ -17,7 +17,7 @@ internal class OlmGroupMessageOutboxCoordinator(
     fun enqueue(
         currentMembership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupMessageDistribution,
-        keyDistribution: PreparedOlmGroupKeyDistribution,
+        keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ): Int {
         require(currentMembership.isValid()) {
             "Authoritative group membership snapshot is invalid"
@@ -33,11 +33,31 @@ internal class OlmGroupMessageOutboxCoordinator(
             "Group membership changed after encrypted fan-out preparation"
         }
         require(
-            keyDistribution.groupId == distribution.groupId &&
+            keyDistribution.ownerUserId == ownerUid &&
+                keyDistribution.senderDeviceId == deviceId &&
+                keyDistribution.groupId == distribution.groupId &&
                 keyDistribution.membershipEpoch == distribution.membershipEpoch &&
                 keyDistribution.megolmSessionId == distribution.megolmSessionId
         ) {
-            "Megolm message ciphertext does not match the session key distributed to group members"
+            "Megolm message ciphertext does not match the acknowledged group-key token"
+        }
+        require(keyDistribution.distributionId.matches(DISTRIBUTION_ID) &&
+            keyDistribution.targetDevices.isNotEmpty() &&
+            keyDistribution.targetDevices.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS
+        ) {
+            "Group-key readiness token has invalid identity or target count"
+        }
+        require(keyDistribution.targetDevices.all { (userId, targetDeviceId) ->
+            userId in currentMembership.memberUserIds &&
+                targetDeviceId.matches(DEVICE_ID) &&
+                !(userId == ownerUid && targetDeviceId == deviceId)
+        }) {
+            "Group-key readiness token contains an invalid or non-member target"
+        }
+        require((currentMembership.memberUserIds - ownerUid).all { memberId ->
+            keyDistribution.targetDevices.any { it.first == memberId }
+        }) {
+            "Group-key readiness token omits a current member"
         }
         require(distribution.messageId.matches(MESSAGE_ID)) {
             "Group message ID is invalid"
@@ -105,6 +125,7 @@ internal class OlmGroupMessageOutboxCoordinator(
 
     private companion object {
         const val MAX_SESSION_ID_LENGTH = 128
+        val DISTRIBUTION_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
     }

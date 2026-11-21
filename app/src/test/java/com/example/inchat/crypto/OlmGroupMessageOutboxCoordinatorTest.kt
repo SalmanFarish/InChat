@@ -16,7 +16,9 @@ class OlmGroupMessageOutboxCoordinatorTest {
             localDeviceId = { "alice-phone" },
             keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, keys, messages ->
                 assertEquals(
-                    keys.deliveries.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
+                    keys.targetDevices.intersect(messages.deliveries.map {
+                        it.recipientUserId to it.recipientDeviceId
+                    }.toSet()),
                     messages.deliveries.map { it.recipientUserId to it.recipientDeviceId }.toSet(),
                 )
             },
@@ -105,16 +107,14 @@ class OlmGroupMessageOutboxCoordinatorTest {
         members = mapOf("alice" to "admin", "bob" to "member"),
     )
 
-    private fun keyDistribution(epoch: Long) = PreparedOlmGroupKeyDistribution(
+    private fun keyDistribution(epoch: Long) = OlmGroupKeyDistributionReadinessToken(
+        ownerUserId = "alice",
+        senderDeviceId = "alice-phone",
         distributionId = "group-key-7",
         groupId = "group-1",
         membershipEpoch = epoch,
         megolmSessionId = "1234567890abcdef",
-        deliveries = listOf(
-            keyDelivery("alice", "alice-tablet", "session-tablet"),
-            keyDelivery("bob", "bob-phone", "session-bob"),
-        ),
-        skippedUntrustedDeviceCount = 0,
+        targetDevices = setOf("alice" to "alice-tablet", "bob" to "bob-phone"),
     )
 
     private fun distribution(epoch: Long) = PreparedOlmGroupMessageDistribution(

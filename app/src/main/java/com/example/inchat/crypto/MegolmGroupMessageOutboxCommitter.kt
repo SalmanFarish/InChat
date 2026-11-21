@@ -29,7 +29,7 @@ internal class MegolmGroupMessageOutboxCommitter(
 ) {
     suspend fun commit(
         staged: StagedOutboundMegolmMessage,
-        keyDistribution: PreparedOlmGroupKeyDistribution,
+        keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ): MegolmGroupMessageOutboxCommitResult {
         val firstSnapshot = requireNotNull(membershipForGroup(staged.groupId)) {
             "Group has no current E2EE membership snapshot"
@@ -38,14 +38,20 @@ internal class MegolmGroupMessageOutboxCommitter(
             "Current E2EE group membership snapshot is invalid"
         }
         val ownerUid = authenticatedUserId()
-        require(ownerUid == staged.ownerUserId && ownerUid == staged.senderUserId) {
-            "Staged Megolm message belongs to another authenticated account"
+        val deviceId = localDeviceId()
+        require(ownerUid == staged.ownerUserId && ownerUid == staged.senderUserId &&
+            ownerUid == keyDistribution.ownerUserId &&
+            deviceId == staged.senderDeviceId &&
+            deviceId == keyDistribution.senderDeviceId
+        ) {
+            "Staged Megolm message or key token belongs to another account/device"
         }
-        require(staged.senderDeviceId == localDeviceId()) {
-            "Staged Megolm message belongs to another sender device"
-        }
-        require(firstSnapshot.epoch == staged.membershipEpoch) {
-            "Staged Megolm message belongs to a stale membership epoch"
+        require(firstSnapshot.epoch == staged.membershipEpoch &&
+            keyDistribution.groupId == staged.groupId &&
+            keyDistribution.membershipEpoch == staged.membershipEpoch &&
+            keyDistribution.megolmSessionId == staged.encryptedMessage.sessionId
+        ) {
+            "Staged Megolm message does not match the acknowledged key or membership epoch"
         }
         require(ownerUid in firstSnapshot.memberUserIds) {
             "Authenticated sender is no longer a group member"

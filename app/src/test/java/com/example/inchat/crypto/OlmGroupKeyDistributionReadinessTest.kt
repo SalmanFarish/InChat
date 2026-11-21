@@ -105,16 +105,14 @@ class OlmGroupKeyDistributionReadinessTest {
         members = mapOf("alice" to "admin", "bob" to "member"),
     )
 
-    private fun keyDistribution() = PreparedOlmGroupKeyDistribution(
+    private fun keyDistribution() = OlmGroupKeyDistributionReadinessToken(
+        ownerUserId = "alice",
+        senderDeviceId = "alice-phone",
         distributionId = distributionId(),
         groupId = "group-1",
         membershipEpoch = 7L,
         megolmSessionId = "1234567890abcdef",
-        deliveries = listOf(
-            keyDelivery("alice", "alice-tablet", "session-tablet"),
-            keyDelivery("bob", "bob-phone", "session-bob"),
-        ),
-        skippedUntrustedDeviceCount = 0,
+        targetDevices = setOf("alice" to "alice-tablet", "bob" to "bob-phone"),
     )
 
     private fun messageDistribution() = PreparedOlmGroupMessageDistribution(
@@ -127,13 +125,6 @@ class OlmGroupKeyDistributionReadinessTest {
             messageDelivery("bob", "bob-phone", "session-bob"),
         ),
         skippedUntrustedDeviceCount = 0,
-    )
-
-    private fun keyDelivery(user: String, device: String, session: String) = PreparedOlmGroupKeyDelivery(
-        recipientUserId = user,
-        recipientDeviceId = device,
-        sessionId = session,
-        envelope = "opaque-encrypted-envelope",
     )
 
     private fun messageDelivery(user: String, device: String, session: String) = PreparedOlmGroupMessageDelivery(

@@ -163,6 +163,7 @@ class MegolmGroupMessageOutboxCommitterTest {
             keyDistributionReadiness = OlmGroupKeyDistributionReadinessVerifier { _, _, _, keys, messages ->
                 assertEquals(keys.groupId, messages.groupId)
                 assertEquals(keys.membershipEpoch, messages.membershipEpoch)
+                assertEquals(keys.megolmSessionId, messages.megolmSessionId)
             },
             scheduleDelivery = { _, _ -> },
         ),
@@ -191,27 +192,14 @@ class MegolmGroupMessageOutboxCommitterTest {
         members = mapOf("alice" to "admin", "bob" to "member"),
     )
 
-    private fun keyDistribution() = PreparedOlmGroupKeyDistribution(
+    private fun keyDistribution() = OlmGroupKeyDistributionReadinessToken(
+        ownerUserId = "alice",
+        senderDeviceId = "alice-phone",
         distributionId = "group-key-7",
         groupId = "group-1",
         membershipEpoch = 7L,
         megolmSessionId = "1234567890abcdef",
-        deliveries = listOf(
-            PreparedOlmGroupKeyDelivery(
-                recipientUserId = "bob",
-                recipientDeviceId = "bob-phone",
-                sessionId = "session-key",
-                envelope = EncryptedOlmEnvelopeCodec.encode(
-                    EncryptedOlmEnvelope(
-                        senderDeviceId = "alice-phone",
-                        recipientDeviceId = "bob-phone",
-                        sessionId = "session-key",
-                        ciphertext = ByteArray(32) { (it + 1).toByte() },
-                    ),
-                ),
-            ),
-        ),
-        skippedUntrustedDeviceCount = 0,
+        targetDevices = setOf("bob" to "bob-phone"),
     )
 
     private class FakeStore : OlmDeliveryQueueStore {

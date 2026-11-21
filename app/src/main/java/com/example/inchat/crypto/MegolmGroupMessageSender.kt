@@ -16,7 +16,7 @@ internal class MegolmGroupMessageSender(
     /** Fail-closed check that all remote member devices acknowledged the exact session key. */
     private val requireKeyDistributionReady: (
         membership: GroupCryptoMembershipSnapshot,
-        keyDistribution: PreparedOlmGroupKeyDistribution,
+        keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ) -> Unit,
 ) {
     suspend fun send(
@@ -24,7 +24,7 @@ internal class MegolmGroupMessageSender(
         messageId: String,
         plaintext: String,
         sentAtMillis: Long,
-        keyDistribution: PreparedOlmGroupKeyDistribution,
+        keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ): MegolmGroupMessageOutboxCommitResult {
         require(membership.isValid()) {
             "Authoritative group membership snapshot is invalid"
@@ -60,11 +60,13 @@ internal class MegolmGroupMessageSender(
      */
     suspend fun resumePendingMessage(
         messageId: String,
-        keyDistribution: PreparedOlmGroupKeyDistribution,
+        keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ): MegolmGroupMessageOutboxCommitResult {
         val staged = sessions.readPendingOutboundMessage(messageId)
         require(
-            staged.groupId == keyDistribution.groupId &&
+            staged.ownerUserId == keyDistribution.ownerUserId &&
+                staged.senderDeviceId == keyDistribution.senderDeviceId &&
+                staged.groupId == keyDistribution.groupId &&
                 staged.membershipEpoch == keyDistribution.membershipEpoch &&
                 staged.encryptedMessage.sessionId == keyDistribution.megolmSessionId
         ) {
