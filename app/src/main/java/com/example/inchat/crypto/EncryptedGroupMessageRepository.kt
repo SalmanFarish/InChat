@@ -19,8 +19,8 @@ internal class EncryptedGroupMessageRepository(
     private val dao: EncryptedGroupMessageDao,
     private val vault: EncryptedGroupMessageVault = EncryptedGroupMessageVault(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
-    suspend fun commitStagedMessage(
+) : EncryptedGroupMessageCommitter {
+    override suspend fun commitStagedMessage(
         message: DecryptedGroupMessage,
         receipt: EncryptedGroupMessageReceiptEntity,
         originalCiphertext: ByteArray,

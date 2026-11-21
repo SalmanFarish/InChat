@@ -46,6 +46,25 @@ internal fun requireUnchangedGroupRecipient(expectedUserId: String, currentUserI
     }
 }
 
+/** Narrow staging boundary so receive authorization can be tested without native crypto. */
+internal fun interface MegolmInboundGroupMessageStager {
+    fun prepareInboundMessage(
+        membership: GroupCryptoMembershipSnapshot,
+        payload: OlmGroupMessagePayload,
+        receiptId: String,
+        receivedAtMillis: Long,
+    ): StagedMegolmDecryption
+}
+
+/** Narrow Room commit boundary for the staged group-message handoff. */
+internal fun interface EncryptedGroupMessageCommitter {
+    suspend fun commitStagedMessage(
+        message: DecryptedGroupMessage,
+        receipt: EncryptedGroupMessageReceiptEntity,
+        originalCiphertext: ByteArray,
+    ): Boolean
+}
+
 /**
  * Validates the inner group route against one atomic Worker-authored membership
  * snapshot, stages native Megolm decryption, then commits ciphertext + replay
@@ -53,8 +72,8 @@ internal fun requireUnchangedGroupRecipient(expectedUserId: String, currentUserI
  */
 internal class DefaultOlmInboundGroupMessageHandoff(
     private val membershipForGroup: suspend (groupId: String) -> GroupCryptoMembershipSnapshot?,
-    private val sessionRepository: MegolmSessionRepository,
-    private val messageRepository: EncryptedGroupMessageRepository,
+    private val sessionRepository: MegolmInboundGroupMessageStager,
+    private val messageRepository: EncryptedGroupMessageCommitter,
     private val authenticatedLocalUserId: () -> String,
     private val trustVerifier: OlmDeviceTrustVerifier,
 ) : OlmInboundGroupMessageHandoff {

@@ -123,7 +123,7 @@ internal class MegolmSessionRepository(
     context: Context,
     private val identityRepository: DeviceIdentityRepository = DeviceIdentityRepository(context.applicationContext),
     private val authenticatedUserId: () -> String,
-) : MegolmInboundSessionKeyImporter {
+) : MegolmInboundSessionKeyImporter, MegolmInboundGroupMessageStager {
     private val appContext = context.applicationContext
 
     private val localBundle: PublicDeviceKeyBundle by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -552,7 +552,7 @@ internal class MegolmSessionRepository(
      * Native code persists the advanced Megolm ratchet and plaintext together.
      * Do not expose this method to a raw Firebase ciphertext listener.
      */
-    fun prepareInboundMessage(
+    override fun prepareInboundMessage(
         membership: GroupCryptoMembershipSnapshot,
         payload: OlmGroupMessagePayload,
         receiptId: String,
