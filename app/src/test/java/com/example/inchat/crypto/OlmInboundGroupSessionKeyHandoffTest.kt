@@ -2,6 +2,7 @@ package com.example.inchat.crypto
 
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import java.util.Base64
+import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,6 +45,58 @@ class OlmInboundGroupSessionKeyHandoffTest {
         assertEquals(1, importCalls)
         assertEquals(2, membershipReads)
         assertArrayEquals(expectedKey, importedCopy)
+        assertTrue(requireNotNull(importedReference).all { it == 0.toByte() })
+    }
+
+    @Test
+    fun malformedGroupRoutesAreRejectedBeforeMembershipLookupOrImport() = runBlocking {
+        var membershipReads = 0
+        var importCalls = 0
+        val handoff = handoff(
+            snapshots = mutableListOf(membership(), membership()),
+            importer = MegolmInboundSessionKeyImporter { _, _, _, _, _ ->
+                importCalls++
+                true
+            },
+            onMembershipRead = { membershipReads++ },
+        )
+        val malformedPayloads = listOf(
+            JSONObject(payload()).put("groupId", 123).toString(),
+            JSONObject(payload()).put("groupId", JSONObject.NULL).toString(),
+            JSONObject(payload()).put("groupId", JSONObject().put("value", "group-1")).toString(),
+            JSONObject(payload()).put("groupId", "../other").toString(),
+            JSONObject(payload()).apply { remove("groupId") }.toString(),
+        )
+        malformedPayloads.forEach { malformed ->
+            var rejected = false
+            try {
+                handoff.process(receipt(), remoteDevice(), "alice", "bob", malformed)
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue("Malformed authenticated group-key route must be rejected", rejected)
+        }
+        assertEquals(0, membershipReads)
+        assertEquals(0, importCalls)
+    }
+
+    @Test
+    fun decodedSessionKeyIsZeroizedWhenNativeImportFails() = runBlocking {
+        var importedReference: ByteArray? = null
+        val handoff = handoff(
+            snapshots = mutableListOf(membership(), membership()),
+            importer = MegolmInboundSessionKeyImporter { _, _, _, _, key ->
+                importedReference = key
+                throw IllegalStateException("simulated native import failure")
+            },
+        )
+        var failed = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+        assertTrue(failed)
         assertTrue(requireNotNull(importedReference).all { it == 0.toByte() })
     }
 

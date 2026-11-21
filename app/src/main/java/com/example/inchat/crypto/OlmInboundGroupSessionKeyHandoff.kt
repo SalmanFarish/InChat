@@ -64,6 +64,9 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
             require(json.opt("messageType") == "group_session_key") {
                 "Authenticated Olm payload is not a group session-key distribution"
             }
+            require(json.opt("groupId") is String) {
+                "Authenticated group ID must be a string"
+            }
             json.getString("groupId")
         } catch (error: Exception) {
             throw IllegalArgumentException("Authenticated group-key routing is malformed", error)
