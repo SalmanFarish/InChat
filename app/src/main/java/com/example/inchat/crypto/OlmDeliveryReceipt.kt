@@ -80,6 +80,18 @@ interface OlmDeliveryReceiptDao {
         messageId: String,
     ): List<String>
 
+    /** All acknowledged target identities for one immutable distribution. */
+    @Query(
+        "SELECT recipientUserId || '/' || recipientDeviceId FROM olm_delivery_receipts " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :distributionId ORDER BY recipientUserId ASC, recipientDeviceId ASC"
+    )
+    fun getAcknowledgedTargetIdentitiesForDistribution(
+        ownerUserId: String,
+        senderDeviceId: String,
+        distributionId: String,
+    ): List<String>
+
     @Query(
         "SELECT EXISTS(SELECT 1 FROM olm_delivery_receipts " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +

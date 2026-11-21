@@ -6,6 +6,13 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+/** Queue identity/status only; envelopes are deliberately excluded from recovery scans. */
+data class OlmDeliveryQueueTargetState(
+    val recipientUserId: String,
+    val recipientDeviceId: String,
+    val status: String,
+)
+
 @Dao
 interface OlmDeliveryQueueDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -39,6 +46,21 @@ interface OlmDeliveryQueueDao {
         ownerUserId: String,
         senderDeviceId: String,
     ): Int
+
+    /**
+     * Enumerate durable targets for one group-key distribution. messageId is
+     * the immutable distribution ID; no ciphertext is returned to the scanner.
+     */
+    @Query(
+        "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :distributionId ORDER BY recipientUserId ASC, recipientDeviceId ASC"
+    )
+    fun getTargetStatesForDistribution(
+        ownerUserId: String,
+        senderDeviceId: String,
+        distributionId: String,
+    ): List<OlmDeliveryQueueTargetState>
 
     @Query("SELECT * FROM olm_device_deliveries WHERE deliveryId = :deliveryId LIMIT 1")
     fun getByDeliveryId(deliveryId: String): OlmDeviceDeliveryEntity?
