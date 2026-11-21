@@ -26,6 +26,7 @@ data class OlmGroupKeyDistributionEntity(
     /** Decode and validate the persisted canonical target set for recovery. */
     internal fun targetDevicePairs(): List<Pair<String, String>> {
         require(targetDevices.isNotBlank()) { "Persisted group-key target set is empty" }
+        require(targetDevices.count { it == ',' } < MAX_TARGET_DEVICES) { "Persisted group-key target set exceeds the device limit" }
         val decoded = targetDevices.split(',').map { item ->
             val separator = item.indexOf('/')
             require(separator > 0 && separator == item.lastIndexOf('/') && separator < item.lastIndex) {
@@ -46,6 +47,7 @@ data class OlmGroupKeyDistributionEntity(
     }
 
     private companion object {
+        const val MAX_TARGET_DEVICES = 500
         val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
     }
@@ -75,6 +77,7 @@ internal data class OlmGroupKeyDistributionRecord(
     internal fun toEntity(): OlmGroupKeyDistributionEntity {
         val sorted = targetDevices.distinct().sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
         require(sorted.size == targetDevices.size && sorted.isNotEmpty()) { "Group-key targets must be non-empty and unique" }
+        require(sorted.size <= MAX_TARGET_DEVICES) { "Group-key targets exceed the device delivery limit" }
         require(sorted.all { (user, device) -> USER_ID.matches(user) && DEVICE_ID.matches(device) })
         require(USER_ID.matches(ownerUserId) && DEVICE_ID.matches(senderDeviceId))
         require(ID.matches(distributionId) && ID.matches(groupId) && SESSION_ID.matches(megolmSessionId) && membershipEpoch >= 0L)
@@ -88,6 +91,7 @@ internal data class OlmGroupKeyDistributionRecord(
 
     companion object {
         internal fun recordId(owner: String, device: String, distribution: String) = "$owner:$device:$distribution"
+        private const val MAX_TARGET_DEVICES = 500
         private val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         private val ID = Regex("[A-Za-z0-9_-]{1,128}")

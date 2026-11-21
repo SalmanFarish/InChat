@@ -23,6 +23,16 @@ class OlmGroupKeyDistributionRecordTest {
         val ids = setOf(recordId("alice", "phone"), recordId("alice", "tablet"), recordId("bob", "phone"))
         assertEquals(3, ids.size)
     }
+    @Test fun targetSetCannotExceedTheCoordinatorFanOutLimit() {
+        val oversized = List(501) { index -> "bob" to "device-$index" }
+        assertThrows(IllegalArgumentException::class.java) { record(oversized).toEntity() }
+
+        val persisted = record(listOf("bob" to "bob-phone")).toEntity()
+        val oversizedEncoded = (0..500).joinToString(",") { "bob/device-$it" }
+        assertThrows(IllegalArgumentException::class.java) {
+            persisted.copy(targetDevices = oversizedEncoded).targetDevicePairs()
+        }
+    }
     private fun record(targets: List<Pair<String, String>>) = OlmGroupKeyDistributionRecord("alice", "alice-phone", "group-key-7", "group-1", 7L, "1234567890abcdef", targets)
     private fun recordId(owner: String, device: String) = OlmGroupKeyDistributionRecord.recordId(owner, device, "group-key-7")
 }
