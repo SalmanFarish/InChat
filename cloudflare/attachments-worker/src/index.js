@@ -5,7 +5,10 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
-import { buildAddressedMessagePushData } from "./message-notification.js";
+import {
+  buildAddressedMessagePushData,
+  buildRecipientAccountTags,
+} from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
 import { cleanupGroupNotificationTokens } from "./group-topic-subscription.js";
@@ -2638,6 +2641,9 @@ async function processMessageEvent(request, env, uid, adminAuth) {
         } else {
           // Topics remain the safe fallback while a group is syncing devices
           // or when a group is too large for the free Worker's subrequest cap.
+          // Include one-way tags for the current recipient set so a stale topic
+          // subscription from a previous account cannot display this message.
+          const recipientAccountTags = await buildRecipientAccountTags(memberIds);
           await fcmRequest(
             adminAuth.token,
             "https://fcm.googleapis.com/v1/projects/" +
@@ -2656,6 +2662,7 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                   messageId: messageId,
                   senderId: uid,
                   deliveryScope: "group_topic",
+                  recipientAccountTags: recipientAccountTags,
                   senderName: senderNickname,
                   groupName: groupName,
                   message: messageText,

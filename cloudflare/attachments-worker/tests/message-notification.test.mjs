@@ -84,3 +84,25 @@ test("addressed push builder rejects unsupported types", () => {
     /Unsupported/,
   );
 });
+
+
+test("large-group recipient tags are stable, deduplicated, compact, and do not expose UIDs", async () => {
+  const { buildRecipientAccountTags } = await import("../src/message-notification.js");
+  const first = await buildRecipientAccountTags(["bob", "alice", "bob"]);
+  const second = await buildRecipientAccountTags(["alice", "bob"]);
+
+  assert.equal(first, second);
+  const tags = first.split(",");
+  assert.equal(tags.length, 2);
+  assert.ok(tags.every((tag) => /^[a-f0-9]{32}$/.test(tag)));
+  assert.equal(first.includes("alice"), false);
+  assert.equal(first.includes("bob"), false);
+});
+
+test("large-group recipient tag builder rejects invalid or oversized membership lists", async () => {
+  const { buildRecipientAccountTags } = await import("../src/message-notification.js");
+  await assert.rejects(
+    () => buildRecipientAccountTags(Array.from({ length: 51 }, (_, index) => "user-" + index)),
+    /invalid/,
+  );
+});

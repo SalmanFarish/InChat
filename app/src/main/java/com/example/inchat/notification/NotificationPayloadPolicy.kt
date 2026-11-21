@@ -106,6 +106,17 @@ internal object NotificationPayloadPolicy {
         }
     }
 
+    /**
+     * Computes the same truncated SHA-256 tag used by the Worker for group
+     * broadcast membership checks. The raw UID never travels in topic payloads.
+     */
+    fun recipientAccountTag(userId: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(userId.trim().toByteArray(Charsets.UTF_8))
+            .copyOfRange(0, 16)
+        return digestHex(digest)
+    }
+
     fun isIntendedForAccount(data: Map<String, String>, currentUserId: String): Boolean {
         val signedInUserId = currentUserId.trim()
         if (signedInUserId.isBlank()) return false
@@ -115,10 +126,16 @@ internal object NotificationPayloadPolicy {
             return targetUserId.isNotBlank() && targetUserId == signedInUserId
         }
 
-        // The only supported unaddressed notification is the large-group topic
-        // broadcast, explicitly marked by the trusted Worker.
-        return data["type"] == TYPE_GROUP &&
-            data["deliveryScope"] == "group_topic"
+        // Topic broadcasts have no single recipient. Accept only when the
+        // signed-in account appears in the Worker-supplied membership snapshot.
+        if (data["type"] != TYPE_GROUP || data["deliveryScope"] != "group_topic") {
+            return false
+        }
+        val recipientTags = data["recipientAccountTags"]
+            ?.split(",")
+            ?.map(String::trim)
+            .orEmpty()
+        return recipientAccountTag(signedInUserId) in recipientTags
     }
 
     /**

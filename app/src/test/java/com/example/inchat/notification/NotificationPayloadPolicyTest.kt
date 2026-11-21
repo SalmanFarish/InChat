@@ -151,16 +151,33 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
-    fun legacyTopicPushWithoutRecipientUidRemainsCompatibleOnlyForSignedInGroups() {
+    fun largeGroupTopicPushRequiresMatchingRecipientAccountTag() {
         val topicPayload = mapOf(
             "type" to NotificationPayloadPolicy.TYPE_GROUP,
             "deliveryScope" to "group_topic",
+            "recipientAccountTags" to NotificationPayloadPolicy.recipientAccountTag("account-one"),
         )
         assertTrue(
             NotificationPayloadPolicy.isIntendedForAccount(topicPayload, "account-one"),
         )
         assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(topicPayload, "account-two"),
+        )
+        assertFalse(
             NotificationPayloadPolicy.isIntendedForAccount(topicPayload, ""),
+        )
+    }
+
+    @Test
+    fun largeGroupTopicPushWithoutRecipientTagsIsRejected() {
+        assertFalse(
+            NotificationPayloadPolicy.isIntendedForAccount(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_GROUP,
+                    "deliveryScope" to "group_topic",
+                ),
+                "account-one",
+            ),
         )
     }
 
