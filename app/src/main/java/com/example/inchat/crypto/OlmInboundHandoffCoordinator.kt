@@ -144,6 +144,12 @@ internal class OlmInboundHandoffCoordinator(
                     )
             }
 
+            // Authentication can also change while native staging suspends. Never
+            // commit a result under an account other than the one that started it.
+            check(localUserId == authenticatedLocalUserId()) {
+                "Authenticated account changed during native decryption"
+            }
+
             // Native staging can suspend while trust is revoked elsewhere in the app.
             // Recheck before routing or committing either direct or group payloads.
             check(

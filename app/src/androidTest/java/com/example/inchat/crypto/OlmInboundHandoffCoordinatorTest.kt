@@ -318,6 +318,45 @@ class OlmInboundHandoffCoordinatorTest {
                 db.encryptedOlmMessageDao().getMessage("local-user", directChatId, messageId),
             )
 
+            var accountChecks = 0
+            val accountChangedDuringDecryptionCoordinator = OlmInboundHandoffCoordinator(
+                database = db,
+                receiptDao = db.olmInboundReceiptDao(),
+                sessionRepository = repository,
+                authenticatedLocalUserId = {
+                    accountChecks++
+                    if (accountChecks == 1) "local-user" else "different-local-account"
+                },
+                trustVerifier = trustedDevice("alice", senderBundle),
+                encryptedMessageDao = db.encryptedOlmMessageDao(),
+            )
+            var accountChangeRejected = false
+            try {
+                accountChangedDuringDecryptionCoordinator.process(
+                    receiptId,
+                    senderBundle,
+                    remoteDeviceUserId = "alice",
+                    ciphertextKind = OlmInboundCiphertextKind.PRE_KEY,
+                    localUserId = "local-user",
+                ) { payload -> decryptedMessage(payload) }
+            } catch (expected: IllegalStateException) {
+                accountChangeRejected = expected.message.orEmpty()
+                    .contains("Authenticated account changed")
+            }
+            assertTrue(
+                "An account switch during native staging must prevent the Room commit",
+                accountChangeRejected,
+            )
+            assertEquals(2, accountChecks)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
+            )
+            assertEquals(
+                null,
+                db.encryptedOlmMessageDao().getMessage("local-user", directChatId, messageId),
+            )
+
             var mappingFailed = false
             try {
                 coordinator.process(
