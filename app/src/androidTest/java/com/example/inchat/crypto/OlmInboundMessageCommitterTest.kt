@@ -257,6 +257,53 @@ class OlmInboundMessageCommitterTest {
     }
 
     @Test
+    fun messageForDifferentDeviceCannotConsumeReceipt() = runBlocking {
+        withDatabase("olm-inbound-receipt-device-mismatch.db") { db ->
+            val ledger = OlmInboundDeliveryLedger(
+                db.olmInboundReceiptDao(),
+                "local-user",
+                "receiver-device",
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register("alice", "wrong-device-message", envelope(), 100L),
+            )
+            val id = receiptId("wrong-device-message")
+            val committer = OlmInboundMessageCommitter(
+                db,
+                db.encryptedOlmMessageDao(),
+                db.olmInboundReceiptDao(),
+            )
+
+            try {
+                committer.commit(
+                    id,
+                    message(messageId = "wrong-device-message").copy(
+                        recipientDeviceId = "another-device",
+                    ),
+                    200L,
+                )
+                throw AssertionError("A message for another device must not consume this receipt")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("recipient device"))
+            }
+
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(id)?.status,
+            )
+            assertEquals(
+                null,
+                db.encryptedOlmMessageDao().getMessage(
+                    "local-user",
+                    "alice_local-user",
+                    "wrong-device-message",
+                ),
+            )
+        }
+    }
+
+    @Test
     fun processedReceiptCannotBeCommittedAgain() = runBlocking {
         withDatabase("olm-inbound-atomic-duplicate.db") { db ->
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "local-user", "receiver-device")
