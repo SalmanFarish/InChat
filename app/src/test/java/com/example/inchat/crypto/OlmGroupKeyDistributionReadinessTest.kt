@@ -84,6 +84,11 @@ class OlmGroupKeyDistributionReadinessTest {
         override fun getDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): List<String> = emptyList()
         override fun getAcknowledgedRecipientDeviceIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): List<String> =
             if (ownerUserId == "alice" && senderDeviceId == "alice-phone" && recipientUserId == "bob" && messageId == "group-key-7") acknowledgedDevices.toList() else emptyList()
+        override fun getAcknowledgedTargetIdentitiesForDistribution(
+            ownerUserId: String,
+            senderDeviceId: String,
+            distributionId: String,
+        ): List<String> = emptyList()
         override fun observeHasRecipientAcknowledgement(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): Flow<Boolean> = flowOf(false)
     }
 }
