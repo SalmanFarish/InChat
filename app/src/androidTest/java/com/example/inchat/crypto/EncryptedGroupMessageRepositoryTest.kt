@@ -77,28 +77,35 @@ class EncryptedGroupMessageRepositoryTest {
 
     @Test
     fun observeMessagesUsesStableTimestampAndMessageIdOrdering() = runBlocking {
-        val laterId = message().copy(
+        val latest = message().copy(
             messageId = "message-z",
-            messageIndex = 19L,
+            messageIndex = 20L,
             sentAtMillis = 1_800_000_000_100L,
-            text = "Later message",
+            text = "Latest message",
         )
-        val firstById = message().copy(
+        val sameTimeSecondById = message().copy(
+            messageId = "message-b",
+            messageIndex = 19L,
+            sentAtMillis = 1_800_000_000_000L,
+            text = "Second message at the same timestamp",
+        )
+        val sameTimeFirstById = message().copy(
             messageId = "message-a",
             messageIndex = 18L,
             sentAtMillis = 1_800_000_000_000L,
-            text = "First message",
+            text = "First message at the same timestamp",
         )
 
-        // Deliberately commit in reverse display order. The DAO must provide a
-        // deterministic timeline independent of delivery/commit arrival order.
-        val laterCiphertext = "later ciphertext".toByteArray(Charsets.UTF_8)
-        val firstCiphertext = "first ciphertext".toByteArray(Charsets.UTF_8)
-        assertTrue(repository.commitStagedMessage(laterId, receipt(laterId, laterCiphertext), laterCiphertext))
-        assertTrue(repository.commitStagedMessage(firstById, receipt(firstById, firstCiphertext), firstCiphertext))
+        // Commit in reverse display order. The timeline must be deterministic
+        // by sent timestamp, then message ID when timestamps are equal.
+        val records = listOf(latest, sameTimeSecondById, sameTimeFirstById)
+        records.forEach { record ->
+            val ciphertext = "ciphertext-${record.messageId}".toByteArray(Charsets.UTF_8)
+            assertTrue(repository.commitStagedMessage(record, receipt(record, ciphertext), ciphertext))
+        }
 
         assertEquals(
-            listOf("message-a", "message-z"),
+            listOf("message-a", "message-b", "message-z"),
             repository.observeMessages("alice", "group-123").first().map { it.messageId },
         )
         assertTrue(repository.observeMessages("mallory", "group-123").first().isEmpty())
