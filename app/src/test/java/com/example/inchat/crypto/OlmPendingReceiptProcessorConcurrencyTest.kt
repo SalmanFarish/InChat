@@ -148,6 +148,53 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         )
     }
 
+    @Test
+    fun workerAccountMismatchDoesNotFinalizeOrProcessAnotherAccountReceipts() = runBlocking {
+        val dao = InMemoryReceiptDao()
+        val encodedEnvelope = EncryptedOlmEnvelopeCodec.encode(
+            EncryptedOlmEnvelope(
+                senderDeviceId = "sender-device",
+                recipientDeviceId = "recipient-device",
+                sessionId = "session-sender-device",
+                ciphertext = byteArrayOf(1, 9),
+            ),
+        )
+        val receiptId = olmInboundReceiptId("alice", "sender-device", "message-account-scope", "recipient-device")
+        dao.insertIfAbsent(
+            OlmInboundReceiptEntity(
+                receiptId = receiptId,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = "message-account-scope",
+                recipientDeviceId = "recipient-device",
+                envelope = encodedEnvelope,
+                envelopeSha256 = sha256(encodedEnvelope),
+                status = OlmInboundReceiptStatus.PENDING.name,
+                receivedAtMillis = 3L,
+                processedAtMillis = null,
+            ),
+        )
+        val processor = OlmPendingReceiptProcessor(
+            receiptDao = dao,
+            remoteDevicesForUser = { error("Stale worker must not resolve devices") },
+            trustVerifier = OlmDeviceTrustVerifier { _, _, _ -> true },
+            handoff = OlmInboundReceiptHandoff { _, _, _, _, _ ->
+                error("Stale worker must not reach native handoff")
+            },
+            finalizer = OlmCommittedReceiptFinalizer { _, _ ->
+                error("Stale worker must not finalize another account's receipt")
+            },
+            authenticatedLocalUserId = { "account-b" },
+            expectedLocalUserId = "account-a",
+        )
+
+        val result = processor.processPending()
+
+        assertEquals(0, result.pendingScanned)
+        assertEquals(0, result.finalizationChecked)
+        assertEquals(OlmInboundReceiptStatus.PENDING.name, dao.getByReceiptId(receiptId)?.status)
+    }
+
     private class InMemoryReceiptDao : OlmInboundReceiptDao {
         private val rows = linkedMapOf<String, OlmInboundReceiptEntity>()
 

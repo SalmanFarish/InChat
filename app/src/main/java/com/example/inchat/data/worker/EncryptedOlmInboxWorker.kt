@@ -118,6 +118,11 @@ class EncryptedOlmInboxWorker(
                 deviceId = recipientDeviceId,
             )
             val result = receiver.receivePending()
+            // Inbox polling can suspend while Firebase auth changes. Do not build
+            // a receipt processor under a different account than this worker owns.
+            if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
+                return Result.success()
+            }
 
             // Decryption remains isolated from plaintext Firebase listeners and UI.
             // Only SAS-trusted, signature-verified device bundles reach the handoff.
@@ -166,6 +171,7 @@ class EncryptedOlmInboxWorker(
                 authenticatedLocalUserId = {
                     FirebaseAuth.getInstance().currentUser?.uid
                 },
+                expectedLocalUserId = ownerUserId,
                 handoff = OlmInboundReceiptHandoff { receiptId, remoteDevice, senderUid, kind, localUid ->
                     handoffCoordinator.process(
                         receiptId = receiptId,

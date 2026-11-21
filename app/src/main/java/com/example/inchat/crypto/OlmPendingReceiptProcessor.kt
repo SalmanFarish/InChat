@@ -50,6 +50,7 @@ internal class OlmPendingReceiptProcessor(
     private val handoff: OlmInboundReceiptHandoff,
     private val finalizer: OlmCommittedReceiptFinalizer,
     private val authenticatedLocalUserId: () -> String?,
+    private val expectedLocalUserId: String? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun processPending(limit: Int = DEFAULT_BATCH_LIMIT): OlmPendingReceiptProcessingResult =
@@ -61,7 +62,17 @@ internal class OlmPendingReceiptProcessor(
                 require(limit in 1..MAX_BATCH_LIMIT) {
                     "Inbound receipt batch limit must be between 1 and $MAX_BATCH_LIMIT"
                 }
-                val localUserId = requireNotNull(authenticatedLocalUserId()) {
+                val authenticatedUserId = authenticatedLocalUserId()
+                // Bind this pass to the account that scheduled its worker. A stale
+                // worker must not adopt a newly signed-in account after inbox polling.
+                if (expectedLocalUserId != null && authenticatedUserId != expectedLocalUserId) {
+                    return@withLock OlmPendingReceiptProcessingResult(
+                        finalizationChecked = 0, finalized = 0, pendingScanned = 0,
+                        deferredScanned = 0, committed = 0, alreadyCommitted = 0,
+                        waitingForTrust = 0, missingRemoteDevice = 0, rejected = 0, failed = 0,
+                    )
+                }
+                val localUserId = requireNotNull(authenticatedUserId) {
                     "Sign in before processing encrypted inbound receipts"
                 }
                 require(USER_ID_PATTERN.matches(localUserId)) {
@@ -82,6 +93,7 @@ internal class OlmPendingReceiptProcessor(
                 // Recover the crash window where Room committed the message but the
                 // native staged-plaintext cleanup had not yet completed.
                 for (receipt in receiptDao.getAwaitingFinalization(limit)) {
+                    if (authenticatedLocalUserId() != localUserId) break
                     finalizationChecked++
                     try {
                         if (finalizer.finalizeReceipt(receipt.receiptId, localUserId)) {
