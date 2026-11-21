@@ -179,6 +179,9 @@ internal class OlmInboundHandoffCoordinator(
                     localUserId = localUserId,
                     authenticatedOlmPlaintext = staged.plaintext,
                 )
+                check(localUserId == authenticatedLocalUserId()) {
+                    "Authenticated account changed during inbound Megolm key import"
+                }
                 markOuterReceiptProcessed(receiptId)
                 check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                     "Megolm key imported, but its authenticated Olm receipt could not be finalized"
@@ -204,6 +207,9 @@ internal class OlmInboundHandoffCoordinator(
                     localUserId = localUserId,
                     authenticatedOlmPlaintext = staged.plaintext,
                 )
+                check(localUserId == authenticatedLocalUserId()) {
+                    "Authenticated account changed during inbound group-message commit"
+                }
                 markOuterReceiptProcessed(receiptId)
                 check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                     "Group message committed, but native receive stages could not be finalized; retry safely"
@@ -269,6 +275,9 @@ internal class OlmInboundHandoffCoordinator(
 
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
                 "Inbound message and receipt were not committed"
+            }
+            check(localUserId == authenticatedLocalUserId()) {
+                "Authenticated account changed during inbound message commit"
             }
             check(finalizeCommittedReceipt(receiptId, OlmInboundReceiptStatus.PROCESSED.name, localUserId)) {
                 "Message committed, but native plaintext staging could not be finalized; retry safely"
