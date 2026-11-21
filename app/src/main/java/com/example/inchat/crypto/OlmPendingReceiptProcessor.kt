@@ -144,6 +144,9 @@ internal class OlmPendingReceiptProcessor(
                     // Let directory/network failures escape to WorkManager so the whole
                     // pass can retry. Missing entries are a normal deferred condition.
                     val devices = resolveDevices(receipt.senderUserId)
+                    // Directory resolution can suspend while Firebase auth changes.
+                    // Do not mutate even deferred-receipt state under a stale account scope.
+                    if (authenticatedLocalUserId() != localUserId) return
                     try {
                         val remoteDevice = devices.firstOrNull {
                             it.deviceId == receipt.senderDeviceId
