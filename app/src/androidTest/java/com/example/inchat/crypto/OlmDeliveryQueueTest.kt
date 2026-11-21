@@ -172,6 +172,23 @@ class OlmDeliveryQueueTest {
         assertEquals(1, retried.attemptCount)
     }
 
+
+    @Test
+    fun failedRetryRejectsMismatchedImmutableOwnerAndMessageIdentity() {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, maxAttempts = 1)
+        queue.enqueue("alice", "sender-device", "identity-bound-retry", listOf(prepared("phone")))
+        val claim = queue.claimNext("alice", "sender-device", 10_000L)!!
+        assertTrue(queue.retry(claim, 10_000L, "terminal_failure"))
+        val failed = store.rows.getValue(claim.deliveryId)
+        val original = failed.copy()
+
+        assertFalse(queue.retryFailed(failed.copy(messageId = "other-message"), 20_000L))
+        assertFalse(queue.retryFailed(failed.copy(ownerUserId = "mallory"), 20_000L))
+        assertFalse(queue.retryFailed(failed.copy(senderDeviceId = "other-device"), 20_000L))
+        assertEquals(original, store.rows.getValue(claim.deliveryId))
+    }
+
     private fun prepared(deviceId: String): PreparedOlmDelivery {
         val encoded = JSONObject()
             .put("encryptionVersion", 1)

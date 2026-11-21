@@ -31,6 +31,9 @@ class OlmInboundGroupMessageHandoffTest {
         assertInvalidRoute("{\"messageType\":\"group_message\"")
         assertInvalidRoute("""{"messageType":"group_message","groupId":"../other-group"}""")
         assertInvalidRoute("""{"messageType":"group_message","groupId":""}""")
+        assertInvalidRoute("""{"messageType":"group_message","groupId":null}""")
+        assertInvalidRoute("""{"messageType":"group_message","groupId":{"value":"group-123"}}""")
+        assertInvalidRoute("""{"messageType":"group_message","groupId":"group/123"}""")
         val oversizedGroupId = "x".repeat(129)
         assertInvalidRoute("""{"messageType":"group_message","groupId":"$oversizedGroupId"}""")
     }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -148,6 +149,33 @@ class EncryptedGroupMessageRepositoryTest {
                 "group-123",
                 flowOf(currentMembership.copy(epoch = 0L)),
             )
+        }
+    }
+
+
+    @Test
+    fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
+        val message = message()
+        val ciphertext = "membership-revocation ciphertext".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val liveMembership = MutableStateFlow<GroupCryptoMembershipSnapshot?>(membership)
+        assertEquals(
+            listOf(message),
+            repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
+        )
+
+        liveMembership.value = membership.copy(
+            epoch = 5L,
+            members = mapOf("bob" to "admin", "carol" to "member"),
+        )
+        assertRejected {
+            repository.observeMessagesForMember("alice", "group-123", liveMembership).first()
         }
     }
 
