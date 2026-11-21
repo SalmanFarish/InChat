@@ -102,7 +102,7 @@ class MegolmGroupSessionKeyDistributorTest {
             },
         )
 
-        val result = distributor.resume("group-1", distributionId(), 5678L)
+        val result = distributor.resume("group-1", distributionId(), 1234L)
 
         assertEquals(0, enqueueCalls)
         assertEquals(1, resumeCalls)
