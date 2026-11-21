@@ -721,6 +721,62 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun successfulUploadAfterLeaseReclaimDoesNotMarkAnotherWorkersClaimUploaded() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "late-success",
+            listOf(prepared("sender-device", "phone")),
+        )
+
+        var nowMillis = 1_000L
+        var reclaimed: QueuedOlmDeviceDelivery? = null
+        val transport = object : OlmOutgoingDeliveryTransport {
+            override suspend fun upload(
+                delivery: QueuedOlmDeviceDelivery,
+                senderDeviceId: String,
+            ): FirebaseOlmUploadResult {
+                assertEquals(1, delivery.attemptCount)
+                nowMillis = 1_100L
+                reclaimed = queue.claimNext("alice", "sender-device", nowMillis)
+                assertEquals(2, reclaimed?.attemptCount)
+                // The original network write succeeds only after its lease has
+                // expired and another worker has acquired the next generation.
+                nowMillis = 1_101L
+                return FirebaseOlmUploadResult.STORED
+            }
+
+            override suspend fun readMyDeliveryAcknowledgements(
+                senderDeviceId: String,
+            ): List<OlmDeliveryAcknowledgement> = emptyList()
+
+            override suspend fun removeMyDeliveryAcknowledgement(
+                senderDeviceId: String,
+                deliveryId: String,
+            ) = Unit
+        }
+
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { nowMillis },
+        ).run()
+
+        val currentClaim = requireNotNull(reclaimed)
+        val persisted = store.rows.getValue(currentClaim.deliveryId)
+        assertEquals(1, result.uploaded)
+        assertTrue(result.retryRequired)
+        assertEquals(OlmDeliveryStatus.IN_FLIGHT, persisted.status)
+        assertEquals(2, persisted.attemptCount)
+        assertEquals(currentClaim.leaseUntilMillis, persisted.leaseUntilMillis)
+        assertEquals(null, persisted.lastError)
+    }
+
+    @Test
     fun failedUploadPersistsRetryStateInTheScopedOutbox() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
