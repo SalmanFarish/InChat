@@ -54,6 +54,15 @@ internal class OlmInboundMessageCommitter(
                 "Decrypted message recipient device does not match its inbound receipt"
             }
 
+            check(
+                encryptedMessageDao.getMessage(
+                    encryptedMessage.ownerUserId,
+                    encryptedMessage.conversationId,
+                    encryptedMessage.messageId,
+                ) == null
+            ) {
+                "An encrypted message with this identity already exists for another or incomplete receipt"
+            }
             encryptedMessageDao.upsertMessage(encryptedMessage)
             check(receiptDao.markProcessed(receiptId, processedAtMillis) == 1) {
                 "Inbound receipt could not be marked processed"

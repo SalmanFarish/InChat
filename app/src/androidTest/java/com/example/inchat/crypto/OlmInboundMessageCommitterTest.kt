@@ -126,6 +126,80 @@ class OlmInboundMessageCommitterTest {
         }
     }
 
+
+    @Test
+    fun secondSenderDeviceCannotOverwriteAnExistingConversationMessageId() = runBlocking {
+        withDatabase("olm-inbound-message-id-collision.db") { db ->
+            val firstLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                firstLedger.register("alice", "shared-message-id", envelope(), 100L),
+            )
+            val committer = OlmInboundMessageCommitter(
+                db,
+                db.encryptedOlmMessageDao(),
+                db.olmInboundReceiptDao(),
+            )
+            assertTrue(
+                committer.commit(
+                    receiptId("shared-message-id"),
+                    message(messageId = "shared-message-id"),
+                    200L,
+                ),
+            )
+            val original = requireNotNull(
+                db.encryptedOlmMessageDao().getMessage(
+                    "local-user",
+                    "alice_local-user",
+                    "shared-message-id",
+                ),
+            )
+
+            val secondDevice = "sender-device-two"
+            val secondEnvelope = JSONObject(envelope())
+                .put("senderDeviceId", secondDevice)
+                .put("sessionId", "session-$secondDevice")
+                .toString()
+            val secondLedger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "receiver-device")
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                secondLedger.register("alice", "shared-message-id", secondEnvelope, 300L),
+            )
+            val secondReceiptId = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(("alice" + 0.toChar() + secondDevice + 0.toChar() +
+                    "shared-message-id" + 0.toChar() + "receiver-device").toByteArray())
+                .joinToString("") { "%02x".format(it) }
+
+            try {
+                committer.commit(
+                    secondReceiptId,
+                    message(messageId = "shared-message-id").copy(
+                        senderDeviceId = secondDevice,
+                        text = "replacement plaintext",
+                    ),
+                    400L,
+                )
+                throw AssertionError("A second sender device must not overwrite an existing message identity")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message.orEmpty().contains("already exists"))
+            }
+
+            val unchanged = requireNotNull(
+                db.encryptedOlmMessageDao().getMessage(
+                    "local-user",
+                    "alice_local-user",
+                    "shared-message-id",
+                ),
+            )
+            assertEquals("decrypted body", EncryptedOlmMessageVault().decrypt(original).text)
+            assertEquals("decrypted body", EncryptedOlmMessageVault().decrypt(unchanged).text)
+            assertEquals(
+                OlmInboundReceiptStatus.PENDING.name,
+                db.olmInboundReceiptDao().getByReceiptId(secondReceiptId)?.status,
+            )
+        }
+    }
+
     @Test
     fun processedReceiptCannotBeCommittedAgain() = runBlocking {
         withDatabase("olm-inbound-atomic-duplicate.db") { db ->

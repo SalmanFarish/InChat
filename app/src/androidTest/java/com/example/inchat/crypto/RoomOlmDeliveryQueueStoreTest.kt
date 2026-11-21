@@ -785,6 +785,34 @@ class RoomOlmDeliveryQueueStoreTest {
         }
     }
 
+
+    @Test
+    fun explicitFailedRetryRejectsMismatchedRoomIdentityWithoutChangingTheRow() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-manual-retry-identity-fence.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao), maxAttempts = 1)
+            queue.enqueue("alice", "sender-device", "retry-identity", listOf(prepared("device-phone")))
+            val claim = queue.claimNext("alice", "sender-device", 10_000L)!!
+            assertTrue(queue.retry(claim, 10_000L, "terminal_failure"))
+            val failed = dao.getByDeliveryId(claim.deliveryId)!!
+            val before = failed.toDelivery()
+
+            assertFalse(queue.retryFailed(before.copy(messageId = "other-message"), 20_000L))
+            assertFalse(queue.retryFailed(before.copy(ownerUserId = "mallory"), 20_000L))
+            assertFalse(queue.retryFailed(before.copy(senderDeviceId = "other-device"), 20_000L))
+            assertEquals(before, dao.getByDeliveryId(claim.deliveryId)?.toDelivery())
+            assertEquals(OlmDeliveryStatus.FAILED.name, dao.getByDeliveryId(claim.deliveryId)?.status)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun prepared(deviceId: String, senderDeviceId: String = "sender-device"): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)
