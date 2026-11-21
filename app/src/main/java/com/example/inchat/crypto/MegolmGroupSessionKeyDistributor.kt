@@ -95,11 +95,13 @@ internal class MegolmGroupSessionKeyDistributor(
             "Every current remote group member must have a trusted device"
         }
 
+        val expectedRosterFingerprint = GroupDeviceRosterFingerprint.create(initial, trustedTargets)
         val session = ensureOutboundSession(initial, trustedTargets)
         require(
             session.groupId == groupId &&
                 session.membershipEpoch == initial.epoch &&
-                session.sessionId.matches(SESSION_ID)
+                session.sessionId.matches(SESSION_ID) &&
+                session.targetRosterFingerprint == expectedRosterFingerprint
         ) {
             "Native Megolm sender session does not match the current group epoch and device roster"
         }

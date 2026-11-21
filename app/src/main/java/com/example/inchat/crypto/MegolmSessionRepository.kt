@@ -13,6 +13,8 @@ internal data class OutboundMegolmSessionInfo(
     val groupId: String,
     val membershipEpoch: Long,
     val created: Boolean,
+    /** Empty only for a legacy pre-fingerprint session; such sessions are never send-ready. */
+    val targetRosterFingerprint: String? = null,
 )
 
 /** Ciphertext metadata returned after the sender ratchet has been persisted. */
@@ -97,6 +99,26 @@ internal object GroupDeviceRosterFingerprint {
  *
  * It deliberately does not write to Firebase, Room chat tables, or the live UI.
  */
+/**
+ * New group messages may use only the active native ratchet whose exact
+ * membership/role and trusted-device fingerprint matches the readiness token.
+ * Archived ratchets are deliberately reserved for recovery of old distributions.
+ */
+internal fun isOutboundMegolmSessionReadyFor(
+    session: OutboundMegolmSessionInfo?,
+    membership: GroupCryptoMembershipSnapshot,
+    targetDevices: Set<Pair<String, String>>,
+    expectedSessionId: String,
+): Boolean {
+    if (session == null || !membership.isValid()) return false
+    if (session.groupId != membership.groupId ||
+        session.membershipEpoch != membership.epoch ||
+        session.sessionId != expectedSessionId
+    ) return false
+    return session.targetRosterFingerprint ==
+        GroupDeviceRosterFingerprint.create(membership, targetDevices)
+}
+
 internal class MegolmSessionRepository(
     context: Context,
     private val identityRepository: DeviceIdentityRepository = DeviceIdentityRepository(context.applicationContext),
@@ -154,6 +176,7 @@ internal class MegolmSessionRepository(
             groupId = membership.groupId,
             membershipEpoch = membership.epoch,
             created = result.getBoolean("created"),
+            targetRosterFingerprint = rosterFingerprint,
         )
     }
 
@@ -203,6 +226,10 @@ internal class MegolmSessionRepository(
         require(sessionId.isNotBlank() && sessionId.length <= MAX_SESSION_ID_LENGTH) {
             "Native Megolm session ID is invalid"
         }
+        val targetRosterFingerprint = result.getString("targetRosterFingerprint")
+        require(targetRosterFingerprint.isEmpty() || targetRosterFingerprint.matches(ROSTER_FINGERPRINT)) {
+            "Native recovery session target roster fingerprint is invalid"
+        }
         require(result.getLong("membershipEpoch") == membership.epoch &&
             !result.getBoolean("created")) {
             "Native recovery session metadata is invalid"
@@ -212,6 +239,7 @@ internal class MegolmSessionRepository(
             groupId = membership.groupId,
             membershipEpoch = membership.epoch,
             created = false,
+            targetRosterFingerprint = targetRosterFingerprint,
         )
     }
 
@@ -705,6 +733,7 @@ internal class MegolmSessionRepository(
     private companion object {
         const val MAX_GROUP_TARGET_DEVICES = 256
         val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
+        val ROSTER_FINGERPRINT = Regex("[A-Fa-f0-9]{64}")
         const val MAX_SESSION_ID_LENGTH = 128
         const val MAX_PENDING_DECRYPTIONS = 64
         const val MAX_PENDING_OUTBOUND_MESSAGES = 128

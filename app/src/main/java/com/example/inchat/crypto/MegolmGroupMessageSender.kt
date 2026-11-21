@@ -33,15 +33,18 @@ internal class MegolmGroupMessageSender(
         // The sender only uses the exact already-distributed session; it never creates
         // a substitute session as a side effect of a message send.
         requireKeyDistributionReady(membership, keyDistribution)
-        val outboundSession = requireNotNull(
-            sessions.getExistingOutboundSession(membership, keyDistribution.megolmSessionId),
-        ) { "The exact acknowledged Megolm sender session is no longer available" }
+        val outboundSession = sessions.getExistingOutboundSession(membership)
         require(
             keyDistribution.groupId == membership.groupId &&
                 keyDistribution.membershipEpoch == membership.epoch &&
-                keyDistribution.megolmSessionId == outboundSession.sessionId
+                isOutboundMegolmSessionReadyFor(
+                    session = outboundSession,
+                    membership = membership,
+                    targetDevices = keyDistribution.targetDevices,
+                    expectedSessionId = keyDistribution.megolmSessionId,
+                )
         ) {
-            "The current outbound Megolm session key has not been distributed for this membership epoch"
+            "The acknowledged Megolm session is not active for the current membership and trusted-device roster"
         }
 
         val staged = sessions.prepareOutboundMessage(

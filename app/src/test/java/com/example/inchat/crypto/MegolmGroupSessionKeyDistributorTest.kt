@@ -5,6 +5,7 @@ import java.util.Base64
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -156,6 +157,50 @@ class MegolmGroupSessionKeyDistributorTest {
     }
 
     @Test
+    fun newGroupMessageRequiresActiveSessionForExactMembershipAndDeviceRoster() {
+        val currentMembership = membership(9L)
+        val targets = setOf("bob" to "bob-phone", "carol" to "carol-phone")
+        val expectedId = "session-current"
+        val matchingSession = OutboundMegolmSessionInfo(
+            sessionId = expectedId,
+            groupId = currentMembership.groupId,
+            membershipEpoch = currentMembership.epoch,
+            created = false,
+            targetRosterFingerprint = GroupDeviceRosterFingerprint.create(currentMembership, targets),
+        )
+        assertTrue(
+            isOutboundMegolmSessionReadyFor(
+                matchingSession,
+                currentMembership,
+                targets,
+                expectedId,
+            ),
+        )
+
+        val changedRoles = currentMembership.copy(
+            members = mapOf("alice" to "member", "bob" to "admin", "carol" to "member"),
+        )
+        assertFalse(
+            isOutboundMegolmSessionReadyFor(
+                matchingSession,
+                changedRoles,
+                targets,
+                expectedId,
+            ),
+        )
+
+        val archivedSession = matchingSession.copy(sessionId = "session-archived")
+        assertFalse(
+            isOutboundMegolmSessionReadyFor(
+                archivedSession,
+                currentMembership,
+                targets,
+                expectedId,
+            ),
+        )
+    }
+
+    @Test
     fun groupDeviceRosterFingerprintChangesWhenMembershipRolesChangeAtSameEpoch() {
         val currentMembership = membership(9L)
         val changedMembership = currentMembership.copy(
@@ -196,6 +241,7 @@ class MegolmGroupSessionKeyDistributorTest {
                 groupId = membership.groupId,
                 membershipEpoch = membership.epoch,
                 created = false,
+                targetRosterFingerprint = GroupDeviceRosterFingerprint.create(membership, targets),
             )
         },
         exportOutboundSessionKey = { membership, sessionId ->

@@ -167,13 +167,13 @@ fn inbound_group_session_key(
     )
 }
 
-fn existing_outbound_group_session_id(
+fn existing_outbound_group_session_metadata(
     state: &DeviceCryptoState,
     group_id: &str,
     membership_epoch: u64,
     sender_user_id: &str,
     sender_device_id: &str,
-) -> Result<String, &'static str> {
+) -> Result<(String, String), &'static str> {
     if !valid_group_id(group_id) ||
         membership_epoch == 0 ||
         !valid_user_id(sender_user_id) ||
@@ -185,9 +185,24 @@ fn existing_outbound_group_session_id(
     if stored.membership_epoch != membership_epoch ||
         stored.sender_user_id != sender_user_id ||
         stored.sender_device_id != sender_device_id {
-        return Err("Existing outbound Megolm session does not match its owner or epoch");
+        return Err("Outbound Megolm session does not match its owner or epoch");
     }
-    Ok(stored.session.session_id())
+    Ok((
+        stored.session.session_id(),
+        stored.target_roster_fingerprint.clone(),
+    ))
+}
+
+fn existing_outbound_group_session_id(
+    state: &DeviceCryptoState,
+    group_id: &str,
+    membership_epoch: u64,
+    sender_user_id: &str,
+    sender_device_id: &str,
+) -> Result<String, &'static str> {
+    existing_outbound_group_session_metadata(
+        state, group_id, membership_epoch, sender_user_id, sender_device_id,
+    ).map(|(session_id, _)| session_id)
 }
 
 fn outbound_group_session_archive_key(
@@ -3141,6 +3156,16 @@ mod tests {
             first_id,
         );
 
+        let (same_roster_id, same_roster_fingerprint) =
+            super::existing_outbound_group_session_metadata(
+                &state, "group-1", 3, "sender-user", "sender-device",
+            ).unwrap();
+        assert_eq!(same_roster_id, first_id);
+        assert_eq!(
+            same_roster_fingerprint,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+
         let (same_roster_id, created) = super::ensure_outbound_group_session(
             &mut state, "group-1", 3, "sender-user", "sender-device", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ).unwrap();
@@ -4178,12 +4203,13 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeG
     if membership_epoch <= 0 { return std::ptr::null_mut(); }
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = load_device_crypto_state(&mut env, &store, &device_id)?;
-        let session_id = existing_outbound_group_session_id(
+        let (session_id, target_roster_fingerprint) = existing_outbound_group_session_metadata(
             &state, &group_id, membership_epoch as u64, &sender_user_id, &device_id
         )?;
         serde_json::to_string(&json!({
             "sessionId": session_id,
             "membershipEpoch": membership_epoch,
+            "targetRosterFingerprint": target_roster_fingerprint,
             "created": false
         })).map_err(|_| "Could not encode existing outbound Megolm session metadata")
     }));
