@@ -243,9 +243,13 @@ class InChatFirebaseMessagingService :
          * New messages update that conversation instead of creating
          * another notification for every incoming message.
          */
-        val notificationId =
-            chatId.hashCode().takeIf { chatId.isNotBlank() }
-                ?: DEFAULT_NOTIFICATION_ID
+        // A conversation's notification and PendingIntent IDs must be stable
+        // across process restarts, but String.hashCode() has easy collisions
+        // (for example, distinct strings can overwrite one another's alerts).
+        val notificationId = NotificationPayloadPolicy.notificationIdForChat(
+            chatId = chatId,
+            fallbackId = DEFAULT_NOTIFICATION_ID,
+        )
 
         val pendingIntent =
             PendingIntent.getActivity(

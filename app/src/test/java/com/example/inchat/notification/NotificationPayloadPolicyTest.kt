@@ -8,6 +8,33 @@ import org.junit.Test
 class NotificationPayloadPolicyTest {
 
     @Test
+    fun conversationNotificationIdsAreStableAndAvoidKnownStringHashCollisions() {
+        // These strings have the same Java String.hashCode() but must not
+        // overwrite each other's conversation notification.
+        assertEquals("AaAaAa".hashCode(), "BBBBBB".hashCode())
+        val first = NotificationPayloadPolicy.notificationIdForChat("AaAaAa", 1001)
+        val second = NotificationPayloadPolicy.notificationIdForChat("BBBBBB", 1001)
+
+        assertTrue(first > 0)
+        assertTrue(second > 0)
+        assertTrue(first != 1001)
+        assertTrue(second != 1001)
+        assertTrue(first != second)
+        assertEquals(
+            first,
+            NotificationPayloadPolicy.notificationIdForChat("AaAaAa", 1001),
+        )
+    }
+
+    @Test
+    fun blankConversationUsesTheNotificationFallbackId() {
+        assertEquals(
+            1001,
+            NotificationPayloadPolicy.notificationIdForChat("  ", 1001),
+        )
+    }
+
+    @Test
     fun encryptedOlmWakeupAcceptsOnlyItsMinimalDeliveryReference() {
         assertTrue(
             NotificationPayloadPolicy.isEncryptedOlmWakeup(

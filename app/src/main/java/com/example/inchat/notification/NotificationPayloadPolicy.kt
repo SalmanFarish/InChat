@@ -1,5 +1,8 @@
 package com.example.inchat.notification
 
+import java.nio.ByteBuffer
+import java.security.MessageDigest
+
 /**
  * Converts FCM data into Android notification presentation.
  *
@@ -29,6 +32,20 @@ internal object NotificationPayloadPolicy {
 
     const val ROUTE_CHAT = "chat_message"
     const val ROUTE_GROUP = "group_message"
+
+    /**
+     * Derives a repeatable per-conversation Android notification ID without
+     * relying on collision-prone String.hashCode(). The digest keeps IDs stable
+     * across process restarts and devices; reserve the fallback ID for invalid
+     * or missing conversation identifiers.
+     */
+    fun notificationIdForChat(chatId: String, fallbackId: Int): Int {
+        if (chatId.isBlank()) return fallbackId
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(chatId.toByteArray(Charsets.UTF_8))
+        val candidate = ByteBuffer.wrap(digest, 0, Int.SIZE_BYTES).int and Int.MAX_VALUE
+        return candidate.takeIf { it != 0 && it != fallbackId } ?: (fallbackId + 1)
+    }
 
     private const val GENERIC_TITLE = "InChat"
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
