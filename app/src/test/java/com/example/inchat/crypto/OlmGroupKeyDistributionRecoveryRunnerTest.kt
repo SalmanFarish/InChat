@@ -174,6 +174,78 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
     }
 
     @Test
+    fun doesNotResumeWhenPreparedDeviceLosesTrustBeforeEnqueue() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("alice" to "alice-tablet", "bob" to "bob-phone"),
+        ).toEntity()
+        var resumed = false
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            ensureOutboundSession = {
+                OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
+            },
+            exportOutboundSessionKey = { ByteArray(32) { 5 } },
+            prepareDistribution = { id, snapshot, session, _, _, _ ->
+                PreparedOlmGroupKeyDistribution(
+                    distributionId = id,
+                    groupId = snapshot.groupId,
+                    membershipEpoch = snapshot.epoch,
+                    megolmSessionId = session,
+                    deliveries = listOf(
+                        PreparedOlmGroupKeyDelivery(
+                            recipientUserId = "bob",
+                            recipientDeviceId = "bob-phone",
+                            sessionId = "olm-session-bob",
+                            envelope = "ciphertext-envelope",
+                        ),
+                    ),
+                    skippedUntrustedDeviceCount = 0,
+                    targetDevices = metadata.targetDevicePairs(),
+                )
+            },
+            resumeDistribution = { _, _ ->
+                resumed = true
+                1
+            },
+            validatePreparedTargets = { false },
+            onDistributionFailure = { _, _ -> failureReported = true },
+        )
+
+        val result = kotlinx.coroutines.runBlocking { runner.run() }
+
+        assertEquals(1, result.distributionsScanned)
+        assertEquals(1, result.distributionsFailed)
+        assertEquals(0, result.deliveriesQueued)
+        assertFalse(resumed)
+        assertTrue(failureReported)
+    }
+
+    @Test
     fun doesNotExportKeyOrPrepareWhenNativeSessionNoLongerMatchesMetadata() {
         val membership = membership()
         val sessionId = "1234567890abcdef"
