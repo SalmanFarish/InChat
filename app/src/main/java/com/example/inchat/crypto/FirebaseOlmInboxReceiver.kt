@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,43 +31,57 @@ internal class FirebaseOlmInboxReceiver(
         var processed = 0
         var conflicts = 0
         var rejected = 0
+        var firstFailure: Exception? = null
 
+        // A transient failure for one relay item must not prevent later independent
+        // ciphertext receipts from being durably staged in this same bounded pass.
+        // Preserve retry signaling by rethrowing after all remaining items are tried.
         for (item in items) {
-            val registration = withContext(ioDispatcher) {
-                require(EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId == item.senderDeviceId) {
-                    "Inbox sender device does not match the encrypted envelope"
+            try {
+                val registration = withContext(ioDispatcher) {
+                    require(EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId == item.senderDeviceId) {
+                        "Inbox sender device does not match the encrypted envelope"
+                    }
+                    ledger.register(
+                        senderUserId = item.senderUid,
+                        messageId = item.messageId,
+                        encodedEnvelope = item.envelope,
+                        receivedAtMillis = clock().coerceAtLeast(0L),
+                    )
                 }
-                ledger.register(
-                    senderUserId = item.senderUid,
-                    messageId = item.messageId,
-                    encodedEnvelope = item.envelope,
-                    receivedAtMillis = clock().coerceAtLeast(0L),
-                )
-            }
-            when (registration) {
-                OlmInboundRegistration.CONFLICT -> conflicts++
-                OlmInboundRegistration.NEW -> {
-                    transport.acknowledgeStoredDelivery(deviceId, item)
-                    transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
-                    stored++
+                when (registration) {
+                    OlmInboundRegistration.CONFLICT -> conflicts++
+                    OlmInboundRegistration.NEW -> {
+                        transport.acknowledgeStoredDelivery(deviceId, item)
+                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        stored++
+                    }
+                    OlmInboundRegistration.PENDING_RETRY -> {
+                        transport.acknowledgeStoredDelivery(deviceId, item)
+                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        pending++
+                    }
+                    OlmInboundRegistration.DUPLICATE_PROCESSED -> {
+                        transport.acknowledgeStoredDelivery(deviceId, item)
+                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        processed++
+                    }
+                    OlmInboundRegistration.DUPLICATE_REJECTED -> {
+                        transport.acknowledgeStoredDelivery(deviceId, item)
+                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        rejected++
+                    }
                 }
-                OlmInboundRegistration.PENDING_RETRY -> {
-                    transport.acknowledgeStoredDelivery(deviceId, item)
-                    transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
-                    pending++
-                }
-                OlmInboundRegistration.DUPLICATE_PROCESSED -> {
-                    transport.acknowledgeStoredDelivery(deviceId, item)
-                    transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
-                    processed++
-                }
-                OlmInboundRegistration.DUPLICATE_REJECTED -> {
-                    transport.acknowledgeStoredDelivery(deviceId, item)
-                    transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
-                    rejected++
-                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (firstFailure == null) firstFailure = failure
             }
         }
+
+        // WorkManager still retries the pass, while successfully handled later
+        // items are already removed and won't needlessly repeat on the next poll.
+        firstFailure?.let { throw it }
         return FirebaseOlmInboxReceiveResult(stored, pending, processed, conflicts, rejected)
     }
 }
