@@ -230,6 +230,9 @@ internal class RoomOlmGroupMessageSendPreflight(
             "Group-key readiness token changed before message staging"
         }
         val currentTargets = currentTrustedTargets(membership)
+        require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
+            "Authenticated group sender identity changed during trusted-device lookup"
+        }
         require(currentTargets.isNotEmpty() && currentTargets == token.targetDevices) {
             "Trusted group devices changed; a fresh Megolm session key distribution is required"
         }

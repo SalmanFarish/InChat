@@ -168,6 +168,62 @@ class OlmGroupKeyDistributionReadinessTest {
     }
 
     @Test
+    fun senderPreflightRejectsAccountSwitchDuringTrustedDeviceLookup() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val verifier = RoomOlmGroupKeyDistributionReadiness(
+            FakeDeliveryReceipts(setOf("bob-phone"), distributionId()),
+            metadata,
+        )
+        var currentUser = "alice"
+        val preflight = RoomOlmGroupMessageSendPreflight(
+            readiness = verifier,
+            authenticatedUserId = { currentUser },
+            localDeviceId = { "alice-phone" },
+            currentTrustedTargets = {
+                currentUser = "mallory"
+                setOf("alice" to "alice-tablet", "bob" to "bob-phone")
+            },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking { preflight.requireReady(membership(), keyDistribution()) }
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Account replacement must block before Megolm ratchet staging", rejected)
+    }
+
+    @Test
+    fun senderPreflightRejectsDeviceIdentityChangeDuringTrustedDeviceLookup() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val verifier = RoomOlmGroupKeyDistributionReadiness(
+            FakeDeliveryReceipts(setOf("bob-phone"), distributionId()),
+            metadata,
+        )
+        var currentDevice = "alice-phone"
+        val preflight = RoomOlmGroupMessageSendPreflight(
+            readiness = verifier,
+            authenticatedUserId = { "alice" },
+            localDeviceId = { currentDevice },
+            currentTrustedTargets = {
+                currentDevice = "replacement-device"
+                setOf("alice" to "alice-tablet", "bob" to "bob-phone")
+            },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking { preflight.requireReady(membership(), keyDistribution()) }
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed during trusted-device lookup")
+        }
+        assertTrue("Device replacement must block before Megolm ratchet staging", rejected)
+    }
+
+    @Test
     fun refusesAcknowledgementForTargetOutsideImmutableMetadata() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
