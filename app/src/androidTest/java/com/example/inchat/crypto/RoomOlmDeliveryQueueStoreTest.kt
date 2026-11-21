@@ -752,6 +752,39 @@ class RoomOlmDeliveryQueueStoreTest {
         }
     }
 
+    @Test
+    fun explicitFailedRetryPreservesTheOriginalRelayPayload() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-manual-failed-retry.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(RoomOlmDeliveryQueueStore(db, dao), maxAttempts = 1)
+            assertEquals(1, queue.enqueue("alice", "sender-device", "manual-failed-retry", listOf(prepared("device-phone"))))
+            val firstClaim = queue.claimNext("alice", "sender-device", 10_000L)!!
+            assertTrue(queue.retry(firstClaim, 10_000L, "permanent_transport_error"))
+            val failed = dao.getByDeliveryId(firstClaim.deliveryId)!!
+            assertEquals(OlmDeliveryStatus.FAILED.name, failed.status)
+            assertTrue(queue.retryFailed(failed.toDelivery(), 50_000L))
+            val requeued = dao.getByDeliveryId(firstClaim.deliveryId)!!
+            assertEquals(OlmDeliveryStatus.QUEUED.name, requeued.status)
+            assertEquals(0, requeued.attemptCount)
+            assertEquals(50_000L, requeued.nextAttemptAtMillis)
+            assertEquals(0L, requeued.leaseUntilMillis)
+            assertNull(requeued.lastError)
+            assertEquals(firstClaim.envelope, requeued.envelope)
+            val secondClaim = queue.claimNext("alice", "sender-device", 50_000L)!!
+            assertEquals(firstClaim.deliveryId, secondClaim.deliveryId)
+            assertEquals(firstClaim.envelope, secondClaim.envelope)
+            assertEquals(1, secondClaim.attemptCount)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun prepared(deviceId: String, senderDeviceId: String = "sender-device"): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)

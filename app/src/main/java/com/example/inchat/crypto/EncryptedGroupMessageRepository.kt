@@ -1,6 +1,7 @@
 package com.example.inchat.crypto
 
 import java.security.MessageDigest
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -54,6 +55,40 @@ internal class EncryptedGroupMessageRepository(
             val allowKeyCreation = !dao.hasStoredMessages()
             val encrypted = vault.encrypt(message, allowKeyCreation)
             dao.commitDecryptedMessage(receipt, encrypted)
+        }
+    }
+
+    /**
+     * Membership-gated read surface for encrypted group timelines. The supplied
+     * snapshot must come from the authenticated Worker-backed membership source;
+     * legacy group-member listeners must not be used to construct it.
+     */
+    fun observeMessagesForMember(
+        ownerUserId: String,
+        membership: GroupCryptoMembershipSnapshot,
+    ): Flow<List<DecryptedGroupMessage>> {
+        requireReadableMembership(ownerUserId, membership)
+        return observeMessages(ownerUserId, membership.groupId)
+    }
+
+    suspend fun getMessageForMember(
+        ownerUserId: String,
+        membership: GroupCryptoMembershipSnapshot,
+        messageId: String,
+    ): DecryptedGroupMessage? {
+        requireReadableMembership(ownerUserId, membership)
+        return getMessage(ownerUserId, membership.groupId, messageId)
+    }
+
+    private fun requireReadableMembership(
+        ownerUserId: String,
+        membership: GroupCryptoMembershipSnapshot,
+    ) {
+        require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
+        require(membership.isValid()) { "Group membership snapshot is invalid" }
+        require(ID.matches(membership.groupId)) { "Group ID has an invalid format" }
+        require(ownerUserId in membership.memberUserIds) {
+            "Authenticated account is not a current member of this group"
         }
     }
 

@@ -146,6 +146,32 @@ class OlmDeliveryQueueTest {
         assertEquals(OlmDeliveryStatus.IN_FLIGHT, store.rows.getValue(claimed.deliveryId).status)
     }
 
+    @Test
+    fun explicitFailedRetryReusesTheExactCiphertextAndDeliveryIdentity() {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store, maxAttempts = 1)
+        queue.enqueue("alice", "sender-device", "manual-retry", listOf(prepared("phone")))
+        val firstClaim = queue.claimNext("alice", "sender-device", 10_000L)!!
+        assertTrue(queue.retry(firstClaim, 10_000L, "terminal_failure"))
+        val failed = store.rows.getValue(firstClaim.deliveryId)
+        assertEquals(OlmDeliveryStatus.FAILED, failed.status)
+        assertFalse(queue.retryFailed(firstClaim, 10_001L))
+
+        assertTrue(queue.retryFailed(failed, 20_000L))
+        val queued = store.rows.getValue(firstClaim.deliveryId)
+        assertEquals(OlmDeliveryStatus.QUEUED, queued.status)
+        assertEquals(0, queued.attemptCount)
+        assertEquals(20_000L, queued.nextAttemptAtMillis)
+        assertEquals(0L, queued.leaseUntilMillis)
+        assertNull(queued.lastError)
+        assertEquals(firstClaim.deliveryId, queued.deliveryId)
+        assertEquals(firstClaim.envelope, queued.envelope)
+        val retried = queue.claimNext("alice", "sender-device", 20_000L)!!
+        assertEquals(firstClaim.deliveryId, retried.deliveryId)
+        assertEquals(firstClaim.envelope, retried.envelope)
+        assertEquals(1, retried.attemptCount)
+    }
+
     private fun prepared(deviceId: String): PreparedOlmDelivery {
         val encoded = JSONObject()
             .put("encryptionVersion", 1)
@@ -202,6 +228,27 @@ class OlmDeliveryQueueTest {
             )
             rows[candidate.deliveryId] = claimed
             return claimed
+        }
+
+        override fun retryFailed(
+            deliveryId: String,
+            messageId: String,
+            ownerUserId: String,
+            senderDeviceId: String,
+            nowMillis: Long,
+        ): Boolean {
+            val row = rows[deliveryId] ?: return false
+            if (row.messageId != messageId || row.ownerUserId != ownerUserId ||
+                row.senderDeviceId != senderDeviceId || row.status != OlmDeliveryStatus.FAILED
+            ) return false
+            rows[deliveryId] = row.copy(
+                status = OlmDeliveryStatus.QUEUED,
+                attemptCount = 0,
+                nextAttemptAtMillis = nowMillis,
+                leaseUntilMillis = 0L,
+                lastError = null,
+            )
+            return true
         }
 
         override fun updateInFlight(

@@ -4,6 +4,23 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import java.security.MessageDigest
 import org.json.JSONObject
 
+/** Strictly extracts the authenticated route before membership/session access. */
+internal fun extractOlmGroupMessageRouteGroupId(authenticatedOlmPlaintext: String): String {
+    val groupId = try {
+        val json = JSONObject(authenticatedOlmPlaintext)
+        require(json.opt("messageType") == "group_message") {
+            "Authenticated Olm payload is not a Megolm group message"
+        }
+        json.getString("groupId")
+    } catch (error: Exception) {
+        throw IllegalArgumentException("Authenticated group-message routing is malformed", error)
+    }
+    require(Regex("[A-Za-z0-9_-]{1,128}").matches(groupId)) {
+        "Authenticated group ID has an invalid format"
+    }
+    return groupId
+}
+
 /**
  * Handles an authenticated Olm plaintext that carries a typed Megolm group
  * message. The outer Olm session, sender device signature and SAS trust must
@@ -53,16 +70,7 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             )
         ) { "Group sender device is not SAS-trusted on this installation" }
 
-        val groupId = try {
-            val json = JSONObject(authenticatedOlmPlaintext)
-            require(json.opt("messageType") == "group_message") {
-                "Authenticated Olm payload is not a Megolm group message"
-            }
-            json.getString("groupId")
-        } catch (error: Exception) {
-            throw IllegalArgumentException("Authenticated group-message routing is malformed", error)
-        }
-        require(GROUP_ID.matches(groupId)) { "Authenticated group ID has an invalid format" }
+        val groupId = extractOlmGroupMessageRouteGroupId(authenticatedOlmPlaintext)
 
         // The worker-authored epoch and full membership map are retrieved as one
         // value; never combine unrelated legacy group-member listeners.
@@ -129,6 +137,5 @@ internal class DefaultOlmInboundGroupMessageHandoff(
     }
 
     private companion object {
-        val GROUP_ID = Regex("[A-Za-z0-9_-]{1,128}")
     }
 }

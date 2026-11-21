@@ -60,6 +60,22 @@ internal class RoomOlmDeliveryQueueStore(
         dao.getByDeliveryId(candidate.deliveryId)?.toDelivery()
     })
 
+    override fun retryFailed(
+        deliveryId: String,
+        messageId: String,
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+    ): Boolean = database.runInTransaction(Callable {
+        dao.retryFailed(
+            deliveryId = deliveryId,
+            messageId = messageId,
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            nowMillis = nowMillis,
+        ) == 1
+    })
+
     override fun updateInFlight(
         deliveryId: String,
         messageId: String,

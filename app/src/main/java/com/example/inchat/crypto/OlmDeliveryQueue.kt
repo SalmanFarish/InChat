@@ -67,6 +67,15 @@ internal interface OlmDeliveryQueueStore {
      */
     fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
+    /** Explicitly requeue a terminal row without changing its immutable ciphertext identity. */
+    fun retryFailed(
+        deliveryId: String,
+        messageId: String,
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+    ): Boolean
+
     /** Atomically update a matching IN_FLIGHT row; return false if it is no longer leased. */
     fun updateInFlight(
         deliveryId: String,
@@ -223,6 +232,25 @@ internal class OlmDeliveryQueue(
                 )
             }
         }
+    }
+
+    /**
+     * Explicit application action to retry a terminal failure. The exact
+     * original envelope and deterministic delivery ID are retained. Upload
+     * revalidates the recipient device and SAS trust before writing the relay.
+     */
+    fun retryFailed(delivery: QueuedOlmDeviceDelivery, nowMillis: Long): Boolean {
+        require(nowMillis >= 0L) { "nowMillis must not be negative" }
+        if (delivery.status != OlmDeliveryStatus.FAILED) return false
+        val ownerUserId = delivery.ownerUserId ?: return false
+        val senderDeviceId = delivery.senderDeviceId ?: return false
+        return store.retryFailed(
+            deliveryId = delivery.deliveryId,
+            messageId = delivery.messageId,
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            nowMillis = nowMillis,
+        )
     }
 
     /**

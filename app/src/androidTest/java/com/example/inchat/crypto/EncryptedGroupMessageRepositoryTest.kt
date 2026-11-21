@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -109,6 +110,52 @@ class EncryptedGroupMessageRepositoryTest {
             repository.observeMessages("alice", "group-123").first().map { it.messageId },
         )
         assertTrue(repository.observeMessages("mallory", "group-123").first().isEmpty())
+    }
+
+    @Test
+    fun membershipGatedReadsRejectNonMembersAndInvalidSnapshots() = runBlocking {
+        val message = message()
+        val ciphertext = "membership-gated ciphertext".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val currentMembership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        assertEquals(
+            listOf(message),
+            repository.observeMessagesForMember("alice", currentMembership).first(),
+        )
+        assertEquals(
+            message,
+            repository.getMessageForMember("alice", currentMembership, message.messageId),
+        )
+
+        val nonMemberSnapshot = currentMembership.copy(
+            members = mapOf("bob" to "admin", "carol" to "member"),
+        )
+        assertRejected {
+            repository.observeMessagesForMember("alice", nonMemberSnapshot)
+        }
+        assertRejected {
+            repository.getMessageForMember("mallory", currentMembership, message.messageId)
+        }
+        assertRejected {
+            repository.observeMessagesForMember(
+                "alice",
+                currentMembership.copy(epoch = 0L),
+            )
+        }
+    }
+
+    private fun assertRejected(block: () -> Any?) {
+        try {
+            block()
+            throw AssertionError("Expected membership-gated encrypted read to be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected fail-closed authorization behavior.
+        }
     }
 
     private fun message() = DecryptedGroupMessage(

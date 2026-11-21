@@ -117,6 +117,21 @@ interface OlmDeliveryQueueDao {
     fun failExhaustedDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, maxAttempts: Int): Int
 
     @Query(
+        "UPDATE olm_device_deliveries SET status = 'QUEUED', attemptCount = 0, " +
+            "nextAttemptAtMillis = :nowMillis, leaseUntilMillis = 0, lastError = NULL " +
+            "WHERE deliveryId = :deliveryId AND messageId = :messageId " +
+            "AND ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND status = 'FAILED'"
+    )
+    fun retryFailed(
+        deliveryId: String,
+        messageId: String,
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+    ): Int
+
+    @Query(
         "UPDATE olm_device_deliveries SET status = :status, nextAttemptAtMillis = :nextAttemptAtMillis, " +
             "leaseUntilMillis = :leaseUntilMillis, lastError = :lastError " +
             "WHERE deliveryId = :deliveryId AND messageId = :messageId " +
