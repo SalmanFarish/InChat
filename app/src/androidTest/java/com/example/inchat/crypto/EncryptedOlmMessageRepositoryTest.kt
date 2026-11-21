@@ -55,6 +55,19 @@ class EncryptedOlmMessageRepositoryTest {
             assertTrue(runCatching {
                 repository.observeMessages("mallory", "alice_bob")
             }.isFailure)
+
+            var activeAccount = "bob"
+            val accountBoundRepository = EncryptedOlmMessageRepository(
+                dao,
+                vault,
+                authenticatedUserId = { activeAccount },
+            )
+            val alreadyCreatedFlow = accountBoundRepository.observeMessages("bob", "alice_bob")
+            assertEquals(2, alreadyCreatedFlow.first().size)
+            activeAccount = "mallory"
+            assertTrue("An existing observation must stop exposing plaintext after account switch", runCatching {
+                alreadyCreatedFlow.first()
+            }.isFailure)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
