@@ -25,6 +25,19 @@ export function currentGroupNotificationRecipients(chat, senderUid) {
 }
 
 /**
+ * A direct fan-out is safe only when every current recipient has a usable
+ * token. Missing or blank registry values must fall back to group topics.
+ */
+export function hasCompleteGroupNotificationRegistry(memberIds, registry) {
+  if (!Array.isArray(memberIds) || !registry || typeof registry !== "object") {
+    return false;
+  }
+  return memberIds.every((memberId) =>
+    typeof registry[memberId] === "string" && registry[memberId].trim() !== ""
+  );
+}
+
+/**
  * Returns a compact, one-way account tag for membership checks on broadcast
  * topic pushes. Tags reveal no raw Firebase UIDs and are deterministic per UID.
  */
