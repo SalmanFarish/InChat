@@ -148,6 +148,10 @@ internal class OlmPendingReceiptProcessor(
                     } catch (invalidEnvelope: IllegalArgumentException) {
                         // Structurally malformed or unknown wire formats cannot recover
                         // on retry. Quarantine them without blocking valid later messages.
+                        // Validation is local CPU work, but auth can still change
+                        // concurrently on the main thread. Never mutate a receipt
+                        // after this pass has lost its authenticated account scope.
+                        if (authenticatedLocalUserId() != localUserId) return
                         receiptDao.markRejected(receipt.receiptId)
                         rejected++
                         return
@@ -169,18 +173,23 @@ internal class OlmPendingReceiptProcessor(
                             return
                         }
 
-                        if (!trustVerifier.isVerified(
-                                peerUserId = receipt.senderUserId,
-                                peerDeviceId = remoteDevice.deviceId,
-                                peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
-                            )
-                        ) {
+                        val isTrusted = trustVerifier.isVerified(
+                            peerUserId = receipt.senderUserId,
+                            peerDeviceId = remoteDevice.deviceId,
+                            peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
+                        )
+                        // Trust lookup is synchronous today, but it may consult
+                        // storage and race an auth callback. Re-fence before any
+                        // account-scoped Room state transition.
+                        if (authenticatedLocalUserId() != localUserId) return
+                        if (!isTrusted) {
                             if (!isDeferred) receiptDao.markWaitingForDevice(receipt.receiptId)
                             waitingForTrust++
                             return
                         }
 
                         if (isDeferred) {
+                            if (authenticatedLocalUserId() != localUserId) return
                             val restored = receiptDao.restorePending(receipt.receiptId)
                             val currentStatus = receiptDao.getByReceiptId(receipt.receiptId)?.status
                             check(
