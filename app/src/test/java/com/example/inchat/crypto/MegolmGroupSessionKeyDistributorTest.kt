@@ -62,6 +62,31 @@ class MegolmGroupSessionKeyDistributorTest {
     }
 
     @Test
+    fun roleMapChangeAtSameEpochPreventsKeyDistributionCommit() = runBlocking {
+        val key = ByteArray(64) { 11 }
+        var enqueueCalls = 0
+        val changedRoles = membership(9L).copy(
+            members = mapOf("alice" to "member", "bob" to "admin", "carol" to "member"),
+        )
+        val distributor = distributor(
+            keyBytes = key,
+            snapshots = mutableListOf(membership(9L), changedRoles),
+            enqueue = { _, _ -> enqueueCalls++; 1 },
+        )
+
+        var rejected = false
+        try {
+            distributor.distribute("group-1", distributionId(), 1234L)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertEquals(0, enqueueCalls)
+        assertArrayEquals(ByteArray(64), key)
+    }
+
+    @Test
     fun preparedDistributionMustMatchNativeSessionAndCallerIdentity() = runBlocking {
         val key = ByteArray(64) { 7 }
         var enqueueCalls = 0

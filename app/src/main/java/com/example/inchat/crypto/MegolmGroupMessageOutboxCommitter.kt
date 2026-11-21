@@ -59,14 +59,15 @@ internal class MegolmGroupMessageOutboxCommitter(
         )
 
         // Re-read the atomic membership snapshot after key-directory/trust
-        // lookups and Olm envelope preparation. If the epoch changed meanwhile,
+        // lookups and Olm envelope preparation. If any member/role changed meanwhile,
         // preserve the native ciphertext for explicit recovery; do not enqueue it.
         val latestSnapshot = requireNotNull(membershipForGroup(staged.groupId)) {
             "Group membership snapshot disappeared before outbox commit"
         }
         require(latestSnapshot.isValid() &&
             latestSnapshot.groupId == staged.groupId &&
-            latestSnapshot.epoch == staged.membershipEpoch
+            latestSnapshot.epoch == staged.membershipEpoch &&
+            latestSnapshot.members == firstSnapshot.members
         ) {
             "Group membership changed while preparing the encrypted message"
         }

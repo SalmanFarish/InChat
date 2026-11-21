@@ -9,7 +9,7 @@ import java.util.Base64
  * still pass RoomOlmGroupKeyDistributionReadiness after device acknowledgements.
  *
  * Membership is read both before key export and again after per-device Olm
- * envelope preparation. A changed epoch aborts before the outbox is committed.
+ * envelope preparation. Any member/role snapshot change aborts before the outbox is committed.
  */
 internal class MegolmGroupSessionKeyDistributor(
     private val membershipForGroup: suspend (groupId: String) -> GroupCryptoMembershipSnapshot?,
@@ -125,7 +125,7 @@ internal class MegolmGroupSessionKeyDistributor(
             latest.isValid() &&
                 latest.groupId == groupId &&
                 latest.epoch == initial.epoch &&
-                latest.memberUserIds == initial.memberUserIds &&
+                latest.members == initial.members &&
                 authenticatedUserId() == ownerUid &&
                 localDeviceId() == senderDevice
         ) {

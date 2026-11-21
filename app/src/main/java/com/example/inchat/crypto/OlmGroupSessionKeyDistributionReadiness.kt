@@ -20,6 +20,7 @@ internal fun interface OlmGroupKeyDistributionReadinessVerifier {
  */
 internal class RoomOlmGroupKeyDistributionReadiness(
     private val deliveryReceipts: OlmDeliveryReceiptDao,
+    private val metadataStore: OlmGroupKeyDistributionMetadataStore,
 ) : OlmGroupKeyDistributionReadinessVerifier {
 
     override fun requireReady(
@@ -43,6 +44,22 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         require(keyDistribution.distributionId.matches(DISTRIBUTION_ID)) {
             "Group key distribution ID is invalid"
         }
+        val expectedMetadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            distributionId = keyDistribution.distributionId,
+            groupId = keyDistribution.groupId,
+            membershipEpoch = keyDistribution.membershipEpoch,
+            megolmSessionId = keyDistribution.megolmSessionId,
+            targetDevices = keyDistribution.deliveries.map { it.recipientUserId to it.recipientDeviceId },
+        ).toEntity()
+        val persistedMetadata = requireNotNull(
+            metadataStore.get(ownerUserId, senderDeviceId, keyDistribution.distributionId),
+        ) { "Megolm key distribution has no durable metadata record" }
+        require(persistedMetadata == expectedMetadata) {
+            "Megolm key distribution does not match its immutable durable metadata"
+        }
+        persistedMetadata.targetDevicePairs()
 
         val keyTargets = keyDistribution.deliveries
             .map { it.recipientUserId to it.recipientDeviceId }

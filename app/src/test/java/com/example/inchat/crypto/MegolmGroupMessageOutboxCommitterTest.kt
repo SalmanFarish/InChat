@@ -60,6 +60,33 @@ class MegolmGroupMessageOutboxCommitterTest {
     }
 
     @Test
+    fun roleMapChangeAtSameEpochLeavesNativeCiphertextStaged() {
+        val store = FakeStore()
+        var finalizeCalled = false
+        val changedRoles = membership(7L).copy(
+            members = mapOf("alice" to "member", "bob" to "admin"),
+        )
+        val committer = committer(
+            store = store,
+            membershipSnapshots = listOf(membership(7L), changedRoles),
+            finalize = { finalizeCalled = true; true },
+        )
+
+        var rejected = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                committer.commit(stagedMessage(), keyDistribution())
+            }
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(finalizeCalled)
+    }
+
+    @Test
     fun failureToCommitOlmOutboxDoesNotFinalizeNativeCiphertext() {
         val store = FakeStore()
         var finalizeCalled = false
