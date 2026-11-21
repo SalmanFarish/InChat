@@ -44,7 +44,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            ensureOutboundSession = {
+            existingOutboundSession = {
                 OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
             },
             exportOutboundSessionKey = { keyBytes },
@@ -135,7 +135,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            ensureOutboundSession = {
+            existingOutboundSession = {
                 OutboundMegolmSessionInfo(sessionId, initialMembership.groupId, initialMembership.epoch, created = false)
             },
             exportOutboundSessionKey = { ByteArray(32) { 9 } },
@@ -206,7 +206,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            ensureOutboundSession = {
+            existingOutboundSession = {
                 OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
             },
             exportOutboundSessionKey = { ByteArray(32) { 5 } },
@@ -279,7 +279,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            ensureOutboundSession = {
+            existingOutboundSession = {
                 OutboundMegolmSessionInfo("fedcba0987654321", membership.groupId, membership.epoch, created = true)
             },
             exportOutboundSessionKey = {
@@ -334,7 +334,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             membershipForGroup = { membership },
             authenticatedUserId = { "alice" },
             localDeviceId = { "alice-phone" },
-            ensureOutboundSession = {
+            existingOutboundSession = {
                 OutboundMegolmSessionInfo(sessionId, membership.groupId, membership.epoch, created = false)
             },
             exportOutboundSessionKey = { ByteArray(32) { 4 } },
@@ -356,6 +356,61 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertEquals(1, result.distributionsFailed)
         assertEquals(0, result.deliveriesQueued)
         assertTrue(failureReported)
+    }
+
+    @Test
+    fun missingNativeSessionIsSkippedWithoutExportOrPreparation() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("alice" to "alice-tablet", "bob" to "bob-phone"),
+        ).toEntity()
+        var exported = false
+        var prepared = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { null },
+            exportOutboundSessionKey = {
+                exported = true
+                ByteArray(32)
+            },
+            prepareDistribution = { _, _, _, _, _, _ ->
+                prepared = true
+                error("Must not prepare a missing session")
+            },
+            resumeDistribution = { _, _ -> error("Must not enqueue a missing session") },
+        )
+
+        val result = kotlinx.coroutines.runBlocking { runner.run() }
+
+        assertEquals(1, result.distributionsScanned)
+        assertEquals(1, result.distributionsSkipped)
+        assertEquals(0, result.distributionsFailed)
+        assertEquals(0, result.deliveriesQueued)
+        assertFalse(exported)
+        assertFalse(prepared)
     }
 
     private fun membership() = GroupCryptoMembershipSnapshot(

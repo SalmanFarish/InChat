@@ -163,7 +163,7 @@ class EncryptedOlmDeliveryWorker(
                         localDeviceId = {
                             identityRepository.existingDeviceIdForDelivery().orEmpty()
                         },
-                        ensureOutboundSession = megolmSessions::ensureOutboundSession,
+                        existingOutboundSession = megolmSessions::getExistingOutboundSession,
                         exportOutboundSessionKey = megolmSessions::exportOutboundSessionKey,
                         prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected ->
                             keyPreparer.prepare(

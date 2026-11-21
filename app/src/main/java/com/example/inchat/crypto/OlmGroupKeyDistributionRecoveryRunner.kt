@@ -21,7 +21,7 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
     private val membershipForGroup: suspend (String) -> GroupCryptoMembershipSnapshot?,
     private val authenticatedUserId: () -> String,
     private val localDeviceId: () -> String,
-    private val ensureOutboundSession: (GroupCryptoMembershipSnapshot) -> OutboundMegolmSessionInfo,
+    private val existingOutboundSession: (GroupCryptoMembershipSnapshot) -> OutboundMegolmSessionInfo?,
     private val exportOutboundSessionKey: (GroupCryptoMembershipSnapshot) -> ByteArray,
     private val prepareDistribution: suspend (
         distributionId: String,
@@ -89,8 +89,8 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 return@forEach
             }
 
-            val session = ensureOutboundSession(initial)
-            if (session.groupId != metadata.groupId ||
+            val session = existingOutboundSession(initial)
+            if (session == null || session.groupId != metadata.groupId ||
                 session.membershipEpoch != metadata.membershipEpoch ||
                 session.sessionId != metadata.megolmSessionId
             ) {

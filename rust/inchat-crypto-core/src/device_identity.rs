@@ -3864,6 +3864,48 @@ pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeE
     }
 }
 
+
+/// Read an existing sender ratchet for recovery. Unlike ensure, this function
+/// never creates or mutates a session when the saved ratchet is absent.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeGetExistingOutboundMegolmSession<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    group_id: JString<'local>,
+    membership_epoch: jni::sys::jlong,
+    sender_user_id: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let group_id: String = match env.get_string(&group_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    let sender_user_id: String = match env.get_string(&sender_user_id) { Ok(v) => v.into(), Err(_) => return std::ptr::null_mut() };
+    if membership_epoch <= 0 { return std::ptr::null_mut(); }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let state = load_device_crypto_state(&mut env, &store, &device_id)?;
+        let stored = state.outbound_group_sessions.get(&group_id)
+            .ok_or("Outbound Megolm session does not exist")?;
+        if stored.membership_epoch != membership_epoch as u64 ||
+            stored.sender_user_id != sender_user_id ||
+            stored.sender_device_id != device_id {
+            return Err("Existing outbound Megolm session does not match its owner or epoch");
+        }
+        serde_json::to_string(&json!({
+            "sessionId": stored.session.session_id(),
+            "membershipEpoch": membership_epoch,
+            "created": false
+        })).map_err(|_| "Could not encode existing outbound Megolm session metadata")
+    }));
+    match result {
+        Ok(Ok(mut value)) => {
+            let output = env.new_string(&value);
+            value.zeroize();
+            output.map(|v| v.into_raw()).unwrap_or(std::ptr::null_mut())
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeExportOutboundMegolmSessionKey<'local>(
     mut env: JNIEnv<'local>,

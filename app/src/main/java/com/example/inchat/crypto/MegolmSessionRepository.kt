@@ -104,6 +104,40 @@ internal class MegolmSessionRepository(
     }
 
     /**
+     * Read the exact sender ratchet for recovery without creating a replacement.
+     * A missing or mismatched session returns null and leaves native state unchanged.
+     */
+    fun getExistingOutboundSession(
+        membership: GroupCryptoMembershipSnapshot,
+    ): OutboundMegolmSessionInfo? {
+        require(membership.isValid()) { "Authoritative group membership snapshot is invalid" }
+        val ownerUid = authenticatedUserId()
+        require(ownerUid in membership.memberUserIds) {
+            "Authenticated account is not a current group member"
+        }
+        val encoded = withNativeState { store, deviceId ->
+            NativeCryptoBridge.nativeGetExistingOutboundMegolmSession(
+                store, deviceId, membership.groupId, membership.epoch, ownerUid,
+            )
+        } ?: return null
+        val result = JSONObject(encoded)
+        val sessionId = result.getString("sessionId")
+        require(sessionId.isNotBlank() && sessionId.length <= MAX_SESSION_ID_LENGTH) {
+            "Native Megolm session ID is invalid"
+        }
+        require(result.getLong("membershipEpoch") == membership.epoch &&
+            !result.getBoolean("created")) {
+            "Native recovery session metadata is invalid"
+        }
+        return OutboundMegolmSessionInfo(
+            sessionId = sessionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            created = false,
+        )
+    }
+
+    /**
      * Export the decryption capability for distribution only inside authenticated
      * Olm envelopes. The caller must clear the returned bytes after encoding.
      */
