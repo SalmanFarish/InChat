@@ -39,7 +39,7 @@ class EncryptedOlmMessageRepositoryTest {
                 ),
             )
 
-            val repository = EncryptedOlmMessageRepository(dao, vault)
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "bob" })
             val observed = repository.observeMessages("bob", "alice_bob").first()
 
             assertEquals(listOf("earlier", "later"), observed.map { it.messageId })
@@ -49,7 +49,12 @@ class EncryptedOlmMessageRepositoryTest {
                 repository.getMessage("bob", "alice_bob", "later")?.text,
             )
             assertTrue(repository.observeMessages("bob", "alice_charlie").first().isEmpty())
-            assertEquals(null, repository.getMessage("mallory", "alice_bob", "earlier"))
+            assertTrue(runCatching {
+                repository.getMessage("mallory", "alice_bob", "earlier")
+            }.isFailure)
+            assertTrue(runCatching {
+                repository.observeMessages("mallory", "alice_bob")
+            }.isFailure)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
