@@ -236,6 +236,20 @@ test("rejects a relay envelope whose authenticated device metadata differs", asy
   assert.equal(state.sentMessages.length, 0);
 });
 
+test("fails closed when a conversation has a missing or unknown type", async () => {
+  const missingTypeState = fixture({
+    chat: { participantA: "alice", participantB: "bob" },
+  });
+  const unknownTypeState = fixture({
+    chat: { type: "legacy", participantA: "alice", participantB: "bob" },
+  });
+
+  assert.equal((await missingTypeState.dispatch()).status, 404);
+  assert.equal((await unknownTypeState.dispatch()).status, 404);
+  assert.equal(missingTypeState.sentMessages.length, 0);
+  assert.equal(unknownTypeState.sentMessages.length, 0);
+});
+
 test("does not send a push for a group chat or a non-member sender", async () => {
   const groupState = fixture({
     chat: { type: "group", members: { alice: "admin", bob: "member" } },

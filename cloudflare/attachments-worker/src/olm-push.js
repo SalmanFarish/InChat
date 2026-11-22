@@ -363,7 +363,7 @@ export async function processEncryptedOlmPush({
     adminAccessToken,
     "chats/" + input.chatId,
   );
-  if (!isRecord(chat) || chat.type === "group") {
+  if (!isRecord(chat) || chat.type !== "direct") {
     return result(404, { error: "Direct conversation not found." });
   }
 
