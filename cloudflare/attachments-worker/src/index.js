@@ -80,10 +80,13 @@ async function loadChat(chatId, token, env) {
   const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
   const url =
     base + "/chats/" + encodeURIComponent(chatId) +
-    ".json?auth=" + encodeURIComponent(token);
+    ".json";
 
   const response = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + token,
+    },
   });
 
   if (!response.ok) {
@@ -124,11 +127,13 @@ async function loadMessage(chatId, messageId, token, env) {
     encodeURIComponent(chatId) +
     "/messages/" +
     encodeURIComponent(messageId) +
-    ".json?auth=" +
-    encodeURIComponent(token);
+    ".json";
 
   const response = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + token,
+    },
   });
 
   if (!response.ok) {
