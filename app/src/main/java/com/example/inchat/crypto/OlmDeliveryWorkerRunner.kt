@@ -137,6 +137,7 @@ internal class OlmDeliveryWorkerRunner(
                     acknowledged = acknowledgements.removed,
                     unmatchedAcknowledgements = acknowledgements.unmatched,
                     retryRequired = true,
+                    notificationDispatchFailures = notificationDispatchFailures,
                 )
             }
         }
