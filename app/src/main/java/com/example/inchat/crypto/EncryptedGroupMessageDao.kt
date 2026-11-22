@@ -79,6 +79,18 @@ abstract class EncryptedGroupMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertOutgoingMessage(message: EncryptedGroupMessageEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertPendingMessage(message: EncryptedGroupPendingMessageEntity): Long
+
+    @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId ORDER BY sentAtMillis ASC, messageId ASC")
+    abstract suspend fun getPendingMessages(ownerUserId: String, groupId: String): List<EncryptedGroupPendingMessageEntity>
+
+    @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId LIMIT 1")
+    abstract suspend fun getPendingMessage(ownerUserId: String, groupId: String, messageId: String): EncryptedGroupPendingMessageEntity?
+
+    @Query("DELETE FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId")
+    abstract suspend fun deletePendingMessage(ownerUserId: String, groupId: String, messageId: String): Int
+
     @Query("SELECT EXISTS(SELECT 1 FROM encrypted_group_messages)")
     abstract suspend fun hasStoredMessages(): Boolean
 
