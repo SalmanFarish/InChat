@@ -360,9 +360,7 @@ class EncryptedGroupMessageRepositoryTest {
         yield()
         finishDecrypt.complete(Unit)
 
-        assertRejected {
-            observation.await()
-        }
+        assertEquals(emptyList<DecryptedGroupMessage>(), observation.await())
     }
 
     @Test
