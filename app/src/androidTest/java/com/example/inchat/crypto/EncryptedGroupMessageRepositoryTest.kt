@@ -6,6 +6,12 @@ import androidx.test.core.app.ApplicationProvider
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -302,6 +308,55 @@ class EncryptedGroupMessageRepositoryTest {
                 "group-123",
                 flowOf(membership),
             ).first()
+        }
+    }
+
+    @Test
+    fun membershipRevocationDuringDecryptCannotEmitStaleTimeline() = runBlocking {
+        val message = message().copy(messageId = "membership-revoked-during-decrypt")
+        val ciphertext = "membership revocation during decrypt".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val liveMembership = MutableStateFlow<GroupCryptoMembershipSnapshot?>(membership)
+        val decryptStarted = CompletableDeferred<Unit>()
+        val finishDecrypt = CompletableDeferred<Unit>()
+        val testVault = EncryptedGroupMessageVault(keyAlias)
+        val guardedRepository = EncryptedGroupMessageRepository(
+            dao = database.encryptedGroupMessageDao(),
+            vault = testVault,
+            ioDispatcher = Dispatchers.Unconfined,
+            authenticatedUserId = { activeAccount },
+            decryptGroupMessages = { records ->
+                decryptStarted.complete(Unit)
+                // Model a native/Keystore decrypt that cannot stop immediately
+                // when its collecting coroutine is cancelled.
+                withContext(NonCancellable) { finishDecrypt.await() }
+                records.map(testVault::decrypt)
+            },
+        )
+
+        val observation = async {
+            guardedRepository.observeMessagesForMember(
+                "alice",
+                "group-123",
+                liveMembership,
+            ).first()
+        }
+        decryptStarted.await()
+        liveMembership.value = membership.copy(
+            epoch = 5L,
+            members = mapOf("bob" to "admin", "carol" to "member"),
+        )
+        yield()
+        finishDecrypt.complete(Unit)
+
+        assertRejected {
+            observation.await()
         }
     }
 
