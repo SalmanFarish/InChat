@@ -123,6 +123,51 @@ internal class EncryptedGroupMessageRepository(
         }
     }
 
+    /**
+     * Commit the sender's encrypted timeline echo and remove its pending intent
+     * in one Room transaction. If an echo already exists, verify its decrypted
+     * contents before deleting the still-pending intent.
+     */
+    suspend fun saveOutgoingMessageAndClearPendingIntent(message: DecryptedGroupMessage): Boolean {
+        validateScope(message.ownerUserId, message.groupId)
+        require(message.senderUserId == message.ownerUserId) {
+            "Only the authenticated sender can save a local outgoing group message"
+        }
+        require(MESSAGE_ID.matches(message.messageId) && message.text.isNotEmpty()) {
+            "Outgoing encrypted group message is invalid"
+        }
+        require(message.membershipEpoch > 0L && message.sentAtMillis >= 0L &&
+            message.messageIndex >= 0L && message.megolmSessionId.isNotBlank() &&
+            message.senderDeviceId.matches(DEVICE_ID)
+        ) { "Outgoing encrypted group message metadata is invalid" }
+        requireAuthenticatedOwner(message.ownerUserId)
+
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(message.ownerUserId)
+            val encrypted = vault.encrypt(message, allowKeyCreation = !dao.hasStoredMessages())
+            requireAuthenticatedOwner(message.ownerUserId)
+            val insertedAndCleared = dao.commitOutgoingMessageAndDeletePending(
+                message = encrypted,
+                ownerUserId = message.ownerUserId,
+                groupId = message.groupId,
+                messageId = message.messageId,
+            )
+            requireAuthenticatedOwner(message.ownerUserId)
+            if (insertedAndCleared) {
+                true
+            } else {
+                val existing = dao.getMessage(message.ownerUserId, message.groupId, message.messageId)
+                    ?: error("Outgoing encrypted group message conflicted without an existing row")
+                require(vault.decrypt(existing) == message) {
+                    "Outgoing encrypted group message ID already belongs to different content"
+                }
+                requireAuthenticatedOwner(message.ownerUserId)
+                dao.deletePendingMessage(message.ownerUserId, message.groupId, message.messageId)
+                false
+            }
+        }
+    }
+
     /** Persist a waiting-to-send intent before attempting Megolm encryption. */
     suspend fun savePendingOutgoingIntent(
         ownerUserId: String,

@@ -79,6 +79,33 @@ abstract class EncryptedGroupMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertOutgoingMessage(message: EncryptedGroupMessageEntity): Long
 
+    /**
+     * Atomically publish a newly inserted sender timeline row and remove its
+     * encrypted pending intent. A crash can therefore leave neither a visible
+     * echo without its intent nor an intent whose echo was already inserted.
+     *
+     * Existing rows are deliberately not cleared here: the repository must
+     * decrypt and compare the existing row before it may remove the intent.
+     */
+    @Transaction
+    open suspend fun commitOutgoingMessageAndDeletePending(
+        message: EncryptedGroupMessageEntity,
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): Boolean {
+        require(
+            message.ownerUserId == ownerUserId &&
+                message.groupId == groupId &&
+                message.messageId == messageId
+        ) { "Outgoing message and pending intent scopes do not match" }
+        if (insertOutgoingMessage(message) == -1L) return false
+        check(deletePendingMessage(ownerUserId, groupId, messageId) == 1) {
+            "Pending outgoing group intent disappeared before local commit"
+        }
+        return true
+    }
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertPendingMessage(message: EncryptedGroupPendingMessageEntity): Long
 

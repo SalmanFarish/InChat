@@ -457,7 +457,7 @@ class GroupChatViewModel : ViewModel() {
                         // AES-GCM encrypted table; the legacy plaintext cache
                         // and Firebase chat path are never touched.
                         try {
-                            encryptedGroupMessageRepository.saveOutgoingMessage(
+                            encryptedGroupMessageRepository.saveOutgoingMessageAndClearPendingIntent(
                                 DecryptedGroupMessage(
                                     ownerUserId = currentUserId,
                                     groupId = groupId,
@@ -470,11 +470,6 @@ class GroupChatViewModel : ViewModel() {
                                     sentAtMillis = queued.sentAtMillis,
                                     text = cleanText,
                                 )
-                            )
-                            encryptedGroupMessageRepository.deletePendingOutgoingIntent(
-                                currentUserId,
-                                groupId,
-                                queued.messageId,
                             )
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
