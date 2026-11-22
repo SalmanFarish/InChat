@@ -797,7 +797,6 @@ class GroupChatRepository {
                 return Result.success(Unit)
             }
 
-            val actorName = usernameFor(currentUserId)
             val updates = mutableMapOf<String, Any>(
                 "chats/$groupId/name" to cleanName
             )
@@ -806,7 +805,7 @@ class GroupChatRepository {
                     groupId = groupId,
                     actorId = currentUserId,
                     eventType = "group_renamed",
-                    eventText = "@$actorName renamed the group to \"$cleanName\""
+                    eventText = "Group renamed"
                 )
             )
 
