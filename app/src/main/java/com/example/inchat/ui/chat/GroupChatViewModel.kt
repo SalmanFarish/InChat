@@ -176,102 +176,10 @@ class GroupChatViewModel : ViewModel() {
 
         _group.value = null
 
-        // Restore pending indicators from Room so they survive app restarts.
-        pendingMessagesJob = viewModelScope.launch {
-            try {
-                chatRepository.observePendingMessageIds(groupId).collect { pendingIds ->
-                    if (listeningGroupId == groupId) {
-                        _pendingMessageIds.value = pendingIds
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(
-                    "GroupChatViewModel",
-                    "Pending group message state could not be observed",
-                    e
-                )
-            }
-        }
-
-        // Once connected, confirm queued IDs against Firebase. Retry only when
-        // the remote record is absent, always reusing its original message ID.
-        pendingReconciliationJob = viewModelScope.launch {
-            _isConnected.collect { connected ->
-                if (!connected || listeningGroupId != groupId) {
-                    return@collect
-                }
-
-                val pendingMessages = chatRepository.getPendingMessages(groupId)
-                // A bounded fan-out reconciles queued messages quickly after
-                // reconnect while keeping the Firebase request rate controlled.
-                val semaphore = Semaphore(4)
-                coroutineScope {
-                    pendingMessages.map { localMessage ->
-                        async {
-                            semaphore.withPermit {
-                                try {
-                                    val remoteMessage = chatRepository.getRemoteMessage(
-                                        chatId = groupId,
-                                        messageId = localMessage.id
-                                    )
-
-                                    when {
-                                        remoteMessage != null &&
-                                            remoteMessage.id == localMessage.id &&
-                                            remoteMessage.senderId == currentUserId -> {
-                                            chatRepository.markOutgoingMessageSent(
-                                                chatId = groupId,
-                                                messageId = localMessage.id
-                                            )
-                                        }
-
-                                        remoteMessage == null -> {
-                                            groupRepository.sendMessage(
-                                                groupId = groupId,
-                                                messageId = localMessage.id,
-                                                text = localMessage.text,
-                                                senderId = currentUserId,
-                                                senderNickname = localMessage.senderNickname,
-                                                replyTo = localMessage.replyTo,
-                                                attachment = localMessage.attachment
-                                            ).onSuccess {
-                                                chatRepository.markOutgoingMessageSent(
-                                                    chatId = groupId,
-                                                    messageId = localMessage.id
-                                                )
-                                            }.onFailure { error ->
-                                                Log.w(
-                                                    "GroupChatViewModel",
-                                                    "Pending group message retry failed: " + localMessage.id,
-                                                    error
-                                                )
-                                            }
-                                        }
-
-                                        else -> {
-                                            Log.w(
-                                                "GroupChatViewModel",
-                                                "Pending group message ID exists remotely with unexpected sender: " + localMessage.id
-                                            )
-                                        }
-                                    }
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    Log.w(
-                                        "GroupChatViewModel",
-                                        "Could not reconcile pending group message " + localMessage.id,
-                                        e
-                                    )
-                                }
-                            }
-                        }
-                    }.awaitAll()
-                }
-            }
-        }
+        // Group sends now use the ciphertext-only Olm outbox. Do not
+        // restore or reconcile legacy plaintext pending rows here: that retry
+        // path writes to chats/{groupId}/messages and would bypass Megolm.
+        _pendingMessageIds.value = emptySet()
 
         // Reuse the last known message snapshot immediately while the
         // realtime group/message listeners reconnect.
