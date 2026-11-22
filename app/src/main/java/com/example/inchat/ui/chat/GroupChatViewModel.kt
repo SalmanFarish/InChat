@@ -26,6 +26,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -103,6 +105,8 @@ class GroupChatViewModel : ViewModel() {
     private var connectionListenerJob: Job? = null
     private var pendingMessagesJob: Job? = null
     private var pendingReconciliationJob: Job? = null
+    private var pendingIntentRetryJob: Job? = null
+    private val pendingOutgoingIntentMutex = Mutex()
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
     private var encryptedMessagesJob: Job? = null
@@ -169,8 +173,10 @@ class GroupChatViewModel : ViewModel() {
         _encryptedMessages.value = emptyList()
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
+        pendingIntentRetryJob?.cancel()
         pendingMessagesJob = null
         pendingReconciliationJob = null
+        pendingIntentRetryJob = null
         _pendingMessageIds.value = emptySet()
         groupReadJobs.values.forEach { it.cancel() }
         groupReadJobs.clear()
@@ -327,6 +333,38 @@ class GroupChatViewModel : ViewModel() {
             }
         }
 
+        // Durable receipt inserts wake pending outgoing messages. The initial
+        // emission also handles acknowledgements received while this chat was closed.
+        pendingIntentRetryJob = viewModelScope.launch {
+            try {
+                encryptedGroupMessageSendCoordinator
+                    .observeAcknowledgementChanges(currentUserId)
+                    .distinctUntilChanged()
+                    .collect {
+                        if (listeningGroupId != groupId ||
+                            FirebaseAuth.getInstance().currentUser?.uid != currentUserId
+                        ) return@collect
+                        try {
+                            pendingOutgoingIntentMutex.withLock {
+                                retryPendingOutgoingIntents(groupId, currentUserId)
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (retryError: Exception) {
+                            Log.e(
+                                "GroupChatViewModel",
+                                "Acknowledgement-driven retry pass failed; a later receipt can retry it.",
+                                retryError,
+                            )
+                        }
+                    }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (retryError: Exception) {
+                Log.e("GroupChatViewModel", "Automatic encrypted group-message retry observer stopped.", retryError)
+            }
+        }
+
         messagesJob = viewModelScope.launch {
             try {
                 chatRepository
@@ -358,6 +396,72 @@ class GroupChatViewModel : ViewModel() {
                     "GroupChatViewModel",
                     "Group message listener failed",
                     e
+                )
+            }
+        }
+    }
+
+    /**
+     * Re-attempt durable pending intents after acknowledgement receipts change.
+     * Every attempt revalidates the exact Megolm session, membership and device roster.
+     */
+    private suspend fun retryPendingOutgoingIntents(groupId: String, ownerUserId: String) {
+        if (listeningGroupId != groupId ||
+            FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
+        ) return
+        val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId) ?: return
+        if (!membership.isValid() || membership.groupId != groupId ||
+            ownerUserId !in membership.memberUserIds
+        ) return
+
+        withContext(Dispatchers.IO) {
+            encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(ownerUserId, groupId)
+        }
+        val pending = withContext(Dispatchers.IO) {
+            encryptedGroupMessageRepository.pendingOutgoingIntents(ownerUserId)
+                .filter { it.groupId == groupId }
+        }
+        for (intent in pending) {
+            if (listeningGroupId != groupId ||
+                FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
+            ) return
+            try {
+                when (val outcome = withContext(Dispatchers.IO) {
+                    encryptedGroupMessageSendCoordinator.send(
+                        groupId = groupId,
+                        messageId = intent.messageId,
+                        plaintext = intent.plaintext,
+                        sentAtMillis = intent.sentAtMillis,
+                    )
+                }) {
+                    is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> Unit
+                    is MegolmGroupMessageSendOutcome.Queued -> {
+                        val queued = outcome.result
+                        withContext(Dispatchers.IO) {
+                            encryptedGroupMessageRepository.saveOutgoingMessageAndClearPendingIntent(
+                                DecryptedGroupMessage(
+                                    ownerUserId = ownerUserId,
+                                    groupId = groupId,
+                                    messageId = queued.messageId,
+                                    membershipEpoch = queued.membershipEpoch,
+                                    senderUserId = queued.senderUserId,
+                                    senderDeviceId = queued.senderDeviceId,
+                                    megolmSessionId = queued.megolmSessionId,
+                                    messageIndex = queued.messageIndex,
+                                    sentAtMillis = queued.sentAtMillis,
+                                    text = intent.plaintext,
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (retryError: Exception) {
+                Log.e(
+                    "GroupChatViewModel",
+                    "Pending encrypted group message ${intent.messageId} remains queued for retry.",
+                    retryError,
                 )
             }
         }
@@ -438,6 +542,7 @@ class GroupChatViewModel : ViewModel() {
         // otherwise be able to upload it to chats/{groupId}/messages.
         viewModelScope.launch {
             try {
+                pendingOutgoingIntentMutex.withLock {
                 val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
                 if (membership == null || !membership.isValid() ||
                     membership.groupId != groupId ||
@@ -485,7 +590,7 @@ class GroupChatViewModel : ViewModel() {
                     is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
                         onResult(
                             false,
-                            "Waiting for encrypted group keys to be acknowledged by all trusted member devices. Retry this message after acknowledgements complete."
+                            "Message saved securely. It will be sent automatically after all trusted member devices acknowledge the group key."
                         )
                     }
 
@@ -526,6 +631,7 @@ class GroupChatViewModel : ViewModel() {
                         onQueued()
                         onResult(true, null)
                     }
+                }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -780,6 +886,7 @@ class GroupChatViewModel : ViewModel() {
         encryptedMessagesJob?.cancel()
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
+        pendingIntentRetryJob?.cancel()
         connectionListenerJob?.cancel()
         groupReadJobs.values.forEach { it.cancel() }
         groupReadJobs.clear()

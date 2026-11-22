@@ -125,6 +125,9 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
             },
             distributeKey = keyDistributor::distribute,
             sendEncryptedMessage = sender::send,
+            observeAcknowledgementCount = { owner, device ->
+                database.olmDeliveryReceiptDao().observeAcknowledgementCount(owner, device)
+            },
             recoverPendingOutboundMessages = {
                 val owner = authenticatedUserId()
                 val device = localDeviceId()

@@ -1,6 +1,10 @@
 package com.example.inchat.crypto
 
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Result of a guarded group-message send attempt. */
 internal sealed class MegolmGroupMessageSendOutcome {
@@ -57,12 +61,32 @@ internal class MegolmGroupMessageSendCoordinator(
         keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ) -> MegolmGroupMessageOutboxCommitResult,
     private val recoverPendingOutboundMessages: suspend () -> Int = { 0 },
+    private val observeAcknowledgementCount: (String, String) -> Flow<Int> = { _, _ -> flowOf(0) },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     /** Resume exact native-staged ciphertexts after process death; never re-encrypt. */
     suspend fun recoverPendingMessages(): Int = recoverPendingOutboundMessages()
 
+    fun observeAcknowledgementChanges(ownerUserId: String): Flow<Int> {
+        require(ownerUserId.matches(ID)) { "Acknowledgement observer owner ID is invalid" }
+        require(authenticatedUserId() == ownerUserId) {
+            "Authenticated account does not own the acknowledgement observer"
+        }
+        val senderDevice = localDeviceId()
+        require(senderDevice.matches(DEVICE_ID)) { "Acknowledgement observer device ID is invalid" }
+        return observeAcknowledgementCount(ownerUserId, senderDevice)
+    }
+
     suspend fun send(
+        groupId: String,
+        messageId: String,
+        plaintext: String,
+        sentAtMillis: Long,
+    ): MegolmGroupMessageSendOutcome = sendMutex.withLock {
+        sendLocked(groupId, messageId, plaintext, sentAtMillis)
+    }
+
+    private suspend fun sendLocked(
         groupId: String,
         messageId: String,
         plaintext: String,
@@ -257,6 +281,7 @@ internal class MegolmGroupMessageSendCoordinator(
     }
 
     private companion object {
+        val sendMutex = Mutex()
         const val MAX_TARGETS = MAX_OLM_DEVICE_DELIVERY_TARGETS
         val ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")

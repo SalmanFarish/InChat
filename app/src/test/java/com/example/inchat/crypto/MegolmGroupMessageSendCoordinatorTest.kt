@@ -1,7 +1,10 @@
 package com.example.inchat.crypto
 
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -360,6 +363,50 @@ class MegolmGroupMessageSendCoordinatorTest {
 
         assertTrue("Device replacement during final membership refresh must block send", rejected)
         assertEquals(0, sendCalls)
+    }
+
+    @Test
+    fun concurrentSendsSerializeMegolmRatchetAdvancement() = runBlocking {
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val firstSendStarted = CompletableDeferred<Unit>()
+        val releaseFirstSend = CompletableDeferred<Unit>()
+        val secondCallStarted = CompletableDeferred<Unit>()
+        var sendCalls = 0
+        val coordinator = coordinator(
+            membershipReads = listOf(membership, membership, membership, membership),
+            targets = targets,
+            session = session,
+            readiness = { OlmGroupKeyDistributionReadinessState.Ready(token) },
+            distribute = { _, _, _ -> error("Ready key distribution must not be recreated") },
+            send = { snapshot, id, _, _, _ ->
+                sendCalls++
+                if (id == "message-serial-1") {
+                    firstSendStarted.complete(Unit)
+                    releaseFirstSend.await()
+                }
+                MegolmGroupMessageOutboxCommitResult(id, snapshot.groupId, snapshot.epoch, 1, 1)
+            },
+        )
+
+        val first = launch {
+            coordinator.send("group-1", "message-serial-1", "first", 790L)
+        }
+        firstSendStarted.await()
+        val second = launch {
+            secondCallStarted.complete(Unit)
+            coordinator.send("group-1", "message-serial-2", "second", 791L)
+        }
+        secondCallStarted.await()
+        yield()
+        assertEquals("Second send must wait before touching the Megolm sender", 1, sendCalls)
+
+        releaseFirstSend.complete(Unit)
+        first.join()
+        second.join()
+        assertEquals(2, sendCalls)
     }
 
     private fun coordinator(

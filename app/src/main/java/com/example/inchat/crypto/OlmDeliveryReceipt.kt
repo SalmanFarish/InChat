@@ -92,6 +92,16 @@ interface OlmDeliveryReceiptDao {
         distributionId: String,
     ): List<String>
 
+    /** Room invalidation signal for newly persisted sender acknowledgements. */
+    @Query(
+        "SELECT COUNT(*) FROM olm_delivery_receipts " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId"
+    )
+    fun observeAcknowledgementCount(
+        ownerUserId: String,
+        senderDeviceId: String,
+    ): Flow<Int>
+
     @Query(
         "SELECT EXISTS(SELECT 1 FROM olm_delivery_receipts " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
