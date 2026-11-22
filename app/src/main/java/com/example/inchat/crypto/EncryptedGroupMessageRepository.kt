@@ -101,7 +101,19 @@ internal class EncryptedGroupMessageRepository(
         ) { records, membership -> records to membership }
             .transformLatest { (records, membership) ->
                 requireAuthenticatedOwner(ownerUserId)
-                requireReadableMembership(ownerUserId, groupId, membership)
+                // A missing, malformed, or revoked membership snapshot must
+                // immediately remove plaintext from the live timeline, but it
+                // must not terminate collection: a later valid Worker snapshot
+                // can restore access without reopening the conversation.
+                if (
+                    membership == null ||
+                    !membership.isValid() ||
+                    membership.groupId != groupId ||
+                    ownerUserId !in membership.memberUserIds
+                ) {
+                    emit(emptyList())
+                    return@transformLatest
+                }
                 val decrypted = decryptGroupMessages(records)
                 currentCoroutineContext().ensureActive()
                 requireAuthenticatedOwner(ownerUserId)
