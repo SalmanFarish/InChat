@@ -72,7 +72,11 @@ internal interface OlmDeliveryQueueStore {
     fun insertGroupMessageIfAbsent(
         deliveries: List<QueuedOlmDeviceDelivery>,
         commit: GroupOutgoingMessageCommit,
-    ): Int = insertIfAbsent(deliveries)
+    ): Int {
+        throw UnsupportedOperationException(
+            "This queue store does not implement atomic group commit persistence",
+        )
+    }
 
     /** Check all immutable delivery identity fields, independent of queue status. */
     fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
