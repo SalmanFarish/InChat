@@ -82,8 +82,11 @@ fun GroupChatScreen(
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
     val encryptedMessages by groupViewModel.encryptedMessages.collectAsState()
-    val encryptedMessageIds = remember(encryptedMessages) {
-        encryptedMessages.mapTo(mutableSetOf()) { it.messageId }
+    val encryptedMessageIds = remember(messages, encryptedMessages) {
+        val legacyIds = messages.mapTo(mutableSetOf()) { it.id }
+        encryptedMessages.mapNotNullTo(mutableSetOf()) { encrypted ->
+            encrypted.messageId.takeUnless { it in legacyIds }
+        }
     }
     val displayMessages = remember(messages, encryptedMessages) {
         val legacyIds = messages.mapTo(mutableSetOf()) { it.id }
