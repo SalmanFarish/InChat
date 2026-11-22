@@ -111,6 +111,7 @@ beforeEach(async () => {
       deviceKeys: {
         alice: { "device-alice-1": publicDeviceBundle("device-alice-1") },
         bob: { "device-bob-1": publicDeviceBundle("device-bob-1") },
+        mallory: { "device-mallory-1": publicDeviceBundle("device-mallory-1") },
       },
       userChats: {
         alice: {
@@ -760,6 +761,13 @@ test("group relay writes require the current server-authored membership epoch an
   await assertSucceeds(set(ref(aliceDb, path), groupRecord));
   await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "8".repeat(64)), { ...groupRecord, membershipEpoch: 2 }));
   await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "9".repeat(64)), { ...groupRecord, groupId: "missing-group" }));
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  await assertFails(set(ref(malloryDb, "olmInbox/bob/device-bob-1/" + "a".repeat(64)), {
+    ...groupRecord, senderUid: "mallory", senderDeviceId: "device-mallory-1",
+  }));
+  await assertFails(set(ref(aliceDb, "olmInbox/mallory/device-mallory-1/" + "b".repeat(64)), {
+    ...groupRecord,
+  }));
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await set(ref(context.database(), "chats/group/cryptoMembership/epoch"), 4);
   });
@@ -775,6 +783,9 @@ test("relay scope is mandatory and direct scope must match the canonical chat pa
   }));
   await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "0".repeat(64)), {
     ...base, conversationId: "alice_mallory",
+  }));
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "3".repeat(64)), {
+    ...base, conversationId: "custom-alice-bob-chat",
   }));
   await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "1".repeat(64)), {
     ...base, conversationType: "group",
