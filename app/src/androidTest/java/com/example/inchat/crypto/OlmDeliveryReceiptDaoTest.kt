@@ -79,6 +79,57 @@ class OlmDeliveryReceiptDaoTest {
     }
 
     @Test
+    fun conflictingExistingDeliveryIdIsRejectedInsteadOfSilentlyAccepted() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-delivery-receipt-conflict-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val dao = database.olmDeliveryReceiptDao()
+            dao.insertIfAbsent(
+                OlmDeliveryReceiptEntity(
+                    deliveryId = "c".repeat(64),
+                    ownerUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                    messageId = "message-original",
+                    recipientUserId = "bob",
+                    recipientDeviceId = "bob-phone",
+                    acknowledgedAtMillis = 10L,
+                ),
+            )
+            val recorder = RoomOlmDeliveryAcknowledgementRecorder(database, dao)
+            var rejected = false
+            try {
+                recorder.record(
+                    OlmDeliveryAcknowledgement(
+                        deliveryId = "c".repeat(64),
+                        recipientUserId = "mallory",
+                        recipientDeviceId = "mallory-phone",
+                        messageId = "message-forged",
+                        senderUserId = "alice",
+                        senderDeviceId = "alice-phone",
+                    ),
+                    20L,
+                )
+            } catch (expected: IllegalStateException) {
+                rejected = expected.message.orEmpty().contains("conflicts with an existing")
+            }
+            assertEquals(true, rejected)
+            val persisted = dao.getByDeliveryId("c".repeat(64))
+            assertEquals("message-original", persisted?.messageId)
+            assertEquals("bob", persisted?.recipientUserId)
+            assertEquals("bob-phone", persisted?.recipientDeviceId)
+            assertEquals(10L, persisted?.acknowledgedAtMillis)
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun senderCompanionAcknowledgementPersistsWithoutMarkingRemoteRecipientDelivered() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-delivery-receipt-self-device-test.db"

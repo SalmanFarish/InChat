@@ -146,7 +146,27 @@ internal class RoomOlmDeliveryAcknowledgementRecorder(
         )
         withContext(Dispatchers.IO) {
             database.runInTransaction(Callable {
-                dao.insertIfAbsent(receipt)
+                val inserted = dao.insertIfAbsent(receipt)
+                if (inserted == -1L) {
+                    // IGNORE is idempotent only when the existing row represents
+                    // this exact immutable delivery. A reused/corrupt delivery ID
+                    // must not silently consume the relay ack and delete ciphertext.
+                    val existing = dao.getByDeliveryId(acknowledgement.deliveryId)
+                    check(
+                        existing != null &&
+                            existing.ownerUserId == receipt.ownerUserId &&
+                            existing.senderDeviceId == receipt.senderDeviceId &&
+                            existing.messageId == receipt.messageId &&
+                            existing.recipientUserId == receipt.recipientUserId &&
+                            existing.recipientDeviceId == receipt.recipientDeviceId
+                    ) {
+                        "Delivery acknowledgement conflicts with an existing durable receipt"
+                    }
+                } else {
+                    check(inserted > 0L) {
+                        "Delivery acknowledgement receipt could not be persisted"
+                    }
+                }
             })
         }
     }
