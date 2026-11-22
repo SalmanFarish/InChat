@@ -32,7 +32,9 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         assertTrue(store.rows.all {
             it.ownerUserId == "alice" &&
                 it.senderDeviceId == "alice-phone" &&
-                it.messageId == "group-key-7"
+                it.messageId == "group-key-7" &&
+                it.groupId == "group-1" &&
+                it.membershipEpoch == 7L
         })
     }
 
