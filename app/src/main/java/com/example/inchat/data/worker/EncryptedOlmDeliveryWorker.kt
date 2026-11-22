@@ -38,6 +38,7 @@ import com.example.inchat.crypto.RoomOlmDeliveryAcknowledgementRecorder
 import com.example.inchat.data.local.LocalChatDatabase
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 /**
