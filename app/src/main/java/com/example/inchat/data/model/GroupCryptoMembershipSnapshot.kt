@@ -36,7 +36,7 @@ data class GroupCryptoMembershipSnapshot(
             entries: List<Pair<String?, String?>>,
         ): GroupCryptoMembershipSnapshot? {
             if (epoch == null || entries.any { (userId, role) ->
-                    userId.isNullOrBlank() || role !in ALLOWED_ROLES
+                    userId.isNullOrBlank() || role == null || role !in ALLOWED_ROLES
                 }
             ) {
                 return null
