@@ -76,6 +76,57 @@ class EncryptedOlmMessageRepositoryTest {
     }
 
     @Test
+    fun accountSwitchDuringDecryptionPreventsReturningPlaintext() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-account-switch-during-decrypt-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            dao.upsertMessage(vault.encrypt(message("switch-during-decrypt", 100L, "must stay private")))
+
+            var authReads = 0
+            val singleReadRepository = EncryptedOlmMessageRepository(
+                dao,
+                vault,
+                authenticatedUserId = {
+                    authReads += 1
+                    if (authReads <= 2) "bob" else "mallory"
+                },
+            )
+            assertTrue(
+                "A switch detected after decrypt must prevent returning plaintext",
+                runCatching {
+                    singleReadRepository.getMessage("bob", "alice_bob", "switch-during-decrypt")
+                }.isFailure,
+            )
+
+            authReads = 0
+            val observedRepository = EncryptedOlmMessageRepository(
+                dao,
+                vault,
+                authenticatedUserId = {
+                    authReads += 1
+                    if (authReads <= 2) "bob" else "mallory"
+                },
+            )
+            assertTrue(
+                "An account switch during flow decryption must prevent emitting plaintext",
+                runCatching {
+                    observedRepository.observeMessages("bob", "alice_bob").first()
+                }.isFailure,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
+    @Test
     fun corruptedStoredCiphertextFailsClosedWhenRead() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val databaseName = "encrypted-olm-corrupt-read-${UUID.randomUUID()}.db"
