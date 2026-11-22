@@ -227,4 +227,65 @@ class OlmDeliveryReceiptDaoTest {
         }
     }
 
+
+    @Test
+    fun concurrentConflictingAcknowledgementsCannotReplaceFirstReceipt() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-delivery-receipt-concurrent-conflict-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val dao = database.olmDeliveryReceiptDao()
+            val recorder = RoomOlmDeliveryAcknowledgementRecorder(database, dao)
+            val deliveryId = "e".repeat(64)
+            val candidates = listOf(
+                OlmDeliveryAcknowledgement(
+                    deliveryId = deliveryId,
+                    recipientUserId = "bob",
+                    recipientDeviceId = "bob-phone",
+                    messageId = "message-bob",
+                    senderUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                ),
+                OlmDeliveryAcknowledgement(
+                    deliveryId = deliveryId,
+                    recipientUserId = "mallory",
+                    recipientDeviceId = "mallory-phone",
+                    messageId = "message-mallory",
+                    senderUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                ),
+            )
+
+            val outcomes = kotlinx.coroutines.coroutineScope {
+                candidates.mapIndexed { index, acknowledgement ->
+                    async(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            recorder.record(acknowledgement, (index + 1) * 1_000L)
+                        }
+                    }
+                }.map { it.await() }
+            }
+
+            assertEquals(1, outcomes.count { it.isSuccess })
+            assertEquals(1, outcomes.count { it.isFailure })
+
+            val persisted = dao.getByDeliveryId(deliveryId)
+            assertTrue(persisted != null)
+            assertTrue(
+                candidates.any { candidate ->
+                    persisted?.messageId == candidate.messageId &&
+                        persisted.recipientUserId == candidate.recipientUserId &&
+                        persisted.recipientDeviceId == candidate.recipientDeviceId
+                },
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
 }
