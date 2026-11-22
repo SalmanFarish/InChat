@@ -57,6 +57,10 @@ function fixture({
     }],
     ["privateUsers/bob/olmDeviceFcmTokens/bob-device", token],
   ]);
+  database.set(
+    "olmInbox/alice/bob-device/" + deliveryId,
+    database.get("olmInbox/bob/bob-device/" + deliveryId),
+  );
   if (blocked) database.set("blockedUsers/bob/alice", { uid: "alice" });
   if (existingReceipt) {
     database.set(
