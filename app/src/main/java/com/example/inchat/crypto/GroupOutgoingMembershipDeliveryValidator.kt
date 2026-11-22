@@ -17,7 +17,11 @@ internal fun isCommittedGroupDeliveryCurrent(
     authenticatedSenderDeviceId: String,
     membership: GroupCryptoMembershipSnapshot,
 ): Boolean =
-    commit.ownerUserId == authenticatedOwnerUserId &&
+    commit.recipientDeviceCount in 1..MAX_OLM_DEVICE_DELIVERY_TARGETS &&
+        commit.membershipEpoch > 0L &&
+        commit.megolmSessionId.isNotBlank() && commit.megolmSessionId.length <= 128 &&
+        commit.messageIndex >= 0L && commit.sentAtMillis >= 0L &&
+        commit.ownerUserId == authenticatedOwnerUserId &&
         commit.senderDeviceId == authenticatedSenderDeviceId &&
         commit.messageId == delivery.messageId &&
         delivery.ownerUserId == authenticatedOwnerUserId &&
