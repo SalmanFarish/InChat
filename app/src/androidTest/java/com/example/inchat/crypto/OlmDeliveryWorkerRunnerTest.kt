@@ -73,7 +73,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals("group_membership_epoch_stale", stale.lastError)
         assertEquals(OlmDeliveryStatus.UPLOADED, direct.status)
         assertEquals(1, result.uploaded)
-        assertFalse(result.retryRequired)
+        assertTrue(result.retryRequired) // Uploaded deliveries request the normal follow-up ack pass.
         assertEquals(listOf("read-acks", "upload:direct-message"), events)
     }
 
