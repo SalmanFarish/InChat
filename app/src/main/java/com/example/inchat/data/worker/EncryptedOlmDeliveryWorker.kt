@@ -427,8 +427,15 @@ class EncryptedOlmDeliveryWorker(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    // Continue the batch, but request another WorkManager pass
-                    // so this intent remains recoverable after transient errors.
+                    // An account/device switch is a hard scope boundary, not an
+                    // item-level failure. Stop immediately rather than iterating
+                    // over the remaining intents under a stale worker identity.
+                    requireActiveIdentity()
+                    require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
+                        "Local sender device changed during background group-message retry"
+                    }
+                    // Continue the batch only while the original identity is still
+                    // active, but request another WorkManager pass for transient errors.
                     retryRequired = true
                     Log.w(
                         TAG,
