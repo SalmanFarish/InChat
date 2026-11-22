@@ -179,4 +179,51 @@ class OlmDeliveryReceiptDaoTest {
             context.deleteDatabase(name)
         }
     }
+
+    @Test
+    fun concurrentDuplicateAcknowledgementsCommitOneImmutableReceipt() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-delivery-receipt-concurrent-idempotency-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val dao = database.olmDeliveryReceiptDao()
+            val recorder = RoomOlmDeliveryAcknowledgementRecorder(database, dao)
+            val acknowledgement = OlmDeliveryAcknowledgement(
+                deliveryId = "d".repeat(64),
+                recipientUserId = "bob",
+                recipientDeviceId = "bob-phone",
+                messageId = "concurrent-message",
+                senderUserId = "alice",
+                senderDeviceId = "alice-phone",
+            )
+
+            kotlinx.coroutines.coroutineScope {
+                listOf(12_345L, 99_999L).map { timestamp ->
+                    async(kotlinx.coroutines.Dispatchers.IO) {
+                        recorder.record(acknowledgement, timestamp)
+                    }
+                }.forEach { it.await() }
+            }
+
+            val persisted = dao.getByDeliveryId(acknowledgement.deliveryId)
+            assertEquals("alice", persisted?.ownerUserId)
+            assertEquals("alice-phone", persisted?.senderDeviceId)
+            assertEquals("concurrent-message", persisted?.messageId)
+            assertEquals("bob", persisted?.recipientUserId)
+            assertEquals("bob-phone", persisted?.recipientDeviceId)
+            assertTrue(persisted?.acknowledgedAtMillis in listOf(12_345L, 99_999L))
+            assertEquals(
+                listOf("concurrent-message"),
+                dao.getDeliveredMessageIds("alice", "alice-phone", "bob"),
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
 }
