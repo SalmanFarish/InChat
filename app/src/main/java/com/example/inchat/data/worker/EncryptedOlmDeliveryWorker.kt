@@ -19,6 +19,7 @@ import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
 import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
 import com.example.inchat.crypto.isPendingGroupIntentRetryMembershipCurrent
+import com.example.inchat.crypto.isCommittedGroupDeliveryCurrent
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.MegolmSessionRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
