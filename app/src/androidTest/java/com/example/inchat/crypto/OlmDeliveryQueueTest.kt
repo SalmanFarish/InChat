@@ -37,6 +37,62 @@ class OlmDeliveryQueueTest {
     }
 
     @Test
+    fun groupCommitFailsClosedWhenStoreDoesNotImplementAtomicPersistence() {
+        val delegate = InMemoryQueueStore()
+        val legacyStore = object : OlmDeliveryQueueStore {
+            override fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>) =
+                delegate.insertIfAbsent(deliveries)
+            override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement) =
+                delegate.hasMatchingDelivery(acknowledgement)
+            override fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement) =
+                delegate.removeAcknowledgedDelivery(acknowledgement)
+            override fun claimNextDue(
+                ownerUserId: String, senderDeviceId: String, nowMillis: Long,
+                leaseDurationMillis: Long, maxAttempts: Int,
+            ) = delegate.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
+            override fun retryFailed(
+                deliveryId: String, messageId: String, ownerUserId: String,
+                senderDeviceId: String, nowMillis: Long,
+            ) = delegate.retryFailed(deliveryId, messageId, ownerUserId, senderDeviceId, nowMillis)
+            override fun updateInFlight(
+                deliveryId: String, messageId: String, ownerUserId: String,
+                senderDeviceId: String, expectedAttemptCount: Int,
+                expectedLeaseUntilMillis: Long, nowMillis: Long,
+                update: (QueuedOlmDeviceDelivery) -> QueuedOlmDeviceDelivery,
+            ) = delegate.updateInFlight(
+                deliveryId, messageId, ownerUserId, senderDeviceId,
+                expectedAttemptCount, expectedLeaseUntilMillis, nowMillis, update,
+            )
+        }
+        val queue = OlmDeliveryQueue(legacyStore)
+        val commit = GroupOutgoingMessageCommit(
+            ownerUserId = "alice",
+            groupId = "group-1",
+            messageId = "group-message",
+            senderDeviceId = "sender-device",
+            membershipEpoch = 3L,
+            megolmSessionId = "megolm-session",
+            messageIndex = 0L,
+            sentAtMillis = 1_000L,
+            recipientDeviceCount = 1,
+        )
+
+        try {
+            queue.enqueue(
+                ownerUserId = "alice",
+                senderDeviceId = "sender-device",
+                messageId = "group-message",
+                prepared = listOf(prepared("phone")),
+                groupMessageCommit = commit,
+            )
+            throw AssertionError("Expected unsupported atomic group persistence to fail")
+        } catch (expected: UnsupportedOperationException) {
+            assertTrue(expected.message.orEmpty().contains("atomic group commit"))
+        }
+        assertTrue(delegate.rows.isEmpty())
+    }
+
+    @Test
     fun claimAckAndDuplicateAckAreSafe() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)

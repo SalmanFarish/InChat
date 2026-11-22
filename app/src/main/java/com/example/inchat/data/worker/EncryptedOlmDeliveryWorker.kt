@@ -289,11 +289,13 @@ class EncryptedOlmDeliveryWorker(
                                     ?: throw IllegalStateException(
                                         "Current group membership snapshot is unavailable",
                                     )
-                                membership.isValid() &&
-                                    membership.groupId == commit.groupId &&
-                                    membership.epoch == commit.membershipEpoch &&
-                                    ownerUserId in membership.memberUserIds &&
-                                    delivery.recipientUserId in membership.memberUserIds
+                                isCommittedGroupDeliveryCurrent(
+                                    commit = commit,
+                                    delivery = delivery,
+                                    authenticatedOwnerUserId = ownerUserId,
+                                    authenticatedSenderDeviceId = senderDeviceId,
+                                    membership = membership,
+                                )
                             }
                         }
                         // Ambiguous message identity is not safe to authorize.
