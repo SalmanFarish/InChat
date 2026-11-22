@@ -79,6 +79,7 @@ internal object NotificationPayloadPolicy {
 
     private const val GENERIC_TITLE = "InChat"
     private const val GENERIC_ENCRYPTED_BODY = "New encrypted message"
+    private const val GENERIC_NEW_BODY = "You received a new message"
 
     /**
      * Only render recognized message types with enough identifiers to update
@@ -179,42 +180,19 @@ internal object NotificationPayloadPolicy {
             )
         }
 
-        // Preserve the established plaintext notification behavior.
-        val senderName =
-            data["senderName"]
-                ?.trim()
-                ?.removePrefix("@")
-                ?.takeIf { it.isNotBlank() }
-                ?: fallbackTitle
-                    ?.removePrefix("@")
-                    ?.takeIf { it.isNotBlank() }
-                ?: GENERIC_TITLE
-
-        val messageText =
-            data["message"]
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: fallbackBody
-                    ?.takeIf { it.isNotBlank() }
-                ?: "You received a new message"
-
-        val isGroup = type == TYPE_GROUP
-        val groupName =
-            data["groupName"]
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: "Group"
-
+        // Legacy push payloads are also outside the E2EE trust boundary.
+        // Never copy message bodies, sender labels, group names, or fallback
+        // FCM notification text into the system tray or local notification history.
         return NotificationPresentation(
-            title = if (isGroup) groupName else "@$senderName",
-            body = if (isGroup) "$senderName: $messageText" else messageText,
-            senderName = senderName,
-            messageText = messageText,
-            notificationType = if (isGroup) ROUTE_GROUP else ROUTE_CHAT,
+            title = GENERIC_TITLE,
+            body = GENERIC_NEW_BODY,
+            senderName = GENERIC_TITLE,
+            messageText = GENERIC_NEW_BODY,
+            notificationType = if (type == TYPE_GROUP) ROUTE_GROUP else ROUTE_CHAT,
             chatId = chatId,
             senderId = senderId,
             messageId = messageId,
-            includeMessageHistory = true,
+            includeMessageHistory = false,
         )
     }
 }

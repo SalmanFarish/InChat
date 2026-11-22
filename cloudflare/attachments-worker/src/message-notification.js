@@ -91,9 +91,6 @@ export function buildAddressedMessagePushData({
   messageId,
   senderId,
   recipientUserId,
-  senderName,
-  groupName,
-  message,
 }) {
   if (!ALLOWED_TYPES.has(type)) {
     throw new TypeError("Unsupported addressed message push type.");
@@ -105,13 +102,7 @@ export function buildAddressedMessagePushData({
     messageId: requiredText(messageId, "message ID"),
     senderId: requiredText(senderId, "sender UID"),
     recipientUserId: requiredText(recipientUserId, "recipient UID"),
-    senderName: requiredText(senderName, "sender name"),
-    message: requiredText(message, "message text"),
   };
-
-  if (type === "group_message") {
-    payload.groupName = requiredText(groupName, "group name");
-  }
 
   return payload;
 }

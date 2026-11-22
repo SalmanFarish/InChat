@@ -10,8 +10,6 @@ test("direct message push always identifies its recipient account", () => {
       messageId: "message-1",
       senderId: "alice",
       recipientUserId: "bob",
-      senderName: "Alice",
-      message: "Hello",
     }),
     {
       type: "chat_message",
@@ -19,8 +17,6 @@ test("direct message push always identifies its recipient account", () => {
       messageId: "message-1",
       senderId: "alice",
       recipientUserId: "bob",
-      senderName: "Alice",
-      message: "Hello",
     },
   );
 });
@@ -38,7 +34,9 @@ test("small-group direct delivery identifies the individual recipient", () => {
   });
 
   assert.equal(payload.recipientUserId, "bob");
-  assert.equal(payload.groupName, "Friends");
+  assert.equal(Object.hasOwn(payload, "message"), false);
+  assert.equal(Object.hasOwn(payload, "senderName"), false);
+  assert.equal(Object.hasOwn(payload, "groupName"), false);
 });
 
 test("addressed push builder rejects missing recipient and malformed routing values", () => {
@@ -49,8 +47,6 @@ test("addressed push builder rejects missing recipient and malformed routing val
       messageId: "message-1",
       senderId: "alice",
       recipientUserId: "",
-      senderName: "Alice",
-      message: "Hello",
     }),
     /recipient UID/,
   );

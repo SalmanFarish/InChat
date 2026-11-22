@@ -335,46 +335,46 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
-    fun plaintextDirectPushRetainsExistingPresentationAndHistory() {
+    fun legacyDirectPushNeverPersistsOrDisplaysPlaintext() {
         val presentation = NotificationPayloadPolicy.from(
             data = mapOf(
                 "type" to NotificationPayloadPolicy.TYPE_CHAT,
                 "chatId" to "chat-1",
                 "senderId" to "sender-1",
                 "messageId" to "message-1",
-                "senderName" to "@Alice",
-                "message" to "Hello",
+                "senderName" to "Private Sender",
+                "message" to "Secret message body",
             ),
-            fallbackTitle = null,
-            fallbackBody = null,
+            fallbackTitle = "Private FCM title",
+            fallbackBody = "Private FCM body",
         )
 
-        assertEquals("@Alice", presentation.title)
-        assertEquals("Hello", presentation.body)
-        assertEquals("Alice", presentation.senderName)
-        assertEquals("Hello", presentation.messageText)
-        assertTrue(presentation.includeMessageHistory)
+        assertEquals("InChat", presentation.title)
+        assertEquals("You received a new message", presentation.body)
+        assertEquals("InChat", presentation.senderName)
+        assertEquals("You received a new message", presentation.messageText)
+        assertFalse(presentation.includeMessageHistory)
     }
 
     @Test
-    fun plaintextGroupPushRetainsExistingGroupPresentation() {
+    fun legacyGroupPushNeverPersistsOrDisplaysPlaintext() {
         val presentation = NotificationPayloadPolicy.from(
             data = mapOf(
                 "type" to NotificationPayloadPolicy.TYPE_GROUP,
                 "chatId" to "group-1",
                 "senderId" to "sender-1",
                 "messageId" to "message-2",
-                "senderName" to "Alice",
-                "groupName" to "Friends",
-                "message" to "Hello everyone",
+                "senderName" to "Private Sender",
+                "groupName" to "Private Group",
+                "message" to "Secret group message",
             ),
-            fallbackTitle = null,
-            fallbackBody = null,
+            fallbackTitle = "Private Group",
+            fallbackBody = "Secret group message",
         )
 
-        assertEquals("Friends", presentation.title)
-        assertEquals("Alice: Hello everyone", presentation.body)
+        assertEquals("InChat", presentation.title)
+        assertEquals("You received a new message", presentation.body)
         assertEquals(NotificationPayloadPolicy.ROUTE_GROUP, presentation.notificationType)
-        assertTrue(presentation.includeMessageHistory)
+        assertFalse(presentation.includeMessageHistory)
     }
 }

@@ -2516,17 +2516,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
   const notificationAlreadySent = claim.notificationSent === true;
 
   try {
-    const messageText = notificationText(
-      typeof message.text === "string" && message.text.trim() !== "" ?
-        message.text :
-        "Sent an attachment",
-    );
-    const senderNickname =
-      typeof message.senderNickname === "string" &&
-      message.senderNickname.trim() !== "" ?
-        message.senderNickname.trim() :
-        "InChat user";
-
     let notificationSent = notificationAlreadySent;
     let notificationReason = "";
 
@@ -2627,9 +2616,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                         messageId,
                         senderId: uid,
                         recipientUserId: recipient.memberId,
-                        senderName: senderNickname,
-                        groupName,
-                        message: messageText,
                       }),
                       android: {
                         priority: "high",
@@ -2725,9 +2711,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                   senderId: uid,
                   deliveryScope: "group_topic",
                   recipientAccountTags: recipientAccountTags,
-                  senderName: senderNickname,
-                  groupName: groupName,
-                  message: messageText,
                 },
                 android: {
                   priority: "high",
@@ -2826,8 +2809,6 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                 messageId,
                 senderId: uid,
                 recipientUserId: receiverId,
-                senderName: senderNickname,
-                message: messageText,
               }),
               android: {
                 priority: "high",
