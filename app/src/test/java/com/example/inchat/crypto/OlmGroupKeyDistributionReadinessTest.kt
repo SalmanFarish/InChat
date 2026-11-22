@@ -353,6 +353,11 @@ class OlmGroupKeyDistributionReadinessTest {
                 distributionId == expectedDistributionId
             ) acknowledgedDevices.map { "bob/$it" } else emptyList()
 
+        override fun observeAcknowledgementCount(
+            ownerUserId: String,
+            senderDeviceId: String,
+        ): Flow<Int> = flowOf(0)
+
         override fun observeHasRecipientAcknowledgement(
             ownerUserId: String,
             senderDeviceId: String,

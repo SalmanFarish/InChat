@@ -262,6 +262,11 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         override fun getDeliveredMessageIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String): List<String> = emptyList()
         override fun getAcknowledgedRecipientDeviceIds(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): List<String> = acknowledged[recipientUserId to messageId].orEmpty().toList()
         override fun getAcknowledgedTargetIdentitiesForDistribution(ownerUserId: String, senderDeviceId: String, distributionId: String): List<String> = emptyList()
+        override fun observeAcknowledgementCount(
+            ownerUserId: String,
+            senderDeviceId: String,
+        ): Flow<Int> = flowOf(0)
+
         override fun observeHasRecipientAcknowledgement(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): Flow<Boolean> = flowOf(false)
     }
     private class FakeMetadataStore : OlmGroupKeyDistributionMetadataStore {
