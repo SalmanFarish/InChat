@@ -3,6 +3,10 @@ package com.example.inchat.ui.chat
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.inchat.InChatApplication
+import com.example.inchat.crypto.DecryptedGroupMessage
+import com.example.inchat.crypto.EncryptedGroupMessageRepository
+import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -29,6 +33,11 @@ class GroupChatViewModel : ViewModel() {
 
     private val groupRepository = GroupChatRepository()
     private val chatRepository = ChatRepository()
+    private val encryptedGroupMessageRepository by lazy {
+        EncryptedGroupMessageRepository(
+            LocalChatDatabase.getInstance(InChatApplication.instance).encryptedGroupMessageDao(),
+        )
+    }
 
     private val _group = MutableStateFlow<Group?>(null)
     val group: StateFlow<Group?> = _group.asStateFlow()
@@ -37,6 +46,12 @@ class GroupChatViewModel : ViewModel() {
         MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> =
         _messages.asStateFlow()
+
+    // Kept separate from legacy Message rows so encrypted content can never
+    // accidentally enter Firebase edit/delete/reaction or retry operations.
+    private val _encryptedMessages = MutableStateFlow<List<DecryptedGroupMessage>>(emptyList())
+    internal val encryptedMessages: StateFlow<List<DecryptedGroupMessage>> =
+        _encryptedMessages.asStateFlow()
 
     private val _messagesLoaded = MutableStateFlow(false)
     val messagesLoaded: StateFlow<Boolean> =
@@ -73,6 +88,7 @@ class GroupChatViewModel : ViewModel() {
     private var pendingReconciliationJob: Job? = null
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
+    private var encryptedMessagesJob: Job? = null
     private val groupReadJobs = mutableMapOf<String, Job>()
     private val _groupReadTimestamps =
         MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -132,6 +148,8 @@ class GroupChatViewModel : ViewModel() {
         _isLoadingOlderMessages.value = false
         groupJob?.cancel()
         messagesJob?.cancel()
+        encryptedMessagesJob?.cancel()
+        _encryptedMessages.value = emptyList()
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
         pendingMessagesJob = null
@@ -318,6 +336,36 @@ class GroupChatViewModel : ViewModel() {
                     "GroupChatViewModel",
                     "Group listener failed",
                     e
+                )
+            }
+        }
+
+        // Encrypted Megolm messages live only in account-scoped Room storage.
+        // Their visibility is continuously gated by the Worker-authored atomic
+        // membership snapshot; legacy /members listeners are never consulted.
+        encryptedMessagesJob = viewModelScope.launch {
+            try {
+                encryptedGroupMessageRepository
+                    .observeMessagesForMember(
+                        ownerUserId = currentUserId,
+                        groupId = groupId,
+                        membershipSnapshots = groupRepository.observeGroupCryptoMembership(groupId),
+                    )
+                    .collect { encrypted ->
+                        if (listeningGroupId == groupId) {
+                            _encryptedMessages.value = encrypted
+                        }
+                    }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (listeningGroupId == groupId) {
+                    _encryptedMessages.value = emptyList()
+                }
+                Log.e(
+                    "GroupChatViewModel",
+                    "Encrypted group message timeline could not be observed",
+                    e,
                 )
             }
         }
@@ -747,6 +795,7 @@ class GroupChatViewModel : ViewModel() {
     override fun onCleared() {
         groupJob?.cancel()
         messagesJob?.cancel()
+        encryptedMessagesJob?.cancel()
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
         connectionListenerJob?.cancel()
