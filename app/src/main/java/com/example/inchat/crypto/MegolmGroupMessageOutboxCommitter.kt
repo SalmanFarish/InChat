@@ -9,6 +9,11 @@ internal data class MegolmGroupMessageOutboxCommitResult(
     val membershipEpoch: Long,
     val queuedDeviceDeliveries: Int,
     val recipientDeviceCount: Int,
+    val senderUserId: String,
+    val senderDeviceId: String,
+    val megolmSessionId: String,
+    val messageIndex: Long,
+    val sentAtMillis: Long,
 )
 
 /**
@@ -113,6 +118,11 @@ internal class MegolmGroupMessageOutboxCommitter(
             membershipEpoch = staged.membershipEpoch,
             queuedDeviceDeliveries = queued,
             recipientDeviceCount = distribution.deliveries.size,
+            senderUserId = staged.senderUserId,
+            senderDeviceId = staged.senderDeviceId,
+            megolmSessionId = staged.encryptedMessage.sessionId,
+            messageIndex = staged.encryptedMessage.messageIndex,
+            sentAtMillis = staged.sentAtMillis,
         )
     }
 }
