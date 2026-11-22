@@ -88,6 +88,20 @@ class GroupCryptoMembershipSnapshotTest {
         assertFalse(
             GroupCryptoMembershipSnapshot.fromEntries(
                 groupId = "group-1",
+                epoch = 3L,
+                entries = validEntries + ("admin-user" to "member"),
+            )?.isValid() == true,
+        )
+        assertFalse(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
+                epoch = 3L,
+                entries = validEntries + ("unknown-user" to null),
+            )?.isValid() == true,
+        )
+        assertFalse(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
                 epoch = null,
                 entries = validEntries,
             )?.isValid() == true,
