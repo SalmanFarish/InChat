@@ -442,9 +442,9 @@ internal class FirebaseOlmEnvelopeTransport(
             require(fields.keys == GROUP_INBOX_FIELDS)
             require(groupId != null && GROUP_PATTERN.matches(groupId))
             require(conversationId == groupId && membershipEpochNumber != null &&
+                membershipEpoch != null && membershipEpoch > 0L &&
                 membershipEpochNumber.toDouble().isFinite() &&
-                membershipEpochNumber.toDouble() == membershipEpoch?.toDouble() &&
-                membershipEpoch > 0L
+                membershipEpochNumber.toDouble() == membershipEpoch.toDouble()
             )
         }
         FirebaseOlmInboxItem(
