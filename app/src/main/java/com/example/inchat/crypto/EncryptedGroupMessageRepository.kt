@@ -100,7 +100,13 @@ internal class EncryptedGroupMessageRepository(
             membershipSnapshots,
         ) { records, membership -> records to membership }
             .transformLatest { (records, membership) ->
-                requireAuthenticatedOwner(ownerUserId)
+                // A sign-out/account switch must clear visible plaintext without
+                // terminating the membership stream; switching back can safely
+                // re-evaluate the latest atomic snapshot.
+                if (authenticatedUserId() != ownerUserId) {
+                    emit(emptyList())
+                    return@transformLatest
+                }
                 // A missing, malformed, or revoked membership snapshot must
                 // immediately remove plaintext from the live timeline, but it
                 // must not terminate collection: a later valid Worker snapshot
@@ -116,7 +122,10 @@ internal class EncryptedGroupMessageRepository(
                 }
                 val decrypted = decryptGroupMessages(records)
                 currentCoroutineContext().ensureActive()
-                requireAuthenticatedOwner(ownerUserId)
+                if (authenticatedUserId() != ownerUserId) {
+                    emit(emptyList())
+                    return@transformLatest
+                }
                 emit(decrypted)
             }
             .flowOn(ioDispatcher)
