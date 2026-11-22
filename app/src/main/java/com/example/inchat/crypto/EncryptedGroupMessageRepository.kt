@@ -162,7 +162,8 @@ internal class EncryptedGroupMessageRepository(
                     "Outgoing encrypted group message ID already belongs to different content"
                 }
                 requireAuthenticatedOwner(message.ownerUserId)
-                dao.deletePendingMessage(message.ownerUserId, message.groupId, message.messageId)
+                dao.clearCommittedOutgoingPending(encrypted)
+                requireAuthenticatedOwner(message.ownerUserId)
                 false
             }
         }
@@ -211,6 +212,68 @@ internal class EncryptedGroupMessageRepository(
                     plaintext = pendingVault.decrypt(record),
                 )
             }
+        }
+    }
+
+
+    /**
+     * Recover only sends whose complete Olm fan-out has a durable commit marker.
+     * Pending intents without a marker are deliberately left untouched: they may
+     * still be waiting for key acknowledgements and must never be re-encrypted
+     * blindly because that could advance the Megolm ratchet a second time.
+     */
+    suspend fun recoverCommittedOutgoingIntents(
+        ownerUserId: String,
+        groupId: String,
+    ): Int {
+        validateScope(ownerUserId, groupId)
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            var recovered = 0
+            val commits = dao.getOutgoingGroupCommits(ownerUserId, groupId)
+            for (commit in commits) {
+                requireAuthenticatedOwner(ownerUserId)
+                val pending = dao.getPendingMessage(ownerUserId, groupId, commit.messageId)
+                    ?: continue
+                require(pending.sentAtMillis == commit.sentAtMillis) {
+                    "Pending group intent does not match its committed send timestamp"
+                }
+                val plaintext = pendingVault.decrypt(pending)
+                requireAuthenticatedOwner(ownerUserId)
+                val message = DecryptedGroupMessage(
+                    ownerUserId = ownerUserId,
+                    groupId = groupId,
+                    messageId = commit.messageId,
+                    membershipEpoch = commit.membershipEpoch,
+                    senderUserId = ownerUserId,
+                    senderDeviceId = commit.senderDeviceId,
+                    megolmSessionId = commit.megolmSessionId,
+                    messageIndex = commit.messageIndex,
+                    sentAtMillis = commit.sentAtMillis,
+                    text = plaintext,
+                )
+                val existing = dao.getMessage(ownerUserId, groupId, commit.messageId)
+                if (existing != null) {
+                    require(vault.decrypt(existing) == message) {
+                        "Existing sender timeline row conflicts with its durable group commit"
+                    }
+                    requireAuthenticatedOwner(ownerUserId)
+                    dao.clearCommittedOutgoingPending(existing)
+                } else {
+                    val encrypted = vault.encrypt(message, allowKeyCreation = !dao.hasStoredMessages())
+                    requireAuthenticatedOwner(ownerUserId)
+                    check(dao.commitOutgoingMessageAndDeletePending(
+                        message = encrypted,
+                        ownerUserId = ownerUserId,
+                        groupId = groupId,
+                        messageId = commit.messageId,
+                    )) { "Recovered sender timeline row could not be committed" }
+                }
+                requireAuthenticatedOwner(ownerUserId)
+                recovered++
+            }
+            recovered
         }
     }
 

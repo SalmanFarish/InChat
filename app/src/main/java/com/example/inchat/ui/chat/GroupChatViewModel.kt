@@ -423,6 +423,17 @@ class GroupChatViewModel : ViewModel() {
                     return@launch
                 }
 
+                // A prior process may have died after the ciphertext fan-out was
+                // committed but before its sender timeline echo was stored. Recover
+                // that exact ciphertext metadata from the durable marker; never call
+                // Megolm send again for a committed pending intent.
+                withContext(Dispatchers.IO) {
+                    encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(
+                        ownerUserId = currentUserId,
+                        groupId = groupId,
+                    )
+                }
+
                 // Persist the user's intent before attempting key distribution or
                 // advancing the Megolm ratchet. Room stores only AES-GCM ciphertext.
                 withContext(Dispatchers.IO) {

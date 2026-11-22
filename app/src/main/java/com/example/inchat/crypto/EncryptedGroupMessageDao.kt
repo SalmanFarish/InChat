@@ -99,11 +99,74 @@ abstract class EncryptedGroupMessageDao {
                 message.groupId == groupId &&
                 message.messageId == messageId
         ) { "Outgoing message and pending intent scopes do not match" }
+        val marker = getOutgoingGroupCommit(ownerUserId, groupId, messageId)
+            ?: error("Committed group message marker is missing")
+        require(
+            marker.senderDeviceId == message.senderDeviceId &&
+                marker.membershipEpoch == message.membershipEpoch &&
+                marker.megolmSessionId == message.megolmSessionId &&
+                marker.messageIndex == message.messageIndex &&
+                marker.sentAtMillis == message.sentAtMillis
+        ) { "Sender timeline row does not match its durable group commit marker" }
         if (insertOutgoingMessage(message) == -1L) return false
         check(deletePendingMessage(ownerUserId, groupId, messageId) == 1) {
             "Pending outgoing group intent disappeared before local commit"
         }
+        check(deleteOutgoingGroupCommit(ownerUserId, groupId, messageId) == 1) {
+            "Durable group commit marker disappeared before local commit"
+        }
         return true
+    }
+
+    @Query(
+        "SELECT * FROM encrypted_group_outgoing_commits " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId " +
+            "ORDER BY sentAtMillis ASC, messageId ASC"
+    )
+    abstract suspend fun getOutgoingGroupCommits(
+        ownerUserId: String,
+        groupId: String,
+    ): List<EncryptedGroupOutgoingCommitEntity>
+
+    @Query(
+        "SELECT * FROM encrypted_group_outgoing_commits " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId LIMIT 1"
+    )
+    abstract suspend fun getOutgoingGroupCommit(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): EncryptedGroupOutgoingCommitEntity?
+
+    @Query(
+        "DELETE FROM encrypted_group_outgoing_commits " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId"
+    )
+    abstract suspend fun deleteOutgoingGroupCommit(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): Int
+
+    @Transaction
+    open suspend fun clearCommittedOutgoingPending(
+        message: EncryptedGroupMessageEntity,
+    ) {
+        val marker = getOutgoingGroupCommit(message.ownerUserId, message.groupId, message.messageId)
+            ?: error("Committed group message marker is missing")
+        require(
+            marker.senderDeviceId == message.senderDeviceId &&
+                marker.membershipEpoch == message.membershipEpoch &&
+                marker.megolmSessionId == message.megolmSessionId &&
+                marker.messageIndex == message.messageIndex &&
+                marker.sentAtMillis == message.sentAtMillis
+        ) { "Sender timeline row does not match its durable group commit marker" }
+        check(deletePendingMessage(message.ownerUserId, message.groupId, message.messageId) == 1) {
+            "Pending outgoing group intent disappeared before local commit"
+        }
+        check(deleteOutgoingGroupCommit(message.ownerUserId, message.groupId, message.messageId) == 1) {
+            "Durable group commit marker disappeared before local commit"
+        }
     }
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
