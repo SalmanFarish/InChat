@@ -529,6 +529,32 @@ class GroupChatViewModel : ViewModel() {
                     }
 
                     is MegolmGroupMessageSendOutcome.Queued -> {
+                        val queued = outcome.result
+                        // Keep the sender's own timeline copy in the isolated
+                        // AES-GCM encrypted table; the legacy plaintext cache
+                        // and Firebase chat path are never touched.
+                        try {
+                            encryptedGroupMessageRepository.saveOutgoingMessage(
+                                DecryptedGroupMessage(
+                                    ownerUserId = currentUserId,
+                                    groupId = groupId,
+                                    messageId = queued.messageId,
+                                    membershipEpoch = queued.membershipEpoch,
+                                    senderUserId = queued.senderUserId,
+                                    senderDeviceId = queued.senderDeviceId,
+                                    megolmSessionId = queued.megolmSessionId,
+                                    messageIndex = queued.messageIndex,
+                                    sentAtMillis = queued.sentAtMillis,
+                                    text = cleanText,
+                                )
+                            )
+                        } catch (localCopyError: Exception) {
+                            Log.e(
+                                "GroupChatViewModel",
+                                "Encrypted group message is queued, but its local timeline copy could not be saved.",
+                                localCopyError,
+                            )
+                        }
                         if (listeningGroupId == groupId) {
                             _replyingTo.value = null
                         }
