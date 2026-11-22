@@ -104,6 +104,31 @@ class OlmInboundGroupMessageHandoffTest {
     }
 
     @Test
+    fun roomCommitFailureStillClearsStagedCiphertext() = runBlocking {
+        val stagedCiphertext = byteArrayOf(31, 32, 33, 34)
+        val handoff = handoff(
+            snapshots = mutableListOf(membership(), membership(), membership()),
+            stagedCiphertext = stagedCiphertext,
+            committer = EncryptedGroupMessageCommitter { _, _, _ ->
+                throw IllegalStateException("temporary Room transaction failure")
+            },
+        )
+
+        var commitFailureObserved = false
+        try {
+            handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
+        } catch (expected: IllegalStateException) {
+            commitFailureObserved = expected.message.orEmpty().contains("Room transaction failure")
+        }
+
+        assertTrue("The original Room commit failure must propagate", commitFailureObserved)
+        assertTrue(
+            "Staged ciphertext must be cleared even when the durable Room commit fails",
+            stagedCiphertext.all { it == 0.toByte() },
+        )
+    }
+
+    @Test
     fun membershipChangeAfterNativeStagingPreventsRoomCommitAndClearsCiphertext() = runBlocking {
         val stagedCiphertext = byteArrayOf(8, 9, 10)
         var commitCalls = 0
