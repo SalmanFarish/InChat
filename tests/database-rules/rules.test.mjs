@@ -76,6 +76,12 @@ beforeEach(async () => {
         },
       },
       chats: {
+        alice_bob: {
+          chatId: "alice_bob",
+          type: "direct",
+          participantA: "alice",
+          participantB: "bob",
+        },
         dm: {
           chatId: "dm",
           type: "direct",
