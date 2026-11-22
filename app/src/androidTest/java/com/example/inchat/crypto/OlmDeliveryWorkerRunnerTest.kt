@@ -30,6 +30,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         ).run()
 
@@ -63,6 +64,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
             validateBeforeUpload = { it.messageId != "stale-group" },
         ).run()
@@ -101,6 +103,7 @@ class OlmDeliveryWorkerRunnerTest {
                 transport = transport,
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ -> },
                 clock = { 10_000L },
             ).run()
         } catch (expected: IllegalStateException) {
@@ -139,6 +142,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         )
 
@@ -199,6 +203,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         )
 
@@ -268,6 +273,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = FakeTransport(mutableListOf(), mutableListOf()),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 1_099L },
         ).run()
         assertEquals(0, beforeLeaseExpiry.uploaded)
@@ -281,6 +287,7 @@ class OlmDeliveryWorkerRunnerTest {
             ),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 1_100L },
         ).run()
 
@@ -334,6 +341,7 @@ class OlmDeliveryWorkerRunnerTest {
                 transport = cancellingTransport,
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ -> },
                 clock = { 1_000L },
             ).run()
         } catch (cancelled: CancellationException) {
@@ -350,6 +358,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = FakeTransport(mutableListOf(), mutableListOf()),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 1_099L },
         ).run()
         assertEquals(0, beforeLeaseExpiry.uploaded)
@@ -365,6 +374,7 @@ class OlmDeliveryWorkerRunnerTest {
             ),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 1_100L },
         ).run()
 
@@ -389,6 +399,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = FakeTransport(firstPassEvents, mutableListOf()),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
             maxDeliveriesPerRun = 2,
         ).run()
@@ -411,6 +422,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = FakeTransport(secondPassEvents, mutableListOf()),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_001L },
             maxDeliveriesPerRun = 2,
         ).run()
@@ -447,6 +459,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         )
 
@@ -524,7 +537,8 @@ class OlmDeliveryWorkerRunnerTest {
             queue = queue,
             transport = transport,
             senderUserId = "alice",
-            senderDeviceId = "sender-device",            clock = { nowMillis },
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },            clock = { nowMillis },
         )
 
         val firstPass = runner.run()
@@ -586,6 +600,7 @@ class OlmDeliveryWorkerRunnerTest {
             ),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         ).run()
 
@@ -644,6 +659,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { nowMillis },
             maxDeliveriesPerRun = 2,
         )
@@ -735,6 +751,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { nowMillis },
         ).run()
 
@@ -791,6 +808,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { nowMillis },
         ).run()
 
@@ -845,6 +863,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { nowMillis },
         ).run()
 
@@ -870,6 +889,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
         ).run()
 
@@ -903,6 +923,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = transport,
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
             notifyEncryptedRecipient = {
                 pushAttempts++
@@ -940,6 +961,7 @@ class OlmDeliveryWorkerRunnerTest {
             transport = FakeTransport(mutableListOf(), mutableListOf()),
             senderUserId = "alice",
             senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
             clock = { 10_000L },
             notifyEncryptedRecipient = { delivery ->
                 notifications += delivery.recipientUserId to delivery.recipientDeviceId

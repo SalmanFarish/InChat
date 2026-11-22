@@ -13,7 +13,7 @@ internal class OlmDeliveryAckProcessor(
     private val transport: OlmDeliveryAckTransport,
     private val senderUserId: String,
     private val senderDeviceId: String,
-    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
+    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun processPending(): OlmDeliveryAckProcessingResult {

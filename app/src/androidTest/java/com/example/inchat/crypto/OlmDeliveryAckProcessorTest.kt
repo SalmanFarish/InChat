@@ -20,7 +20,7 @@ class OlmDeliveryAckProcessorTest {
         val acknowledgement = row.toAcknowledgement()
         val transport = FakeAckTransport(listOf(acknowledgement))
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device", recordAcknowledgement = { _, _ -> }).processPending()
 
         assertEquals(1, result.removed)
         assertEquals(0, result.unmatched)
@@ -37,7 +37,7 @@ class OlmDeliveryAckProcessorTest {
         val transport = FakeAckTransport(listOf(row.toAcknowledgement()), failRemoval = true)
 
         try {
-            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device", recordAcknowledgement = { _, _ -> }).processPending()
             throw AssertionError("Expected remote acknowledgement deletion to fail")
         } catch (expected: IllegalStateException) {
             assertTrue(expected.message.orEmpty().contains("temporary"))
@@ -61,7 +61,7 @@ class OlmDeliveryAckProcessorTest {
 
         var interruptionObserved = false
         try {
-            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+            OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device", recordAcknowledgement = { _, _ -> }).processPending()
         } catch (cancelled: CancellationException) {
             interruptionObserved = true
         }
@@ -86,7 +86,8 @@ class OlmDeliveryAckProcessorTest {
             transport,
             "alice",
             "sender-device",
-        ).processPending()
+        
+            recordAcknowledgement = { _, _ -> }).processPending()
 
         assertEquals(1, recoveredAck.removed)
         assertEquals(0, recoveredAck.unmatched)
@@ -113,7 +114,7 @@ class OlmDeliveryAckProcessorTest {
             ),
         )
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device", recordAcknowledgement = { _, _ -> }).processPending()
 
         assertEquals(0, result.removed)
         assertEquals(3, result.unmatched)
@@ -130,7 +131,7 @@ class OlmDeliveryAckProcessorTest {
         val acknowledgement = row.toAcknowledgement()
         val transport = FakeAckTransport(listOf(acknowledgement, acknowledgement))
 
-        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device").processPending()
+        val result = OlmDeliveryAckProcessor(queue, transport, "alice", "sender-device", recordAcknowledgement = { _, _ -> }).processPending()
 
         assertEquals(1, result.removed)
         assertEquals(1, result.unmatched)

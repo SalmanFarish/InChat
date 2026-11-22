@@ -25,7 +25,7 @@ internal class OlmDeliveryWorkerRunner(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxDeliveriesPerRun: Int = DEFAULT_BATCH_SIZE,
-    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
+    private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit,
     private val validateBeforeUpload: suspend (QueuedOlmDeviceDelivery) -> Boolean = { true },
     private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
 ) {
