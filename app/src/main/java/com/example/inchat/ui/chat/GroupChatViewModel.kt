@@ -19,6 +19,7 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class GroupChatViewModel : ViewModel() {
 
@@ -422,12 +424,14 @@ class GroupChatViewModel : ViewModel() {
                 }
 
                 when (
-                    val outcome = encryptedGroupMessageSendCoordinator.send(
-                        groupId = groupId,
-                        messageId = messageId,
-                        plaintext = cleanText,
-                        sentAtMillis = sentAtMillis,
-                    )
+                    val outcome = withContext(Dispatchers.IO) {
+                        encryptedGroupMessageSendCoordinator.send(
+                            groupId = groupId,
+                            messageId = messageId,
+                            plaintext = cleanText,
+                            sentAtMillis = sentAtMillis,
+                        )
+                    }
                 ) {
                     is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
                         onResult(
