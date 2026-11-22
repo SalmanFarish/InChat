@@ -347,17 +347,88 @@ test("reply and attachment objects reject unexpected client metadata", async () 
   );
 });
 
-test("group admins can still create approved group activity messages", async () => {
+test("group members cannot create plaintext messages in E2EE groups", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const plaintextMessage = {
+    id: "plaintext-group-message",
+    senderNickname: "alice",
+    text: "This must never be stored as a group message",
+    timestamp: 2000,
+  };
+
+  await assertFails(
+    set(ref(aliceDb, "chats/group/messages/plaintext-admin"), {
+      ...plaintextMessage,
+      id: "plaintext-admin",
+      senderId: "alice",
+    }),
+  );
+  await assertFails(
+    set(ref(bobDb, "chats/group/messages/plaintext-member"), {
+      ...plaintextMessage,
+      id: "plaintext-member",
+      senderNickname: "bob",
+      senderId: "bob",
+    }),
+  );
+});
+
+test("group admins can create only the fixed group-rename activity event", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
 
   await assertSucceeds(
     set(ref(aliceDb, "chats/group/messages/group-rename-event"), {
       id: "group-rename-event",
       senderId: "alice",
       senderNickname: "SYSTEM",
-      text: "@alice renamed the group",
+      text: "Group renamed",
       timestamp: 2000,
       systemEvent: "group_renamed",
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "chats/group/messages/forged-plaintext-event"), {
+      id: "forged-plaintext-event",
+      senderId: "alice",
+      senderNickname: "SYSTEM",
+      text: "Plaintext smuggled through a system event",
+      timestamp: 2000,
+      systemEvent: "group_renamed",
+    }),
+  );
+
+  await assertFails(
+    set(ref(bobDb, "chats/group/messages/member-rename-event"), {
+      id: "member-rename-event",
+      senderId: "bob",
+      senderNickname: "SYSTEM",
+      text: "Group renamed",
+      timestamp: 2000,
+      systemEvent: "group_renamed",
+    }),
+  );
+});
+
+test("legacy group message text cannot be edited after E2EE enforcement", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/messages/legacy-plaintext"), {
+      id: "legacy-plaintext",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "Existing legacy content",
+      timestamp: Date.now() - 1000,
+    });
+  });
+
+  await assertFails(
+    update(ref(aliceDb, "chats/group/messages/legacy-plaintext"), {
+      text: "Edited plaintext content",
+      edited: true,
     }),
   );
 });

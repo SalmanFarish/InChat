@@ -91,6 +91,7 @@ The current suite checks:
 - users can update their own direct-chat inbox entry;
 - clients cannot create groups or mutate group membership directly;
 - message sender IDs cannot be spoofed;
+- group members cannot create plaintext group messages, admins cannot smuggle content through activity events, and legacy group message text cannot be edited after E2EE enforcement;
 - recipients cannot delete another user's message;
 - senders can delete their own messages;
 - profile-photo payload and privacy preference validation;
