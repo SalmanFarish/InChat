@@ -407,6 +407,38 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun oneShotMemberReadRejectsAccountSwitchDuringDecrypt() = runBlocking {
+        val message = message().copy(messageId = "one-shot-account-switch")
+        val ciphertext = "one-shot account switch".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val testVault = EncryptedGroupMessageVault(keyAlias)
+        val guardedRepository = EncryptedGroupMessageRepository(
+            dao = database.encryptedGroupMessageDao(),
+            vault = testVault,
+            ioDispatcher = Dispatchers.Unconfined,
+            authenticatedUserId = { activeAccount },
+            decryptGroupMessages = { records ->
+                records.map(testVault::decrypt).also { activeAccount = "mallory" }
+            },
+        )
+
+        assertRejected {
+            guardedRepository.getMessageForMember(
+                ownerUserId = "alice",
+                groupId = "group-123",
+                membershipSnapshots = flowOf(membership),
+                messageId = message.messageId,
+            )
+        }
+    }
+
+    @Test
     fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
         val message = message()
         val ciphertext = "membership-revocation ciphertext".toByteArray(Charsets.UTF_8)
