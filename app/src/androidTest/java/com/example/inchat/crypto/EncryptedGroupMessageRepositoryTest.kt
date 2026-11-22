@@ -571,6 +571,40 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun outgoingTimelineInsertRollsBackWhenPendingIntentDisappears() = runBlocking {
+        val outgoing = outgoingMessage("recover-missing-pending")
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            outgoing.sentAtMillis, outgoing.text,
+        ))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)))
+
+        // Simulate corruption/interruption that removes the pending ciphertext
+        // before the atomic timeline-publication transaction starts.
+        assertEquals(1, database.encryptedGroupMessageDao().deletePendingMessage(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+        ))
+
+        var rejected = false
+        try {
+            repository.saveOutgoingMessageAndClearPendingIntent(outgoing)
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+        assertTrue("Missing pending intent must abort the Room transaction", rejected)
+        assertNull(database.encryptedGroupMessageDao().getMessage(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+        ))
+        assertTrue(
+            "The durable commit marker must survive the rolled-back timeline insert",
+            database.encryptedGroupMessageDao().getOutgoingGroupCommit(
+                outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            ) != null,
+        )
+    }
+
+    @Test
     fun conflictingExistingTimelineEchoKeepsPendingIntentAndCommitMarker() = runBlocking {
         val outgoing = outgoingMessage("recover-conflict")
         val conflictingEcho = outgoing.copy(text = "Different content under the same message ID")
