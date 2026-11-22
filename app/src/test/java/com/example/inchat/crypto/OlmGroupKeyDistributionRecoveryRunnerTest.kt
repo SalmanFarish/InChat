@@ -183,6 +183,76 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
     }
 
     @Test
+    fun accountSwitchDuringOneDistributionAbortsRecoveryInsteadOfBeingCountedAsItemFailure() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("alice" to "alice-tablet", "bob" to "bob-phone"),
+        ).toEntity()
+        var authReads = 0
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = {
+                authReads += 1
+                if (authReads == 1) "alice" else "mallory"
+            },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
+            },
+            exportOutboundSessionKey = { _, _ -> ByteArray(32) { 3 } },
+            prepareDistribution = { id, snapshot, session, _, _, _, _ ->
+                PreparedOlmGroupKeyDistribution(
+                    distributionId = id,
+                    groupId = snapshot.groupId,
+                    membershipEpoch = snapshot.epoch,
+                    megolmSessionId = session,
+                    deliveries = listOf(
+                        PreparedOlmGroupKeyDelivery(
+                            recipientUserId = "bob",
+                            recipientDeviceId = "bob-phone",
+                            sessionId = "olm-session-bob",
+                            envelope = "ciphertext-envelope",
+                        ),
+                    ),
+                    skippedUntrustedDeviceCount = 0,
+                    targetDevices = metadata.targetDevicePairs(),
+                )
+            },
+            resumeDistribution = { _, _ -> error("Must not resume after account switch") },
+            onDistributionFailure = { _, _ -> failureReported = true },
+        )
+
+        val failure = runCatching {
+            kotlinx.coroutines.runBlocking { runner.run() }
+        }.exceptionOrNull()
+
+        assertTrue("Account switch must abort the recovery pass", failure is IllegalArgumentException)
+        assertFalse("Account switch must not be reported as a retryable row failure", failureReported)
+    }
+
+    @Test
     fun doesNotResumeWhenPreparedDeviceLosesTrustBeforeEnqueue() {
         val membership = membership()
         val sessionId = "1234567890abcdef"

@@ -55,6 +55,11 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
         var queued = 0
 
         records.forEach { metadata ->
+            require(
+                authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+            ) {
+                "Authenticated sender identity changed during group-key recovery"
+            }
             try {
             metadata.requireValidForRecovery()
             require(metadata.ownerUserId == ownerUid && metadata.senderDeviceId == senderDeviceId) {
@@ -173,11 +178,24 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 // for user action or directory change, not trigger rapid retries.
                 skipped += 1
             } catch (error: Exception) {
+                // Account/device changes are scope boundaries, not recoverable
+                // per-record failures. Stop before reading or exporting another
+                // distribution under the stale identity.
+                require(
+                    authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+                ) {
+                    "Authenticated sender identity changed during group-key recovery"
+                }
                 failed += 1
                 try {
                     onDistributionFailure(metadata, error)
                 } catch (_: Exception) {
                     // Diagnostic callbacks must not stop recovery of other rows.
+                }
+                require(
+                    authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+                ) {
+                    "Authenticated sender identity changed during group-key recovery"
                 }
             }
         }
