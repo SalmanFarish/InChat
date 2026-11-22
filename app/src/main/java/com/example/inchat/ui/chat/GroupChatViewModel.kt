@@ -423,6 +423,17 @@ class GroupChatViewModel : ViewModel() {
                     return@launch
                 }
 
+                // Persist the user's intent before attempting key distribution or
+                // advancing the Megolm ratchet. Room stores only AES-GCM ciphertext.
+                withContext(Dispatchers.IO) {
+                    encryptedGroupMessageRepository.savePendingOutgoingIntent(
+                        ownerUserId = currentUserId,
+                        groupId = groupId,
+                        messageId = messageId,
+                        sentAtMillis = sentAtMillis,
+                        plaintext = cleanText,
+                    )
+                }
                 when (
                     val outcome = withContext(Dispatchers.IO) {
                         encryptedGroupMessageSendCoordinator.send(
@@ -459,6 +470,11 @@ class GroupChatViewModel : ViewModel() {
                                     sentAtMillis = queued.sentAtMillis,
                                     text = cleanText,
                                 )
+                            )
+                            encryptedGroupMessageRepository.deletePendingOutgoingIntent(
+                                currentUserId,
+                                groupId,
+                                queued.messageId,
                             )
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
