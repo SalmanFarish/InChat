@@ -333,6 +333,27 @@ class MegolmGroupMessageOutboxCommitterTest {
 
     private class FakeStore : OlmDeliveryQueueStore {
         val rows = mutableListOf<QueuedOlmDeviceDelivery>()
+        val groupCommits = mutableMapOf<String, GroupOutgoingMessageCommit>()
+
+        override fun insertGroupMessageIfAbsent(
+            deliveries: List<QueuedOlmDeviceDelivery>,
+            commit: GroupOutgoingMessageCommit,
+        ): Int {
+            require(deliveries.isNotEmpty())
+            val key = "${commit.ownerUserId}:${commit.groupId}:${commit.messageId}"
+            val existing = groupCommits[key]
+            if (existing != null) {
+                require(existing == commit)
+                return 0
+            }
+            require(deliveries.none { candidate ->
+                rows.any { it.deliveryId == candidate.deliveryId }
+            }) { "Group fan-out conflicts with an existing fake outbox row" }
+            val inserted = insertIfAbsent(deliveries)
+            check(inserted == deliveries.size)
+            groupCommits[key] = commit
+            return inserted
+        }
 
         override fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int {
             val newRows = deliveries.filter { candidate ->

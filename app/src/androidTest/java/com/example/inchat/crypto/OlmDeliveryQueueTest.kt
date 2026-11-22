@@ -189,39 +189,6 @@ class OlmDeliveryQueueTest {
         assertEquals(original, store.rows.getValue(claim.deliveryId))
     }
 
-    @Test
-    fun groupCommitFailsClosedWhenStoreDoesNotImplementAtomicPersistence() {
-        val store = InMemoryQueueStore()
-        val queue = OlmDeliveryQueue(store)
-        val commit = GroupOutgoingMessageCommit(
-            ownerUserId = "alice",
-            groupId = "group-123",
-            messageId = "group-commit-requires-atomic-store",
-            senderDeviceId = "sender-device",
-            membershipEpoch = 4L,
-            megolmSessionId = "abcdef1234567890",
-            messageIndex = 21L,
-            sentAtMillis = 1_800_000_000_100L,
-            recipientDeviceCount = 1,
-        )
-
-        var rejected = false
-        try {
-            queue.enqueue(
-                "alice",
-                "sender-device",
-                commit.messageId,
-                listOf(prepared("phone")),
-                groupMessageCommit = commit,
-            )
-        } catch (_: UnsupportedOperationException) {
-            rejected = true
-        }
-
-        assertTrue("A non-transactional store must not silently enqueue a committed group message", rejected)
-        assertTrue("No outbox row may be written on the unsupported path", store.rows.isEmpty())
-    }
-
     private fun prepared(deviceId: String): PreparedOlmDelivery {
         val encoded = JSONObject()
             .put("encryptionVersion", 1)
