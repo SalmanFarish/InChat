@@ -276,6 +276,36 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun membershipGatedTimelineRejectsAccountSwitchDuringDecryption() = runBlocking {
+        val message = message().copy(messageId = "membership-switch-during-decrypt")
+        val ciphertext = "membership account switch during decrypt".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        var authReads = 0
+        val guardedRepository = EncryptedGroupMessageRepository(
+            dao = database.encryptedGroupMessageDao(),
+            vault = EncryptedGroupMessageVault(keyAlias),
+            authenticatedUserId = {
+                authReads += 1
+                if (authReads <= 2) "alice" else "mallory"
+            },
+        )
+
+        assertRejected {
+            guardedRepository.observeMessagesForMember(
+                "alice",
+                "group-123",
+                flowOf(membership),
+            ).first()
+        }
+    }
+
+    @Test
     fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
         val message = message()
         val ciphertext = "membership-revocation ciphertext".toByteArray(Charsets.UTF_8)
