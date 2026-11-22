@@ -16,6 +16,7 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -23,7 +24,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -349,7 +354,12 @@ class GroupChatViewModel : ViewModel() {
                     .observeMessagesForMember(
                         ownerUserId = currentUserId,
                         groupId = groupId,
-                        membershipSnapshots = groupRepository.observeGroupCryptoMembership(groupId),
+                        membershipSnapshots = combine(
+                            groupRepository.observeGroupCryptoMembership(groupId),
+                            observeAuthenticatedUserId(),
+                        ) { membership, authenticatedUserId ->
+                            if (authenticatedUserId == currentUserId) membership else null
+                        },
                     )
                     .collect { encrypted ->
                         if (listeningGroupId == groupId) {
@@ -790,6 +800,15 @@ class GroupChatViewModel : ViewModel() {
                     reaction = reaction
                 )
         }
+    }
+
+    private fun observeAuthenticatedUserId(): Flow<String?> = callbackFlow {
+        val auth = FirebaseAuth.getInstance()
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            trySend(firebaseAuth.currentUser?.uid)
+        }
+        auth.addAuthStateListener(listener)
+        awaitClose { auth.removeAuthStateListener(listener) }
     }
 
     override fun onCleared() {
