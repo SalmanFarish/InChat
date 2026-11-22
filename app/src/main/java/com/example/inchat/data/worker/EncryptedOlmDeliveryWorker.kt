@@ -351,16 +351,25 @@ class EncryptedOlmDeliveryWorker(
                     )
                 },
                 notifyEncryptedRecipient = { delivery ->
-                    notifications.notifyEncryptedDelivery(
-                        senderUserId = ownerUserId,
-                        chatId = requireNotNull(delivery.conversationId) {
-                            "Encrypted delivery is missing its authenticated conversation scope"
-                        },
-                        deliveryId = delivery.deliveryId,
-                        messageId = delivery.messageId,
-                        senderDeviceId = senderDeviceId,
-                        recipientDeviceId = delivery.recipientDeviceId,
-                    ).getOrThrow()
+                    if (delivery.groupId == null) {
+                        notifications.notifyEncryptedDelivery(
+                            senderUserId = ownerUserId,
+                            chatId = requireNotNull(delivery.conversationId) {
+                                "Encrypted delivery is missing its authenticated conversation scope"
+                            },
+                            deliveryId = delivery.deliveryId,
+                            messageId = delivery.messageId,
+                            senderDeviceId = senderDeviceId,
+                            recipientDeviceId = delivery.recipientDeviceId,
+                        ).getOrThrow()
+                    } else {
+                        // The current Cloudflare Olm wake-up endpoint authorizes
+                        // direct chats only. Do not retry a successfully relayed
+                        // group ciphertext because that endpoint intentionally
+                        // rejects group chat IDs; group wake-ups need their own
+                        // membership/epoch-checked fan-out path.
+                        Log.d(TAG, "Skipping direct-only push dispatch for encrypted group delivery.")
+                    }
                 },
             ).run()
 
