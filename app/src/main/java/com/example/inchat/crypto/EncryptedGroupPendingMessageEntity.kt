@@ -9,7 +9,7 @@ import androidx.room.Index
     primaryKeys = ["ownerUserId", "groupId", "messageId"],
     indices = [Index(value = ["ownerUserId", "groupId", "sentAtMillis"])],
 )
-internal data class EncryptedGroupPendingMessageEntity(
+data class EncryptedGroupPendingMessageEntity(
     val ownerUserId: String,
     val groupId: String,
     val messageId: String,

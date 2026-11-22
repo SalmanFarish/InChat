@@ -22,7 +22,15 @@ import kotlinx.coroutines.withContext
  * store. The replay key and AES-GCM ciphertext are inserted in one Room
  * transaction; callers must finalize the native staged receipt only afterwards.
  */
-internal data class PendingGroupMessageIntent(\n    val ownerUserId: String,\n    val groupId: String,\n    val messageId: String,\n    val sentAtMillis: Long,\n    val plaintext: String,\n)\n\ninternal class EncryptedGroupMessageRepository(
+internal data class PendingGroupMessageIntent(
+    val ownerUserId: String,
+    val groupId: String,
+    val messageId: String,
+    val sentAtMillis: Long,
+    val plaintext: String,
+)
+
+internal class EncryptedGroupMessageRepository(
     private val dao: EncryptedGroupMessageDao,
     private val vault: EncryptedGroupMessageVault = EncryptedGroupMessageVault(),
     private val pendingVault: EncryptedGroupPendingMessageVault = EncryptedGroupPendingMessageVault(),
