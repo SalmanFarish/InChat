@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.sync.withLock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -363,6 +364,33 @@ class MegolmGroupMessageSendCoordinatorTest {
 
         assertTrue("Device replacement during final membership refresh must block send", rejected)
         assertEquals(0, sendCalls)
+    }
+
+    @Test
+    fun pendingRetryTransactionsShareOneProcessLock() = runBlocking {
+        val firstEntered = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondEntered = CompletableDeferred<Unit>()
+
+        val first = launch {
+            MegolmPendingGroupIntentRetryLock.mutex.withLock {
+                firstEntered.complete(Unit)
+                releaseFirst.await()
+            }
+        }
+        firstEntered.await()
+        val second = launch {
+            MegolmPendingGroupIntentRetryLock.mutex.withLock {
+                secondEntered.complete(Unit)
+            }
+        }
+
+        yield()
+        assertFalse("Worker retry must wait while the ViewModel transaction owns the shared lock", secondEntered.isCompleted)
+        releaseFirst.complete(Unit)
+        first.join()
+        second.join()
+        assertTrue("The second retry may proceed after the first transaction commits", secondEntered.isCompleted)
     }
 
     @Test
