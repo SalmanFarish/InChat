@@ -367,6 +367,23 @@ class MegolmGroupMessageSendCoordinatorTest {
     }
 
     @Test
+    fun pendingRetryMembershipRejectsEpochOrRosterChangesAndPreservesValidSnapshot() {
+        val expected = membership()
+        assertTrue(isPendingGroupIntentRetryMembershipCurrent(expected, expected.copy(), "alice", "group-1"))
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, expected.copy(epoch = expected.epoch + 1), "alice", "group-1"))
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, expected.copy(members = mapOf("alice" to "admin", "carol" to "member")), "alice", "group-1"))
+    }
+
+    @Test
+    fun pendingRetryMembershipRejectsMissingWrongGroupAndRemovedOwner() {
+        val expected = membership()
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, null, "alice", "group-1"))
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, expected.copy(groupId = "group-2"), "alice", "group-1"))
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, expected.copy(members = mapOf("bob" to "admin")), "alice", "group-1"))
+        assertFalse(isPendingGroupIntentRetryMembershipCurrent(expected, expected, "alice", "group-2"))
+    }
+
+    @Test
     fun pendingRetryTransactionsShareOneProcessLock() = runBlocking {
         val firstEntered = CompletableDeferred<Unit>()
         val releaseFirst = CompletableDeferred<Unit>()
@@ -379,12 +396,15 @@ class MegolmGroupMessageSendCoordinatorTest {
             }
         }
         firstEntered.await()
+        val secondAttempting = CompletableDeferred<Unit>()
         val second = launch {
+            secondAttempting.complete(Unit)
             MegolmPendingGroupIntentRetryLock.mutex.withLock {
                 secondEntered.complete(Unit)
             }
         }
 
+        secondAttempting.await()
         yield()
         assertFalse("Worker retry must wait while the ViewModel transaction owns the shared lock", secondEntered.isCompleted)
         releaseFirst.complete(Unit)

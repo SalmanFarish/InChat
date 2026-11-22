@@ -387,12 +387,12 @@ class EncryptedOlmDeliveryWorker(
                     }
                     val latestMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
                         ?: continue
-                    if (!latestMembership.isValid() ||
-                        latestMembership.groupId != membership.groupId ||
-                        latestMembership.epoch != membership.epoch ||
-                        latestMembership.members != membership.members ||
-                        ownerUserId !in latestMembership.memberUserIds
-                    ) continue
+                    if (!isPendingGroupIntentRetryMembershipCurrent(
+                        expected = membership,
+                        latest = latestMembership,
+                        ownerUserId = ownerUserId,
+                        groupId = groupId,
+                    )) continue
 
                     when (val outcome = coordinator.send(
                         groupId = groupId,

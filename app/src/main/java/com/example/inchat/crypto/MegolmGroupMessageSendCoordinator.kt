@@ -11,6 +11,26 @@ internal object MegolmPendingGroupIntentRetryLock {
     val mutex = Mutex()
 }
 
+/**
+ * A pending intent may advance the Megolm ratchet only while its captured
+ * membership generation and roster remain current. Invalid snapshots stay durable.
+ */
+internal fun isPendingGroupIntentRetryMembershipCurrent(
+    expected: GroupCryptoMembershipSnapshot,
+    latest: GroupCryptoMembershipSnapshot?,
+    ownerUserId: String,
+    groupId: String,
+): Boolean {
+    if (!expected.isValid() || expected.groupId != groupId ||
+        ownerUserId !in expected.memberUserIds
+    ) return false
+    return latest != null && latest.isValid() &&
+        latest.groupId == expected.groupId &&
+        latest.epoch == expected.epoch &&
+        latest.members == expected.members &&
+        ownerUserId in latest.memberUserIds
+}
+
 /** Result of a guarded group-message send attempt. */
 internal sealed class MegolmGroupMessageSendOutcome {
     data class AwaitingKeyAcknowledgements(
