@@ -384,8 +384,13 @@ class EncryptedOlmDeliveryWorker(
                 TAG,
                 "Encrypted relay pass completed: uploaded=" + result.uploaded +
                     ", acknowledged=" + result.acknowledged +
-                    ", unmatchedAcks=" + result.unmatchedAcknowledgements,
+                    ", unmatchedAcks=" + result.unmatchedAcknowledgements +
+                    ", pushDispatchFailures=" + result.notificationDispatchFailures,
             )
+
+            if (result.notificationDispatchFailures > 0) {
+                Log.w(TAG, "Encrypted push wake-up dispatch failed; recipient inbox polling remains the recovery path.")
+            }
 
             // Acknowledgement receipts are durable now. Retry waiting group
             // intents in the background even when no GroupChatViewModel exists.

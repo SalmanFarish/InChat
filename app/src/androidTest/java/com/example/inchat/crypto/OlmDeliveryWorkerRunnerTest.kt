@@ -935,6 +935,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(1, result.uploaded)
         assertFalse(result.retryRequired)
         assertEquals(1, pushAttempts)
+        assertEquals(1, result.notificationDispatchFailures)
         assertEquals(listOf(stored.deliveryId), uploadedIds)
         assertEquals(1, stored.attemptCount)
         assertEquals(OlmDeliveryStatus.UPLOADED, stored.status)

@@ -10,6 +10,7 @@ internal data class OlmDeliveryWorkerRunResult(
     val acknowledged: Int,
     val unmatchedAcknowledgements: Int,
     val retryRequired: Boolean,
+    val notificationDispatchFailures: Int = 0,
 )
 
 /**
@@ -48,6 +49,7 @@ internal class OlmDeliveryWorkerRunner(
         ).processPending()
 
         var uploaded = 0
+        var notificationDispatchFailures = 0
         repeat(maxDeliveriesPerRun) {
             val delivery = withContext(ioDispatcher) {
                 queue.claimNext(senderUserId, senderDeviceId, clock().coerceAtLeast(0L))
@@ -56,6 +58,7 @@ internal class OlmDeliveryWorkerRunner(
                 acknowledged = acknowledgements.removed,
                 unmatchedAcknowledgements = acknowledgements.unmatched,
                 retryRequired = false,
+                notificationDispatchFailures = notificationDispatchFailures,
             )
 
             try {
@@ -109,6 +112,7 @@ internal class OlmDeliveryWorkerRunner(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
+                    notificationDispatchFailures++
                     // Push is only a wake-up hint. The relay already durably
                     // accepted this immutable delivery, and the recipient's
                     // inbox poll is the recovery path if push dispatch fails.
@@ -144,6 +148,7 @@ internal class OlmDeliveryWorkerRunner(
             acknowledged = acknowledgements.removed,
             unmatchedAcknowledgements = acknowledgements.unmatched,
             retryRequired = uploaded > 0,
+            notificationDispatchFailures = notificationDispatchFailures,
         )
     }
 
