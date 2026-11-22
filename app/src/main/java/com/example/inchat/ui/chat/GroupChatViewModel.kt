@@ -7,6 +7,7 @@ import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedGroupMessage
 import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
+import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
 import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Group
