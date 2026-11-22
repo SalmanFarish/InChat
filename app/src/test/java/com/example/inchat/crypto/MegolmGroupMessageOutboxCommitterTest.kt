@@ -36,6 +36,46 @@ class MegolmGroupMessageOutboxCommitterTest {
     }
 
     @Test
+    fun retryAfterOutboxCommitAndNativeFinalizeFailureDoesNotDuplicateDeliveries() {
+        val store = FakeStore()
+        val staged = stagedMessage()
+        var finalizeAttempts = 0
+        val committer = committer(
+            store = store,
+            membershipSnapshots = listOf(
+                membership(7L), membership(7L),
+                membership(7L), membership(7L),
+            ),
+            finalize = {
+                assertEquals(staged.messageId, it)
+                finalizeAttempts += 1
+                finalizeAttempts > 1
+            },
+        )
+
+        var firstAttemptFailed = false
+        try {
+            kotlinx.coroutines.runBlocking {
+                committer.commit(staged, keyDistribution())
+            }
+        } catch (_: IllegalStateException) {
+            firstAttemptFailed = true
+        }
+
+        assertTrue("A failed native finalize must be surfaced for recovery", firstAttemptFailed)
+        assertEquals("The first attempt must leave its durable delivery queued", 1, store.rows.size)
+
+        val recovered = kotlinx.coroutines.runBlocking {
+            committer.commit(staged, keyDistribution())
+        }
+
+        assertEquals(staged.messageId, recovered.messageId)
+        assertEquals(1, recovered.queuedDeviceDeliveries)
+        assertEquals("Retry must reuse the original delivery identity", 1, store.rows.size)
+        assertEquals(2, finalizeAttempts)
+    }
+
+    @Test
     fun membershipChangeDuringOlmPreparationLeavesNativeCiphertextStaged() {
         val store = FakeStore()
         var finalizeCalled = false
