@@ -302,6 +302,66 @@ class MegolmGroupMessageSendCoordinatorTest {
         assertEquals(0, sendCalls)
     }
 
+    @Test
+    fun accountSwitchDuringFinalMembershipRefreshPreventsMegolmSend() = runBlocking {
+        var currentUser = "alice"
+        var sendCalls = 0
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val coordinator = coordinator(
+            membershipReads = listOf(membership, membership),
+            targets = targets,
+            session = session,
+            readiness = { OlmGroupKeyDistributionReadinessState.Ready(token) },
+            distribute = { _, _, _ -> error("Ready key distribution must not be recreated") },
+            send = { _, _, _, _, _ -> sendCalls++; error("Account switch must block send") },
+            authenticatedUser = { currentUser },
+            onMembershipRead = { read -> if (read == 2) currentUser = "mallory" },
+        )
+
+        var rejected = false
+        try {
+            coordinator.send("group-1", "message-final-account-switch", "hello", 785L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed before encrypted message send")
+        }
+
+        assertTrue("Account replacement during final membership refresh must block send", rejected)
+        assertEquals(0, sendCalls)
+    }
+
+    @Test
+    fun deviceSwitchDuringFinalMembershipRefreshPreventsMegolmSend() = runBlocking {
+        var currentDevice = "alice-phone"
+        var sendCalls = 0
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val coordinator = coordinator(
+            membershipReads = listOf(membership, membership),
+            targets = targets,
+            session = session,
+            readiness = { OlmGroupKeyDistributionReadinessState.Ready(token) },
+            distribute = { _, _, _ -> error("Ready key distribution must not be recreated") },
+            send = { _, _, _, _, _ -> sendCalls++; error("Device switch must block send") },
+            localDevice = { currentDevice },
+            onMembershipRead = { read -> if (read == 2) currentDevice = "replacement-device" },
+        )
+
+        var rejected = false
+        try {
+            coordinator.send("group-1", "message-final-device-switch", "hello", 786L)
+        } catch (expected: IllegalArgumentException) {
+            rejected = expected.message.orEmpty().contains("identity changed before encrypted message send")
+        }
+
+        assertTrue("Device replacement during final membership refresh must block send", rejected)
+        assertEquals(0, sendCalls)
+    }
+
     private fun coordinator(
         membershipReads: List<GroupCryptoMembershipSnapshot?>,
         targets: Set<Pair<String, String>>,
@@ -322,10 +382,14 @@ class MegolmGroupMessageSendCoordinatorTest {
             assertEquals(targets, requestedTargets)
             session
         },
+        onMembershipRead: (Int) -> Unit = {},
     ): MegolmGroupMessageSendCoordinator {
         val remainingMembershipReads = membershipReads.toMutableList()
+        var membershipReadCount = 0
         return MegolmGroupMessageSendCoordinator(
             membershipForGroup = {
+                membershipReadCount++
+                onMembershipRead(membershipReadCount)
                 if (remainingMembershipReads.isEmpty()) null else remainingMembershipReads.removeAt(0)
             },
             authenticatedUserId = authenticatedUser,
