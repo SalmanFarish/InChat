@@ -33,6 +33,19 @@ internal data class QueuedOlmDeviceDelivery(
     val lastError: String? = null,
 )
 
+/** Non-secret identity metadata atomically committed with a group-message Olm fan-out. */
+internal data class GroupOutgoingMessageCommit(
+    val ownerUserId: String,
+    val groupId: String,
+    val messageId: String,
+    val senderDeviceId: String,
+    val membershipEpoch: Long,
+    val megolmSessionId: String,
+    val messageIndex: Long,
+    val sentAtMillis: Long,
+    val recipientDeviceCount: Int,
+)
+
 /** A recipient-device acknowledgement returned by the authenticated sender's relay path. */
 internal data class OlmDeliveryAcknowledgement(
     val deliveryId: String,
@@ -54,6 +67,12 @@ internal data class OlmDeliveryAcknowledgement(
 internal interface OlmDeliveryQueueStore {
     /** Insert all rows idempotently; an existing deliveryId must never be replaced. */
     fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int
+
+    /** Atomically persist group commit metadata and all corresponding outbox rows. */
+    fun insertGroupMessageIfAbsent(
+        deliveries: List<QueuedOlmDeviceDelivery>,
+        commit: GroupOutgoingMessageCommit,
+    ): Int = insertIfAbsent(deliveries)
 
     /** Check all immutable delivery identity fields, independent of queue status. */
     fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
@@ -113,6 +132,7 @@ internal class OlmDeliveryQueue(
         senderDeviceId: String,
         messageId: String,
         prepared: List<PreparedOlmDelivery>,
+        groupMessageCommit: GroupOutgoingMessageCommit? = null,
     ): Int {
         require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
         require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
@@ -154,6 +174,18 @@ internal class OlmDeliveryQueue(
         }
         require(rows.map { it.deliveryId }.distinct().size == rows.size) {
             "A message cannot contain duplicate device deliveries"
+        }
+        groupMessageCommit?.let { commit ->
+            require(commit.ownerUserId == ownerUserId &&
+                commit.senderDeviceId == senderDeviceId &&
+                commit.messageId == messageId &&
+                commit.groupId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+                commit.membershipEpoch > 0L &&
+                commit.megolmSessionId.isNotBlank() && commit.megolmSessionId.length <= 128 &&
+                commit.messageIndex >= 0L && commit.sentAtMillis >= 0L &&
+                commit.recipientDeviceCount == rows.size
+            ) { "Group outgoing commit metadata does not match its durable delivery batch" }
+            return store.insertGroupMessageIfAbsent(rows, commit)
         }
         return store.insertIfAbsent(rows)
     }

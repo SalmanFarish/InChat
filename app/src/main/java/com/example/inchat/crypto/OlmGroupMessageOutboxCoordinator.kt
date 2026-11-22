@@ -18,6 +18,7 @@ internal class OlmGroupMessageOutboxCoordinator(
         currentMembership: GroupCryptoMembershipSnapshot,
         distribution: PreparedOlmGroupMessageDistribution,
         keyDistribution: OlmGroupKeyDistributionReadinessToken,
+        groupMessageCommit: GroupOutgoingMessageCommit? = null,
     ): Int {
         require(currentMembership.isValid()) {
             "Authoritative group membership snapshot is invalid"
@@ -114,6 +115,7 @@ internal class OlmGroupMessageOutboxCoordinator(
             ownerUserId = ownerUid,
             senderDeviceId = deviceId,
             messageId = distribution.messageId,
+            groupMessageCommit = groupMessageCommit,
             prepared = distribution.deliveries.map { delivery ->
                 PreparedOlmDelivery(
                     recipientUserId = delivery.recipientUserId,

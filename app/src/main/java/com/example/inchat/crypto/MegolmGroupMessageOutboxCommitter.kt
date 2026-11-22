@@ -106,6 +106,17 @@ internal class MegolmGroupMessageOutboxCommitter(
             currentMembership = latestSnapshot,
             distribution = distribution,
             keyDistribution = keyDistribution,
+            groupMessageCommit = GroupOutgoingMessageCommit(
+                ownerUserId = staged.ownerUserId,
+                groupId = staged.groupId,
+                messageId = staged.messageId,
+                senderDeviceId = staged.senderDeviceId,
+                membershipEpoch = staged.membershipEpoch,
+                megolmSessionId = staged.encryptedMessage.sessionId,
+                messageIndex = staged.encryptedMessage.messageIndex,
+                sentAtMillis = staged.sentAtMillis,
+                recipientDeviceCount = distribution.deliveries.size,
+            ),
         )
         // The outbox coordinator returns only after its Room transaction commits.
         // The native retry copy survives any earlier failure or process death.
