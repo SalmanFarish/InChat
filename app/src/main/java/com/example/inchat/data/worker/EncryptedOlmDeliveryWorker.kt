@@ -351,6 +351,7 @@ class EncryptedOlmDeliveryWorker(
         // precede any attempt to advance the Megolm ratchet for a waiting intent.
         coordinator.recoverPendingMessages()
         var queuedCount = 0
+        var retryRequired = false
         val groupIds = messageRepository.pendingOutgoingIntents(ownerUserId)
             .map { it.groupId }
             .distinct()
@@ -364,61 +365,86 @@ class EncryptedOlmDeliveryWorker(
                 ownerUserId !in membership.memberUserIds
             ) continue
 
-            // A prior send may have committed its ciphertext fan-out before
-            // the local timeline echo. Recover that exact committed message
-            // before selecting any still-waiting intents for a fresh send.
-            messageRepository.recoverCommittedOutgoingIntents(ownerUserId, groupId)
+            // Restore committed timeline echoes independently. One damaged
+            // marker must not prevent other groups from making progress.
+            try {
+                messageRepository.recoverCommittedOutgoingIntents(ownerUserId, groupId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                retryRequired = true
+                Log.w(TAG, "Committed outgoing-message recovery failed for group " + groupId + ".", error)
+                continue
+            }
+
             val pending = messageRepository.pendingOutgoingIntents(ownerUserId)
                 .filter { it.groupId == groupId }
             for (intent in pending) {
-                requireActiveIdentity()
-                require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
-                    "Local sender device changed during background group-message retry"
-                }
-                val latestMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                    ?: continue
-                if (!latestMembership.isValid() ||
-                    latestMembership.groupId != membership.groupId ||
-                    latestMembership.epoch != membership.epoch ||
-                    latestMembership.members != membership.members ||
-                    ownerUserId !in latestMembership.memberUserIds
-                ) continue
-
-                when (val outcome = coordinator.send(
-                    groupId = groupId,
-                    messageId = intent.messageId,
-                    plaintext = intent.plaintext,
-                    sentAtMillis = intent.sentAtMillis,
-                )) {
-                    is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> Unit
-                    is MegolmGroupMessageSendOutcome.Queued -> {
-                        requireActiveIdentity()
-                        require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
-                            "Local sender device changed before background timeline commit"
-                        }
-                        val queued = outcome.result
-                        messageRepository.saveOutgoingMessageAndClearPendingIntent(
-                            DecryptedGroupMessage(
-                                ownerUserId = ownerUserId,
-                                groupId = groupId,
-                                messageId = queued.messageId,
-                                membershipEpoch = queued.membershipEpoch,
-                                senderUserId = queued.senderUserId,
-                                senderDeviceId = queued.senderDeviceId,
-                                megolmSessionId = queued.megolmSessionId,
-                                messageIndex = queued.messageIndex,
-                                sentAtMillis = queued.sentAtMillis,
-                                text = intent.plaintext,
-                            ),
-                        )
-                        queuedCount++
+                try {
+                    requireActiveIdentity()
+                    require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
+                        "Local sender device changed during background group-message retry"
                     }
+                    val latestMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                        ?: continue
+                    if (!latestMembership.isValid() ||
+                        latestMembership.groupId != membership.groupId ||
+                        latestMembership.epoch != membership.epoch ||
+                        latestMembership.members != membership.members ||
+                        ownerUserId !in latestMembership.memberUserIds
+                    ) continue
+
+                    when (val outcome = coordinator.send(
+                        groupId = groupId,
+                        messageId = intent.messageId,
+                        plaintext = intent.plaintext,
+                        sentAtMillis = intent.sentAtMillis,
+                    )) {
+                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> Unit
+                        is MegolmGroupMessageSendOutcome.Queued -> {
+                            requireActiveIdentity()
+                            require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
+                                "Local sender device changed before background timeline commit"
+                            }
+                            val queued = outcome.result
+                            messageRepository.saveOutgoingMessageAndClearPendingIntent(
+                                DecryptedGroupMessage(
+                                    ownerUserId = ownerUserId,
+                                    groupId = groupId,
+                                    messageId = queued.messageId,
+                                    membershipEpoch = queued.membershipEpoch,
+                                    senderUserId = queued.senderUserId,
+                                    senderDeviceId = queued.senderDeviceId,
+                                    megolmSessionId = queued.megolmSessionId,
+                                    messageIndex = queued.messageIndex,
+                                    sentAtMillis = queued.sentAtMillis,
+                                    text = intent.plaintext,
+                                ),
+                            )
+                            queuedCount++
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Continue the batch, but request another WorkManager pass
+                    // so this intent remains recoverable after transient errors.
+                    retryRequired = true
+                    Log.w(
+                        TAG,
+                        "Background encrypted group-message retry failed for " +
+                            groupId + "/" + intent.messageId + ".",
+                        error,
+                    )
                 }
             }
         }
         requireActiveIdentity()
         require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
             "Local sender device changed before background group-message retry completed"
+        }
+        if (retryRequired) {
+            throw IllegalStateException("One or more pending encrypted group messages need another recovery pass.")
         }
         queuedCount
     }
