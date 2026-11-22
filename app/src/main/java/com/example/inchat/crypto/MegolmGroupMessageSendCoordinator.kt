@@ -54,7 +54,8 @@ internal sealed class MegolmGroupMessageSendOutcome {
  * still waiting and does not advance the Megolm ratchet or persist plaintext.
  * A later caller may retry with the same message ID after acknowledgements arrive.
  *
- * This coordinator is not wired into the existing plaintext group-chat path.
+ * GroupChatViewModel invokes this coordinator for group sends; the legacy plaintext
+ * group-message upload path is deliberately bypassed.
  */
 internal class MegolmGroupMessageSendCoordinator(
     private val membershipForGroup: suspend (groupId: String) -> GroupCryptoMembershipSnapshot?,
