@@ -239,10 +239,21 @@ class EncryptedOlmDeliveryWorker(
                 transport = transport,
                 senderUserId = ownerUserId,
                 senderDeviceId = senderDeviceId,
-                recordAcknowledgement = RoomOlmDeliveryAcknowledgementRecorder(
-                    database = database,
-                    dao = database.olmDeliveryReceiptDao(),
-                )::record,
+                recordAcknowledgement = { acknowledgement, acknowledgedAtMillis ->
+                    RoomOlmDeliveryAcknowledgementRecorder(
+                        database = database,
+                        dao = database.olmDeliveryReceiptDao(),
+                    ).record(acknowledgement, acknowledgedAtMillis)
+                    // Key-distribution acknowledgements can make a previously
+                    // blocked Megolm send ready. Queue a distinct follow-up pass
+                    // behind this running worker so recovery runs immediately
+                    // instead of waiting for the 15-minute safety poll.
+                    scheduleAfterCurrentPass(
+                        applicationContext,
+                        ownerUserId,
+                        senderDeviceId,
+                    )
+                },
                 notifyEncryptedRecipient = { delivery ->
                     notifications.notifyEncryptedDelivery(
                         senderUserId = ownerUserId,
@@ -326,6 +337,41 @@ class EncryptedOlmDeliveryWorker(
                 periodicWorkName(ownerUserId, senderDeviceId),
                 ExistingPeriodicWorkPolicy.KEEP,
                 periodic,
+            )
+        }
+
+        /**
+         * Schedule a follow-up after this worker has consumed an acknowledgement.
+         * APPEND_OR_REPLACE is deliberate: KEEP would discard the request while
+         * the current unique work is still RUNNING, losing the acknowledgement
+         * wake-up and deferring group-key recovery to the periodic poll.
+         */
+        private fun scheduleAfterCurrentPass(
+            context: Context,
+            ownerUserId: String,
+            senderDeviceId: String,
+        ) {
+            require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
+            require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
+            val request = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
+                .setInputData(
+                    workDataOf(
+                        KEY_OWNER_USER_ID to ownerUserId,
+                        KEY_SENDER_DEVICE_ID to senderDeviceId,
+                    ),
+                )
+                .addTag(WORK_TAG)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                immediateWorkName(ownerUserId, senderDeviceId),
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                request,
             )
         }
 
