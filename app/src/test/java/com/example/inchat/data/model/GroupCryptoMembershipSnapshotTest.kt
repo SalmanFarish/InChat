@@ -57,6 +57,43 @@ class GroupCryptoMembershipSnapshotTest {
         )
     }
 
+    @Test
+    fun rejectsSnapshotWhenAnyMemberEntryIsMalformedInsteadOfDroppingIt() {
+        val validEntries = listOf(
+            "admin-user" to "admin",
+            "member-user" to "member",
+        )
+        assertTrue(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
+                epoch = 3L,
+                entries = validEntries,
+            )?.isValid() == true,
+        )
+
+        assertFalse(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
+                epoch = 3L,
+                entries = validEntries + (null to "member"),
+            )?.isValid() == true,
+        )
+        assertFalse(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
+                epoch = 3L,
+                entries = validEntries + ("unexpected-user" to "owner"),
+            )?.isValid() == true,
+        )
+        assertFalse(
+            GroupCryptoMembershipSnapshot.fromEntries(
+                groupId = "group-1",
+                epoch = null,
+                entries = validEntries,
+            )?.isValid() == true,
+        )
+    }
+
     private fun snapshot(
         groupId: String = "group-1",
         epoch: Long = 1L,
