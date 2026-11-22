@@ -353,10 +353,9 @@ class EncryptedOlmDeliveryWorker(
                 notifyEncryptedRecipient = { delivery ->
                     notifications.notifyEncryptedDelivery(
                         senderUserId = ownerUserId,
-                        chatId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
-                            ownerUserId,
-                            delivery.recipientUserId,
-                        ),
+                        chatId = requireNotNull(delivery.conversationId) {
+                            "Encrypted delivery is missing its authenticated conversation scope"
+                        },
                         deliveryId = delivery.deliveryId,
                         messageId = delivery.messageId,
                         senderDeviceId = senderDeviceId,
