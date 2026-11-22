@@ -5,6 +5,7 @@ import { processEncryptedOlmPush } from "../src/olm-push.js";
 const deliveryId = "a".repeat(64);
 const baseRequest = {
   chatId: "alice_bob",
+  recipientUid: "bob",
   deliveryId,
   messageId: "message-123",
   senderDeviceId: "alice-device",
@@ -32,10 +33,19 @@ function fixture({
       deviceId: "bob-device",
       ed25519IdentityKey: "bob-public-key",
     }],
+    ["deviceKeys/alice/bob-device", {
+      schemaVersion: 1,
+      deviceId: "bob-device",
+      ed25519IdentityKey: "alice-secondary-public-key",
+    }],
+    ["privateUsers/alice/olmDeviceFcmTokens/bob-device", "alice-device-fcm-token"],
     ["olmInbox/bob/bob-device/" + deliveryId, relayRecord || {
       senderUid: "alice",
       senderDeviceId: "alice-device",
       messageId: "message-123",
+      conversationType: "direct",
+      conversationId: "alice_bob",
+      conversationPeerUserId: "bob",
       envelope: JSON.stringify({
         encryptionVersion: 1,
         algorithm: "olm",
@@ -149,6 +159,17 @@ test("sends one minimal data-only FCM wake-up to the verified recipient device",
   );
   assert.equal(receipt.status, "sent");
   assert.equal(receipt.notificationSent, true);
+});
+
+test("routes sender-owned direct-device pushes to the sender account token", async () => {
+  const state = fixture();
+  const response = await state.dispatch({ ...baseRequest, recipientUid: "alice" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
+  assert.equal(state.sentMessages[0].body.message.token, "alice-device-fcm-token");
+  assert.equal(state.database.has("olmPushDispatch/alice/bob-device/" + deliveryId), true);
 });
 
 test("accepts canonical padded Base64URL ciphertext from Android", async () => {

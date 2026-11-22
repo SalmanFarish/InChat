@@ -112,6 +112,7 @@ class CloudflareNotificationRepository {
     suspend fun notifyEncryptedDelivery(
         senderUserId: String,
         chatId: String,
+        recipientUserId: String,
         deliveryId: String,
         messageId: String,
         senderDeviceId: String,
@@ -124,6 +125,7 @@ class CloudflareNotificationRepository {
         }
 
         val valid = chatId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
+            recipientUserId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
             deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
             messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
             senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
@@ -143,6 +145,7 @@ class CloudflareNotificationRepository {
             path = "/olm/notify",
             body = JSONObject()
                 .put("chatId", chatId)
+                .put("recipientUid", recipientUserId)
                 .put("deliveryId", deliveryId)
                 .put("messageId", messageId)
                 .put("senderDeviceId", senderDeviceId)

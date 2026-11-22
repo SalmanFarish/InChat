@@ -357,6 +357,7 @@ class EncryptedOlmDeliveryWorker(
                             chatId = requireNotNull(delivery.conversationId) {
                                 "Encrypted delivery is missing its authenticated conversation scope"
                             },
+                            recipientUserId = delivery.recipientUserId,
                             deliveryId = delivery.deliveryId,
                             messageId = delivery.messageId,
                             senderDeviceId = senderDeviceId,

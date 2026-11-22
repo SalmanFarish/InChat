@@ -25,6 +25,7 @@ function validateRequest(body, authenticatedUid) {
     "deliveryId",
     "messageId",
     "recipientDeviceId",
+    "recipientUid",
     "senderDeviceId",
   ];
   const actualFields = Object.keys(body).sort();
@@ -50,6 +51,8 @@ function validateRequest(body, authenticatedUid) {
     !DEVICE_PATTERN.test(body.senderDeviceId) ||
     typeof body.recipientDeviceId !== "string" ||
     !DEVICE_PATTERN.test(body.recipientDeviceId) ||
+    typeof body.recipientUid !== "string" ||
+    !UID_PATTERN.test(body.recipientUid) ||
     body.senderDeviceId === body.recipientDeviceId
   ) {
     return { error: result(400, { error: "Encrypted push request contains an invalid identifier." }) };
@@ -62,6 +65,7 @@ function validateRequest(body, authenticatedUid) {
       messageId: body.messageId,
       senderDeviceId: body.senderDeviceId,
       recipientDeviceId: body.recipientDeviceId,
+      recipientUid: body.recipientUid,
       senderUid: authenticatedUid,
     },
   };
@@ -79,7 +83,10 @@ function isPublishedDevice(value, expectedDeviceId) {
 
 function isValidEnvelopeRecord(record, expected) {
   if (!isRecord(record)) return false;
-  const expectedFields = ["envelope", "messageId", "senderDeviceId", "senderUid"];
+  const expectedFields = [
+    "conversationId", "conversationPeerUserId", "conversationType",
+    "envelope", "messageId", "senderDeviceId", "senderUid",
+  ];
   const fields = Object.keys(record).sort();
   if (
     fields.length !== expectedFields.length ||
@@ -92,6 +99,9 @@ function isValidEnvelopeRecord(record, expected) {
     record.senderUid !== expected.senderUid ||
     record.senderDeviceId !== expected.senderDeviceId ||
     record.messageId !== expected.messageId ||
+    record.conversationType !== "direct" ||
+    record.conversationId !== expected.chatId ||
+    record.conversationPeerUserId !== expected.conversationPeerUserId ||
     typeof record.envelope !== "string" ||
     new TextEncoder().encode(record.envelope).length > MAX_ENVELOPE_BYTES
   ) {
@@ -368,22 +378,26 @@ export async function processEncryptedOlmPush({
     return result(403, { error: "Sender is not a participant in this direct conversation." });
   }
 
-  const recipientUid = participantA === uid ? participantB : participantA;
-  const canonicalChatId = [uid, recipientUid].sort().join("_");
+  const conversationPeerUserId = participantA === uid ? participantB : participantA;
+  if (input.recipientUid !== uid && input.recipientUid !== conversationPeerUserId) {
+    return result(403, { error: "Recipient is not a participant in this direct conversation." });
+  }
+  const canonicalChatId = [uid, conversationPeerUserId].sort().join("_");
   if (input.chatId !== canonicalChatId) {
     return result(409, { error: "Conversation ID does not match its participants." });
   }
+  const recipientUid = input.recipientUid;
 
   const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
     adminDatabaseRequest(
       env,
       adminAccessToken,
-      "blockedUsers/" + uid + "/" + recipientUid,
+      "blockedUsers/" + uid + "/" + conversationPeerUserId,
     ),
     adminDatabaseRequest(
       env,
       adminAccessToken,
-      "blockedUsers/" + recipientUid + "/" + uid,
+      "blockedUsers/" + conversationPeerUserId + "/" + uid,
     ),
   ]);
   if (senderBlockedRecipient || recipientBlockedSender) {
@@ -428,6 +442,8 @@ export async function processEncryptedOlmPush({
     senderDeviceId: input.senderDeviceId,
     recipientDeviceId: input.recipientDeviceId,
     messageId: input.messageId,
+    chatId: input.chatId,
+    conversationPeerUserId,
   })) {
     return result(409, { error: "Encrypted relay record does not match the authenticated request." });
   }
