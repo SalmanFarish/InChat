@@ -505,9 +505,9 @@ abstract class LocalChatDatabase : RoomDatabase() {
 
         /**
          * Persist the original direct peer/conversation on each device copy.
-         * Group scope comes from durable group ledgers. Legacy direct peer-device
-         * rows are derivable; sender-owned copies are recovered from the encrypted
-         * local message row when unique, otherwise the worker fails closed.
+         * Group scope comes from durable group ledgers. Legacy direct rows are
+         * recovered only from one matching encrypted local message; ambiguous
+         * rows are left unscoped so the delivery worker fails closed.
          */
         internal val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -516,18 +516,6 @@ abstract class LocalChatDatabase : RoomDatabase() {
                 database.execSQL(
                     "UPDATE olm_device_deliveries SET conversationId = groupId " +
                         "WHERE groupId IS NOT NULL AND membershipEpoch IS NOT NULL"
-                )
-                database.execSQL(
-                    """
-                    UPDATE olm_device_deliveries
-                    SET conversationId = CASE
-                        WHEN ownerUserId < recipientUserId THEN ownerUserId || '_' || recipientUserId
-                        ELSE recipientUserId || '_' || ownerUserId
-                    END,
-                    conversationPeerUserId = recipientUserId
-                    WHERE groupId IS NULL AND membershipEpoch IS NULL
-                      AND ownerUserId IS NOT NULL AND recipientUserId != ownerUserId
-                    """.trimIndent()
                 )
                 database.execSQL(
                     """
@@ -549,7 +537,6 @@ abstract class LocalChatDatabase : RoomDatabase() {
                         LIMIT 1
                     )
                     WHERE groupId IS NULL AND membershipEpoch IS NULL
-                      AND ownerUserId = recipientUserId
                       AND (
                         SELECT COUNT(*)
                         FROM encrypted_olm_messages AS message
@@ -557,6 +544,20 @@ abstract class LocalChatDatabase : RoomDatabase() {
                           AND message.senderDeviceId = olm_device_deliveries.senderDeviceId
                           AND message.messageId = olm_device_deliveries.messageId
                       ) = 1
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                      )
                     """.trimIndent()
                 )
             }
