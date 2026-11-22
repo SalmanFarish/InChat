@@ -508,6 +508,43 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun oneConflictingCommittedIntentDoesNotBlockRecoveryOfLaterMessages() = runBlocking {
+        val damaged = outgoingMessage("recover-damaged-first").copy(sentAtMillis = 1_800_000_000_100L)
+        val valid = outgoingMessage("recover-valid-after-damage").copy(sentAtMillis = 1_800_000_000_200L)
+
+        assertTrue(repository.savePendingOutgoingIntent(
+            damaged.ownerUserId, damaged.groupId, damaged.messageId,
+            damaged.sentAtMillis, damaged.text,
+        ))
+        assertTrue(repository.savePendingOutgoingIntent(
+            valid.ownerUserId, valid.groupId, valid.messageId,
+            valid.sentAtMillis, valid.text,
+        ))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(damaged).copy(
+                sentAtMillis = damaged.sentAtMillis + 1L,
+            )))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(valid)))
+
+        assertRejected {
+            repository.recoverCommittedOutgoingIntents("alice", "group-123")
+        }
+
+        assertNull(repository.getMessage("alice", "group-123", damaged.messageId))
+        assertTrue(database.encryptedGroupMessageDao()
+            .getPendingMessage("alice", "group-123", damaged.messageId) != null)
+        assertTrue(database.encryptedGroupMessageDao()
+            .getOutgoingGroupCommit("alice", "group-123", damaged.messageId) != null)
+
+        assertEquals(valid, repository.getMessage("alice", "group-123", valid.messageId))
+        assertNull(database.encryptedGroupMessageDao()
+            .getPendingMessage("alice", "group-123", valid.messageId))
+        assertNull(database.encryptedGroupMessageDao()
+            .getOutgoingGroupCommit("alice", "group-123", valid.messageId))
+    }
+
+    @Test
     fun pendingIntentWithoutCommitMarkerIsNeverRecoveredOrDeleted() = runBlocking {
         val outgoing = outgoingMessage("recover-uncommitted")
         assertTrue(repository.savePendingOutgoingIntent(

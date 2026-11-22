@@ -232,47 +232,58 @@ internal class EncryptedGroupMessageRepository(
             requireAuthenticatedOwner(ownerUserId)
             var recovered = 0
             val commits = dao.getOutgoingGroupCommits(ownerUserId, groupId)
+            var firstFailure: Exception? = null
             for (commit in commits) {
                 requireAuthenticatedOwner(ownerUserId)
-                val pending = dao.getPendingMessage(ownerUserId, groupId, commit.messageId)
-                    ?: continue
-                require(pending.sentAtMillis == commit.sentAtMillis) {
-                    "Pending group intent does not match its committed send timestamp"
-                }
-                val plaintext = pendingVault.decrypt(pending)
-                requireAuthenticatedOwner(ownerUserId)
-                val message = DecryptedGroupMessage(
-                    ownerUserId = ownerUserId,
-                    groupId = groupId,
-                    messageId = commit.messageId,
-                    membershipEpoch = commit.membershipEpoch,
-                    senderUserId = ownerUserId,
-                    senderDeviceId = commit.senderDeviceId,
-                    megolmSessionId = commit.megolmSessionId,
-                    messageIndex = commit.messageIndex,
-                    sentAtMillis = commit.sentAtMillis,
-                    text = plaintext,
-                )
-                val existing = dao.getMessage(ownerUserId, groupId, commit.messageId)
-                if (existing != null) {
-                    require(vault.decrypt(existing) == message) {
-                        "Existing sender timeline row conflicts with its durable group commit"
+                try {
+                    val pending = dao.getPendingMessage(ownerUserId, groupId, commit.messageId)
+                        ?: continue
+                    require(pending.sentAtMillis == commit.sentAtMillis) {
+                        "Pending group intent does not match its committed send timestamp"
                     }
+                    val plaintext = pendingVault.decrypt(pending)
                     requireAuthenticatedOwner(ownerUserId)
-                    dao.clearCommittedOutgoingPending(existing)
-                } else {
-                    val encrypted = vault.encrypt(message, allowKeyCreation = !dao.hasStoredMessages())
-                    requireAuthenticatedOwner(ownerUserId)
-                    check(dao.commitOutgoingMessageAndDeletePending(
-                        message = encrypted,
+                    val message = DecryptedGroupMessage(
                         ownerUserId = ownerUserId,
                         groupId = groupId,
                         messageId = commit.messageId,
-                    )) { "Recovered sender timeline row could not be committed" }
+                        membershipEpoch = commit.membershipEpoch,
+                        senderUserId = ownerUserId,
+                        senderDeviceId = commit.senderDeviceId,
+                        megolmSessionId = commit.megolmSessionId,
+                        messageIndex = commit.messageIndex,
+                        sentAtMillis = commit.sentAtMillis,
+                        text = plaintext,
+                    )
+                    val existing = dao.getMessage(ownerUserId, groupId, commit.messageId)
+                    if (existing != null) {
+                        require(vault.decrypt(existing) == message) {
+                            "Existing sender timeline row conflicts with its durable group commit"
+                        }
+                        requireAuthenticatedOwner(ownerUserId)
+                        dao.clearCommittedOutgoingPending(existing)
+                    } else {
+                        val encrypted = vault.encrypt(message, allowKeyCreation = !dao.hasStoredMessages())
+                        requireAuthenticatedOwner(ownerUserId)
+                        check(dao.commitOutgoingMessageAndDeletePending(
+                            message = encrypted,
+                            ownerUserId = ownerUserId,
+                            groupId = groupId,
+                            messageId = commit.messageId,
+                        )) { "Recovered sender timeline row could not be committed" }
+                    }
+                    requireAuthenticatedOwner(ownerUserId)
+                    recovered++
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    // An account switch is a hard boundary, not an item failure:
+                    // never continue touching another account's recovery rows.
+                    requireAuthenticatedOwner(ownerUserId)
+                    if (firstFailure == null) firstFailure = failure
                 }
-                requireAuthenticatedOwner(ownerUserId)
-                recovered++
             }
+            firstFailure?.let { throw it }
             recovered
         }
     }
