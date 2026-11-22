@@ -14,6 +14,7 @@ import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -45,6 +46,7 @@ class GroupChatViewModel : ViewModel() {
 
     private val groupRepository = GroupChatRepository()
     private val chatRepository = ChatRepository()
+    private val cloudflareNotificationRepository = CloudflareNotificationRepository()
     private val localDatabase by lazy {
         LocalChatDatabase.getInstance(InChatApplication.instance)
     }
@@ -549,16 +551,31 @@ class GroupChatViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 pendingOutgoingIntentMutex.withLock {
-                val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                var membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
                 if (membership == null || !membership.isValid() ||
                     membership.groupId != groupId ||
                     currentUserId !in membership.memberUserIds
                 ) {
-                    onResult(
-                        false,
-                        "This group has no valid encrypted membership yet. Group messages are blocked until E2EE setup is complete."
+                    // Existing groups may predate the Worker-authored atomic E2EE
+                    // membership snapshot. Ask the authenticated Worker to repair
+                    // or initialize it from the canonical server membership map.
+                    // This endpoint verifies current membership and advances the
+                    // epoch on drift; never synthesize a client-side snapshot.
+                    membership = cloudflareNotificationRepository
+                        .ensureGroupCryptoMembershipSnapshot(groupId)
+                        .getOrElse { error ->
+                            throw IllegalStateException(
+                                "Could not initialize this group's encrypted membership: ${error.message ?: "group membership verification failed"}",
+                                error,
+                            )
+                        }
+                }
+                if (!membership.isValid() || membership.groupId != groupId ||
+                    currentUserId !in membership.memberUserIds
+                ) {
+                    throw IllegalStateException(
+                        "The server could not verify your current encrypted group membership. Sending remains blocked."
                     )
-                    return@launch
                 }
 
                 // A prior process may have died after the ciphertext fan-out was
