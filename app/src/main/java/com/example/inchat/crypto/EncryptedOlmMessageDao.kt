@@ -12,6 +12,10 @@ interface EncryptedOlmMessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMessage(message: EncryptedOlmMessageEntity)
 
+    /** Insert once; a message-ID collision must be checked, never silently replaced. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMessageIfAbsent(message: EncryptedOlmMessageEntity): Long
+
     @Query("SELECT EXISTS(SELECT 1 FROM encrypted_olm_messages)")
     suspend fun hasStoredMessages(): Boolean
 

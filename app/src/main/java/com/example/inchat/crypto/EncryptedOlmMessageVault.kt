@@ -207,8 +207,14 @@ internal class EncryptedOlmMessageVault(
         ) {
             "Encrypted message recipient is not a conversation participant"
         }
-        require(message.ownerUserId == message.recipientUserId) {
-            "Encrypted message owner must match its recipient account"
+        require(
+            EncryptedOlmMessageOwnershipPolicy.isOwnedByAccount(
+                ownerUserId = message.ownerUserId,
+                senderUserId = message.senderUserId,
+                recipientUserId = message.recipientUserId,
+            )
+        ) {
+            "Encrypted message owner must match either its authenticated sender or recipient account"
         }
         require(
             message.senderDeviceId != message.recipientDeviceId ||

@@ -29,6 +29,19 @@ data class EncryptedOlmMessageEntity(
     val textCiphertextBase64: String,
 )
 
+/**
+ * An account may own a local encrypted copy as either the sender or recipient.
+ * This lets the sending installation retain its own copy without writing plaintext
+ * into the legacy chat cache or changing the inbound message's ownership rules.
+ */
+internal object EncryptedOlmMessageOwnershipPolicy {
+    fun isOwnedByAccount(ownerUserId: String, senderUserId: String, recipientUserId: String): Boolean =
+        ownerUserId == senderUserId || ownerUserId == recipientUserId
+
+    fun isOutgoing(ownerUserId: String, senderUserId: String): Boolean =
+        ownerUserId == senderUserId
+}
+
 /** Decrypted message data held only in process memory until encrypted for Room. */
 internal data class DecryptedOlmMessage(
     val ownerUserId: String,
@@ -41,4 +54,8 @@ internal data class DecryptedOlmMessage(
     val recipientDeviceId: String,
     val sentAtMillis: Long,
     val text: String,
-)
+) {
+    /** True for the sender's own local copy, including a copy synced to another sender device. */
+    val isOutgoing: Boolean
+        get() = EncryptedOlmMessageOwnershipPolicy.isOutgoing(ownerUserId, senderUserId)
+}

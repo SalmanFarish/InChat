@@ -52,6 +52,46 @@ internal class EncryptedOlmMessageRepository(
         }
     }
 
+    /**
+     * Persist the sender's own local timeline copy using the same Keystore AES-GCM
+     * envelope as inbound messages. This is a storage primitive only; callers must
+     * still coordinate it with the durable Olm outbox before enabling live sending.
+     */
+    suspend fun saveOutgoingMessage(message: DecryptedOlmMessage) = withContext(ioDispatcher) {
+        validateScope(message.ownerUserId, message.conversationId)
+        require(message.isOutgoing) {
+            "Outgoing encrypted message owner must match the authenticated sender"
+        }
+        require(message.recipientUserId == message.conversationPeerUserId) {
+            "Outgoing direct message recipient must match the conversation peer"
+        }
+        require(message.senderUserId != message.recipientUserId) {
+            "An outgoing direct message must target another account"
+        }
+        requireAuthenticatedOwner(message.ownerUserId)
+
+        val encrypted = vault.encrypt(message)
+        val inserted = dao.insertMessageIfAbsent(encrypted)
+        requireAuthenticatedOwner(message.ownerUserId)
+        if (inserted == -1L) {
+            // A replay with identical authenticated metadata and plaintext is safe.
+            // A reused ID with different content or routing must fail closed.
+            val existing = dao.getMessage(
+                message.ownerUserId,
+                message.conversationId,
+                message.messageId,
+            ) ?: error("Encrypted outgoing message disappeared after an insert conflict")
+            val decrypted = vault.decrypt(existing)
+            require(
+                decrypted.copy(text = "") == message.copy(text = "") &&
+                    decrypted.text == message.text
+            ) {
+                "Outgoing encrypted message ID is already bound to different content or metadata"
+            }
+        }
+        requireAuthenticatedOwner(message.ownerUserId)
+    }
+
     private fun validateScope(ownerUserId: String, conversationId: String) {
         require(ACCOUNT_ID_PATTERN.matches(ownerUserId)) {
             "Encrypted message owner account ID has an invalid format"
