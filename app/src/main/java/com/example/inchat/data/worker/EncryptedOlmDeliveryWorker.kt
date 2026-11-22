@@ -279,9 +279,22 @@ class EncryptedOlmDeliveryWorker(
                         0 -> {
                             val groupId = delivery.groupId
                             val membershipEpoch = delivery.membershipEpoch
+                            val distribution = metadataStore.get(
+                                ownerUserId = ownerUserId,
+                                senderDeviceId = senderDeviceId,
+                                distributionId = delivery.messageId,
+                            )
                             if (groupId == null && membershipEpoch == null) {
-                                true
+                                // A legacy group-key row that could not be
+                                // unambiguously backfilled must never fall
+                                // through and masquerade as a direct delivery.
+                                distribution == null
                             } else if (groupId == null || membershipEpoch == null || membershipEpoch <= 0L) {
+                                false
+                            } else if (distribution == null ||
+                                distribution.groupId != groupId ||
+                                distribution.membershipEpoch != membershipEpoch
+                            ) {
                                 false
                             } else {
                                 val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)

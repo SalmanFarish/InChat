@@ -432,28 +432,28 @@ abstract class LocalChatDatabase : RoomDatabase() {
                     """
                     UPDATE olm_device_deliveries
                     SET groupId = (
-                        SELECT commit.groupId
-                        FROM encrypted_group_outgoing_commits AS commit
-                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
-                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
-                          AND commit.messageId = olm_device_deliveries.messageId
+                        SELECT group_commit.groupId
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
                         LIMIT 1
                     ),
                     membershipEpoch = (
-                        SELECT commit.membershipEpoch
-                        FROM encrypted_group_outgoing_commits AS commit
-                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
-                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
-                          AND commit.messageId = olm_device_deliveries.messageId
+                        SELECT group_commit.membershipEpoch
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
                         LIMIT 1
                     )
                     WHERE groupId IS NULL AND membershipEpoch IS NULL
                       AND (
                         SELECT COUNT(*)
-                        FROM encrypted_group_outgoing_commits AS commit
-                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
-                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
-                          AND commit.messageId = olm_device_deliveries.messageId
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
                       ) = 1
                       AND NOT EXISTS (
                         SELECT 1
@@ -493,10 +493,10 @@ abstract class LocalChatDatabase : RoomDatabase() {
                       ) = 1
                       AND NOT EXISTS (
                         SELECT 1
-                        FROM encrypted_group_outgoing_commits AS commit
-                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
-                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
-                          AND commit.messageId = olm_device_deliveries.messageId
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
                       )
                     """.trimIndent()
                 )
