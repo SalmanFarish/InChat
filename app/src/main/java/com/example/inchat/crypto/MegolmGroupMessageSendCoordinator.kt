@@ -6,6 +6,11 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Serializes the complete pending-intent -> Megolm send -> timeline commit transaction. */
+internal object MegolmPendingGroupIntentRetryLock {
+    val mutex = Mutex()
+}
+
 /** Result of a guarded group-message send attempt. */
 internal sealed class MegolmGroupMessageSendOutcome {
     data class AwaitingKeyAcknowledgements(

@@ -106,7 +106,7 @@ class GroupChatViewModel : ViewModel() {
     private var pendingMessagesJob: Job? = null
     private var pendingReconciliationJob: Job? = null
     private var pendingIntentRetryJob: Job? = null
-    private val pendingOutgoingIntentMutex = Mutex()
+    private val pendingOutgoingIntentMutex = MegolmPendingGroupIntentRetryLock.mutex
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
     private var encryptedMessagesJob: Job? = null
