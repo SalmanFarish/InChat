@@ -17,7 +17,7 @@ data class GroupCryptoMembershipSnapshot(
         get() = members.keys
 
     fun isValid(): Boolean =
-        groupId.isNotBlank() &&
+        groupId.matches(GROUP_ID) &&
             epoch > 0L &&
             members.size in MIN_MEMBERS..MAX_MEMBERS &&
             members.all { (userId, role) ->
@@ -49,6 +49,7 @@ data class GroupCryptoMembershipSnapshot(
                 .takeIf { it.isValid() }
         }
 
+        private val GROUP_ID = Regex("[A-Za-z0-9_-]{1,128}")
         const val MIN_MEMBERS = 2
         const val MAX_MEMBERS = 50
         private val ALLOWED_ROLES = setOf("admin", "member")
