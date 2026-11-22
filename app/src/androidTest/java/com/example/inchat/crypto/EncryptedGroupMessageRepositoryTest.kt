@@ -461,9 +461,16 @@ class EncryptedGroupMessageRepositoryTest {
             epoch = 5L,
             members = mapOf("bob" to "admin", "carol" to "member"),
         )
-        assertRejected {
-            repository.observeMessagesForMember("alice", "group-123", liveMembership).first()
-        }
+        assertEquals(
+            emptyList<DecryptedGroupMessage>(),
+            repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
+        )
+
+        liveMembership.value = membership
+        assertEquals(
+            listOf(message),
+            repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
+        )
     }
 
     private suspend fun assertRejected(block: suspend () -> Any?) {
