@@ -20,6 +20,7 @@ function fixture({
   fcmResult,
   fcmError,
   existingReceipt,
+  replaceClaimDuringFcm = false,
 } = {}) {
   const database = new Map([
     ["chats/alice_bob", chat],
@@ -113,6 +114,20 @@ function fixture({
   const fcmRequest = async (accessToken, url, method, body, toleratedStatuses) => {
     assert.equal(accessToken, "admin-access-token");
     sentMessages.push({ url, method, body, toleratedStatuses });
+    if (replaceClaimDuringFcm) {
+      const receiptPath = "olmPushDispatch/bob/bob-device/" + deliveryId;
+      database.set(receiptPath, {
+        senderUid: "alice",
+        messageId: "message-123",
+        recipientUid: "bob",
+        recipientDeviceId: "bob-device",
+        deliveryId,
+        status: "processing",
+        claimId: "newer-worker",
+        attempt: 2,
+        leaseUntil: 2_000_000,
+      });
+    }
     if (fcmError) throw fcmError;
     return fcmResult || {
       ok: true,
@@ -334,6 +349,21 @@ test("removes only the unchanged token when FCM reports it unregistered", async 
     "unregistered",
   );
   assert.equal(state.sentMessages.length, 1);
+});
+
+test("does not overwrite a newer worker claim after FCM returns", async () => {
+  const state = fixture({ replaceClaimDuringFcm: true });
+  const response = await state.dispatch();
+
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.retryable, true);
+  assert.equal(state.sentMessages.length, 1);
+  const receipt = state.database.get(
+    "olmPushDispatch/bob/bob-device/" + deliveryId,
+  );
+  assert.equal(receipt.claimId, "newer-worker");
+  assert.equal(receipt.status, "processing");
+  assert.equal(receipt.attempt, 2);
 });
 
 test("leaves a retryable receipt when FCM is temporarily unavailable", async () => {
