@@ -82,6 +82,9 @@ abstract class EncryptedGroupMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertPendingMessage(message: EncryptedGroupPendingMessageEntity): Long
 
+    @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId ORDER BY sentAtMillis ASC, groupId ASC, messageId ASC")
+    abstract suspend fun getPendingMessagesForOwner(ownerUserId: String): List<EncryptedGroupPendingMessageEntity>
+
     @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId ORDER BY sentAtMillis ASC, messageId ASC")
     abstract suspend fun getPendingMessages(ownerUserId: String, groupId: String): List<EncryptedGroupPendingMessageEntity>
 

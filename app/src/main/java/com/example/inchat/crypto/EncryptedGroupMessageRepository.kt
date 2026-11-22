@@ -22,9 +22,10 @@ import kotlinx.coroutines.withContext
  * store. The replay key and AES-GCM ciphertext are inserted in one Room
  * transaction; callers must finalize the native staged receipt only afterwards.
  */
-internal class EncryptedGroupMessageRepository(
+internal data class PendingGroupMessageIntent(\n    val ownerUserId: String,\n    val groupId: String,\n    val messageId: String,\n    val sentAtMillis: Long,\n    val plaintext: String,\n)\n\ninternal class EncryptedGroupMessageRepository(
     private val dao: EncryptedGroupMessageDao,
     private val vault: EncryptedGroupMessageVault = EncryptedGroupMessageVault(),
+    private val pendingVault: EncryptedGroupPendingMessageVault = EncryptedGroupPendingMessageVault(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val authenticatedUserId: () -> String? = { FirebaseAuth.getInstance().currentUser?.uid },
     private val decryptGroupMessages: suspend (List<EncryptedGroupMessageEntity>) -> List<DecryptedGroupMessage> =
@@ -111,6 +112,63 @@ internal class EncryptedGroupMessageRepository(
                 }
                 false
             }
+        }
+    }
+
+    /** Persist a waiting-to-send intent before attempting Megolm encryption. */
+    suspend fun savePendingOutgoingIntent(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+        sentAtMillis: Long,
+        plaintext: String,
+    ): Boolean {
+        validateScope(ownerUserId, groupId)
+        require(MESSAGE_ID.matches(messageId) && sentAtMillis >= 0L)
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            val encrypted = pendingVault.encrypt(ownerUserId, groupId, messageId, sentAtMillis, plaintext)
+            requireAuthenticatedOwner(ownerUserId)
+            val inserted = dao.insertPendingMessage(encrypted)
+            if (inserted != -1L) true else {
+                val existing = dao.getPendingMessage(ownerUserId, groupId, messageId)
+                    ?: error("Pending group intent conflicted without an existing row")
+                require(
+                    existing.sentAtMillis == sentAtMillis &&
+                        pendingVault.decrypt(existing) == plaintext
+                ) { "Pending group message ID already belongs to different content" }
+                false
+            }
+        }
+    }
+
+    suspend fun pendingOutgoingIntents(ownerUserId: String): List<PendingGroupMessageIntent> {
+        require(ID.matches(ownerUserId))
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            dao.getPendingMessagesForOwner(ownerUserId).map { record ->
+                requireAuthenticatedOwner(ownerUserId)
+                PendingGroupMessageIntent(
+                    ownerUserId = record.ownerUserId,
+                    groupId = record.groupId,
+                    messageId = record.messageId,
+                    sentAtMillis = record.sentAtMillis,
+                    plaintext = pendingVault.decrypt(record),
+                )
+            }
+        }
+    }
+
+    suspend fun deletePendingOutgoingIntent(ownerUserId: String, groupId: String, messageId: String) {
+        validateScope(ownerUserId, groupId)
+        require(MESSAGE_ID.matches(messageId))
+        requireAuthenticatedOwner(ownerUserId)
+        withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            dao.deletePendingMessage(ownerUserId, groupId, messageId)
+            requireAuthenticatedOwner(ownerUserId)
         }
     }
 
