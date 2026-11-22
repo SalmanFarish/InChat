@@ -487,6 +487,73 @@ class EncryptedGroupMessageRepositoryTest {
         )
     }
 
+    @Test
+    fun committedOutgoingIntentIsRestoredToTimelineAndBothRecoveryRowsAreCleared() = runBlocking {
+        val outgoing = outgoingMessage("recover-committed")
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            outgoing.sentAtMillis, outgoing.text,
+        ))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)))
+
+        assertEquals(1, repository.recoverCommittedOutgoingIntents("alice", "group-123"))
+
+        assertEquals(outgoing, repository.getMessage("alice", "group-123", outgoing.messageId))
+        assertNull(database.encryptedGroupMessageDao()
+            .getPendingMessage("alice", "group-123", outgoing.messageId))
+        assertNull(database.encryptedGroupMessageDao()
+            .getOutgoingGroupCommit("alice", "group-123", outgoing.messageId))
+        assertEquals(0, repository.recoverCommittedOutgoingIntents("alice", "group-123"))
+    }
+
+    @Test
+    fun pendingIntentWithoutCommitMarkerIsNeverRecoveredOrDeleted() = runBlocking {
+        val outgoing = outgoingMessage("recover-uncommitted")
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            outgoing.sentAtMillis, outgoing.text,
+        ))
+
+        assertEquals(0, repository.recoverCommittedOutgoingIntents("alice", "group-123"))
+        assertNull(repository.getMessage("alice", "group-123", outgoing.messageId))
+        assertTrue(database.encryptedGroupMessageDao()
+            .getPendingMessage("alice", "group-123", outgoing.messageId) != null)
+    }
+
+    @Test
+    fun committedMarkerWithoutPendingCiphertextIsRetainedForRetry() = runBlocking {
+        val outgoing = outgoingMessage("recover-marker-only")
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)))
+
+        assertEquals(0, repository.recoverCommittedOutgoingIntents("alice", "group-123"))
+        assertNull(repository.getMessage("alice", "group-123", outgoing.messageId))
+        assertTrue(database.encryptedGroupMessageDao()
+            .getOutgoingGroupCommit("alice", "group-123", outgoing.messageId) != null)
+    }
+
+    @Test
+    fun conflictingExistingTimelineEchoKeepsPendingIntentAndCommitMarker() = runBlocking {
+        val outgoing = outgoingMessage("recover-conflict")
+        val conflictingEcho = outgoing.copy(text = "Different content under the same message ID")
+        assertTrue(repository.saveOutgoingMessage(conflictingEcho))
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            outgoing.sentAtMillis, outgoing.text,
+        ))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)))
+
+        assertRejected { repository.recoverCommittedOutgoingIntents("alice", "group-123") }
+
+        assertEquals(conflictingEcho, repository.getMessage("alice", "group-123", outgoing.messageId))
+        assertTrue(database.encryptedGroupMessageDao()
+            .getPendingMessage("alice", "group-123", outgoing.messageId) != null)
+        assertTrue(database.encryptedGroupMessageDao()
+            .getOutgoingGroupCommit("alice", "group-123", outgoing.messageId) != null)
+    }
+
     private suspend fun assertRejected(block: suspend () -> Any?) {
         try {
             block()
@@ -495,6 +562,32 @@ class EncryptedGroupMessageRepositoryTest {
             // Expected fail-closed authorization behavior.
         }
     }
+
+    private fun outgoingMessage(messageId: String) = DecryptedGroupMessage(
+        ownerUserId = "alice",
+        groupId = "group-123",
+        messageId = messageId,
+        membershipEpoch = 4L,
+        senderUserId = "alice",
+        senderDeviceId = "alice-phone",
+        megolmSessionId = "abcdef1234567890",
+        messageIndex = 21L,
+        sentAtMillis = 1_800_000_000_100L,
+        text = "Committed outgoing message that must be restored exactly.",
+    )
+
+    private fun commitMarker(message: DecryptedGroupMessage) =
+        EncryptedGroupOutgoingCommitEntity(
+            ownerUserId = message.ownerUserId,
+            groupId = message.groupId,
+            messageId = message.messageId,
+            senderDeviceId = message.senderDeviceId,
+            membershipEpoch = message.membershipEpoch,
+            megolmSessionId = message.megolmSessionId,
+            messageIndex = message.messageIndex,
+            sentAtMillis = message.sentAtMillis,
+            recipientDeviceCount = 2,
+        )
 
     private fun message() = DecryptedGroupMessage(
         ownerUserId = "alice",
