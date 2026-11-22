@@ -39,8 +39,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class GroupChatViewModel : ViewModel() {
 
@@ -577,21 +579,25 @@ class GroupChatViewModel : ViewModel() {
                         "The server could not verify this account's encrypted group membership."
                     }
 
-                    // The send coordinator independently reads the RTDB snapshot.
-                    // Confirm that the Worker's committed snapshot is visible there
-                    // before any Megolm session or message state is advanced.
-                    val refreshedMembership = requireNotNull(
-                        groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                    ) {
-                        "The server initialized group encryption, but its membership snapshot is not yet readable."
-                    }
-                    require(
-                        refreshedMembership.isValid() &&
-                            refreshedMembership.groupId == groupId &&
-                            refreshedMembership.epoch == initializedMembership.epoch &&
-                            refreshedMembership.members == initializedMembership.members
-                    ) {
-                        "The group encryption membership changed during initialization. Retry the message."
+                    // Firebase may first emit a stale locally cached value while the
+                    // Worker's authoritative write is propagating. Ignore every
+                    // non-matching emission and wait briefly for the exact snapshot.
+                    // The send coordinator still performs its own independent reads
+                    // and membership checks before it can commit any ciphertext.
+                    val refreshedMembership = withTimeoutOrNull(15_000L) {
+                        groupRepository.observeGroupCryptoMembership(groupId).first {
+                            observed ->
+                            observed != null &&
+                                observed.isValid() &&
+                                observed.groupId == groupId &&
+                                observed.epoch == initializedMembership.epoch &&
+                                observed.members == initializedMembership.members
+                        }
+                    } ?: throw IllegalStateException(
+                        "The server initialized group encryption, but its membership snapshot did not become visible. Please retry."
+                    )
+                    check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                        "The signed-in account changed while waiting for group encryption to initialize."
                     }
                     refreshedMembership
                 }
