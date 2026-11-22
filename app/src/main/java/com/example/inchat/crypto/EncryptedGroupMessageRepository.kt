@@ -161,6 +161,19 @@ internal class EncryptedGroupMessageRepository(
                 require(vault.decrypt(existing) == message) {
                     "Outgoing encrypted group message ID already belongs to different content"
                 }
+                // An existing echo is not sufficient evidence to discard the
+                // recovery intent: authenticate the pending plaintext too.
+                // This protects against a mismatched/corrupted intent sharing
+                // the same message ID and keeps the durable marker for repair.
+                val pending = dao.getPendingMessage(
+                    message.ownerUserId,
+                    message.groupId,
+                    message.messageId,
+                ) ?: error("Committed outgoing group intent is missing")
+                require(
+                    pending.sentAtMillis == message.sentAtMillis &&
+                        pendingVault.decrypt(pending) == message.text
+                ) { "Pending outgoing group intent conflicts with its committed timeline echo" }
                 requireAuthenticatedOwner(message.ownerUserId)
                 dao.clearCommittedOutgoingPending(encrypted)
                 requireAuthenticatedOwner(message.ownerUserId)

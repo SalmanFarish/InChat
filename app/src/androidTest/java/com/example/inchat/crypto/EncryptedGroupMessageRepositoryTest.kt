@@ -571,6 +571,41 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun conflictingPendingCiphertextCannotBeClearedByMatchingExistingEcho() = runBlocking {
+        val outgoing = outgoingMessage("recover-pending-content-conflict")
+        assertTrue(repository.saveOutgoingMessage(outgoing))
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+            outgoing.sentAtMillis, outgoing.text,
+        ))
+        assertEquals(1L, database.olmDeliveryQueueDao()
+            .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)))
+
+        val dao = database.encryptedGroupMessageDao()
+        val storedPending = requireNotNull(dao.getPendingMessage(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+        ))
+        assertEquals(1, dao.deletePendingMessage(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+        ))
+        assertEquals(1L, dao.insertPendingMessage(
+            storedPending.copy(textCiphertextBase64 = "AAAA"),
+        ))
+
+        assertRejected {
+            repository.saveOutgoingMessageAndClearPendingIntent(outgoing)
+        }
+
+        assertEquals(outgoing, repository.getMessage(
+            outgoing.ownerUserId, outgoing.groupId, outgoing.messageId,
+        ))
+        assertTrue("Corrupt pending intent must remain for explicit recovery",
+            dao.getPendingMessage(outgoing.ownerUserId, outgoing.groupId, outgoing.messageId) != null)
+        assertTrue("Commit marker must remain paired with the unresolved intent",
+            dao.getOutgoingGroupCommit(outgoing.ownerUserId, outgoing.groupId, outgoing.messageId) != null)
+    }
+
+    @Test
     fun outgoingTimelineInsertRollsBackWhenPendingIntentDisappears() = runBlocking {
         val outgoing = outgoingMessage("recover-missing-pending")
         assertTrue(repository.savePendingOutgoingIntent(
