@@ -70,7 +70,7 @@ class MegolmGroupMessageOutboxCommitterTest {
         }
 
         assertEquals(staged.messageId, recovered.messageId)
-        assertEquals(1, recovered.queuedDeviceDeliveries)
+        assertEquals("An idempotent retry inserts no replacement delivery", 0, recovered.queuedDeviceDeliveries)
         assertEquals("Retry must reuse the original delivery identity", 1, store.rows.size)
         assertEquals(2, finalizeAttempts)
     }
