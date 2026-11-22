@@ -14,6 +14,7 @@ import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
 import com.example.inchat.data.repository.ChatRepository
+import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -549,14 +550,59 @@ class GroupChatViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 pendingOutgoingIntentMutex.withLock {
-                val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                if (membership == null || !membership.isValid() ||
+                val existingMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                val membership = if (
+                    existingMembership != null &&
+                    existingMembership.isValid() &&
+                    existingMembership.groupId == groupId
+                ) {
+                    existingMembership
+                } else {
+                    // Legacy groups may predate the Worker-authored E2EE snapshot.
+                    // Ask the authenticated Worker to initialize/repair it; never
+                    // synthesize membership from client-side group metadata.
+                    val initializedMembership =
+                        CloudflareNotificationRepository()
+                            .ensureGroupCryptoMembershipSnapshot(groupId)
+                            .getOrThrow()
+
+                    check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                        "The signed-in account changed during group E2EE initialization."
+                    }
+                    require(
+                        initializedMembership.isValid() &&
+                            initializedMembership.groupId == groupId &&
+                            currentUserId in initializedMembership.memberUserIds
+                    ) {
+                        "The server could not verify this account's encrypted group membership."
+                    }
+
+                    // The send coordinator independently reads the RTDB snapshot.
+                    // Confirm that the Worker's committed snapshot is visible there
+                    // before any Megolm session or message state is advanced.
+                    val refreshedMembership = requireNotNull(
+                        groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                    ) {
+                        "The server initialized group encryption, but its membership snapshot is not yet readable."
+                    }
+                    require(
+                        refreshedMembership.isValid() &&
+                            refreshedMembership.groupId == groupId &&
+                            refreshedMembership.epoch == initializedMembership.epoch &&
+                            refreshedMembership.members == initializedMembership.members
+                    ) {
+                        "The group encryption membership changed during initialization. Retry the message."
+                    }
+                    refreshedMembership
+                }
+
+                if (!membership.isValid() ||
                     membership.groupId != groupId ||
                     currentUserId !in membership.memberUserIds
                 ) {
                     onResult(
                         false,
-                        "This group has no valid encrypted membership yet. Group messages are blocked until E2EE setup is complete."
+                        "This account is not an active member of the group's encrypted membership."
                     )
                     return@launch
                 }
