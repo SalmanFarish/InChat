@@ -17,6 +17,8 @@ internal fun isGroupDeliveryScopeCurrent(
     val groupId = delivery.groupId ?: return false
     val membershipEpoch = delivery.membershipEpoch ?: return false
     return membershipEpoch > 0L &&
+        delivery.conversationId == groupId &&
+        delivery.conversationPeerUserId == null &&
         membership.isValid() &&
         membership.groupId == groupId &&
         membership.epoch == membershipEpoch &&
@@ -46,6 +48,8 @@ internal data class QueuedOlmDeviceDelivery(
     val senderDeviceId: String? = null,
     val groupId: String? = null,
     val membershipEpoch: Long? = null,
+    val conversationId: String? = null,
+    val conversationPeerUserId: String? = null,
     val envelope: String,
     val status: OlmDeliveryStatus = OlmDeliveryStatus.QUEUED,
     val attemptCount: Int = 0,
@@ -158,6 +162,8 @@ internal class OlmDeliveryQueue(
         groupMessageCommit: GroupOutgoingMessageCommit? = null,
         groupId: String? = null,
         membershipEpoch: Long? = null,
+        conversationId: String? = null,
+        conversationPeerUserId: String? = null,
     ): Int {
         require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
         require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
@@ -173,6 +179,25 @@ internal class OlmDeliveryQueue(
         require((scopedGroupId == null) == (scopedMembershipEpoch == null) &&
             (scopedGroupId == null || (scopedGroupId.matches(Regex("[A-Za-z0-9_-]{1,128}")) && scopedMembershipEpoch!! > 0L))
         ) { "Group delivery scope must include a valid group ID and positive membership epoch" }
+        val nonOwnerRecipients = prepared.map { it.recipientUserId }.filter { it != ownerUserId }.distinct()
+        val scopedPeerUserId = if (scopedGroupId == null) {
+            conversationPeerUserId ?: nonOwnerRecipients.singleOrNull()
+        } else {
+            conversationPeerUserId
+        }
+        val scopedConversationId = scopedGroupId ?: conversationId ?: scopedPeerUserId?.let {
+            OlmAuthenticatedMessagePayloadCodec.directConversationId(ownerUserId, it)
+        }
+        if (scopedGroupId == null) {
+            require(scopedPeerUserId != null && USER_ID_PATTERN.matches(scopedPeerUserId) &&
+                scopedPeerUserId != ownerUserId &&
+                scopedConversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(ownerUserId, scopedPeerUserId) &&
+                prepared.all { it.recipientUserId == ownerUserId || it.recipientUserId == scopedPeerUserId }
+            ) { "Direct delivery scope must match its authenticated conversation peer" }
+        } else {
+            require(conversationId == null || conversationId == scopedGroupId)
+            require(scopedPeerUserId == null)
+        }
         val rows = prepared.map { item ->
             require(USER_ID_PATTERN.matches(item.recipientUserId)) { "Recipient user ID has an invalid format" }
             require(DEVICE_ID_PATTERN.matches(item.recipientDeviceId)) { "Recipient device ID has an invalid format" }
@@ -201,6 +226,8 @@ internal class OlmDeliveryQueue(
                 senderDeviceId = senderDeviceId,
                 groupId = scopedGroupId,
                 membershipEpoch = scopedMembershipEpoch,
+                conversationId = scopedConversationId,
+                conversationPeerUserId = scopedPeerUserId,
                 envelope = item.envelope,
             )
         }

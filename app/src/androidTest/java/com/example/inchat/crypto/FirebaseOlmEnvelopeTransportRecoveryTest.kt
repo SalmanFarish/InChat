@@ -51,7 +51,7 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
     @Test
     fun groupUploadCarriesTheExactCommittedMembershipEpoch() = runBlocking {
         val store = FakeRelayStore()
-        val delivery = queuedDelivery().copy(groupId = "group-1", membershipEpoch = 7L)
+        val delivery = queuedDelivery().copy(groupId = "group-1", membershipEpoch = 7L, conversationId = "group-1", conversationPeerUserId = null)
         val transport = transport(store, user = { "alice" })
         transport.upload(delivery, "sender-device")
         assertEquals("group", store.inbox.values.single().fields["conversationType"])
@@ -256,6 +256,8 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             ownerUserId = "alice",
             senderDeviceId = "sender-device",
             envelope = envelope,
+            conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId("alice", "bob"),
+            conversationPeerUserId = "bob",
             status = OlmDeliveryStatus.IN_FLIGHT,
             attemptCount = 1,
             leaseUntilMillis = 10_000L,
@@ -272,6 +274,7 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             envelope = delivery.envelope,
             conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId("alice", "bob"),
             conversationType = "direct",
+            conversationPeerUserId = "bob",
         )
     }
 
@@ -406,7 +409,9 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
                     "envelope" to item.envelope,
                     "conversationType" to item.conversationType,
                     "conversationId" to item.conversationId,
-                ) + if (item.groupId != null && item.membershipEpoch != null) mapOf(
+                ) + if (item.conversationType == "direct") mapOf(
+                    "conversationPeerUserId" to item.conversationPeerUserId,
+                ) else if (item.groupId != null && item.membershipEpoch != null) mapOf(
                     "groupId" to item.groupId,
                     "membershipEpoch" to item.membershipEpoch,
                 ) else emptyMap(),

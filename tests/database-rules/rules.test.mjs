@@ -642,6 +642,7 @@ const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alic
   messageId: "message-encrypted-1",
   conversationType: "direct",
   conversationId: "alice_bob",
+  conversationPeerUserId: "bob",
   envelope: JSON.stringify({
     encryptionVersion: 1,
     algorithm: "olm",
@@ -761,7 +762,8 @@ test("a recipient cannot acknowledge a missing or mismatched encrypted delivery"
 
 test("group relay writes require the current server-authored membership epoch and both members", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
-  const groupRecord = { ...encryptedInboxRecord(), conversationType: "group", conversationId: "group", groupId: "group", membershipEpoch: 3 };
+  const { conversationPeerUserId, ...groupBase } = encryptedInboxRecord();
+  const groupRecord = { ...groupBase, conversationType: "group", conversationId: "group", groupId: "group", membershipEpoch: 3 };
   const path = "olmInbox/bob/device-bob-1/" + "7".repeat(64);
   await assertSucceeds(set(ref(aliceDb, path), groupRecord));
   await assertSucceeds(set(ref(aliceDb, path), groupRecord));
@@ -797,6 +799,8 @@ test("relay scope is mandatory and direct scope must match the canonical chat pa
     ...base, conversationType: "group",
   }));
   await assertSucceeds(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "2".repeat(64)), base));
+  await assertSucceeds(set(ref(aliceDb, "olmInbox/alice/device-alice-1/" + "4".repeat(64)), base));
+
 });
 
 test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {

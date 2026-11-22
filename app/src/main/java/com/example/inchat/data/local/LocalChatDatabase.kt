@@ -31,7 +31,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class, EncryptedGroupPendingMessageEntity::class, OlmGroupKeyDistributionEntity::class, EncryptedGroupOutgoingCommitEntity::class],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -503,13 +503,72 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Persist the original direct peer/conversation on each device copy.
+         * Group scope comes from durable group ledgers. Legacy direct peer-device
+         * rows are derivable; sender-owned copies are recovered from the encrypted
+         * local message row when unique, otherwise the worker fails closed.
+         */
+        internal val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE olm_device_deliveries ADD COLUMN conversationId TEXT")
+                database.execSQL("ALTER TABLE olm_device_deliveries ADD COLUMN conversationPeerUserId TEXT")
+                database.execSQL(
+                    "UPDATE olm_device_deliveries SET conversationId = groupId " +
+                        "WHERE groupId IS NOT NULL AND membershipEpoch IS NOT NULL"
+                )
+                database.execSQL(
+                    """
+                    UPDATE olm_device_deliveries
+                    SET conversationId = CASE
+                        WHEN ownerUserId < recipientUserId THEN ownerUserId || '_' || recipientUserId
+                        ELSE recipientUserId || '_' || ownerUserId
+                    END,
+                    conversationPeerUserId = recipientUserId
+                    WHERE groupId IS NULL AND membershipEpoch IS NULL
+                      AND ownerUserId IS NOT NULL AND recipientUserId != ownerUserId
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    UPDATE olm_device_deliveries
+                    SET conversationId = (
+                        SELECT message.conversationId
+                        FROM encrypted_olm_messages AS message
+                        WHERE message.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND message.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND message.messageId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    ),
+                    conversationPeerUserId = (
+                        SELECT message.conversationPeerUserId
+                        FROM encrypted_olm_messages AS message
+                        WHERE message.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND message.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND message.messageId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    )
+                    WHERE groupId IS NULL AND membershipEpoch IS NULL
+                      AND ownerUserId = recipientUserId
+                      AND (
+                        SELECT COUNT(*)
+                        FROM encrypted_olm_messages AS message
+                        WHERE message.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND message.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND message.messageId = olm_device_deliveries.messageId
+                      ) = 1
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
                     .build().also { INSTANCE = it }
             }
     }

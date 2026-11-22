@@ -286,10 +286,12 @@ class EncryptedOlmDeliveryWorker(
                                 distributionId = delivery.messageId,
                             )
                             if (groupId == null && membershipEpoch == null) {
-                                // A legacy group-key row that could not be
-                                // unambiguously backfilled must never fall
-                                // through and masquerade as a direct delivery.
-                                distribution == null
+                                // Direct scope is persisted at enqueue time so
+                                // sender-owned device copies retain their original peer.
+                                val peer = delivery.conversationPeerUserId
+                                distribution == null && peer != null &&
+                                    delivery.conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(ownerUserId, peer) &&
+                                    (delivery.recipientUserId == ownerUserId || delivery.recipientUserId == peer)
                             } else if (groupId == null || membershipEpoch == null || membershipEpoch <= 0L) {
                                 false
                             } else if (distribution == null ||
@@ -309,6 +311,8 @@ class EncryptedOlmDeliveryWorker(
                                 commit.senderDeviceId != senderDeviceId ||
                                 commit.messageId != delivery.messageId ||
                                 commit.groupId != delivery.groupId ||
+                                commit.groupId != delivery.conversationId ||
+                                delivery.conversationPeerUserId != null ||
                                 commit.membershipEpoch != delivery.membershipEpoch
                             ) {
                                 false

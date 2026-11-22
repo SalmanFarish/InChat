@@ -16,6 +16,7 @@ internal data class FirebaseOlmInboxItem(
     val membershipEpoch: Long? = null,
     val conversationId: String? = null,
     val conversationType: String? = null,
+    val conversationPeerUserId: String? = null,
 )
 
 internal data class FirebaseOlmRelayRecord(
@@ -259,14 +260,19 @@ internal class FirebaseOlmEnvelopeTransport(
         val conversationId: String
         if (delivery.groupId != null && delivery.membershipEpoch != null) {
             require(GROUP_PATTERN.matches(delivery.groupId))
+            require(delivery.conversationId == delivery.groupId && delivery.conversationPeerUserId == null)
             conversationType = "group"
             conversationId = delivery.groupId
         } else {
+            val peerUserId = requireNotNull(delivery.conversationPeerUserId) {
+                "Direct delivery is missing its authenticated conversation peer"
+            }
+            require(peerUserId != senderUid &&
+                delivery.conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(senderUid, peerUserId) &&
+                (delivery.recipientUserId == senderUid || delivery.recipientUserId == peerUserId)
+            ) { "Direct delivery scope does not match its authenticated participants" }
             conversationType = "direct"
-            conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId(
-                senderUid,
-                delivery.recipientUserId,
-            )
+            conversationId = requireNotNull(delivery.conversationId)
         }
         val payload = mapOf(
             "senderUid" to senderUid,
@@ -275,7 +281,9 @@ internal class FirebaseOlmEnvelopeTransport(
             "envelope" to delivery.envelope,
             "conversationType" to conversationType,
             "conversationId" to conversationId,
-        ) + if (delivery.groupId != null && delivery.membershipEpoch != null) mapOf(
+        ) + if (delivery.groupId == null) mapOf(
+            "conversationPeerUserId" to delivery.conversationPeerUserId,
+        ) else if (delivery.groupId != null && delivery.membershipEpoch != null) mapOf(
             "groupId" to delivery.groupId,
             "membershipEpoch" to delivery.membershipEpoch,
         ) else emptyMap()
@@ -429,14 +437,19 @@ internal class FirebaseOlmEnvelopeTransport(
             ?: error("Encrypted inbox conversation type is invalid")
         val conversationId = fields["conversationId"] as? String
             ?: error("Encrypted inbox conversation ID is invalid")
+        val conversationPeerUserId = fields["conversationPeerUserId"] as? String
         val groupId = fields["groupId"] as? String
         val membershipEpochNumber = fields["membershipEpoch"] as? Number
         val membershipEpoch = membershipEpochNumber?.toLong()
         require(UID_PATTERN.matches(requireAuthenticatedUserId()))
         if (conversationType == "direct") {
+            val recipientUid = requireAuthenticatedUserId()
             require(fields.keys == DIRECT_INBOX_FIELDS)
             require(groupId == null && membershipEpoch == null)
-            require(conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(senderUid, requireAuthenticatedUserId()))
+            require(conversationPeerUserId != null && UID_PATTERN.matches(conversationPeerUserId))
+            require(conversationPeerUserId != senderUid &&
+                (recipientUid == senderUid || recipientUid == conversationPeerUserId))
+            require(conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(senderUid, conversationPeerUserId))
         } else {
             require(conversationType == "group")
             require(fields.keys == GROUP_INBOX_FIELDS)
@@ -449,13 +462,13 @@ internal class FirebaseOlmEnvelopeTransport(
         }
         FirebaseOlmInboxItem(
             deliveryId, senderUid, senderDeviceId, messageId, envelope,
-            groupId, membershipEpoch, conversationId, conversationType,
+            groupId, membershipEpoch, conversationId, conversationType, conversationPeerUserId,
         )
     }.getOrNull()
 
     private companion object {
         val BASE_INBOX_FIELDS = setOf("senderUid", "senderDeviceId", "messageId", "envelope", "conversationType", "conversationId")
-        val DIRECT_INBOX_FIELDS = BASE_INBOX_FIELDS
+        val DIRECT_INBOX_FIELDS = BASE_INBOX_FIELDS + "conversationPeerUserId"
         val GROUP_INBOX_FIELDS = BASE_INBOX_FIELDS + setOf("groupId", "membershipEpoch")
         val GROUP_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val ACK_FIELDS = setOf("recipientUid", "recipientDeviceId", "messageId", "acknowledgedAt")

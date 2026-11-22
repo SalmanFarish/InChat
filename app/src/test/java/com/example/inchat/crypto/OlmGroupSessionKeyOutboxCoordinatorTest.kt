@@ -49,6 +49,7 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
             senderDeviceId = "alice-phone",
             groupId = "group-1",
             membershipEpoch = 7L,
+            conversationId = "group-1",
             envelope = "ciphertext",
         )
 
