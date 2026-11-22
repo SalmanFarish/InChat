@@ -9,6 +9,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -112,10 +114,38 @@ internal class EncryptedGroupMessageRepository(
         ownerUserId: String,
         membership: GroupCryptoMembershipSnapshot,
         messageId: String,
+    ): DecryptedGroupMessage? =
+        getMessageForMember(ownerUserId, membership.groupId, flowOf(membership), messageId)
+
+    /**
+     * One-shot member read backed by a live membership stream. If membership
+     * changes while the stored ciphertext is being decrypted, the newer
+     * snapshot cancels the older transform before plaintext can be returned.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    suspend fun getMessageForMember(
+        ownerUserId: String,
+        groupId: String,
+        membershipSnapshots: Flow<GroupCryptoMembershipSnapshot?>,
+        messageId: String,
     ): DecryptedGroupMessage? {
-        requireReadableMembership(ownerUserId, membership.groupId, membership)
+        validateScope(ownerUserId, groupId)
+        require(MESSAGE_ID.matches(messageId)) { "Group message ID is invalid" }
         requireAuthenticatedOwner(ownerUserId)
-        return getMessage(ownerUserId, membership.groupId, messageId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            val record = dao.getMessage(ownerUserId, groupId, messageId)
+            combine(flowOf(record), membershipSnapshots) { stored, membership ->
+                stored to membership
+            }.transformLatest { (stored, membership) ->
+                requireAuthenticatedOwner(ownerUserId)
+                requireReadableMembership(ownerUserId, groupId, membership)
+                val decrypted = stored?.let(vault::decrypt)
+                currentCoroutineContext().ensureActive()
+                requireAuthenticatedOwner(ownerUserId)
+                emit(decrypted)
+            }.first()
+        }
     }
 
     private fun requireReadableMembership(
