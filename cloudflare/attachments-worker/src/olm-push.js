@@ -392,8 +392,7 @@ export async function processEncryptedOlmPush({
       return result(409, { error: "Group membership epoch is stale." });
     }
     if (!Object.prototype.hasOwnProperty.call(chat.members, uid) ||
-        !Object.prototype.hasOwnProperty.call(chat.members, input.recipientUid) ||
-        input.recipientUid === uid) {
+        !Object.prototype.hasOwnProperty.call(chat.members, input.recipientUid)) {
       return result(403, { error: "Sender or recipient is not a current group member." });
     }
   } else {

@@ -182,7 +182,7 @@ class CloudflareNotificationRepository {
             messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
             senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
             recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            senderDeviceId != recipientDeviceId && recipientUserId != senderUserId
+            senderDeviceId != recipientDeviceId
         if (!valid) {
             return Result.failure(IllegalArgumentException("Invalid encrypted group delivery notification reference."))
         }

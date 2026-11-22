@@ -194,6 +194,15 @@ test("sends a group Olm wake-up only for the current membership epoch", async ()
   assert.deepEqual(state.sentMessages[0].body.message.data, { type: "encrypted_olm", deliveryId });
 });
 
+test("allows a sender's other trusted device to receive a group wake-up", async () => {
+  const state = fixture({ chat: groupChat, relayRecord: groupRelayRecord });
+  state.database.set("privateUsers/alice/olmDeviceFcmTokens/bob-device", "alice-secondary-fcm-token");
+  const response = await state.dispatch({ ...groupRequest, recipientUid: "alice" });
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages[0].body.message.token, "alice-secondary-fcm-token");
+});
+
 test("rejects group wake-ups for stale membership epochs", async () => {
   const state = fixture({ chat: groupChat, relayRecord: groupRelayRecord });
   const response = await state.dispatch({ ...groupRequest, membershipEpoch: 2 });
