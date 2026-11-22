@@ -23,6 +23,8 @@ class GroupCryptoMembershipSnapshotTest {
     @Test
     fun rejectsEmptyGroupIdOrNonPositiveEpoch() {
         assertFalse(snapshot(groupId = "", epoch = 1L).isValid())
+        assertFalse(snapshot(groupId = "group/other", epoch = 1L).isValid())
+        assertFalse(snapshot(groupId = "group.with.dot", epoch = 1L).isValid())
         assertFalse(snapshot(epoch = 0L).isValid())
         assertFalse(snapshot(epoch = -1L).isValid())
     }
