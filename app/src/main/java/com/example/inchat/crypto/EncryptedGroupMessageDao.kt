@@ -75,6 +75,10 @@ abstract class EncryptedGroupMessageDao {
         messageIndex: Long,
     ): EncryptedGroupMessageReceiptEntity?
 
+    /** Insert the sender's own already-encrypted local timeline copy (no inbound replay receipt). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertOutgoingMessage(message: EncryptedGroupMessageEntity): Long
+
     @Query("SELECT EXISTS(SELECT 1 FROM encrypted_group_messages)")
     abstract suspend fun hasStoredMessages(): Boolean
 
