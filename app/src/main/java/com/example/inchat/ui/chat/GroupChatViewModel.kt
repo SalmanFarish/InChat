@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedGroupMessage
 import com.example.inchat.crypto.EncryptedGroupMessageRepository
+import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
+import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
@@ -38,10 +40,18 @@ class GroupChatViewModel : ViewModel() {
 
     private val groupRepository = GroupChatRepository()
     private val chatRepository = ChatRepository()
+    private val localDatabase by lazy {
+        LocalChatDatabase.getInstance(InChatApplication.instance)
+    }
     private val encryptedGroupMessageRepository by lazy {
-        EncryptedGroupMessageRepository(
-            LocalChatDatabase.getInstance(InChatApplication.instance).encryptedGroupMessageDao(),
-        )
+        EncryptedGroupMessageRepository(localDatabase.encryptedGroupMessageDao())
+    }
+    private val encryptedGroupMessageSendCoordinator by lazy {
+        MegolmGroupMessageSendCoordinatorFactory(
+            context = InChatApplication.instance,
+            database = localDatabase,
+            groupRepository = groupRepository,
+        ).create()
     }
 
     private val _group = MutableStateFlow<Group?>(null)
@@ -461,121 +471,85 @@ class GroupChatViewModel : ViewModel() {
         onResult: (Boolean, String?) -> Unit
     ) {
         val cleanText = text.trim()
-        if (cleanText.isBlank() || listeningGroupId.isBlank()) {
+        val groupId = listeningGroupId
+        if (cleanText.isBlank() || groupId.isBlank()) {
             onResult(false, "No group chat is open or the message is empty.")
             return
         }
-
-        val selectedReply = _replyingTo.value
-        val replyTo = selectedReply?.let { message ->
-            ReplyTo(
-                messageId = message.id,
-                senderId = message.senderId,
-                senderNickname = message.senderNickname,
-                text = message.text
-            )
+        if (cleanText.length > 5000) {
+            onResult(false, "Message is too long.")
+            return
+        }
+        if (FirebaseAuth.getInstance().currentUser?.uid != currentUserId) {
+            onResult(false, "The signed-in account changed. Reopen the group and try again.")
+            return
+        }
+        if (_replyingTo.value != null) {
+            onResult(false, "Replies in encrypted group chats are not supported yet.")
+            return
         }
 
-        val groupId = listeningGroupId
         val messageId = chatRepository.generateMessageId(groupId)
         if (messageId == null) {
             onResult(false, "Could not generate message ID.")
             return
         }
+        val sentAtMillis = System.currentTimeMillis()
 
-        val outgoingMessage = Message(
-            id = messageId,
-            senderId = currentUserId,
-            senderNickname = senderNickname,
-            text = cleanText,
-            timestamp = System.currentTimeMillis(),
-            replyTo = replyTo
-        )
-
-        _pendingMessageIds.value = _pendingMessageIds.value + messageId
-
+        // Group content is sent only through Megolm. In particular, do not
+        // create a plaintext Room pending row: the legacy retry worker would
+        // otherwise be able to upload it to chats/{groupId}/messages.
         viewModelScope.launch {
-            var locallyQueued = false
             try {
-                // Do not clear the composer or start network delivery until
-                // Room has durably committed the outgoing group message.
-                try {
-                    chatRepository.cacheOutgoingMessage(
-                        chatId = groupId,
-                        message = outgoingMessage
-                    )
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (cacheError: Exception) {
-                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                    Log.e(
-                        "GroupChatViewModel",
-                        "Outgoing group message could not be saved locally; it was not sent.",
-                        cacheError
-                    )
+                val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                if (membership == null || !membership.isValid() ||
+                    membership.groupId != groupId ||
+                    currentUserId !in membership.memberUserIds
+                ) {
                     onResult(
                         false,
-                        "Could not save the message on this device. It was not sent."
+                        "This group has no valid encrypted membership yet. Group messages are blocked until E2EE setup is complete."
                     )
                     return@launch
                 }
 
-                locallyQueued = true
-                onQueued()
-
-                if (
-                    listeningGroupId == groupId &&
-                    _replyingTo.value?.id == selectedReply?.id
+                when (
+                    val outcome = encryptedGroupMessageSendCoordinator.send(
+                        groupId = groupId,
+                        messageId = messageId,
+                        plaintext = cleanText,
+                        sentAtMillis = sentAtMillis,
+                    )
                 ) {
-                    _replyingTo.value = null
-                }
-
-                val sendResult = groupRepository.sendMessage(
-                    groupId = groupId,
-                    messageId = messageId,
-                    text = cleanText,
-                    senderId = currentUserId,
-                    senderNickname = senderNickname,
-                    replyTo = replyTo
-                )
-
-                sendResult.onSuccess {
-                    runCatching {
-                        chatRepository.markOutgoingMessageSent(groupId, messageId)
-                    }.onFailure { cacheError ->
-                        Log.e(
-                            "GroupChatViewModel",
-                            "Group message sent but local pending state could not be cleared",
-                            cacheError
+                    is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                        onResult(
+                            false,
+                            "Waiting for encrypted group keys to be acknowledged by all trusted member devices. Retry this message after acknowledgements complete."
                         )
                     }
-                    onResult(true, null)
-                }.onFailure { error ->
-                    // Preserve the committed Room row. The independent
-                    // WorkManager job retries delivery using the same ID.
-                    Log.w(
-                        "GroupChatViewModel",
-                        "Group message remains queued locally after the foreground delivery attempt failed: $messageId",
-                        error
-                    )
-                    onResult(true, null)
+
+                    is MegolmGroupMessageSendOutcome.Queued -> {
+                        if (listeningGroupId == groupId) {
+                            _replyingTo.value = null
+                        }
+                        // The coordinator returns only after ciphertext-only
+                        // per-device deliveries are durably committed to Room.
+                        onQueued()
+                        onResult(true, null)
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Keep Room's pending row and WorkManager request intact.
                 throw e
             } catch (e: Exception) {
-                if (locallyQueued) {
-                    Log.w(
-                        "GroupChatViewModel",
-                        "Group message remains queued locally after an unexpected delivery error: $messageId",
-                        e
-                    )
-                    onResult(true, null)
-                } else {
-                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                    Log.e("GroupChatViewModel", "Unexpected group send error before local queueing.", e)
-                    onResult(false, e.message ?: "Could not save the message locally.")
-                }
+                Log.e(
+                    "GroupChatViewModel",
+                    "Encrypted group message was not queued; plaintext fallback is disabled.",
+                    e,
+                )
+                onResult(
+                    false,
+                    e.message ?: "Encrypted group message could not be queued.",
+                )
             }
         }
     }
