@@ -56,8 +56,12 @@ internal class MegolmGroupMessageSendCoordinator(
         sentAtMillis: Long,
         keyDistribution: OlmGroupKeyDistributionReadinessToken,
     ) -> MegolmGroupMessageOutboxCommitResult,
+    private val recoverPendingOutboundMessages: suspend () -> Int = { 0 },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
+    /** Resume exact native-staged ciphertexts after process death; never re-encrypt. */
+    suspend fun recoverPendingMessages(): Int = recoverPendingOutboundMessages()
+
     suspend fun send(
         groupId: String,
         messageId: String,
