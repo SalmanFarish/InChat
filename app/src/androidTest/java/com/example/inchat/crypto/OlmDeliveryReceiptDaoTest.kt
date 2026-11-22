@@ -215,7 +215,7 @@ class OlmDeliveryReceiptDaoTest {
             assertEquals("concurrent-message", persisted?.messageId)
             assertEquals("bob", persisted?.recipientUserId)
             assertEquals("bob-phone", persisted?.recipientDeviceId)
-            assertTrue(persisted?.acknowledgedAtMillis in listOf(12_345L, 99_999L))
+            assertTrue(persisted != null && persisted.acknowledgedAtMillis in listOf(12_345L, 99_999L))
             assertEquals(
                 listOf("concurrent-message"),
                 dao.getDeliveredMessageIds("alice", "alice-phone", "bob"),
