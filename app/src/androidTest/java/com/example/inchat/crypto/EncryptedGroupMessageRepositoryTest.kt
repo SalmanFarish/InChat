@@ -361,6 +361,52 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun oneShotMemberReadRejectsRevocationDuringDecrypt() = runBlocking {
+        val message = message().copy(messageId = "one-shot-membership-revoked")
+        val ciphertext = "one-shot membership revocation".toByteArray(Charsets.UTF_8)
+        assertTrue(repository.commitStagedMessage(message, receipt(message, ciphertext), ciphertext))
+
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-123",
+            epoch = 4L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val liveMembership = MutableStateFlow<GroupCryptoMembershipSnapshot?>(membership)
+        val decryptStarted = CompletableDeferred<Unit>()
+        val finishDecrypt = CompletableDeferred<Unit>()
+        val testVault = EncryptedGroupMessageVault(keyAlias)
+        val guardedRepository = EncryptedGroupMessageRepository(
+            dao = database.encryptedGroupMessageDao(),
+            vault = testVault,
+            ioDispatcher = Dispatchers.Unconfined,
+            authenticatedUserId = { activeAccount },
+            decryptGroupMessages = { records ->
+                decryptStarted.complete(Unit)
+                withContext(NonCancellable) { finishDecrypt.await() }
+                records.map(testVault::decrypt)
+            },
+        )
+
+        val read = async {
+            guardedRepository.getMessageForMember(
+                ownerUserId = "alice",
+                groupId = "group-123",
+                membershipSnapshots = liveMembership,
+                messageId = message.messageId,
+            )
+        }
+        decryptStarted.await()
+        liveMembership.value = membership.copy(
+            epoch = 5L,
+            members = mapOf("bob" to "admin", "carol" to "member"),
+        )
+        yield()
+        finishDecrypt.complete(Unit)
+
+        assertRejected { read.await() }
+    }
+
+    @Test
     fun membershipRemovalRevokesTheNextEncryptedTimelineRead() = runBlocking {
         val message = message()
         val ciphertext = "membership-revocation ciphertext".toByteArray(Charsets.UTF_8)
