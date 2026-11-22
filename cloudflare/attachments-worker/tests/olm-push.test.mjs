@@ -210,6 +210,44 @@ test("rejects group wake-ups for stale membership epochs", async () => {
   assert.equal(state.sentMessages.length, 0);
 });
 
+test("rejects group membership maps that disagree with the crypto snapshot", async () => {
+  const inconsistentChat = {
+    ...groupChat,
+    members: { ...groupChat.members, bob: "admin" },
+  };
+  const state = fixture({ chat: inconsistentChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch(groupRequest);
+  assert.equal(response.status, 409);
+  assert.equal(state.sentMessages.length, 0);
+});
+
+test("rejects unknown group member roles even when both maps agree", async () => {
+  const malformedChat = {
+    ...groupChat,
+    members: { alice: "owner", bob: "member", carol: "member" },
+    cryptoMembership: {
+      epoch: 3,
+      members: { alice: "owner", bob: "member", carol: "member" },
+    },
+  };
+  const state = fixture({ chat: malformedChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch(groupRequest);
+  assert.equal(response.status, 409);
+  assert.equal(state.sentMessages.length, 0);
+});
+
+test("rejects group membership snapshots outside the supported member-count bounds", async () => {
+  const undersizedChat = {
+    type: "group",
+    members: { alice: "admin" },
+    cryptoMembership: { epoch: 3, members: { alice: "admin" } },
+  };
+  const state = fixture({ chat: undersizedChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch(groupRequest);
+  assert.equal(response.status, 409);
+  assert.equal(state.sentMessages.length, 0);
+});
+
 test("rejects group wake-ups when the recipient has been removed", async () => {
   const removedChat = {
     ...groupChat,

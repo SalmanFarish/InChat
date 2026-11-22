@@ -383,7 +383,14 @@ export async function processEncryptedOlmPush({
     const snapshot = chat.cryptoMembership;
     const memberIds = Object.keys(chat.members).sort();
     const snapshotIds = isRecord(snapshot.members) ? Object.keys(snapshot.members).sort() : [];
-    const sameMembership = memberIds.length === snapshotIds.length &&
+    // Mirror the Android snapshot parser: malformed roles or an impossible
+    // member count must never become an authorization snapshot, even when the
+    // legacy and crypto maps happen to contain the same malformed values.
+    const validMembershipShape = memberIds.length >= 2 && memberIds.length <= 50 &&
+      memberIds.every((memberId) =>
+        chat.members[memberId] === "admin" || chat.members[memberId] === "member");
+    const sameMembership = validMembershipShape &&
+      memberIds.length === snapshotIds.length &&
       memberIds.every((memberId, index) =>
         memberId === snapshotIds[index] &&
         chat.members[memberId] === snapshot.members[memberId]);
