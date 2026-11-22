@@ -54,6 +54,8 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         val delivery = queuedDelivery().copy(groupId = "group-1", membershipEpoch = 7L)
         val transport = transport(store, user = { "alice" })
         transport.upload(delivery, "sender-device")
+        assertEquals("group", store.inbox.values.single().fields["conversationType"])
+        assertEquals("group-1", store.inbox.values.single().fields["conversationId"])
         assertEquals("group-1", store.inbox.values.single().fields["groupId"])
         assertEquals(7L, store.inbox.values.single().fields["membershipEpoch"])
         val received = transport(store, user = { "bob" }).readMyDeviceInbox("recipient-device").single()
@@ -268,6 +270,8 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             senderDeviceId = "sender-device",
             messageId = delivery.messageId,
             envelope = delivery.envelope,
+            conversationId = OlmAuthenticatedMessagePayloadCodec.directConversationId("alice", "bob"),
+            conversationType = "direct",
         )
     }
 
