@@ -137,6 +137,8 @@ internal class OlmDeliveryQueue(
         messageId: String,
         prepared: List<PreparedOlmDelivery>,
         groupMessageCommit: GroupOutgoingMessageCommit? = null,
+        groupId: String? = null,
+        membershipEpoch: Long? = null,
     ): Int {
         require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
         require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
@@ -147,6 +149,11 @@ internal class OlmDeliveryQueue(
         require(prepared.size <= MAX_OLM_DEVICE_DELIVERY_TARGETS) {
             "Encrypted delivery fan-out exceeds the supported device count"
         }
+        val scopedGroupId = groupMessageCommit?.groupId ?: groupId
+        val scopedMembershipEpoch = groupMessageCommit?.membershipEpoch ?: membershipEpoch
+        require((scopedGroupId == null) == (scopedMembershipEpoch == null) &&
+            (scopedGroupId == null || (scopedGroupId.matches(Regex("[A-Za-z0-9_-]{1,128}")) && scopedMembershipEpoch!! > 0L))
+        ) { "Group delivery scope must include a valid group ID and positive membership epoch" }
         val rows = prepared.map { item ->
             require(USER_ID_PATTERN.matches(item.recipientUserId)) { "Recipient user ID has an invalid format" }
             require(DEVICE_ID_PATTERN.matches(item.recipientDeviceId)) { "Recipient device ID has an invalid format" }
@@ -173,6 +180,8 @@ internal class OlmDeliveryQueue(
                 recipientDeviceId = item.recipientDeviceId,
                 ownerUserId = ownerUserId,
                 senderDeviceId = senderDeviceId,
+                groupId = scopedGroupId,
+                membershipEpoch = scopedMembershipEpoch,
                 envelope = item.envelope,
             )
         }
@@ -189,8 +198,7 @@ internal class OlmDeliveryQueue(
                 commit.messageIndex >= 0L && commit.sentAtMillis >= 0L &&
                 commit.recipientDeviceCount == rows.size
             ) { "Group outgoing commit metadata does not match its durable delivery batch" }
-            val groupRows = rows.map { it.copy(groupId = commit.groupId, membershipEpoch = commit.membershipEpoch) }
-            return store.insertGroupMessageIfAbsent(groupRows, commit)
+            return store.insertGroupMessageIfAbsent(rows, commit)
         }
         return store.insertIfAbsent(rows)
     }

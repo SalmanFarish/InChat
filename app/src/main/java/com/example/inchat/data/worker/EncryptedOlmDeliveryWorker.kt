@@ -276,7 +276,23 @@ class EncryptedOlmDeliveryWorker(
                             messageId = delivery.messageId,
                         )
                     when (commits.size) {
-                        0 -> true // Direct Olm deliveries have no group commit marker.
+                        0 -> {
+                            val groupId = delivery.groupId
+                            val membershipEpoch = delivery.membershipEpoch
+                            if (groupId == null && membershipEpoch == null) {
+                                true
+                            } else if (groupId == null || membershipEpoch == null || membershipEpoch <= 0L) {
+                                false
+                            } else {
+                                val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                                    ?: throw IllegalStateException("Current group membership snapshot is unavailable")
+                                membership.isValid() &&
+                                    membership.groupId == groupId &&
+                                    membership.epoch == membershipEpoch &&
+                                    ownerUserId in membership.memberUserIds &&
+                                    delivery.recipientUserId in membership.memberUserIds
+                            }
+                        }
                         1 -> {
                             val commit = commits.single()
                             if (commit.ownerUserId != ownerUserId ||

@@ -163,6 +163,8 @@ internal class OlmGroupSessionKeyOutboxCoordinator(
                     envelope = delivery.envelope,
                 )
             },
+            groupId = distribution.groupId,
+            membershipEpoch = distribution.membershipEpoch,
         )
         if (pendingDeliveries.isNotEmpty()) scheduleDelivery(ownerUid, deviceId)
         return inserted
