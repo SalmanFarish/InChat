@@ -81,6 +81,27 @@ fun GroupChatScreen(
 
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
+    val encryptedMessages by groupViewModel.encryptedMessages.collectAsState()
+    val encryptedMessageIds = remember(encryptedMessages) {
+        encryptedMessages.mapTo(mutableSetOf()) { it.messageId }
+    }
+    val displayMessages = remember(messages, encryptedMessages) {
+        val legacyIds = messages.mapTo(mutableSetOf()) { it.id }
+        val encryptedRows = encryptedMessages
+            .filterNot { it.messageId in legacyIds }
+            .map { encrypted ->
+                Message(
+                    id = encrypted.messageId,
+                    senderId = encrypted.senderUserId,
+                    senderNickname = "🔒 ${encrypted.senderUserId}",
+                    text = encrypted.text,
+                    timestamp = encrypted.sentAtMillis,
+                )
+            }
+        (messages + encryptedRows).sortedWith(
+            compareBy<Message> { it.timestamp }.thenBy { it.id },
+        )
+    }
     val messagesLoaded by groupViewModel.messagesLoaded.collectAsState()
     val hasOlderMessages by groupViewModel.hasOlderMessages.collectAsState()
     val isLoadingOlderMessages by groupViewModel.isLoadingOlderMessages.collectAsState()
@@ -118,6 +139,7 @@ fun GroupChatScreen(
     val context = LocalContext.current
 
     fun toggleMessageSelection(message: Message) {
+        if (message.id in encryptedMessageIds) return
         selectedMessageIds = if (message.id in selectedMessageIds) {
             selectedMessageIds - message.id
         } else {
@@ -338,7 +360,7 @@ fun GroupChatScreen(
 
         if (group != null || messages.isNotEmpty()) {
             ChatMessageList(
-                messages = messages,
+                messages = displayMessages,
                 messagesLoaded = messagesLoaded,
                 hasOlderMessages = hasOlderMessages,
                 isLoadingOlderMessages = isLoadingOlderMessages,
@@ -360,17 +382,23 @@ fun GroupChatScreen(
                 showSenderNames = true,
                 chatTheme = chatTheme,
                 onReply = { message ->
-                    groupViewModel.setReplyingTo(message)
+                    if (message.id !in encryptedMessageIds) {
+                        groupViewModel.setReplyingTo(message)
+                    }
                 },
                 onLongClick = { message ->
-                    messageForActions = message.id
+                    if (message.id !in encryptedMessageIds) {
+                        messageForActions = message.id
+                    }
                 },
                 onReactionClick = { message, reaction ->
-                    groupViewModel.toggleReaction(
-                        messageId = message.id,
-                        reaction = reaction,
-                        currentUserId = currentUserId
-                    )
+                    if (message.id !in encryptedMessageIds) {
+                        groupViewModel.toggleReaction(
+                            messageId = message.id,
+                            reaction = reaction,
+                            currentUserId = currentUserId
+                        )
+                    }
                 },
                 innerPadding = innerPadding,
                 selectedMessageIds = selectedMessageIds,
