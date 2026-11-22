@@ -111,9 +111,9 @@ fun GroupChatScreen(
     val isConnected by groupViewModel.isConnected.collectAsState()
     val groupReadTimestamps by groupViewModel.groupReadTimestamps.collectAsState()
 
-    LaunchedEffect(messages, currentUserId) {
+    LaunchedEffect(displayMessages, currentUserId) {
         val newestTimestamp =
-            messages
+            displayMessages
                 .filter { it.senderId != currentUserId }
                 .maxOfOrNull { it.timestamp }
                 ?: 0L
