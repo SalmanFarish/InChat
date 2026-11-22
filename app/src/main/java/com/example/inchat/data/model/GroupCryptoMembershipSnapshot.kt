@@ -24,9 +24,33 @@ data class GroupCryptoMembershipSnapshot(
                 userId.isNotBlank() && role in ALLOWED_ROLES
             }
 
-    private companion object {
+    companion object {
+        /**
+         * Builds a snapshot only when every server member entry is well formed.
+         * Silently dropping malformed children could authorize against an
+         * incomplete member map, so any invalid entry invalidates the snapshot.
+         */
+        fun fromEntries(
+            groupId: String,
+            epoch: Long?,
+            entries: List<Pair<String?, String?>>,
+        ): GroupCryptoMembershipSnapshot? {
+            if (epoch == null || entries.any { (userId, role) ->
+                    userId.isNullOrBlank() || role !in ALLOWED_ROLES
+                }
+            ) {
+                return null
+            }
+            val members = entries.associate { (userId, role) ->
+                requireNotNull(userId) to requireNotNull(role)
+            }
+            if (members.size != entries.size) return null
+            return GroupCryptoMembershipSnapshot(groupId, epoch, members)
+                .takeIf { it.isValid() }
+        }
+
         const val MIN_MEMBERS = 2
         const val MAX_MEMBERS = 50
-        val ALLOWED_ROLES = setOf("admin", "member")
+        private val ALLOWED_ROLES = setOf("admin", "member")
     }
 }
