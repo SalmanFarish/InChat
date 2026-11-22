@@ -260,12 +260,46 @@ class EncryptedOlmDeliveryWorker(
                 trustVerifier = TrustedDeviceRepository(applicationContext),
                 expectedAuthenticatedUserId = ownerUserId,
             )
+            val groupRepository = GroupChatRepository()
             val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
                 transport = transport,
                 senderUserId = ownerUserId,
                 senderDeviceId = senderDeviceId,
+                validateBeforeUpload = { delivery ->
+                    val commits = database.olmDeliveryQueueDao()
+                        .getOutgoingGroupCommitsForMessage(
+                            ownerUserId = ownerUserId,
+                            senderDeviceId = senderDeviceId,
+                            messageId = delivery.messageId,
+                        )
+                    when (commits.size) {
+                        0 -> true // Direct Olm deliveries have no group commit marker.
+                        1 -> {
+                            val commit = commits.single()
+                            if (commit.ownerUserId != ownerUserId ||
+                                commit.senderDeviceId != senderDeviceId ||
+                                commit.messageId != delivery.messageId
+                            ) {
+                                false
+                            } else {
+                                val membership = groupRepository
+                                    .getGroupCryptoMembershipSnapshot(commit.groupId)
+                                    ?: throw IllegalStateException(
+                                        "Current group membership snapshot is unavailable",
+                                    )
+                                membership.isValid() &&
+                                    membership.groupId == commit.groupId &&
+                                    membership.epoch == commit.membershipEpoch &&
+                                    ownerUserId in membership.memberUserIds &&
+                                    delivery.recipientUserId in membership.memberUserIds
+                            }
+                        }
+                        // Ambiguous message identity is not safe to authorize.
+                        else -> false
+                    }
+                },
                 recordAcknowledgement = { acknowledgement, acknowledgedAtMillis ->
                     RoomOlmDeliveryAcknowledgementRecorder(
                         database = database,

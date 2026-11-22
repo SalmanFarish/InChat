@@ -26,6 +26,7 @@ internal class OlmDeliveryWorkerRunner(
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxDeliveriesPerRun: Int = DEFAULT_BATCH_SIZE,
     private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit = { _, _ -> },
+    private val validateBeforeUpload: suspend (QueuedOlmDeviceDelivery) -> Boolean = { true },
     private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
 ) {
     init {
@@ -58,6 +59,28 @@ internal class OlmDeliveryWorkerRunner(
             )
 
             try {
+                // A committed Megolm fan-out is bound to the exact membership
+                // epoch at encryption time. Never relay old group ciphertext
+                // after membership changes, even if this recipient is still a
+                // member (or was later re-added under a newer epoch).
+                if (!validateBeforeUpload(delivery)) {
+                    val quarantined = withContext(ioDispatcher) {
+                        queue.failPermanently(
+                            delivery = delivery,
+                            nowMillis = clock().coerceAtLeast(0L),
+                            errorCode = STALE_GROUP_MEMBERSHIP,
+                        )
+                    }
+                    if (!quarantined) {
+                        return OlmDeliveryWorkerRunResult(
+                            uploaded = uploaded,
+                            acknowledged = acknowledgements.removed,
+                            unmatchedAcknowledgements = acknowledgements.unmatched,
+                            retryRequired = true,
+                        )
+                    }
+                    return@repeat
+                }
                 // The relay write is the durable source of truth. Notify only
                 // the other account's devices; sender-owned secondary devices
                 // recover through their own scheduled inbox poll.
@@ -127,6 +150,7 @@ internal class OlmDeliveryWorkerRunner(
     private companion object {
         const val DEFAULT_BATCH_SIZE = 25
         const val RELAY_UPLOAD_ERROR = "relay_upload_failed"
+        const val STALE_GROUP_MEMBERSHIP = "group_membership_epoch_stale"
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     }

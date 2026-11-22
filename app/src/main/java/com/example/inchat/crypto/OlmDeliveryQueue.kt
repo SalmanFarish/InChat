@@ -267,6 +267,29 @@ internal class OlmDeliveryQueue(
     }
 
     /**
+     * Permanently quarantine a claimed delivery when its committed group
+     * membership epoch is no longer current. The ciphertext remains durable
+     * for diagnosis; it is not retried as though this were a network failure.
+     */
+    fun failPermanently(
+        delivery: QueuedOlmDeviceDelivery,
+        nowMillis: Long,
+        errorCode: String,
+    ): Boolean {
+        require(nowMillis >= 0L) { "nowMillis must not be negative" }
+        require(errorCode.isNotBlank() && errorCode.length <= MAX_ERROR_LENGTH) {
+            "Error code has an invalid format"
+        }
+        return updateInFlight(delivery, nowMillis) { row ->
+            row.copy(
+                status = OlmDeliveryStatus.FAILED,
+                leaseUntilMillis = 0L,
+                lastError = errorCode,
+            )
+        }
+    }
+
+    /**
      * Explicit application action to retry a terminal failure. The exact
      * original envelope and deterministic delivery ID are retained. Upload
      * revalidates the recipient device and SAS trust before writing the relay.

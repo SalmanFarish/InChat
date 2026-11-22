@@ -31,6 +31,18 @@ interface OlmDeliveryQueueDao {
         messageId: String,
     ): EncryptedGroupOutgoingCommitEntity?
 
+    /** Resolve committed group metadata without assuming message IDs are globally unique. */
+    @Query(
+        "SELECT * FROM encrypted_group_outgoing_commits " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :messageId ORDER BY groupId ASC"
+    )
+    fun getOutgoingGroupCommitsForMessage(
+        ownerUserId: String,
+        senderDeviceId: String,
+        messageId: String,
+    ): List<EncryptedGroupOutgoingCommitEntity>
+
     @Query(
         "SELECT EXISTS(SELECT 1 FROM olm_device_deliveries " +
             "WHERE deliveryId = :deliveryId AND messageId = :messageId " +

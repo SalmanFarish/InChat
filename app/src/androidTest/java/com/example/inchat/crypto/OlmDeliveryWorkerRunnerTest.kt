@@ -50,6 +50,34 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun staleGroupMembershipIsQuarantinedWithoutBlockingDirectDeliveries() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "stale-group", listOf(prepared("sender-device", "phone")))
+        queue.enqueue("alice", "sender-device", "direct-message", listOf(prepared("sender-device", "tablet")))
+        val events = mutableListOf<String>()
+        val transport = FakeTransport(events, mutableListOf())
+
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            clock = { 10_000L },
+            validateBeforeUpload = { it.messageId != "stale-group" },
+        ).run()
+
+        val stale = store.rows.values.single { it.messageId == "stale-group" }
+        val direct = store.rows.values.single { it.messageId == "direct-message" }
+        assertEquals(OlmDeliveryStatus.FAILED, stale.status)
+        assertEquals("group_membership_epoch_stale", stale.lastError)
+        assertEquals(OlmDeliveryStatus.UPLOADED, direct.status)
+        assertEquals(1, result.uploaded)
+        assertFalse(result.retryRequired)
+        assertEquals(listOf("read-acks", "upload:direct-message"), events)
+    }
+
+    @Test
     fun acknowledgementDeletionFailurePreservesRowsAndBlocksFurtherUploads() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
