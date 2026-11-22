@@ -9,11 +9,11 @@ internal data class MegolmGroupMessageOutboxCommitResult(
     val membershipEpoch: Long,
     val queuedDeviceDeliveries: Int,
     val recipientDeviceCount: Int,
-    val senderUserId: String,
-    val senderDeviceId: String,
-    val megolmSessionId: String,
-    val messageIndex: Long,
-    val sentAtMillis: Long,
+    val senderUserId: String = "",
+    val senderDeviceId: String = "",
+    val megolmSessionId: String = "",
+    val messageIndex: Long = 0L,
+    val sentAtMillis: Long = 0L,
 )
 
 /**
