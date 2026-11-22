@@ -77,23 +77,36 @@ async function authenticate(token, env) {
 }
 
 async function loadChat(chatId, token, env) {
-  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
-  const url =
-    base + "/chats/" + encodeURIComponent(chatId) +
-    ".json";
-
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: "Bearer " + token,
-    },
-  });
+  const response = await firebaseUserDatabaseGet(
+    "chats/" + chatId,
+    token,
+    env,
+  );
 
   if (!response.ok) {
     throw new Response("Could not verify chat access", { status: 403 });
   }
 
   return response.json();
+}
+
+/**
+ * Performs an authenticated Firebase RTDB GET without putting the user's
+ * short-lived ID token in the URL, where request logs may record it.
+ */
+export async function firebaseUserDatabaseGet(path, token, env, fetchImpl = fetch) {
+  if (typeof path !== "string" || path.trim() === "" ||
+      typeof token !== "string" || token.trim() === "") {
+    throw new TypeError("A Firebase database path and ID token are required.");
+  }
+  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  return fetchImpl(base + "/" + encodedPath + ".json", {
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + token,
+    },
+  });
 }
 
 function isMember(chat, uid) {
@@ -120,21 +133,11 @@ async function authorizeChat(chatId, uid, token, env) {
 }
 
 async function loadMessage(chatId, messageId, token, env) {
-  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
-  const url =
-    base +
-    "/chats/" +
-    encodeURIComponent(chatId) +
-    "/messages/" +
-    encodeURIComponent(messageId) +
-    ".json";
-
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: "Bearer " + token,
-    },
-  });
+  const response = await firebaseUserDatabaseGet(
+    "chats/" + chatId + "/messages/" + messageId,
+    token,
+    env,
+  );
 
   if (!response.ok) {
     throw new Response("Could not verify message access", { status: 403 });
