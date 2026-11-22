@@ -430,7 +430,8 @@ internal class FirebaseOlmEnvelopeTransport(
         val conversationId = fields["conversationId"] as? String
             ?: error("Encrypted inbox conversation ID is invalid")
         val groupId = fields["groupId"] as? String
-        val membershipEpoch = (fields["membershipEpoch"] as? Number)?.toLong()
+        val membershipEpochNumber = fields["membershipEpoch"] as? Number
+        val membershipEpoch = membershipEpochNumber?.toLong()
         require(UID_PATTERN.matches(requireAuthenticatedUserId()))
         if (conversationType == "direct") {
             require(fields.keys == DIRECT_INBOX_FIELDS)
@@ -440,7 +441,11 @@ internal class FirebaseOlmEnvelopeTransport(
             require(conversationType == "group")
             require(fields.keys == GROUP_INBOX_FIELDS)
             require(groupId != null && GROUP_PATTERN.matches(groupId))
-            require(conversationId == groupId && membershipEpoch != null && membershipEpoch > 0L)
+            require(conversationId == groupId && membershipEpochNumber != null &&
+                membershipEpochNumber.toDouble().isFinite() &&
+                membershipEpochNumber.toDouble() == membershipEpoch?.toDouble() &&
+                membershipEpoch > 0L
+            )
         }
         FirebaseOlmInboxItem(
             deliveryId, senderUid, senderDeviceId, messageId, envelope,
