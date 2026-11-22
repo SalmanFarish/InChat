@@ -548,6 +548,8 @@ class GroupChatViewModel : ViewModel() {
                                     text = cleanText,
                                 )
                             )
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (localCopyError: Exception) {
                             Log.e(
                                 "GroupChatViewModel",
