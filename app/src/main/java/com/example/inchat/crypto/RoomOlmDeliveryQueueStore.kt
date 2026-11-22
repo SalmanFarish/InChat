@@ -22,6 +22,39 @@ internal class RoomOlmDeliveryQueueStore(
         })
     }
 
+    override fun insertGroupMessageIfAbsent(
+        deliveries: List<QueuedOlmDeviceDelivery>,
+        commit: GroupOutgoingMessageCommit,
+    ): Int {
+        require(deliveries.isNotEmpty()) { "A committed group message requires device deliveries" }
+        return database.runInTransaction(Callable {
+            val existing = dao.getOutgoingGroupCommit(
+                commit.ownerUserId,
+                commit.groupId,
+                commit.messageId,
+            )
+            if (existing != null) {
+                require(existing == commit.toEntity()) {
+                    "Outgoing group message ID is already committed with different metadata"
+                }
+                // The original transaction committed the complete fan-out. Some
+                // rows may since have been acknowledged and deleted; never recreate
+                // them by replaying the producer after a crash.
+                return@Callable 0
+            }
+
+            check(dao.insertOutgoingGroupCommitIfAbsent(commit.toEntity()) != -1L) {
+                "Outgoing group commit marker could not be inserted"
+            }
+            val inserted = dao.insertIfAbsent(deliveries.map { it.toEntity() })
+                .count { it != -1L }
+            check(inserted == deliveries.size) {
+                "Outgoing group fan-out conflicts with pre-existing delivery rows"
+            }
+            inserted
+        })
+    }
+
     override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
         dao.hasMatchingDelivery(
             deliveryId = acknowledgement.deliveryId,
