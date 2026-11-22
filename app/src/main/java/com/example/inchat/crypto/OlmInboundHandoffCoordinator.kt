@@ -58,6 +58,7 @@ internal class OlmInboundHandoffCoordinator(
     private val groupMessageHandoff: OlmInboundGroupMessageHandoff? = null,
     private val groupSessionKeyHandoff: OlmInboundGroupSessionKeyHandoff? = null,
     private val megolmSessionRepository: MegolmSessionRepository? = null,
+    private val onDirectMessageCommitted: (DecryptedOlmMessage) -> Unit = {},
 ) {
     private val committer = OlmInboundMessageCommitter(database, encryptedMessageDao, receiptDao)
     private val processingMutex = Mutex()
@@ -276,6 +277,7 @@ internal class OlmInboundHandoffCoordinator(
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {
                 "Inbound message and receipt were not committed"
             }
+            runCatching { onDirectMessageCommitted(message) }
             check(localUserId == authenticatedLocalUserId()) {
                 "Authenticated account changed during inbound message commit"
             }

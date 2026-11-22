@@ -31,6 +31,7 @@ import com.example.inchat.crypto.OlmInboundDeliveryLedger
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
+import com.example.inchat.notification.EncryptedMessageNotificationPublisher
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
@@ -132,6 +133,7 @@ class EncryptedOlmInboxWorker(
                 FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
             }
             val groupRepository = GroupChatRepository()
+            val encryptedNotifications = EncryptedMessageNotificationPublisher(applicationContext)
             val groupMessageHandoff = DefaultOlmInboundGroupMessageHandoff(
                 membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
                 sessionRepository = megolmSessionRepository,
@@ -142,6 +144,12 @@ class EncryptedOlmInboxWorker(
                     FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 },
                 trustVerifier = trustRepository,
+                onMessageCommitted = { message ->
+                    encryptedNotifications.notifyGroupMessage(
+                        groupId = message.groupId,
+                        senderUserId = message.senderUserId,
+                    )
+                },
             )
             val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
                 membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
@@ -163,6 +171,12 @@ class EncryptedOlmInboxWorker(
                 groupMessageHandoff = groupMessageHandoff,
                 groupSessionKeyHandoff = groupSessionKeyHandoff,
                 megolmSessionRepository = megolmSessionRepository,
+                onDirectMessageCommitted = { message ->
+                    encryptedNotifications.notifyDirectMessage(
+                        conversationId = message.conversationId,
+                        senderUserId = message.senderUserId,
+                    )
+                },
             )
             val deviceDirectory = DeviceKeyDirectoryRepository()
             val processor = OlmPendingReceiptProcessor(

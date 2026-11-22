@@ -76,6 +76,7 @@ internal class DefaultOlmInboundGroupMessageHandoff(
     private val messageRepository: EncryptedGroupMessageCommitter,
     private val authenticatedLocalUserId: () -> String,
     private val trustVerifier: OlmDeviceTrustVerifier,
+    private val onMessageCommitted: (DecryptedGroupMessage) -> Unit = {},
 ) : OlmInboundGroupMessageHandoff {
 
     override suspend fun process(
@@ -184,11 +185,13 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             // The repository encrypts the text with Keystore and transactionally
             // writes both the message and replay key. The caller then finalizes
             // native Megolm and Olm stages only after this returns.
-            return messageRepository.commitStagedMessage(
+            val committed = messageRepository.commitStagedMessage(
                 message = staged.message,
                 receipt = replayReceipt,
                 originalCiphertext = staged.ciphertext,
             )
+            if (committed) runCatching { onMessageCommitted(staged.message) }
+            return committed
         } finally {
             staged.ciphertext.fill(0)
         }
