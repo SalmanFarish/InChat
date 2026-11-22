@@ -5,6 +5,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -83,6 +84,7 @@ internal class EncryptedGroupMessageRepository(
      * non-cooperative, so the explicit activity check prevents that stale result
      * from being emitted when the decrypt operation returns.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun observeMessagesForMember(
         ownerUserId: String,
         groupId: String,
