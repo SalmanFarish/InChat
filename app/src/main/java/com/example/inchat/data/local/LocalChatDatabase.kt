@@ -31,7 +31,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class, EncryptedGroupPendingMessageEntity::class, OlmGroupKeyDistributionEntity::class, EncryptedGroupOutgoingCommitEntity::class],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -420,13 +420,96 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Backfill conversation scope for already-queued group ciphertext using
+         * the immutable group commit/distribution ledgers. Rows without one
+         * unambiguous durable group identity remain unscoped and are handled
+         * fail-closed by the delivery worker.
+         */
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    UPDATE olm_device_deliveries
+                    SET groupId = (
+                        SELECT commit.groupId
+                        FROM encrypted_group_outgoing_commits AS commit
+                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND commit.messageId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    ),
+                    membershipEpoch = (
+                        SELECT commit.membershipEpoch
+                        FROM encrypted_group_outgoing_commits AS commit
+                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND commit.messageId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    )
+                    WHERE groupId IS NULL AND membershipEpoch IS NULL
+                      AND (
+                        SELECT COUNT(*)
+                        FROM encrypted_group_outgoing_commits AS commit
+                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND commit.messageId = olm_device_deliveries.messageId
+                      ) = 1
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                      )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    UPDATE olm_device_deliveries
+                    SET groupId = (
+                        SELECT distribution.groupId
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    ),
+                    membershipEpoch = (
+                        SELECT distribution.membershipEpoch
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                        LIMIT 1
+                    )
+                    WHERE groupId IS NULL AND membershipEpoch IS NULL
+                      AND (
+                        SELECT COUNT(*)
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                      ) = 1
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM encrypted_group_outgoing_commits AS commit
+                        WHERE commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND commit.messageId = olm_device_deliveries.messageId
+                      )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                     .build().also { INSTANCE = it }
             }
     }
