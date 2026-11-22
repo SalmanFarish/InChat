@@ -49,6 +49,51 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
     }
 
     @Test
+    fun directUploadCarriesTheAuthenticatedPeerAndConversationScope() = runBlocking {
+        val store = FakeRelayStore()
+        val delivery = queuedDelivery()
+        val transport = transport(store, user = { "alice" })
+
+        assertEquals(FirebaseOlmUploadResult.STORED, transport.upload(delivery, "sender-device"))
+
+        val fields = store.inbox.values.single().fields
+        assertEquals("direct", fields["conversationType"])
+        assertEquals(OlmAuthenticatedMessagePayloadCodec.directConversationId("alice", "bob"), fields["conversationId"])
+        assertEquals("bob", fields["conversationPeerUserId"])
+        assertTrue(!fields.containsKey("groupId"))
+        assertTrue(!fields.containsKey("membershipEpoch"))
+
+        val received = transport(store, user = { "bob" }).readMyDeviceInbox("recipient-device").single()
+        assertEquals("direct", received.conversationType)
+        assertEquals(fields["conversationId"], received.conversationId)
+        assertEquals("bob", received.conversationPeerUserId)
+    }
+
+    @Test
+    fun senderOwnedDeviceCopyRetainsTheOtherDirectParticipant() = runBlocking {
+        val store = FakeRelayStore()
+        val senderDeviceCopy = queuedDelivery().copy(recipientUserId = "alice")
+        val transport = transport(store, user = { "alice" })
+
+        assertEquals(FirebaseOlmUploadResult.STORED, transport.upload(senderDeviceCopy, "sender-device"))
+
+        val fields = store.inbox.values.single().fields
+        assertEquals("direct", fields["conversationType"])
+        assertEquals("alice_bob", fields["conversationId"])
+        assertEquals("bob", fields["conversationPeerUserId"])
+    }
+
+    @Test
+    fun directUploadFailsClosedWhenConversationPeerIsMissing() = runBlocking {
+        val store = FakeRelayStore()
+        val transport = transport(store, user = { "alice" })
+        val unscoped = queuedDelivery().copy(conversationId = null, conversationPeerUserId = null)
+
+        assertTrue(runCatching { transport.upload(unscoped, "sender-device") }.isFailure)
+        assertEquals(0, store.inboxPutAttempts)
+    }
+
+    @Test
     fun groupUploadCarriesTheExactCommittedMembershipEpoch() = runBlocking {
         val store = FakeRelayStore()
         val delivery = queuedDelivery().copy(groupId = "group-1", membershipEpoch = 7L, conversationId = "group-1", conversationPeerUserId = null)
