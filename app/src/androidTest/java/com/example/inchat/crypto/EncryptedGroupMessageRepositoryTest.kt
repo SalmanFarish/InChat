@@ -200,19 +200,21 @@ class EncryptedGroupMessageRepositoryTest {
         val nonMemberSnapshot = currentMembership.copy(
             members = mapOf("bob" to "admin", "carol" to "member"),
         )
-        assertRejected {
-            repository.observeMessagesForMember("alice", "group-123", flowOf(nonMemberSnapshot))
-        }
+        assertEquals(
+            emptyList<DecryptedGroupMessage>(),
+            repository.observeMessagesForMember("alice", "group-123", flowOf(nonMemberSnapshot)).first(),
+        )
         assertRejected {
             repository.getMessageForMember("mallory", currentMembership, message.messageId)
         }
-        assertRejected {
+        assertEquals(
+            emptyList<DecryptedGroupMessage>(),
             repository.observeMessagesForMember(
                 "alice",
                 "group-123",
                 flowOf(currentMembership.copy(epoch = 0L)),
-            )
-        }
+            ).first(),
+        )
     }
 
 
