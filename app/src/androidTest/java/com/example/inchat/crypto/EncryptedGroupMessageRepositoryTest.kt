@@ -307,13 +307,14 @@ class EncryptedGroupMessageRepositoryTest {
             },
         )
 
-        assertRejected {
+        assertEquals(
+            emptyList<DecryptedGroupMessage>(),
             guardedRepository.observeMessagesForMember(
                 "alice",
                 "group-123",
                 flowOf(membership),
-            ).first()
-        }
+            ).first(),
+        )
     }
 
     @Test
