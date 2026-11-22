@@ -404,7 +404,12 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
                     "senderDeviceId" to item.senderDeviceId,
                     "messageId" to item.messageId,
                     "envelope" to item.envelope,
-                ),
+                    "conversationType" to item.conversationType,
+                    "conversationId" to item.conversationId,
+                ) + if (item.groupId != null && item.membershipEpoch != null) mapOf(
+                    "groupId" to item.groupId,
+                    "membershipEpoch" to item.membershipEpoch,
+                ) else emptyMap(),
             )
         }
     }
