@@ -140,7 +140,7 @@ internal class EncryptedGroupMessageRepository(
             }.transformLatest { (stored, membership) ->
                 requireAuthenticatedOwner(ownerUserId)
                 requireReadableMembership(ownerUserId, groupId, membership)
-                val decrypted = stored?.let(vault::decrypt)
+                val decrypted = stored?.let { decryptGroupMessages(listOf(it)).single() }
                 currentCoroutineContext().ensureActive()
                 requireAuthenticatedOwner(ownerUserId)
                 emit(decrypted)
