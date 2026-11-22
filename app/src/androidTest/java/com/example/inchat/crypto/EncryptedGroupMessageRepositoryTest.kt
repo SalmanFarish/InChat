@@ -10,10 +10,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
@@ -457,19 +460,24 @@ class EncryptedGroupMessageRepositoryTest {
             repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
         )
 
+        val observedSnapshots = mutableListOf<List<DecryptedGroupMessage>>()
+        val observation = launch {
+            repository.observeMessagesForMember("alice", "group-123", liveMembership)
+                .take(3)
+                .toList(observedSnapshots)
+        }
+        yield()
         liveMembership.value = membership.copy(
             epoch = 5L,
             members = mapOf("bob" to "admin", "carol" to "member"),
         )
-        assertEquals(
-            emptyList<DecryptedGroupMessage>(),
-            repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
-        )
-
+        yield()
         liveMembership.value = membership
+        observation.join()
+
         assertEquals(
-            listOf(message),
-            repository.observeMessagesForMember("alice", "group-123", liveMembership).first(),
+            listOf(listOf(message), emptyList(), listOf(message)),
+            observedSnapshots,
         )
     }
 
