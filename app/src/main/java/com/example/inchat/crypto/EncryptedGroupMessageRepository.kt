@@ -91,7 +91,7 @@ internal class EncryptedGroupMessageRepository(
         membershipSnapshots: Flow<GroupCryptoMembershipSnapshot?>,
     ): Flow<List<DecryptedGroupMessage>> {
         require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
-        require(ID.matches(groupId)) { "Group ID has an invalid format" }
+        require(ID.matches(groupId)) { "Group message group ID is invalid" }
         requireAuthenticatedOwner(ownerUserId)
         return combine(
             dao.observeMessages(ownerUserId, groupId),
