@@ -77,6 +77,44 @@ internal class EncryptedGroupMessageRepository(
     }
 
     /**
+     * Persist the sender's own timeline copy after the ciphertext fan-out has
+     * been durably queued. The message body is encrypted by the same local
+     * vault as received messages and never enters the legacy chat cache.
+     */
+    suspend fun saveOutgoingMessage(message: DecryptedGroupMessage): Boolean {
+        validateScope(message.ownerUserId, message.groupId)
+        require(message.senderUserId == message.ownerUserId) {
+            "Only the authenticated sender can save a local outgoing group message"
+        }
+        require(MESSAGE_ID.matches(message.messageId) && message.text.isNotEmpty()) {
+            "Outgoing encrypted group message is invalid"
+        }
+        require(message.membershipEpoch > 0L && message.sentAtMillis >= 0L &&
+            message.messageIndex >= 0L && message.megolmSessionId.isNotBlank() &&
+            message.senderDeviceId.matches(DEVICE_ID)
+        ) { "Outgoing encrypted group message metadata is invalid" }
+        requireAuthenticatedOwner(message.ownerUserId)
+
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(message.ownerUserId)
+            val encrypted = vault.encrypt(message, allowKeyCreation = !dao.hasStoredMessages())
+            requireAuthenticatedOwner(message.ownerUserId)
+            val inserted = dao.insertOutgoingMessage(encrypted)
+            requireAuthenticatedOwner(message.ownerUserId)
+            if (inserted != -1L) {
+                true
+            } else {
+                val existing = dao.getMessage(message.ownerUserId, message.groupId, message.messageId)
+                    ?: error("Outgoing encrypted group message conflicted without an existing row")
+                require(vault.decrypt(existing) == message) {
+                    "Outgoing encrypted group message ID already belongs to different content"
+                }
+                false
+            }
+        }
+    }
+
+    /**
      * Membership-gated read surface for encrypted group timelines. The supplied
      * snapshot must come from the authenticated Worker-backed membership source;
      * legacy group-member listeners must not be used to construct it.
@@ -224,6 +262,7 @@ internal class EncryptedGroupMessageRepository(
 
     private companion object {
         val ID = Regex("[A-Za-z0-9_-]{1,128}")
+        val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
         val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val RECEIPT_ID = Regex("[A-Fa-f0-9]{64}")
         const val MAX_CIPHERTEXT_BYTES = 1024 * 1024
