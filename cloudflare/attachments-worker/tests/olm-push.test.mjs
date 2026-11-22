@@ -201,6 +201,58 @@ test("an exact retry does not send a second FCM wake-up", async () => {
   assert.equal(state.sentMessages.length, 1);
 });
 
+test("does not steal an unexpired push-dispatch lease", async () => {
+  const state = fixture({
+    existingReceipt: {
+      senderUid: "alice",
+      messageId: "message-123",
+      recipientUid: "bob",
+      recipientDeviceId: "bob-device",
+      deliveryId,
+      status: "processing",
+      claimId: "another-worker",
+      attempt: 2,
+      leaseUntil: 1_000_001,
+    },
+  });
+  const response = await state.dispatch();
+
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.retryable, true);
+  assert.equal(state.sentMessages.length, 0);
+  assert.equal(
+    state.database.get("olmPushDispatch/bob/bob-device/" + deliveryId).claimId,
+    "another-worker",
+  );
+});
+
+test("reclaims an expired push-dispatch lease and increments its attempt", async () => {
+  const state = fixture({
+    existingReceipt: {
+      senderUid: "alice",
+      messageId: "message-123",
+      recipientUid: "bob",
+      recipientDeviceId: "bob-device",
+      deliveryId,
+      status: "processing",
+      claimId: "expired-worker",
+      attempt: 4,
+      leaseUntil: 999_999,
+    },
+  });
+  const response = await state.dispatch();
+
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
+  const receipt = state.database.get(
+    "olmPushDispatch/bob/bob-device/" + deliveryId,
+  );
+  assert.equal(receipt.status, "sent");
+  assert.equal(receipt.attempt, 5);
+  assert.notEqual(receipt.claimId, "expired-worker");
+});
+
 test("suppresses push when either account has blocked the other", async () => {
   const state = fixture({ blocked: true });
   const response = await state.dispatch();
