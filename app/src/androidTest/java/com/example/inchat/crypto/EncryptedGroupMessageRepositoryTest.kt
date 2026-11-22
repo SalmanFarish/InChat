@@ -461,18 +461,25 @@ class EncryptedGroupMessageRepositoryTest {
         )
 
         val observedSnapshots = mutableListOf<List<DecryptedGroupMessage>>()
+        val revokedSnapshotEmitted = CompletableDeferred<Unit>()
+        val restoredSnapshotEmitted = CompletableDeferred<Unit>()
         val observation = launch {
             repository.observeMessagesForMember("alice", "group-123", liveMembership)
                 .take(3)
-                .toList(observedSnapshots)
+                .collect { snapshot ->
+                    observedSnapshots += snapshot
+                    if (snapshot.isEmpty()) revokedSnapshotEmitted.complete(Unit)
+                    if (observedSnapshots.size == 3) restoredSnapshotEmitted.complete(Unit)
+                }
         }
         yield()
         liveMembership.value = membership.copy(
             epoch = 5L,
             members = mapOf("bob" to "admin", "carol" to "member"),
         )
-        yield()
+        revokedSnapshotEmitted.await()
         liveMembership.value = membership
+        restoredSnapshotEmitted.await()
         observation.join()
 
         assertEquals(
