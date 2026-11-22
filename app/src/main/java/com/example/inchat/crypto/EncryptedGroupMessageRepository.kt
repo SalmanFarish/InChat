@@ -5,10 +5,13 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,6 +24,8 @@ internal class EncryptedGroupMessageRepository(
     private val vault: EncryptedGroupMessageVault = EncryptedGroupMessageVault(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val authenticatedUserId: () -> String? = { FirebaseAuth.getInstance().currentUser?.uid },
+    private val decryptGroupMessages: suspend (List<EncryptedGroupMessageEntity>) -> List<DecryptedGroupMessage> =
+        { records -> records.map(vault::decrypt) },
 ) : EncryptedGroupMessageCommitter {
     override suspend fun commitStagedMessage(
         message: DecryptedGroupMessage,
@@ -72,6 +77,11 @@ internal class EncryptedGroupMessageRepository(
      * Membership-gated read surface for encrypted group timelines. The supplied
      * snapshot must come from the authenticated Worker-backed membership source;
      * legacy group-member listeners must not be used to construct it.
+     *
+     * Latest-transform cancellation is important here: a membership update
+     * cancels an in-flight decrypt. Decryption itself may be synchronous and
+     * non-cooperative, so the explicit activity check prevents that stale result
+     * from being emitted when the decrypt operation returns.
      */
     fun observeMessagesForMember(
         ownerUserId: String,
@@ -84,13 +94,16 @@ internal class EncryptedGroupMessageRepository(
         return combine(
             dao.observeMessages(ownerUserId, groupId),
             membershipSnapshots,
-        ) { records, membership ->
-            requireAuthenticatedOwner(ownerUserId)
-            requireReadableMembership(ownerUserId, groupId, membership)
-            val decrypted = records.map(vault::decrypt)
-            requireAuthenticatedOwner(ownerUserId)
-            decrypted
-        }.flowOn(ioDispatcher)
+        ) { records, membership -> records to membership }
+            .transformLatest { (records, membership) ->
+                requireAuthenticatedOwner(ownerUserId)
+                requireReadableMembership(ownerUserId, groupId, membership)
+                val decrypted = decryptGroupMessages(records)
+                currentCoroutineContext().ensureActive()
+                requireAuthenticatedOwner(ownerUserId)
+                emit(decrypted)
+            }
+            .flowOn(ioDispatcher)
     }
 
     suspend fun getMessageForMember(
@@ -147,7 +160,7 @@ internal class EncryptedGroupMessageRepository(
 
     private fun validateScope(ownerUserId: String, groupId: String) {
         require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
-        require(ID.matches(groupId)) { "Group message group ID is invalid" }
+        require(ID.matches(groupId)) { "Group ID has an invalid format" }
     }
 
     private fun requireAuthenticatedOwner(ownerUserId: String) {
