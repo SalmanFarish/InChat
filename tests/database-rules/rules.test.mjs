@@ -114,6 +114,12 @@ beforeEach(async () => {
       },
       userChats: {
         alice: {
+          alice_bob: {
+            chatId: "alice_bob",
+            type: "direct",
+            participantA: "alice",
+            participantB: "bob",
+          },
           dm: {
             chatId: "dm",
             otherUserId: "bob",
@@ -627,6 +633,8 @@ const encryptedInboxRecord = (senderUid = "alice", senderDeviceId = "device-alic
   senderUid,
   senderDeviceId,
   messageId: "message-encrypted-1",
+  conversationType: "direct",
+  conversationId: "alice_bob",
   envelope: JSON.stringify({
     encryptionVersion: 1,
     algorithm: "olm",
@@ -746,7 +754,7 @@ test("a recipient cannot acknowledge a missing or mismatched encrypted delivery"
 
 test("group relay writes require the current server-authored membership epoch and both members", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
-  const groupRecord = { ...encryptedInboxRecord(), groupId: "group", membershipEpoch: 3 };
+  const groupRecord = { ...encryptedInboxRecord(), conversationType: "group", conversationId: "group", groupId: "group", membershipEpoch: 3 };
   const path = "olmInbox/bob/device-bob-1/" + "7".repeat(64);
   await assertSucceeds(set(ref(aliceDb, path), groupRecord));
   await assertSucceeds(set(ref(aliceDb, path), groupRecord));
@@ -756,6 +764,22 @@ test("group relay writes require the current server-authored membership epoch an
     await set(ref(context.database(), "chats/group/cryptoMembership/epoch"), 4);
   });
   await assertFails(set(ref(aliceDb, path), groupRecord));
+});
+
+test("relay scope is mandatory and direct scope must match the canonical chat participants", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const base = encryptedInboxRecord();
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "f".repeat(64)), {
+    senderUid: base.senderUid, senderDeviceId: base.senderDeviceId,
+    messageId: base.messageId, envelope: base.envelope,
+  }));
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "0".repeat(64)), {
+    ...base, conversationId: "alice_mallory",
+  }));
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "1".repeat(64)), {
+    ...base, conversationType: "group",
+  }));
+  await assertSucceeds(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "2".repeat(64)), base));
 });
 
 test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {
