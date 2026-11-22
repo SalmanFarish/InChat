@@ -517,6 +517,35 @@ abstract class LocalChatDatabase : RoomDatabase() {
                     "UPDATE olm_device_deliveries SET conversationId = groupId " +
                         "WHERE groupId IS NOT NULL AND membershipEpoch IS NOT NULL"
                 )
+                // A legacy delivery to another account carries an unambiguous
+                // direct peer in recipientUserId, provided no durable group
+                // message or key-distribution record owns the same message ID.
+                database.execSQL(
+                    """
+                    UPDATE olm_device_deliveries
+                    SET conversationId = CASE
+                        WHEN ownerUserId < recipientUserId THEN ownerUserId || '_' || recipientUserId
+                        ELSE recipientUserId || '_' || ownerUserId
+                    END,
+                    conversationPeerUserId = recipientUserId
+                    WHERE groupId IS NULL AND membershipEpoch IS NULL
+                      AND ownerUserId != recipientUserId
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM encrypted_group_outgoing_commits AS group_commit
+                        WHERE group_commit.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND group_commit.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND group_commit.messageId = olm_device_deliveries.messageId
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM olm_group_key_distributions AS distribution
+                        WHERE distribution.ownerUserId = olm_device_deliveries.ownerUserId
+                          AND distribution.senderDeviceId = olm_device_deliveries.senderDeviceId
+                          AND distribution.distributionId = olm_device_deliveries.messageId
+                      )
+                    """.trimIndent()
+                )
                 database.execSQL(
                     """
                     UPDATE olm_device_deliveries
