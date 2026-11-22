@@ -39,6 +39,31 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
     }
 
     @Test
+    fun groupOutboxScopeRequiresExactEpochAndBothCurrentMembers() {
+        val delivery = QueuedOlmDeviceDelivery(
+            messageId = "group-key-7",
+            deliveryId = "a".repeat(64),
+            recipientUserId = "bob",
+            recipientDeviceId = "bob-phone",
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            groupId = "group-1",
+            membershipEpoch = 7L,
+            envelope = "ciphertext",
+        )
+
+        assertTrue(isGroupDeliveryScopeCurrent(delivery, "alice", membership()))
+        assertTrue(!isGroupDeliveryScopeCurrent(delivery, "alice", membership().copy(epoch = 8L)))
+        assertTrue(!isGroupDeliveryScopeCurrent(delivery, "mallory", membership()))
+        assertTrue(!isGroupDeliveryScopeCurrent(
+            delivery,
+            "alice",
+            membership().copy(members = mapOf("alice" to "admin", "mallory" to "member")),
+        ))
+        assertTrue(!isGroupDeliveryScopeCurrent(delivery.copy(membershipEpoch = null), "alice", membership()))
+    }
+
+    @Test
     fun refusesKeyDistributionThatOmitsCurrentMemberBeforeQueueWrite() {
         val store = FakeStore()
         var scheduled = false

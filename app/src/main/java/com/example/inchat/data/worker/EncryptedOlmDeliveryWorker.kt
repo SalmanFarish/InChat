@@ -299,11 +299,7 @@ class EncryptedOlmDeliveryWorker(
                             } else {
                                 val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
                                     ?: throw IllegalStateException("Current group membership snapshot is unavailable")
-                                membership.isValid() &&
-                                    membership.groupId == groupId &&
-                                    membership.epoch == membershipEpoch &&
-                                    ownerUserId in membership.memberUserIds &&
-                                    delivery.recipientUserId in membership.memberUserIds
+                                isGroupDeliveryScopeCurrent(delivery, ownerUserId, membership)
                             }
                         }
                         1 -> {

@@ -5,6 +5,25 @@ import java.security.MessageDigest
 /** Shared hard cap for any per-message Olm fan-out (direct or group). */
 internal const val MAX_OLM_DEVICE_DELIVERY_TARGETS = 256
 
+/**
+ * Validate a group-scoped outbox row against one authoritative membership
+ * snapshot. Direct rows deliberately do not pass this check.
+ */
+internal fun isGroupDeliveryScopeCurrent(
+    delivery: QueuedOlmDeviceDelivery,
+    authenticatedOwnerUserId: String,
+    membership: com.example.inchat.data.model.GroupCryptoMembershipSnapshot,
+): Boolean {
+    val groupId = delivery.groupId ?: return false
+    val membershipEpoch = delivery.membershipEpoch ?: return false
+    return membershipEpoch > 0L &&
+        membership.isValid() &&
+        membership.groupId == groupId &&
+        membership.epoch == membershipEpoch &&
+        authenticatedOwnerUserId in membership.memberUserIds &&
+        delivery.recipientUserId in membership.memberUserIds
+}
+
 /** State of one independently encrypted copy addressed to one device. */
 internal enum class OlmDeliveryStatus {
     QUEUED,
