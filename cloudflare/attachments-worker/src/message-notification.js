@@ -82,6 +82,26 @@ function requiredText(value, label) {
 }
 
 /**
+ * Builds a metadata-only group-topic wake-up. The recipient tag snapshot
+ * scopes the broadcast; no sender label, group name, or message body is sent.
+ */
+export function buildGroupTopicMessagePushData({
+  chatId,
+  messageId,
+  senderId,
+  recipientAccountTags,
+}) {
+  return {
+    type: "group_message",
+    chatId: requiredText(chatId, "chat ID"),
+    messageId: requiredText(messageId, "message ID"),
+    senderId: requiredText(senderId, "sender UID"),
+    deliveryScope: "group_topic",
+    recipientAccountTags: requiredText(recipientAccountTags, "recipient account tags"),
+  };
+}
+
+/**
  * Builds data-only FCM fields for a push targeted at one verified account.
  * Large-group topic broadcasts deliberately use their separate payload path.
  */

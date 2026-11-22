@@ -7,6 +7,7 @@ import {
 import { processEncryptedOlmPush } from "./olm-push.js";
 import {
   buildAddressedMessagePushData,
+  buildGroupTopicMessagePushData,
   buildRecipientAccountTags,
   currentGroupNotificationRecipients,
   hasCompleteGroupNotificationRegistry,
@@ -2704,14 +2705,12 @@ async function processMessageEvent(request, env, uid, adminAuth) {
                   "'" + await groupTopicName(env, chatId) +
                   "' in topics && !('" +
                   await userTopicName(env, uid) + "' in topics)",
-                data: {
-                  type: "group_message",
-                  chatId: chatId,
-                  messageId: messageId,
+                data: buildGroupTopicMessagePushData({
+                  chatId,
+                  messageId,
                   senderId: uid,
-                  deliveryScope: "group_topic",
-                  recipientAccountTags: recipientAccountTags,
-                },
+                  recipientAccountTags,
+                }),
                 android: {
                   priority: "high",
                 },

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAddressedMessagePushData } from "../src/message-notification.js";
+import {
+  buildAddressedMessagePushData,
+  buildGroupTopicMessagePushData,
+} from "../src/message-notification.js";
 
 test("direct message push always identifies its recipient account", () => {
   assert.deepEqual(
@@ -159,4 +162,38 @@ test("group direct fan-out requires a non-empty token for every current recipien
     false,
   );
   assert.equal(hasCompleteGroupNotificationRegistry(["bob"], null), false);
+});
+
+
+test("large-group topic push contains only routing metadata and recipient scope", () => {
+  const payload = buildGroupTopicMessagePushData({
+    chatId: "group-1",
+    messageId: "message-3",
+    senderId: "alice",
+    recipientAccountTags: "a".repeat(32) + "," + "b".repeat(32),
+  });
+
+  assert.deepEqual(payload, {
+    type: "group_message",
+    chatId: "group-1",
+    messageId: "message-3",
+    senderId: "alice",
+    deliveryScope: "group_topic",
+    recipientAccountTags: "a".repeat(32) + "," + "b".repeat(32),
+  });
+  assert.equal(Object.hasOwn(payload, "message"), false);
+  assert.equal(Object.hasOwn(payload, "senderName"), false);
+  assert.equal(Object.hasOwn(payload, "groupName"), false);
+});
+
+test("large-group topic push rejects missing recipient scope", () => {
+  assert.throws(
+    () => buildGroupTopicMessagePushData({
+      chatId: "group-1",
+      messageId: "message-3",
+      senderId: "alice",
+      recipientAccountTags: "",
+    }),
+    /recipient account tags/,
+  );
 });
