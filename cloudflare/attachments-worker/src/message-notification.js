@@ -62,11 +62,13 @@ export async function buildRecipientAccountTags(memberUids) {
   if (!Array.isArray(memberUids) || memberUids.length > 50) {
     throw new TypeError("Group member UID list is invalid.");
   }
+  if (memberUids.some((uid) =>
+    typeof uid !== "string" || uid.trim() === ""
+  )) {
+    throw new TypeError("Group member UID list contains an invalid account ID.");
+  }
   const normalizedUids = [...new Set(
-    memberUids
-      .filter((uid) => typeof uid === "string")
-      .map((uid) => uid.trim())
-      .filter(Boolean),
+    memberUids.map((uid) => uid.trim()),
   )].sort();
   const tags = await Promise.all(normalizedUids.map(recipientAccountTag));
   return tags.sort().join(",");

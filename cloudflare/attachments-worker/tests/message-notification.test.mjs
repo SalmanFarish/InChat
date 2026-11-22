@@ -99,6 +99,18 @@ test("large-group recipient tags are stable, deduplicated, compact, and do not e
   assert.equal(first.includes("bob"), false);
 });
 
+test("large-group recipient tag builder rejects malformed member IDs instead of silently omitting them", async () => {
+  const { buildRecipientAccountTags } = await import("../src/message-notification.js");
+  await assert.rejects(
+    () => buildRecipientAccountTags(["alice", ""]),
+    /invalid account ID/,
+  );
+  await assert.rejects(
+    () => buildRecipientAccountTags(["alice", null]),
+    /invalid account ID/,
+  );
+});
+
 test("large-group recipient tag builder rejects invalid or oversized membership lists", async () => {
   const { buildRecipientAccountTags } = await import("../src/message-notification.js");
   await assert.rejects(
