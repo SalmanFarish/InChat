@@ -177,6 +177,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 clock = { 1_000L },
+                recordAcknowledgement = { _, _ -> },
             ).run()
             assertEquals(0, firstSend.uploaded)
             assertTrue(firstSend.retryRequired)
@@ -192,6 +193,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 clock = { 3_000L },
+                recordAcknowledgement = { _, _ -> },
             ).run()
             assertEquals(1, retriedSend.uploaded)
             assertEquals(2, relay.inboxPutCalls)
@@ -394,6 +396,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 clock = { 903_000L },
+                recordAcknowledgement = { _, _ -> },
             ).run()
             assertEquals(1, resend.uploaded)
             assertEquals(3, relay.inboxPutCalls)

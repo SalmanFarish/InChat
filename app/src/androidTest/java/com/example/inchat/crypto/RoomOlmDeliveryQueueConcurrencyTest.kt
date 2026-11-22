@@ -145,6 +145,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 clock = { 5_000L },
+                recordAcknowledgement = { _, _ -> },
             )
             val pool = Executors.newFixedThreadPool(2)
             try {
@@ -233,6 +234,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
                 clock = { firstWorkerClock.get() },
+                recordAcknowledgement = { _, _ -> },
             )
             val firstFuture = pool.submit<OlmDeliveryWorkerRunResult> {
                 runBlocking { firstRunner.run() }
@@ -269,6 +271,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                         senderUserId = "alice",
                         senderDeviceId = "sender-device",
                         clock = { 1_100L },
+                        recordAcknowledgement = { _, _ -> },
                     ).run()
                 }
             }.get(10, TimeUnit.SECONDS)
@@ -435,6 +438,7 @@ class RoomOlmDeliveryQueueConcurrencyTest {
                             transport = transport,
                             senderUserId = "alice",
                             senderDeviceId = "sender-device",
+                            recordAcknowledgement = { _, _ -> },
                         ).processPending()
                     }
                 }
