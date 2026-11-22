@@ -229,6 +229,26 @@ class EncryptedOlmDeliveryWorker(
 
             }
 
+            // Recover exact native-staged Megolm ciphertexts before draining
+            // the Olm queue. A process death after ratchet advancement but before
+            // Room outbox commit must not strand or re-encrypt that message.
+            try {
+                val recoveryCoordinator = MegolmGroupMessageSendCoordinatorFactory(
+                    context = applicationContext,
+                    database = database,
+                    groupRepository = GroupChatRepository(),
+                ).create()
+                val recovered = recoveryCoordinator.recoverPendingMessages()
+                if (recovered > 0) {
+                    Log.i(TAG, "Recovered " + recovered + " staged encrypted group messages.")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                groupKeyRecoveryRetryRequired = true
+                Log.w(TAG, "Staged encrypted group-message recovery failed; retrying.", error)
+            }
+
             val transport = FirebaseOlmEnvelopeTransport(
                 trustVerifier = TrustedDeviceRepository(applicationContext),
                 expectedAuthenticatedUserId = ownerUserId,
