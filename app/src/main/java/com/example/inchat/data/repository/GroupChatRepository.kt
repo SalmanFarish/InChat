@@ -483,24 +483,14 @@ class GroupChatRepository {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     try {
                         val epoch = snapshot.child("epoch").getValue(Long::class.java)
-                        val members = snapshot.child("members").children.mapNotNull { child ->
-                            val uid = child.key
-                            val role = child.getValue(String::class.java)
-                            if (uid.isNullOrBlank() || role.isNullOrBlank()) {
-                                null
-                            } else {
-                                uid to role
-                            }
-                        }.toMap()
-                        val value = if (epoch == null) {
-                            null
-                        } else {
-                            GroupCryptoMembershipSnapshot(
-                                groupId = groupId,
-                                epoch = epoch,
-                                members = members
-                            ).takeIf { it.isValid() }
+                        val memberEntries = snapshot.child("members").children.map { child ->
+                            child.key to child.getValue(String::class.java)
                         }
+                        val value = GroupCryptoMembershipSnapshot.fromEntries(
+                            groupId = groupId,
+                            epoch = epoch,
+                            entries = memberEntries,
+                        )
                         trySend(value)
                     } catch (error: Exception) {
                         Log.e(
