@@ -16,6 +16,7 @@ import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.MegolmSessionRepository
+import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
 import com.example.inchat.crypto.OlmGroupKeyDistributionRecoveryRunner
 import com.example.inchat.crypto.OlmGroupSessionKeyDistributionPreparer
 import com.example.inchat.crypto.OlmGroupSessionKeyOutboxCoordinator

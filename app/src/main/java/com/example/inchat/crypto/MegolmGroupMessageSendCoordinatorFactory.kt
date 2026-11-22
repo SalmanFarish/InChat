@@ -132,37 +132,48 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
                     "Authenticated sender identity is unavailable for staged-message recovery"
                 }
                 var recovered = 0
+                var firstFailure: Exception? = null
                 for (messageId in megolmSessions.pendingOutboundMessageIds()) {
-                    require(authenticatedUserId() == owner && localDeviceId() == device) {
-                        "Authenticated sender identity changed during staged-message recovery"
+                    try {
+                        require(authenticatedUserId() == owner && localDeviceId() == device) {
+                            "Authenticated sender identity changed during staged-message recovery"
+                        }
+                        val staged = megolmSessions.readPendingOutboundMessage(messageId)
+                        // The native store may contain entries outside this worker's
+                        // account/device scope. Never inspect or resume those entries.
+                        if (staged.ownerUserId != owner ||
+                            staged.senderUserId != owner ||
+                            staged.senderDeviceId != device
+                        ) continue
+                        val membership = groupRepository.getGroupCryptoMembershipSnapshot(staged.groupId)
+                            ?: continue
+                        if (!membership.isValid() ||
+                            membership.groupId != staged.groupId ||
+                            membership.epoch != staged.membershipEpoch ||
+                            owner !in membership.memberUserIds
+                        ) continue
+                        val readinessState = readiness.evaluate(
+                            owner,
+                            device,
+                            membership,
+                            staged.encryptedMessage.sessionId,
+                        )
+                        val token = (readinessState as? OlmGroupKeyDistributionReadinessState.Ready)
+                            ?.token ?: continue
+                        require(authenticatedUserId() == owner && localDeviceId() == device) {
+                            "Authenticated sender identity changed before staged-message recovery"
+                        }
+                        sender.resumePendingMessage(messageId, membership, token)
+                        recovered++
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        // One corrupt/stale staging entry must not starve later
+                        // recoverable messages. Preserve retry after the full pass.
+                        if (firstFailure == null) firstFailure = error
                     }
-                    val staged = megolmSessions.readPendingOutboundMessage(messageId)
-                    require(
-                        staged.ownerUserId == owner &&
-                            staged.senderUserId == owner &&
-                            staged.senderDeviceId == device
-                    ) { "Native staged group message belongs to another account or device" }
-                    val membership = groupRepository.getGroupCryptoMembershipSnapshot(staged.groupId)
-                        ?: continue
-                    if (!membership.isValid() ||
-                        membership.groupId != staged.groupId ||
-                        membership.epoch != staged.membershipEpoch ||
-                        owner !in membership.memberUserIds
-                    ) continue
-                    val readinessState = readiness.evaluate(
-                        owner,
-                        device,
-                        membership,
-                        staged.encryptedMessage.sessionId,
-                    )
-                    val token = (readinessState as? OlmGroupKeyDistributionReadinessState.Ready)
-                        ?.token ?: continue
-                    require(authenticatedUserId() == owner && localDeviceId() == device) {
-                        "Authenticated sender identity changed before staged-message recovery"
-                    }
-                    sender.resumePendingMessage(messageId, membership, token)
-                    recovered++
                 }
+                firstFailure?.let { throw it }
                 recovered
             },
         )
