@@ -65,7 +65,9 @@ internal class MegolmGroupMessageSendCoordinator(
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     /** Resume exact native-staged ciphertexts after process death; never re-encrypt. */
-    suspend fun recoverPendingMessages(): Int = recoverPendingOutboundMessages()
+    suspend fun recoverPendingMessages(): Int = sendMutex.withLock {
+        recoverPendingOutboundMessages()
+    }
 
     fun observeAcknowledgementChanges(ownerUserId: String): Flow<Int> {
         require(ownerUserId.matches(ID)) { "Acknowledgement observer owner ID is invalid" }

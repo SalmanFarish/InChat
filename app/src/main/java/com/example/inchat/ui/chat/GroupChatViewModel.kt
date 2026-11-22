@@ -414,6 +414,11 @@ class GroupChatViewModel : ViewModel() {
             ownerUserId !in membership.memberUserIds
         ) return
 
+        // Resume any exact native-staged ciphertext before considering plaintext
+        // intents. This prevents an interrupted staged message from being encrypted twice.
+        withContext(Dispatchers.IO) {
+            encryptedGroupMessageSendCoordinator.recoverPendingMessages()
+        }
         withContext(Dispatchers.IO) {
             encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(ownerUserId, groupId)
         }
