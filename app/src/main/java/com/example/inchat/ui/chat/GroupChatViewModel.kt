@@ -270,6 +270,33 @@ class GroupChatViewModel : ViewModel() {
         // membership snapshot; legacy /members listeners are never consulted.
         encryptedMessagesJob = viewModelScope.launch {
             try {
+                // Recover completed sends as soon as the conversation is reopened,
+                // not only when the user happens to compose another message.
+                val recoveryMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                if (
+                    FirebaseAuth.getInstance().currentUser?.uid == currentUserId &&
+                    recoveryMembership != null &&
+                    recoveryMembership.isValid() &&
+                    recoveryMembership.groupId == groupId &&
+                    currentUserId in recoveryMembership.memberUserIds
+                ) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(
+                                ownerUserId = currentUserId,
+                                groupId = groupId,
+                            )
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (recoveryError: Exception) {
+                        Log.e(
+                            "GroupChatViewModel",
+                            "Committed encrypted group messages could not be restored to the local timeline.",
+                            recoveryError,
+                        )
+                    }
+                }
                 encryptedGroupMessageRepository
                     .observeMessagesForMember(
                         ownerUserId = currentUserId,
