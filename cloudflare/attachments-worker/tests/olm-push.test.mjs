@@ -177,24 +177,13 @@ test("routes sender-owned direct-device pushes to the sender account token", asy
 });
 
 test("accepts canonical padded Base64URL ciphertext from Android", async () => {
-  const state = fixture({
-    relayRecord: {
-      senderUid: "alice",
-      senderDeviceId: "alice-device",
-      messageId: "message-123",
-      conversationType: "direct",
-      conversationId: "alice_bob",
-      conversationPeerUserId: "bob",
-      envelope: JSON.stringify({
-        encryptionVersion: 1,
-        algorithm: "olm",
-        senderDeviceId: "alice-device",
-        recipientDeviceId: "bob-device",
-        sessionId: "session-padded",
-        ciphertext: "AQI=",
-      }),
-    },
-  });
+  const state = fixture();
+  const path = "olmInbox/bob/bob-device/" + deliveryId;
+  const record = state.database.get(path);
+  const envelope = JSON.parse(record.envelope);
+  envelope.sessionId = "session-padded";
+  envelope.ciphertext = "AQI=";
+  state.database.set(path, { ...record, envelope: JSON.stringify(envelope) });
   const response = await state.dispatch();
 
   assert.equal(response.status, 200);
@@ -297,7 +286,7 @@ test("rejects unknown request fields before reading relay data", async () => {
   const state = fixture();
   const response = await state.dispatch({
     ...baseRequest,
-    recipientUid: "carol",
+    unexpectedField: "carol",
   });
 
   assert.equal(response.status, 400);
