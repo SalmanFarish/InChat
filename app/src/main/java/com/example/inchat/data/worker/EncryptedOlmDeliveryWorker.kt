@@ -364,12 +364,18 @@ class EncryptedOlmDeliveryWorker(
                             recipientDeviceId = delivery.recipientDeviceId,
                         ).getOrThrow()
                     } else {
-                        // The current Cloudflare Olm wake-up endpoint authorizes
-                        // direct chats only. Do not retry a successfully relayed
-                        // group ciphertext because that endpoint intentionally
-                        // rejects group chat IDs; group wake-ups need their own
-                        // membership/epoch-checked fan-out path.
-                        Log.d(TAG, "Skipping direct-only push dispatch for encrypted group delivery.")
+                        notifications.notifyEncryptedGroupDelivery(
+                            senderUserId = ownerUserId,
+                            groupId = delivery.groupId,
+                            membershipEpoch = requireNotNull(delivery.membershipEpoch) {
+                                "Encrypted group delivery is missing its membership epoch"
+                            },
+                            recipientUserId = delivery.recipientUserId,
+                            deliveryId = delivery.deliveryId,
+                            messageId = delivery.messageId,
+                            senderDeviceId = senderDeviceId,
+                            recipientDeviceId = delivery.recipientDeviceId,
+                        ).getOrThrow()
                     }
                 },
             ).run()

@@ -159,6 +159,54 @@ class CloudflareNotificationRepository {
     }
 
     /**
+     * Sends a ciphertext-only group wake-up for one uploaded Olm device delivery.
+     * The Worker revalidates the current member map and crypto epoch before FCM.
+     */
+    suspend fun notifyEncryptedGroupDelivery(
+        senderUserId: String,
+        groupId: String,
+        membershipEpoch: Long,
+        recipientUserId: String,
+        deliveryId: String,
+        messageId: String,
+        senderDeviceId: String,
+        recipientDeviceId: String
+    ): Result<Unit> {
+        if (senderUserId.isBlank() || auth.currentUser?.uid != senderUserId) {
+            return Result.failure(IllegalStateException("Authenticated user does not match encrypted delivery owner."))
+        }
+        val valid = groupId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
+            membershipEpoch > 0L &&
+            recipientUserId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
+            messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            senderDeviceId != recipientDeviceId && recipientUserId != senderUserId
+        if (!valid) {
+            return Result.failure(IllegalArgumentException("Invalid encrypted group delivery notification reference."))
+        }
+        if (!CloudflareWorkerConfig.isConfigured) return Result.success(Unit)
+
+        return post(
+            path = "/olm/notify-group",
+            body = JSONObject()
+                .put("groupId", groupId)
+                .put("membershipEpoch", membershipEpoch)
+                .put("recipientUid", recipientUserId)
+                .put("deliveryId", deliveryId)
+                .put("messageId", messageId)
+                .put("senderDeviceId", senderDeviceId)
+                .put("recipientDeviceId", recipientDeviceId)
+        ).map { response ->
+            if (!response.optBoolean("success", false)) {
+                throw IllegalStateException("Cloudflare Worker did not accept encrypted group push dispatch.")
+            }
+            Unit
+        }
+    }
+
+    /**
      * Performs group creation and membership/role changes through the trusted
      * Worker. Firebase client rules intentionally deny direct writes to
      * chats/{groupId}/members.

@@ -20,18 +20,19 @@ function validateRequest(body, authenticatedUid) {
     return { error: result(400, { error: "Invalid encrypted push request." }) };
   }
 
-  const requiredFields = [
-    "chatId",
-    "deliveryId",
-    "messageId",
-    "recipientDeviceId",
-    "recipientUid",
-    "senderDeviceId",
+  const isGroup = Object.prototype.hasOwnProperty.call(body, "groupId");
+  const requiredFields = isGroup ? [
+    "deliveryId", "groupId", "membershipEpoch", "messageId",
+    "recipientDeviceId", "recipientUid", "senderDeviceId",
+  ] : [
+    "chatId", "deliveryId", "messageId", "recipientDeviceId",
+    "recipientUid", "senderDeviceId",
   ];
   const actualFields = Object.keys(body).sort();
+  const expectedFields = [...requiredFields].sort();
   if (
-    actualFields.length !== requiredFields.length ||
-    actualFields.some((field, index) => field !== [...requiredFields].sort()[index])
+    actualFields.length !== expectedFields.length ||
+    actualFields.some((field, index) => field !== expectedFields[index])
   ) {
     return { error: result(400, { error: "Encrypted push request has missing or unknown fields." }) };
   }
@@ -41,8 +42,10 @@ function validateRequest(body, authenticatedUid) {
   }
 
   if (
-    typeof body.chatId !== "string" ||
-    !CHAT_PATTERN.test(body.chatId) ||
+    (isGroup
+      ? (typeof body.groupId !== "string" || !CHAT_PATTERN.test(body.groupId) ||
+        !Number.isSafeInteger(body.membershipEpoch) || body.membershipEpoch < 1)
+      : (typeof body.chatId !== "string" || !CHAT_PATTERN.test(body.chatId))) ||
     typeof body.deliveryId !== "string" ||
     !DELIVERY_PATTERN.test(body.deliveryId) ||
     typeof body.messageId !== "string" ||
@@ -60,7 +63,10 @@ function validateRequest(body, authenticatedUid) {
 
   return {
     value: {
-      chatId: body.chatId,
+      chatId: isGroup ? body.groupId : body.chatId,
+      groupId: isGroup ? body.groupId : null,
+      membershipEpoch: isGroup ? body.membershipEpoch : null,
+      conversationType: isGroup ? "group" : "direct",
       deliveryId: body.deliveryId.toLowerCase(),
       messageId: body.messageId,
       senderDeviceId: body.senderDeviceId,
@@ -83,7 +89,10 @@ function isPublishedDevice(value, expectedDeviceId) {
 
 function isValidEnvelopeRecord(record, expected) {
   if (!isRecord(record)) return false;
-  const expectedFields = [
+  const expectedFields = expected.groupId ? [
+    "conversationId", "conversationType", "envelope", "groupId",
+    "membershipEpoch", "messageId", "senderDeviceId", "senderUid",
+  ] : [
     "conversationId", "conversationPeerUserId", "conversationType",
     "envelope", "messageId", "senderDeviceId", "senderUid",
   ];
@@ -91,22 +100,24 @@ function isValidEnvelopeRecord(record, expected) {
   if (
     fields.length !== expectedFields.length ||
     fields.some((field, index) => field !== expectedFields[index])
-  ) {
-    return false;
-  }
+  ) return false;
 
+  const scopeMatches = expected.groupId
+    ? record.conversationType === "group" &&
+      record.conversationId === expected.groupId &&
+      record.groupId === expected.groupId &&
+      record.membershipEpoch === expected.membershipEpoch
+    : record.conversationType === "direct" &&
+      record.conversationId === expected.chatId &&
+      record.conversationPeerUserId === expected.conversationPeerUserId;
   if (
     record.senderUid !== expected.senderUid ||
     record.senderDeviceId !== expected.senderDeviceId ||
     record.messageId !== expected.messageId ||
-    record.conversationType !== "direct" ||
-    record.conversationId !== expected.chatId ||
-    record.conversationPeerUserId !== expected.conversationPeerUserId ||
+    !scopeMatches ||
     typeof record.envelope !== "string" ||
     new TextEncoder().encode(record.envelope).length > MAX_ENVELOPE_BYTES
-  ) {
-    return false;
-  }
+  ) return false;
 
   let envelope;
   try {
@@ -363,50 +374,59 @@ export async function processEncryptedOlmPush({
     adminAccessToken,
     "chats/" + input.chatId,
   );
-  if (!isRecord(chat) || chat.type !== "direct") {
-    return result(404, { error: "Direct conversation not found." });
-  }
-
-  const participantA = chat.participantA;
-  const participantB = chat.participantB;
-  if (
-    !UID_PATTERN.test(participantA || "") ||
-    !UID_PATTERN.test(participantB || "") ||
-    participantA === participantB ||
-    (participantA !== uid && participantB !== uid)
-  ) {
-    return result(403, { error: "Sender is not a participant in this direct conversation." });
-  }
-
-  const conversationPeerUserId = participantA === uid ? participantB : participantA;
-  if (input.recipientUid !== uid && input.recipientUid !== conversationPeerUserId) {
-    return result(403, { error: "Recipient is not a participant in this direct conversation." });
-  }
-  const canonicalChatId = [uid, conversationPeerUserId].sort().join("_");
-  if (input.chatId !== canonicalChatId) {
-    return result(409, { error: "Conversation ID does not match its participants." });
+  let conversationPeerUserId = null;
+  if (input.groupId) {
+    if (!isRecord(chat) || chat.type !== "group" ||
+        !isRecord(chat.members) || !isRecord(chat.cryptoMembership)) {
+      return result(404, { error: "Group conversation not found." });
+    }
+    const snapshot = chat.cryptoMembership;
+    const memberIds = Object.keys(chat.members).sort();
+    const snapshotIds = isRecord(snapshot.members) ? Object.keys(snapshot.members).sort() : [];
+    const sameMembership = memberIds.length === snapshotIds.length &&
+      memberIds.every((memberId, index) =>
+        memberId === snapshotIds[index] &&
+        chat.members[memberId] === snapshot.members[memberId]);
+    if (!sameMembership || snapshot.epoch !== input.membershipEpoch ||
+        !Number.isSafeInteger(snapshot.epoch) || snapshot.epoch < 1) {
+      return result(409, { error: "Group membership epoch is stale." });
+    }
+    if (!Object.prototype.hasOwnProperty.call(chat.members, uid) ||
+        !Object.prototype.hasOwnProperty.call(chat.members, input.recipientUid) ||
+        input.recipientUid === uid) {
+      return result(403, { error: "Sender or recipient is not a current group member." });
+    }
+  } else {
+    if (!isRecord(chat) || chat.type !== "direct") {
+      return result(404, { error: "Direct conversation not found." });
+    }
+    const participantA = chat.participantA;
+    const participantB = chat.participantB;
+    if (
+      !UID_PATTERN.test(participantA || "") ||
+      !UID_PATTERN.test(participantB || "") ||
+      participantA === participantB ||
+      (participantA !== uid && participantB !== uid)
+    ) {
+      return result(403, { error: "Sender is not a participant in this direct conversation." });
+    }
+    conversationPeerUserId = participantA === uid ? participantB : participantA;
+    if (input.recipientUid !== uid && input.recipientUid !== conversationPeerUserId) {
+      return result(403, { error: "Recipient is not a participant in this direct conversation." });
+    }
+    const canonicalChatId = [uid, conversationPeerUserId].sort().join("_");
+    if (input.chatId !== canonicalChatId) {
+      return result(409, { error: "Conversation ID does not match its participants." });
+    }
+    const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
+      adminDatabaseRequest(env, adminAccessToken, "blockedUsers/" + uid + "/" + conversationPeerUserId),
+      adminDatabaseRequest(env, adminAccessToken, "blockedUsers/" + conversationPeerUserId + "/" + uid),
+    ]);
+    if (senderBlockedRecipient || recipientBlockedSender) {
+      return result(200, { success: true, notificationSent: false, reason: "blocked" });
+    }
   }
   const recipientUid = input.recipientUid;
-
-  const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
-    adminDatabaseRequest(
-      env,
-      adminAccessToken,
-      "blockedUsers/" + uid + "/" + conversationPeerUserId,
-    ),
-    adminDatabaseRequest(
-      env,
-      adminAccessToken,
-      "blockedUsers/" + conversationPeerUserId + "/" + uid,
-    ),
-  ]);
-  if (senderBlockedRecipient || recipientBlockedSender) {
-    return result(200, {
-      success: true,
-      notificationSent: false,
-      reason: "blocked",
-    });
-  }
 
   const [senderDevice, recipientDevice] = await Promise.all([
     adminDatabaseRequest(
@@ -444,6 +464,8 @@ export async function processEncryptedOlmPush({
     messageId: input.messageId,
     chatId: input.chatId,
     conversationPeerUserId,
+    groupId: input.groupId,
+    membershipEpoch: input.membershipEpoch,
   })) {
     return result(409, { error: "Encrypted relay record does not match the authenticated request." });
   }

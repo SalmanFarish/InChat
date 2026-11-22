@@ -151,6 +151,78 @@ function fixture({
   return { database, dispatch, sentMessages };
 }
 
+const groupChat = {
+  type: "group",
+  members: { alice: "admin", bob: "member", carol: "member" },
+  cryptoMembership: {
+    epoch: 3,
+    members: { alice: "admin", bob: "member", carol: "member" },
+  },
+};
+const groupRequest = {
+  groupId: "alice_bob",
+  membershipEpoch: 3,
+  recipientUid: "bob",
+  deliveryId,
+  messageId: "message-123",
+  senderDeviceId: "alice-device",
+  recipientDeviceId: "bob-device",
+};
+const groupRelayRecord = {
+  senderUid: "alice",
+  senderDeviceId: "alice-device",
+  messageId: "message-123",
+  conversationType: "group",
+  conversationId: "alice_bob",
+  groupId: "alice_bob",
+  membershipEpoch: 3,
+  envelope: JSON.stringify({
+    encryptionVersion: 1,
+    algorithm: "olm",
+    senderDeviceId: "alice-device",
+    recipientDeviceId: "bob-device",
+    sessionId: "group-session-1",
+    ciphertext: "AQID",
+  }),
+};
+
+test("sends a group Olm wake-up only for the current membership epoch", async () => {
+  const state = fixture({ chat: groupChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch(groupRequest);
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.deepEqual(state.sentMessages[0].body.message.data, { type: "encrypted_olm", deliveryId });
+});
+
+test("rejects group wake-ups for stale membership epochs", async () => {
+  const state = fixture({ chat: groupChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch({ ...groupRequest, membershipEpoch: 2 });
+  assert.equal(response.status, 409);
+  assert.equal(state.sentMessages.length, 0);
+});
+
+test("rejects group wake-ups when the recipient has been removed", async () => {
+  const removedChat = {
+    ...groupChat,
+    members: { alice: "admin", carol: "member" },
+    cryptoMembership: { epoch: 4, members: { alice: "admin", carol: "member" } },
+  };
+  const state = fixture({ chat: removedChat, relayRecord: groupRelayRecord });
+  const response = await state.dispatch({ ...groupRequest, membershipEpoch: 4 });
+  assert.equal(response.status, 403);
+  assert.equal(state.sentMessages.length, 0);
+});
+
+test("rejects group relay metadata from a different membership epoch", async () => {
+  const state = fixture({
+    chat: groupChat,
+    relayRecord: { ...groupRelayRecord, membershipEpoch: 2 },
+  });
+  const response = await state.dispatch(groupRequest);
+  assert.equal(response.status, 409);
+  assert.equal(state.sentMessages.length, 0);
+});
+
 test("sends one minimal data-only FCM wake-up to the verified recipient device", async () => {
   const state = fixture();
   const response = await state.dispatch();

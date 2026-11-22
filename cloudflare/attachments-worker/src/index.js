@@ -3617,6 +3617,19 @@ export default {
 
       if (
         request.method === "POST" &&
+        url.pathname === "/v1/olm/notify-group"
+      ) {
+        const ipLimitResponse = await enforceEncryptedOlmPushIpRateLimit(request, env);
+        if (ipLimitResponse) return ipLimitResponse;
+        const user = await authenticate(getBearer(request), env);
+        const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(env, user.uid);
+        if (accountLimitResponse) return accountLimitResponse;
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processEncryptedOlmPushRequest(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
         url.pathname === "/v1/olm/notify"
       ) {
         // Apply the IP limit before calling Firebase Identity Toolkit so
