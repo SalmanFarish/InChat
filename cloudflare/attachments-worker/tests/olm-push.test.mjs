@@ -182,6 +182,9 @@ test("accepts canonical padded Base64URL ciphertext from Android", async () => {
       senderUid: "alice",
       senderDeviceId: "alice-device",
       messageId: "message-123",
+      conversationType: "direct",
+      conversationId: "alice_bob",
+      conversationPeerUserId: "bob",
       envelope: JSON.stringify({
         encryptionVersion: 1,
         algorithm: "olm",
@@ -225,6 +228,9 @@ test("rejects a relay envelope whose authenticated device metadata differs", asy
       senderUid: "alice",
       senderDeviceId: "alice-device",
       messageId: "message-123",
+      conversationType: "direct",
+      conversationId: "alice_bob",
+      conversationPeerUserId: "bob",
       envelope: JSON.stringify({
         encryptionVersion: 1,
         algorithm: "olm",
