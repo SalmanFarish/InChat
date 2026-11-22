@@ -101,6 +101,10 @@ beforeEach(async () => {
             alice: "admin",
             bob: "member",
           },
+          cryptoMembership: {
+            epoch: 3,
+            members: { alice: "admin", bob: "member" },
+          },
           messages: {},
         },
       },
@@ -738,6 +742,20 @@ test("a recipient cannot acknowledge a missing or mismatched encrypted delivery"
     ...acknowledgement,
     messageId: "different-message",
   }));
+});
+
+test("group relay writes require the current server-authored membership epoch and both members", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const groupRecord = { ...encryptedInboxRecord(), groupId: "group", membershipEpoch: 3 };
+  const path = "olmInbox/bob/device-bob-1/" + "7".repeat(64);
+  await assertSucceeds(set(ref(aliceDb, path), groupRecord));
+  await assertSucceeds(set(ref(aliceDb, path), groupRecord));
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "8".repeat(64)), { ...groupRecord, membershipEpoch: 2 }));
+  await assertFails(set(ref(aliceDb, "olmInbox/bob/device-bob-1/" + "9".repeat(64)), { ...groupRecord, groupId: "missing-group" }));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/cryptoMembership/epoch"), 4);
+  });
+  await assertFails(set(ref(aliceDb, path), groupRecord));
 });
 
 test("a registered sender can create a ciphertext-only delivery for a registered recipient device", async () => {

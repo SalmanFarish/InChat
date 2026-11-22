@@ -281,7 +281,9 @@ class EncryptedOlmDeliveryWorker(
                             val commit = commits.single()
                             if (commit.ownerUserId != ownerUserId ||
                                 commit.senderDeviceId != senderDeviceId ||
-                                commit.messageId != delivery.messageId
+                                commit.messageId != delivery.messageId ||
+                                commit.groupId != delivery.groupId ||
+                                commit.membershipEpoch != delivery.membershipEpoch
                             ) {
                                 false
                             } else {

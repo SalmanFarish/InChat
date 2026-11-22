@@ -25,6 +25,8 @@ internal data class QueuedOlmDeviceDelivery(
     val recipientDeviceId: String,
     val ownerUserId: String? = null,
     val senderDeviceId: String? = null,
+    val groupId: String? = null,
+    val membershipEpoch: Long? = null,
     val envelope: String,
     val status: OlmDeliveryStatus = OlmDeliveryStatus.QUEUED,
     val attemptCount: Int = 0,
@@ -187,7 +189,8 @@ internal class OlmDeliveryQueue(
                 commit.messageIndex >= 0L && commit.sentAtMillis >= 0L &&
                 commit.recipientDeviceCount == rows.size
             ) { "Group outgoing commit metadata does not match its durable delivery batch" }
-            return store.insertGroupMessageIfAbsent(rows, commit)
+            val groupRows = rows.map { it.copy(groupId = commit.groupId, membershipEpoch = commit.membershipEpoch) }
+            return store.insertGroupMessageIfAbsent(groupRows, commit)
         }
         return store.insertIfAbsent(rows)
     }

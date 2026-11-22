@@ -49,6 +49,19 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
     }
 
     @Test
+    fun groupUploadCarriesTheExactCommittedMembershipEpoch() = runBlocking {
+        val store = FakeRelayStore()
+        val delivery = queuedDelivery().copy(groupId = "group-1", membershipEpoch = 7L)
+        val transport = transport(store, user = { "alice" })
+        transport.upload(delivery, "sender-device")
+        assertEquals("group-1", store.inbox.values.single().fields["groupId"])
+        assertEquals(7L, store.inbox.values.single().fields["membershipEpoch"])
+        val received = transport(store, user = { "bob" }).readMyDeviceInbox("recipient-device").single()
+        assertEquals("group-1", received.groupId)
+        assertEquals(7L, received.membershipEpoch)
+    }
+
+    @Test
     fun inboxReadFailureLeavesRelayItemAvailableForTheNextPoll() = runBlocking {
         val store = FakeRelayStore()
         val item = inboxItem()

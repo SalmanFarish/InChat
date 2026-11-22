@@ -12,6 +12,8 @@ internal data class FirebaseOlmInboxItem(
     val senderDeviceId: String,
     val messageId: String,
     val envelope: String,
+    val groupId: String? = null,
+    val membershipEpoch: Long? = null,
 )
 
 internal data class FirebaseOlmRelayRecord(
@@ -248,12 +250,13 @@ internal class FirebaseOlmEnvelopeTransport(
             "Envelope recipient device does not match the delivery target"
         }
 
+        require((delivery.groupId == null) == (delivery.membershipEpoch == null) && (delivery.membershipEpoch == null || delivery.membershipEpoch > 0L))
         val payload = mapOf(
             "senderUid" to senderUid,
             "senderDeviceId" to senderDeviceId,
             "messageId" to delivery.messageId,
             "envelope" to delivery.envelope,
-        )
+        ) + if (delivery.groupId != null && delivery.membershipEpoch != null) mapOf("groupId" to delivery.groupId, "membershipEpoch" to delivery.membershipEpoch) else emptyMap()
         requireAuthenticatedUserId(senderUid)
         relayStore.putInbox(
             delivery.recipientUserId,
@@ -382,7 +385,7 @@ internal class FirebaseOlmEnvelopeTransport(
     ): FirebaseOlmInboxItem? = runCatching {
         val deliveryId = requireNotNull(record.deliveryId)
         val fields = record.fields
-        require(fields.keys == INBOX_FIELDS) {
+        require(fields.keys == INBOX_FIELDS || fields.keys == GROUP_INBOX_FIELDS) {
             "Encrypted inbox item has missing or unexpected fields"
         }
         val senderUid = fields["senderUid"] as? String
@@ -400,11 +403,16 @@ internal class FirebaseOlmEnvelopeTransport(
         val decoded = EncryptedOlmEnvelopeCodec.decode(envelope)
         require(decoded.senderDeviceId == senderDeviceId)
         require(decoded.recipientDeviceId == expectedRecipientDeviceId)
-        FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope)
+        val groupId = fields["groupId"] as? String
+        val membershipEpoch = (fields["membershipEpoch"] as? Number)?.toLong()
+        require((groupId == null && membershipEpoch == null) || (groupId != null && groupId.matches(GROUP_PATTERN) && membershipEpoch != null && membershipEpoch > 0L))
+        FirebaseOlmInboxItem(deliveryId, senderUid, senderDeviceId, messageId, envelope, groupId, membershipEpoch)
     }.getOrNull()
 
     private companion object {
         val INBOX_FIELDS = setOf("senderUid", "senderDeviceId", "messageId", "envelope")
+        val GROUP_INBOX_FIELDS = INBOX_FIELDS + setOf("groupId", "membershipEpoch")
+        val GROUP_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val ACK_FIELDS = setOf("recipientUid", "recipientDeviceId", "messageId", "acknowledgedAt")
         val UID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
