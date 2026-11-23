@@ -297,7 +297,7 @@ test("new user profiles require the matching reserved username", async () => {
   await assertSucceeds(
     set(ref(daveDb, "users/dave"), {
       uid: "dave",
-      username: "Dave",
+      username: "dave",
       displayName: "Dave",
       bio: "",
     }),
