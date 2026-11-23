@@ -161,6 +161,7 @@ class EncryptedOlmDeliveryWorker(
                     trustVerifier = TrustedDeviceRepository(applicationContext),
                 )
                 val recoveryStateReader = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                    database = database,
                     queueDao = database.olmDeliveryQueueDao(),
                     receiptDao = database.olmDeliveryReceiptDao(),
                 )

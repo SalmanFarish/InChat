@@ -1,5 +1,8 @@
 package com.example.inchat.crypto
 
+import androidx.room.RoomDatabase
+import java.util.concurrent.Callable
+
 /**
  * One bounded recovery snapshot for a persisted distribution. Only routing
  * identities/statuses are read; encrypted envelopes never leave the queue DAO.
@@ -17,28 +20,34 @@ internal interface OlmGroupKeyDistributionRecoveryStateReader {
 
 /** Reads and validates the durable Room state consumed by the pure recovery planner. */
 internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
+    private val database: RoomDatabase,
     private val queueDao: OlmDeliveryQueueDao,
     private val receiptDao: OlmDeliveryReceiptDao,
 ) : OlmGroupKeyDistributionRecoveryStateReader {
     override fun read(metadata: OlmGroupKeyDistributionEntity): OlmGroupKeyDistributionRecoveryState {
         metadata.requireValidForRecovery()
-        val queueRows = queueDao.getTargetStatesForDistribution(
-            ownerUserId = metadata.ownerUserId,
-            senderDeviceId = metadata.senderDeviceId,
-            distributionId = metadata.distributionId,
-        )
-        val acknowledgedTargets = receiptDao
-            .getAcknowledgedTargetIdentitiesForDistribution(
+        // Both ledgers must come from one SQLite snapshot. Without this transaction,
+        // an acknowledgement can be inserted between the two SELECTs and create a
+        // false overlap or hide a queue/receipt inconsistency during recovery.
+        return database.runInTransaction(Callable {
+            val queueRows = queueDao.getTargetStatesForDistribution(
                 ownerUserId = metadata.ownerUserId,
                 senderDeviceId = metadata.senderDeviceId,
                 distributionId = metadata.distributionId,
             )
-            .mapTo(mutableSetOf(), ::decodeTargetIdentity)
+            val acknowledgedTargets = receiptDao
+                .getAcknowledgedTargetIdentitiesForDistribution(
+                    ownerUserId = metadata.ownerUserId,
+                    senderDeviceId = metadata.senderDeviceId,
+                    distributionId = metadata.distributionId,
+                )
+                .mapTo(mutableSetOf(), ::decodeTargetIdentity)
 
-        return OlmGroupKeyDistributionRecoveryStateReducer.reduce(
-            queueRows = queueRows,
-            acknowledgedTargets = acknowledgedTargets,
-        )
+            OlmGroupKeyDistributionRecoveryStateReducer.reduce(
+                queueRows = queueRows,
+                acknowledgedTargets = acknowledgedTargets,
+            )
+        })
     }
 
     private fun decodeTargetIdentity(encoded: String): Pair<String, String> {

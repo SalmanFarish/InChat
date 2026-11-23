@@ -609,6 +609,7 @@ class RoomOlmDeliveryQueueStoreTest {
             }
 
             val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                database = db,
                 queueDao = db.olmDeliveryQueueDao(),
                 receiptDao = db.olmDeliveryReceiptDao(),
             ).read(metadata.toEntity())
@@ -674,6 +675,7 @@ class RoomOlmDeliveryQueueStoreTest {
             )
 
             val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                db,
                 db.olmDeliveryQueueDao(),
                 db.olmDeliveryReceiptDao(),
             ).read(metadata)
@@ -731,6 +733,7 @@ class RoomOlmDeliveryQueueStoreTest {
             )
 
             val state = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                db,
                 db.olmDeliveryQueueDao(),
                 db.olmDeliveryReceiptDao(),
             ).read(metadata)
