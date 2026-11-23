@@ -1756,6 +1756,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   let updatedGroups = 0;
   let dissolvedGroups = 0;
   const stalePersonalTopicTokens = new Set();
+  const groupPreviewsToRebuild = [];
 
   for (const rawChatId of groupIds) {
     let chatId;
@@ -1947,25 +1948,16 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
     const currentRemainingMembers = mutation.result.remainingMembers;
 
-    // Update only inbox entries that already exist; never create partial rows.
-    const remainingInboxEntries = await Promise.all(
-      currentRemainingMembers.map(async ([memberId]) => ({
-        memberId: memberId,
-        entry: await adminDatabaseRequest(
-          env,
-          adminAuth.token,
-          "userChats/" + memberId + "/" + chatId,
-        ),
-      })),
-    );
-
-    for (const item of remainingInboxEntries) {
-      if (item.entry && typeof item.entry === "object") {
-        updates[
-          "userChats/" + item.memberId + "/" + chatId + "/memberCount"
-        ] = currentRemainingMembers.length;
-      }
-    }
+    // Rebuild complete inbox rows through the same trusted path used by normal
+    // group membership changes. This avoids one database read per remaining
+    // member and never creates a partial userChats row.
+    groupPreviewsToRebuild.push({
+      chatId: chatId,
+      chat: {
+        ...chat,
+        members: Object.fromEntries(currentRemainingMembers),
+      },
+    });
 
     updatedGroups += 1;
   }
@@ -1982,6 +1974,22 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   }
 
   await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
+
+  for (const preview of groupPreviewsToRebuild) {
+    try {
+      await rebuildConversationPreview(
+        env,
+        adminAuth.token,
+        preview.chatId,
+        preview.chat,
+      );
+    } catch (previewError) {
+      console.warn(
+        "Could not rebuild group inbox previews during account deletion",
+        previewError,
+      );
+    }
+  }
 
   return json({
     success: true,
