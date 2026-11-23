@@ -956,6 +956,52 @@ test("group relay writes require the current server-authored membership epoch an
   await assertFails(set(ref(aliceDb, path), groupRecord));
 });
 
+test("group relay writes fail closed when legacy membership diverges from the crypto snapshot", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const { conversationPeerUserId, ...groupBase } = encryptedInboxRecord();
+  const groupRecord = {
+    ...groupBase,
+    conversationType: "group",
+    conversationId: "group",
+    groupId: "group",
+    membershipEpoch: 3,
+  };
+
+  // A removed sender must not be authorized by a stale crypto snapshot.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/members"), {
+      bob: "member",
+    });
+  });
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "c".repeat(64)),
+    groupRecord,
+  ));
+
+  // A removed recipient must not receive a relay via the stale snapshot.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/members"), {
+      alice: "admin",
+    });
+  });
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "d".repeat(64)),
+    groupRecord,
+  ));
+
+  // Matching identities with a changed role are also an inconsistent snapshot.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/members"), {
+      alice: "member",
+      bob: "member",
+    });
+  });
+  await assertFails(set(
+    ref(aliceDb, "olmInbox/bob/device-bob-1/" + "e".repeat(64)),
+    groupRecord,
+  ));
+});
+
 test("relay scope is mandatory and direct scope must match the canonical chat participants", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const base = encryptedInboxRecord();
