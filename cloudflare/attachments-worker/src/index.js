@@ -1707,6 +1707,18 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     ["userChats/" + uid]: null,
     ["userMessageVisibility/" + uid]: null,
     ["conversationPreferences/" + uid]: null,
+
+    // Revoke the deleted account's published E2EE identities and clear its
+    // account-owned inbound relay/control queues. These paths are managed by
+    // the Worker so cleanup remains possible after the account profile is
+    // removed and never depends on client-side writes to trusted indexes.
+    ["deviceKeys/" + uid]: null,
+    ["deviceKeyClaims/" + uid]: null,
+    ["olmInbox/" + uid]: null,
+    ["olmDeliveryAcks/" + uid]: null,
+    ["olmPushDispatch/" + uid]: null,
+    ["sasVerificationInbox/" + uid]: null,
+    ["deviceTransferInbox/" + uid]: null,
   };
 
   // Typing indicators are ephemeral, but remove any stale direct-chat value
@@ -1742,6 +1754,9 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       continue;
     }
 
+    // Read receipts are stored below conversation IDs rather than beneath
+    // the account root, so remove only this account's own cursor per inbox row.
+    updates["chatReadReceipts/" + chatId + "/" + uid] = null;
     updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
 
     const [chat, mirroredRegistrationToken] = await Promise.all([
