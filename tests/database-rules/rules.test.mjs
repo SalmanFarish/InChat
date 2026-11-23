@@ -245,6 +245,40 @@ test("two accounts cannot reserve the same username concurrently", async () => {
   );
 });
 
+test("new user profiles require the matching reserved username", async () => {
+  const charlieDb = testEnv.authenticatedContext("charlie").database();
+  const profile = {
+    uid: "charlie",
+    username: "Charlie",
+    displayName: "Charlie",
+    bio: "",
+  };
+
+  await assertFails(
+    set(ref(charlieDb, "users/charlie"), profile),
+  );
+
+  await assertSucceeds(
+    set(ref(charlieDb, "usernameClaims/charlie"), "charlie"),
+  );
+
+  await assertSucceeds(
+    set(ref(charlieDb, "users/charlie"), profile),
+  );
+
+  await assertFails(
+    set(ref(charlieDb, "users/charlie"), {
+      ...profile,
+      username: "another_name",
+    }),
+  );
+
+  // The owner can still update existing non-username profile fields.
+  await assertSucceeds(
+    set(ref(charlieDb, "users/charlie/displayName"), "Charlie Updated"),
+  );
+});
+
 test("legacy accounts can release their own username indexes without an owner marker", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();

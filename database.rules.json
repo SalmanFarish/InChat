@@ -3,7 +3,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null &&                    auth.uid === $uid &&                    (                      !newData.exists() ||                      (                        newData.exists() &&                        (                          !data.exists() ||                          (                            data.exists() &&                            newData.child('uid').val() ===                            data.child('uid').val() &&                            newData.child('username').val() ===                            data.child('username').val()                          )                        )                      )                    )",
+        ".write": "auth != null && auth.uid === $uid && ( !newData.exists() || ( newData.exists() && ( ( !data.exists() && newData.child('uid').val() === auth.uid && newData.child('username').isString() && root.child('usernameClaims').child(auth.uid).val() === newData.child('username').val().toLowerCase() ) || ( data.exists() && newData.child('uid').val() === data.child('uid').val() && newData.child('username').val() === data.child('username').val() ) ) ) )",
         ".validate": "newData.hasChildren(['uid', 'username']) &&                       newData.child('uid').isString() &&                       newData.child('uid').val() === $uid &&                       newData.child('username').isString() &&                       newData.child('username').val().length >= 3 &&                       newData.child('username').val().length <= 20",
         "displayName": {
           ".validate": "newData.isString() &&                         newData.val().length <= 30"
