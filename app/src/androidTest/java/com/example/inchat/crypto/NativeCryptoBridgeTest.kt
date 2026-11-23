@@ -1188,4 +1188,187 @@ class NativeCryptoBridgeTest {
         peerStore.delete()
     }
 
+
+    @Test
+    fun nativeMegolmJniRoundTripsGroupCiphertextAndRecoversPendingReceipts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val senderDeviceId = "meg-sender-$suffix"
+        val recipientDeviceId = "meg-recipient-$suffix"
+        val groupId = "native-group-$suffix"
+        val messageId = "native-megolm-$suffix"
+        val membershipEpoch = 4L
+        val sentAtMillis = System.currentTimeMillis().coerceAtLeast(1L)
+        val senderStore = CryptoStateStore(context, "device-meg-sender-$suffix")
+        val recipientStore = CryptoStateStore(context, "device-meg-recipient-$suffix")
+
+        try {
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(senderStore, senderDeviceId)
+            )
+            requireNotNull(
+                NativeCryptoBridge.nativeEnsureDeviceIdentity(recipientStore, recipientDeviceId)
+            )
+
+            val senderSession = JSONObject(
+                requireNotNull(
+                    NativeCryptoBridge.nativeEnsureOutboundMegolmSession(
+                        senderStore,
+                        senderDeviceId,
+                        groupId,
+                        membershipEpoch,
+                        "alice",
+                        "a".repeat(64),
+                    )
+                )
+            )
+            val sessionId = senderSession.getString("sessionId")
+            assertEquals(membershipEpoch, senderSession.getLong("membershipEpoch"))
+
+            val exportedSessionKey = requireNotNull(
+                NativeCryptoBridge.nativeExportOutboundMegolmSessionKey(
+                    senderStore,
+                    senderDeviceId,
+                    groupId,
+                    membershipEpoch,
+                    "alice",
+                )
+            )
+            val importBuffer = exportedSessionKey.clone()
+            assertTrue(
+                "The recipient must import the sender's exact Megolm session key",
+                NativeCryptoBridge.nativeImportInboundMegolmSessionKey(
+                    recipientStore,
+                    recipientDeviceId,
+                    groupId,
+                    membershipEpoch,
+                    "alice",
+                    senderDeviceId,
+                    sessionId,
+                    importBuffer,
+                ),
+            )
+            assertTrue(
+                "Native key import must clear its temporary Java key buffer",
+                importBuffer.all { it == 0.toByte() },
+            )
+            exportedSessionKey.fill(0)
+
+            val plaintext = "Megolm JNI round-trip $suffix"
+            val stagedOutbound = requireNotNull(
+                NativeCryptoBridge.nativeEncryptOutboundMegolmMessage(
+                    senderStore,
+                    senderDeviceId,
+                    groupId,
+                    membershipEpoch,
+                    "alice",
+                    messageId,
+                    sentAtMillis,
+                    plaintext,
+                )
+            )
+            assertTrue(
+                "The native sender must return ciphertext metadata, not an error string",
+                !stagedOutbound.startsWith("INCHAT_CRYPTO_ERROR:"),
+            )
+            val outboundJson = JSONObject(stagedOutbound)
+            assertEquals(messageId, outboundJson.getString("messageId"))
+            assertEquals(sessionId, outboundJson.getString("sessionId"))
+            assertEquals(0L, outboundJson.getLong("messageIndex"))
+
+            val ciphertext = java.util.Base64.getUrlDecoder()
+                .decode(outboundJson.getString("ciphertext"))
+            val receiptId = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("native-megolm-receipt-$suffix".toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            val inboundBuffer = ciphertext.clone()
+            val stagedInbound = requireNotNull(
+                NativeCryptoBridge.nativePrepareInboundMegolmDecryption(
+                    recipientStore,
+                    recipientDeviceId,
+                    receiptId,
+                    "bob",
+                    groupId,
+                    membershipEpoch,
+                    messageId,
+                    "alice",
+                    senderDeviceId,
+                    sessionId,
+                    outboundJson.getLong("messageIndex"),
+                    sentAtMillis,
+                    sentAtMillis + 1_000L,
+                    inboundBuffer,
+                )
+            )
+            assertTrue(
+                "Native group decryption must clear its temporary ciphertext buffer",
+                inboundBuffer.all { it == 0.toByte() },
+            )
+            val inboundJson = JSONObject(stagedInbound)
+            assertEquals("bob", inboundJson.getString("ownerUserId"))
+            assertEquals(messageId, inboundJson.getString("messageId"))
+            assertEquals(plaintext, inboundJson.getString("plaintext"))
+
+            // A retry after process death must return the exact staged result and
+            // must not consume the same Megolm index a second time.
+            val retry = JSONObject(
+                requireNotNull(
+                    NativeCryptoBridge.nativePrepareInboundMegolmDecryption(
+                        CryptoStateStore(context, "device-meg-recipient-$suffix"),
+                        recipientDeviceId,
+                        receiptId,
+                        "bob",
+                        groupId,
+                        membershipEpoch,
+                        messageId,
+                        "alice",
+                        senderDeviceId,
+                        sessionId,
+                        outboundJson.getLong("messageIndex"),
+                        sentAtMillis,
+                        sentAtMillis + 1_000L,
+                        ciphertext.clone(),
+                    )
+                )
+            )
+            assertEquals(plaintext, retry.getString("plaintext"))
+            assertEquals(receiptId, retry.getString("receiptId"))
+
+            assertTrue(
+                NativeCryptoBridge.nativeFinalizeInboundMegolmDecryption(
+                    recipientStore,
+                    recipientDeviceId,
+                    receiptId,
+                ),
+            )
+            assertTrue(
+                "Inbound finalization must be idempotent after a process restart",
+                NativeCryptoBridge.nativeFinalizeInboundMegolmDecryption(
+                    recipientStore,
+                    recipientDeviceId,
+                    receiptId,
+                ),
+            )
+            assertTrue(
+                NativeCryptoBridge.nativeFinalizeOutboundMegolmMessage(
+                    senderStore,
+                    senderDeviceId,
+                    messageId,
+                ),
+            )
+            val pendingOutbound = org.json.JSONArray(
+                requireNotNull(
+                    NativeCryptoBridge.nativeListPendingOutboundMegolmMessageIds(
+                        senderStore,
+                        senderDeviceId,
+                    )
+                )
+            )
+            assertEquals(0, pendingOutbound.length())
+        } finally {
+            senderStore.delete()
+            recipientStore.delete()
+        }
+    }
+
 }
