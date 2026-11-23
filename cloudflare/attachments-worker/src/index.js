@@ -1721,6 +1721,17 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     ["deviceTransferInbox/" + uid]: null,
   };
 
+  // Read receipts live under chat IDs, including direct chats that are
+  // intentionally retained for the other participant after account deletion.
+  for (const chatId of Object.keys(inbox || {})) {
+    try {
+      const validChatId = cleanSegment(chatId, "chatId");
+      updates["chatReadReceipts/" + validChatId + "/" + uid] = null;
+    } catch (_) {
+      // Ignore malformed legacy inbox keys rather than constructing a path.
+    }
+  }
+
   // Typing indicators are ephemeral, but remove any stale direct-chat value
   // owned by the account as part of deletion.
   for (const [chatId, entry] of Object.entries(inbox || {})) {
