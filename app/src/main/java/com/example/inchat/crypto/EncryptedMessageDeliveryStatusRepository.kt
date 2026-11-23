@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** Statuses for the isolated encrypted direct-message delivery path only. */
-internal enum class EncryptedMessageDeliveryStatus {
+enum class EncryptedMessageDeliveryStatus {
     NOT_TRACKED,
     WAITING,
     SENDING,
