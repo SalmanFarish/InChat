@@ -119,6 +119,10 @@ internal class OlmGroupMessageDistributionPreparer(
                         targetUid = target.userId,
                         deviceId = target.device.deviceId,
                         keyId = candidate.keyId,
+                        scope = OlmPreKeyClaimScope.group(
+                            groupId = membership.groupId,
+                            membershipEpoch = membership.epoch,
+                        ),
                     )
                 ) {
                     claimedPreKey = candidate
