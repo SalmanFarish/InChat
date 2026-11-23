@@ -528,9 +528,9 @@ class ChatViewModel : ViewModel() {
                         otherUserNickname = otherUserNickname
                     )
 
-                    // Firebase's persistent write queue resumes after reconnect.
-                    // Reconcile Room's pending indicators against confirmed remote
-                    // message records; do not send a second copy from a custom queue.
+                    // Reconcile old cached pending messages against Firebase.
+                    // If no legacy record exists, retry only through the current
+                    // authenticated Olm sender; never resume the old plaintext path.
                     pendingReconciliationJob = viewModelScope.launch {
                         isConnected.collect { connected ->
                             if (
@@ -541,7 +541,38 @@ class ChatViewModel : ViewModel() {
                                 chatRepository.reconcilePendingOutgoingMessages(
                                     chatId = chatId,
                                     receiverId = otherUserId,
-                                    receiverNickname = otherUserNickname.ifBlank { "User" }
+                                    receiverNickname = otherUserNickname.ifBlank { "User" },
+                                    sendEncryptedMessage = { pendingMessage ->
+                                        if (
+                                            pendingMessage.replyTo != null ||
+                                            pendingMessage.attachment != null ||
+                                            pendingMessage.systemEvent.isNotBlank()
+                                        ) {
+                                            Result.failure(
+                                                IllegalStateException(
+                                                    "This older pending message contains unsupported reply or attachment data. It remains saved locally.",
+                                                ),
+                                            )
+                                        } else {
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    encryptedDirectMessageSender.sendTextMessage(
+                                                        senderUserId = currentUserId,
+                                                        recipientUserId = otherUserId,
+                                                        conversationId = chatId,
+                                                        messageId = pendingMessage.id,
+                                                        sentAtMillis = pendingMessage.timestamp,
+                                                        text = pendingMessage.text,
+                                                    )
+                                                }
+                                                Result.success(Unit)
+                                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Exception) {
+                                                Result.failure(error)
+                                            }
+                                        }
+                                    },
                                 )
                             }
                         }

@@ -549,9 +549,9 @@ class ChatRepository {
     }
 
     /**
-     * Save an outgoing message before handing it to Firebase. Firebase's
-     * persistent write queue remains responsible for delivery; Room keeps
-     * the message visible and its pending indicator across process death.
+     * Legacy cache helper retained for migration/reconciliation only.
+     * New direct-message sends must go through the encrypted Olm coordinator.
+     * A missing legacy Firebase record is never delivered by the background worker.
      */
     suspend fun cacheOutgoingMessage(chatId: String, message: Message) {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
@@ -569,9 +569,8 @@ class ChatRepository {
             )
         )
 
-        // WorkManager persists this per-message fallback independently of the
-        // chat screen. If the process dies before the RTDB write is acknowledged,
-        // the worker can deliver the Room copy after connectivity returns.
+        // Schedule a reconciliation check for old Firebase writes. The worker
+        // does not transmit a missing message; active chats retry it through Olm.
         try {
             PendingMessageDeliveryWorker.enqueue(
                 context = InChatApplication.instance,
@@ -634,15 +633,15 @@ class ChatRepository {
     }
 
     /**
-     * A Firebase write task does not survive ViewModel recreation, while
-     * Realtime Database's disk-persisted write queue does. Once connected,
-     * read each pending ID from Firebase and clear its local pending marker
-     * only when the remote message is present and belongs to this account.
+     * Reconcile legacy pending rows against Firebase. Existing remote records
+     * are marked sent, but missing records are retried only through the caller's
+     * encrypted sender. The legacy plaintext send method is never used here.
      */
     suspend fun reconcilePendingOutgoingMessages(
         chatId: String,
         receiverId: String,
-        receiverNickname: String
+        receiverNickname: String,
+        sendEncryptedMessage: suspend (Message) -> Result<Unit>,
     ) {
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         if (
@@ -680,31 +679,38 @@ class ChatRepository {
                                 }
 
                                 !snapshot.exists() -> {
-                                    // Reuse the original ID so retries cannot create duplicates.
+                                    // Preserve unsupported legacy metadata rather than
+                                    // silently dropping it or sending it through RTDB.
                                     val localMessageModel = localMessage.toMessage()
-                                    val retryResult = sendMessage(
-                                        chatId = chatId,
-                                        messageId = localMessage.messageId,
-                                        text = localMessageModel.text,
-                                        senderId = ownerUserId,
-                                        senderNickname = localMessageModel.senderNickname,
-                                        receiverId = receiverId,
-                                        receiverNickname = receiverNickname,
-                                        replyTo = localMessageModel.replyTo,
-                                        attachment = localMessageModel.attachment
-                                    )
-                                    retryResult.onSuccess {
-                                        localMessageDao.markMessageSent(
-                                            ownerUserId = ownerUserId,
-                                            chatId = chatId,
-                                            messageId = localMessage.messageId
-                                        )
-                                    }.onFailure { error ->
+                                    if (
+                                        localMessageModel.senderId != ownerUserId ||
+                                        localMessageModel.text.isBlank() ||
+                                        localMessageModel.replyTo != null ||
+                                        localMessageModel.attachment != null ||
+                                        localMessageModel.systemEvent.isNotBlank()
+                                    ) {
                                         Log.w(
                                             TAG,
-                                            "Pending message retry was not accepted: ${localMessage.messageId}",
-                                            error
+                                            "Legacy pending message needs a supported encrypted payload before it can be retried: ${localMessage.messageId}",
                                         )
+                                    } else {
+                                        val retryResult = sendEncryptedMessage(localMessageModel)
+                                        retryResult.onSuccess {
+                                            // The encrypted Room copy and complete Olm
+                                            // fan-out have committed; remove the old local
+                                            // plaintext row instead of retaining two sources.
+                                            localMessageDao.deleteMessage(
+                                                ownerUserId = ownerUserId,
+                                                chatId = chatId,
+                                                messageId = localMessage.messageId,
+                                            )
+                                        }.onFailure { error ->
+                                            Log.w(
+                                                TAG,
+                                                "Encrypted pending-message retry remains local: ${localMessage.messageId}",
+                                                error
+                                            )
+                                        }
                                     }
                                 }
 

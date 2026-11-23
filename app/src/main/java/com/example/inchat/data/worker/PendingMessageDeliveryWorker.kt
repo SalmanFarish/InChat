@@ -15,17 +15,15 @@ import com.example.inchat.data.local.CachedMessageEntity
 import com.example.inchat.data.local.LocalChatDatabase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
 
 /**
- * Delivers one Room outbox entry without depending on an open chat screen.
- *
- * WorkManager persists the request across process death and waits for network
- * connectivity. The original message ID is always reused, making retries
- * idempotent at the Realtime Database path.
+ * Reconciles a legacy Room pending marker if its old Firebase write already
+ * arrived before process death. Missing legacy rows are never written here:
+ * unsent direct text is retried only through the current encrypted Olm sender
+ * when the conversation is opened.
  */
 class PendingMessageDeliveryWorker(
     appContext: Context,
@@ -93,30 +91,15 @@ class PendingMessageDeliveryWorker(
                 return Result.failure()
             }
 
-            if (auth.currentUser?.uid != ownerUserId) {
-                return Result.failure()
-            }
-
-            val messageWrite = messageRef.setValue(localMessage.toFirebasePayload())
-
-            messageWrite.await()
-
-            if (auth.currentUser?.uid != ownerUserId) {
-                // The server write may have succeeded, but do not mutate the
-                // now inactive account's local delivery state from this session.
-                return Result.failure()
-            }
-
-            // The notification event is scheduled only after the message
-            // write is acknowledged. If scheduling fails, retrying this worker
-            // will find the existing message and repair the event.
-            if (!enqueueMessageEvent(ownerUserId, chatId, messageId)) {
-                return Result.retry()
-            }
-
-            dao.markMessageSent(ownerUserId, chatId, messageId)
-            Log.i(TAG, "Delivered pending Room message $messageId in chat $chatId.")
-            Result.success()
+            // The old automatic retry used to write cached plaintext into
+            // chats/{chatId}/messages. New direct sends are E2EE-only, so an
+            // absent remote record must remain local until the chat's Olm
+            // coordinator can encrypt and durably enqueue it.
+            Log.i(
+                TAG,
+                "Legacy pending message remains local; plaintext background delivery is disabled: $messageId",
+            )
+            Result.failure()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -172,8 +155,8 @@ class PendingMessageDeliveryWorker(
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build()
                 )
-                // Give the foreground Firebase write a chance to finish first.
-                // If Android kills the process, the persisted job remains as fallback.
+                // Give an old Firebase write time to reach the server. This job
+                // only reconciles an existing record and never sends plaintext.
                 .setInitialDelay(15L, TimeUnit.SECONDS)
                 .setBackoffCriteria(
                     BackoffPolicy.EXPONENTIAL,
@@ -198,40 +181,3 @@ class PendingMessageDeliveryWorker(
     }
 }
 
-/**
- * Build the same Realtime Database message shape used by foreground direct
- * and group sends. ServerValue.TIMESTAMP remains authoritative after delivery.
- */
-private fun CachedMessageEntity.toFirebasePayload(): Map<String, Any> =
-    mutableMapOf<String, Any>(
-        "id" to messageId,
-        "senderId" to senderId,
-        "senderNickname" to senderNickname,
-        "text" to text,
-        "timestamp" to ServerValue.TIMESTAMP
-    ).apply {
-        if (attachmentType.isNotBlank()) {
-            put(
-                "attachment",
-                mapOf(
-                    "type" to attachmentType,
-                    "storageKey" to attachmentStorageKey,
-                    "fileName" to attachmentFileName,
-                    "mimeType" to attachmentMimeType,
-                    "sizeBytes" to attachmentSizeBytes
-                )
-            )
-        }
-
-        if (replyMessageId.isNotBlank()) {
-            put(
-                "replyTo",
-                mapOf(
-                    "messageId" to replyMessageId,
-                    "senderId" to replySenderId,
-                    "senderNickname" to replySenderNickname,
-                    "text" to replyText
-                )
-            )
-        }
-    }
