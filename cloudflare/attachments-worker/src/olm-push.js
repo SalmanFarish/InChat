@@ -542,7 +542,9 @@ export async function processEncryptedOlmPush({
             deliveryId: input.deliveryId,
           },
           android: {
-            priority: "normal",
+            // This data-only wake-up starts the encrypted inbox worker, which
+            // posts a generic user-visible notification after local decryption.
+            priority: "high",
             ttl: "86400s",
           },
         },
