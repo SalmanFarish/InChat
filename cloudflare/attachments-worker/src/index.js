@@ -1769,7 +1769,6 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     // Read receipts are stored below conversation IDs rather than beneath
     // the account root, so remove only this account's own cursor per inbox row.
     updates["chatReadReceipts/" + chatId + "/" + uid] = null;
-    updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
 
     const [chat, mirroredRegistrationToken] = await Promise.all([
       adminDatabaseRequest(
@@ -1827,6 +1826,7 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       .sort(([left], [right]) => left.localeCompare(right));
 
     if (!wasMember) {
+      updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
       updates["typing/" + chatId + "/" + uid] = null;
       updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
       continue;
@@ -1936,6 +1936,7 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       );
     }
 
+    updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
     updates["typing/" + chatId + "/" + uid] = null;
     updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
     if (!mutation.result?.wasMember) {
