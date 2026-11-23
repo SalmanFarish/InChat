@@ -441,6 +441,8 @@ class ChatViewModel : ViewModel() {
         blockListenerJob?.cancel()
 
         currentChatId = chatId
+        _encryptedMessageIds.value = emptySet()
+        _encryptedDeliveryStatuses.value = emptyMap()
         _pendingMessageIds.value = emptySet()
 
         // Restore the per-chat pending indicators from Room immediately.
@@ -2435,8 +2437,8 @@ class ChatViewModel : ViewModel() {
         }
         _replyingTo.value = null
         _editingMessage.value = null
-        _encryptedMessageIds.value = emptySet()
-        _encryptedDeliveryStatuses.value = emptyMap()
+        // The active chat listeners remain attached while this screen is hidden.
+        // Keep their encrypted IDs/statuses so reopening this same chat is consistent.
         _otherUserTyping.value = false
     }
 
