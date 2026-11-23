@@ -53,6 +53,7 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
             trustVerifier = trust,
         )
         val recoveryStateReader = RoomOlmGroupKeyDistributionRecoveryStateStore(
+            database = database,
             queueDao = database.olmDeliveryQueueDao(),
             receiptDao = database.olmDeliveryReceiptDao(),
         )
