@@ -173,6 +173,71 @@ class EncryptedMessageDeliveryStatusRepositoryTest {
         }
     }
 
+    @Test
+    fun terminalDirectDeliveriesCanOnlyBeRequeuedForExplicitlyTrustedDevices() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "encrypted-direct-retry-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmDeliveryQueueDao()
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(database, dao),
+            )
+            queue.enqueue(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                messageId = "retry-direct",
+                prepared = listOf(
+                    prepared("bob-phone"),
+                    prepared("bob-tablet"),
+                ),
+                directMessageCommit = DirectOutgoingMessageCommit(
+                    ownerUserId = "alice",
+                    conversationId = "alice_bob",
+                    conversationPeerUserId = "bob",
+                    messageId = "retry-direct",
+                    senderDeviceId = "alice-phone",
+                    sentAtMillis = 50_000L,
+                    recipientDeviceCount = 2,
+                ),
+                conversationId = "alice_bob",
+                conversationPeerUserId = "bob",
+            )
+
+            val first = queue.claimNext("alice", "alice-phone", 60_000L)!!
+            assertTrue(queue.failPermanently(first, 60_001L, "recipient_untrusted"))
+            val second = queue.claimNext("alice", "alice-phone", 60_002L)!!
+            assertTrue(queue.failPermanently(second, 60_003L, "recipient_untrusted"))
+
+            val trustedRows = dao.getFailedDirectDeliveriesForTrustedDevices(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                recipientUserId = "bob",
+                conversationId = "alice_bob",
+                trustedRecipientDeviceIds = listOf("bob-phone"),
+            )
+            assertEquals(1, trustedRows.size)
+            assertEquals("bob-phone", trustedRows.single().recipientDeviceId)
+            val originalDeliveryId = trustedRows.single().deliveryId
+            val originalEnvelope = trustedRows.single().envelope
+
+            assertTrue(queue.retryFailed(trustedRows.single().toDelivery(), 70_000L))
+            val requeued = dao.getByDeliveryId(originalDeliveryId)!!
+            assertEquals(OlmDeliveryStatus.QUEUED.name, requeued.status)
+            assertEquals(originalEnvelope, requeued.envelope)
+            assertEquals(
+                OlmDeliveryStatus.FAILED.name,
+                dao.getByDeliveryId(second.deliveryId)!!.status,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun prepared(
         deviceId: String,
         recipientUserId: String = "bob",

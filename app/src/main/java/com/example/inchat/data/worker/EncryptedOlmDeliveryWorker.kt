@@ -658,6 +658,19 @@ class EncryptedOlmDeliveryWorker(
         }
 
         /**
+         * Schedule an immediate delivery recovery pass after a local trust decision.
+         * APPEND_OR_REPLACE prevents verification events during an active worker pass
+         * from being discarded by the normal KEEP scheduling policy.
+         */
+        fun scheduleRecoveryAfterTrustChange(
+            context: Context,
+            ownerUserId: String,
+            senderDeviceId: String,
+        ) {
+            scheduleAfterCurrentPass(context, ownerUserId, senderDeviceId)
+        }
+
+        /**
          * Schedule a follow-up after this worker has consumed an acknowledgement.
          * APPEND_OR_REPLACE is deliberate: KEEP would discard the request while
          * the current unique work is still RUNNING, losing the acknowledgement

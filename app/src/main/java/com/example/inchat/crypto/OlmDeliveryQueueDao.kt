@@ -118,6 +118,29 @@ interface OlmDeliveryQueueDao {
 
     @Query(
         """
+        SELECT * FROM olm_device_deliveries
+        WHERE ownerUserId = :ownerUserId
+          AND senderDeviceId = :senderDeviceId
+          AND recipientUserId = :recipientUserId
+          AND conversationId = :conversationId
+          AND conversationPeerUserId = :recipientUserId
+          AND groupId IS NULL
+          AND membershipEpoch IS NULL
+          AND recipientDeviceId IN (:trustedRecipientDeviceIds)
+          AND status = 'FAILED'
+        ORDER BY messageId ASC, recipientDeviceId ASC
+        """,
+    )
+    fun getFailedDirectDeliveriesForTrustedDevices(
+        ownerUserId: String,
+        senderDeviceId: String,
+        recipientUserId: String,
+        conversationId: String,
+        trustedRecipientDeviceIds: List<String>,
+    ): List<OlmDeviceDeliveryEntity>
+
+    @Query(
+        """
         SELECT messageId, status FROM olm_device_deliveries
         WHERE ownerUserId = :ownerUserId
           AND recipientUserId = :recipientUserId

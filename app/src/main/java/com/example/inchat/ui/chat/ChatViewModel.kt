@@ -5,11 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedOlmMessage
+import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatusRepository
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
+import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
+import com.example.inchat.crypto.TrustedDeviceRepository
+import com.example.inchat.crypto.toDelivery
 import com.example.inchat.data.local.LocalChatDatabase
+import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.Presence
 import com.example.inchat.data.model.ReplyTo
@@ -33,6 +40,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -260,6 +268,8 @@ class ChatViewModel : ViewModel() {
 
     private var encryptedDeliveryStatusJob: Job? = null
 
+    private var encryptedTrustRetryJob: Job? = null
+
     private var localMessagesJob:
             Job? = null
 
@@ -427,6 +437,7 @@ class ChatViewModel : ViewModel() {
         initializationJob?.cancel()
         listenerJob?.cancel()
         encryptedDeliveryStatusJob?.cancel()
+        encryptedTrustRetryJob?.cancel()
         _encryptedDeliveryStatuses.value = emptyMap()
         localMessagesJob?.cancel()
         pendingMessagesJob?.cancel()
@@ -683,12 +694,128 @@ class ChatViewModel : ViewModel() {
      * MESSAGE LISTENER
      * =========================================================
      */
+    private fun retryFailedDirectDeliveriesForTrustedDevices(
+        ownerUserId: String,
+        recipientUserId: String,
+        conversationId: String,
+    ) {
+        if (
+            currentChatId != conversationId ||
+            FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
+        ) return
+
+        viewModelScope.launch {
+            try {
+                val appContext = InChatApplication.instance
+                val identityAndTrustedDevices = withContext(Dispatchers.IO) {
+                    val senderDeviceId = DeviceIdentityRepository(appContext)
+                        .existingDeviceIdForDelivery()
+                        ?: return@withContext null
+                    val trust = TrustedDeviceRepository(appContext)
+                    val trustedDeviceIds = DeviceKeyDirectoryRepository()
+                        .getUserDevices(recipientUserId)
+                        .filter { device ->
+                            trust.isVerified(
+                                peerUserId = recipientUserId,
+                                peerDeviceId = device.deviceId,
+                                peerEd25519IdentityKey = device.ed25519IdentityKey,
+                            )
+                        }
+                        .map { it.deviceId }
+                    senderDeviceId to trustedDeviceIds
+                } ?: return@launch
+
+                val senderDeviceId = identityAndTrustedDevices.first
+                val trustedDeviceIds = identityAndTrustedDevices.second
+                if (
+                    trustedDeviceIds.isEmpty() ||
+                    currentChatId != conversationId ||
+                    FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
+                ) return@launch
+
+                val dao = localChatDatabase.olmDeliveryQueueDao()
+                val queue = OlmDeliveryQueue(
+                    RoomOlmDeliveryQueueStore(
+                        database = localChatDatabase,
+                        dao = dao,
+                    ),
+                )
+                val retriedCount = withContext(Dispatchers.IO) {
+                    val failed = dao.getFailedDirectDeliveriesForTrustedDevices(
+                        ownerUserId = ownerUserId,
+                        senderDeviceId = senderDeviceId,
+                        recipientUserId = recipientUserId,
+                        conversationId = conversationId,
+                        trustedRecipientDeviceIds = trustedDeviceIds,
+                    )
+                    val now = System.currentTimeMillis()
+                    failed.count { delivery ->
+                        queue.retryFailed(delivery.toDelivery(), now)
+                    }
+                }
+                if (
+                    retriedCount > 0 &&
+                    currentChatId == conversationId &&
+                    FirebaseAuth.getInstance().currentUser?.uid == ownerUserId
+                ) {
+                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                        context = appContext,
+                        ownerUserId = ownerUserId,
+                        senderDeviceId = senderDeviceId,
+                    )
+                    Log.i(
+                        "ChatViewModel",
+                        "Requeued $retriedCount original encrypted delivery(s) after recipient SAS trust changed.",
+                    )
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(
+                    "ChatViewModel",
+                    "Could not recover failed encrypted deliveries after trust changed.",
+                    error,
+                )
+            }
+        }
+    }
+
     private fun startMessageListener(
         chatId: String,
         currentUserId: String,
         otherUserId: String,
         otherUserNickname: String
     ) {
+        encryptedTrustRetryJob?.cancel()
+        encryptedTrustRetryJob?.cancel()
+        encryptedTrustRetryJob = viewModelScope.launch {
+            try {
+                TrustedDeviceRepository(InChatApplication.instance)
+                    .observeTrustChanges()
+                    .onStart { emit(Unit) }
+                    .collect {
+                        if (
+                            currentChatId == chatId &&
+                            FirebaseAuth.getInstance().currentUser?.uid == currentUserId
+                        ) {
+                            retryFailedDirectDeliveriesForTrustedDevices(
+                                ownerUserId = currentUserId,
+                                recipientUserId = otherUserId,
+                                conversationId = chatId,
+                            )
+                        }
+                    }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e(
+                    "ChatViewModel",
+                    "Direct-message trust-change retry observer stopped.",
+                    error,
+                )
+            }
+        }
+
         encryptedDeliveryStatusJob?.cancel()
         _encryptedDeliveryStatuses.value = emptyMap()
         encryptedDeliveryStatusJob = viewModelScope.launch {
@@ -2493,6 +2620,7 @@ class ChatViewModel : ViewModel() {
 
         listenerJob?.cancel()
         encryptedDeliveryStatusJob?.cancel()
+        encryptedTrustRetryJob?.cancel()
         readListenerJob?.cancel()
         readReceiptPreferenceJob?.cancel()
         presenceJob?.cancel()
