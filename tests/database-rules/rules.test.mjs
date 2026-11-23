@@ -262,6 +262,11 @@ test("new user profiles require the matching reserved username", async () => {
     set(ref(charlieDb, "usernameClaims/charlie"), "charlie"),
   );
 
+  const ownerMarker = await assertSucceeds(
+    get(ref(charlieDb, "usernameClaims/charlie")),
+  );
+  assert.equal(ownerMarker.val(), "charlie");
+
   await assertSucceeds(
     set(ref(charlieDb, "users/charlie"), profile),
   );
