@@ -3,6 +3,10 @@ package com.example.inchat.ui.chat
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.inchat.InChatApplication
+import com.example.inchat.crypto.DecryptedOlmMessage
+import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.Presence
 import com.example.inchat.data.model.ReplyTo
@@ -36,6 +40,16 @@ class ChatViewModel : ViewModel() {
 
     private val chatRepository =
         ChatRepository()
+
+    // Incoming Olm messages are persisted separately from the legacy plaintext
+    // cache. Observe that encrypted store directly so authenticated E2EE messages
+    // can appear in the same conversation timeline without being copied to it.
+    private val encryptedOlmMessageRepository by lazy {
+        EncryptedOlmMessageRepository(
+            LocalChatDatabase.getInstance(InChatApplication.instance)
+                .encryptedOlmMessageDao()
+        )
+    }
 
     private val moderationRepository =
         ModerationRepository()
@@ -491,7 +505,8 @@ class ChatViewModel : ViewModel() {
 
                     startMessageListener(
                         chatId = chatId,
-                        currentUserId = currentUserId
+                        currentUserId = currentUserId,
+                        otherUserNickname = otherUserNickname
                     )
 
                     // Firebase's persistent write queue resumes after reconnect.
@@ -597,7 +612,8 @@ class ChatViewModel : ViewModel() {
      */
     private fun startMessageListener(
         chatId: String,
-        currentUserId: String
+        currentUserId: String,
+        otherUserNickname: String
     ) {
 
         localMessagesJob?.cancel()
@@ -609,10 +625,29 @@ class ChatViewModel : ViewModel() {
 
                 try {
 
-                    chatRepository
-                        .getMessagesFlow(
-                            chatId
+                    combine(
+                        chatRepository.getMessagesFlow(chatId),
+                        encryptedOlmMessageRepository.observeMessages(
+                            ownerUserId = currentUserId,
+                            conversationId = chatId
                         )
+                    ) { legacyMessages, encryptedMessages ->
+                        val encryptedIds = encryptedMessages.mapTo(mutableSetOf()) {
+                            it.messageId
+                        }
+                        val encryptedTimelineMessages = encryptedMessages.map { encrypted ->
+                            encrypted.toTimelineMessage(
+                                currentUserId = currentUserId,
+                                otherUserNickname = otherUserNickname
+                            )
+                        }
+                        // Prefer the authenticated/decrypted record if a legacy
+                        // record with the same ID exists. Never let stale plaintext
+                        // win over the encrypted local copy.
+                        (legacyMessages.filterNot { it.id in encryptedIds } +
+                            encryptedTimelineMessages)
+                            .sortedWith(compareBy<Message> { it.timestamp }.thenBy { it.id })
+                    }
                         .distinctUntilChanged()
                         .collect { messageList ->
 
@@ -2173,6 +2208,21 @@ class ChatViewModel : ViewModel() {
             onResult(result.isSuccess, result.exceptionOrNull()?.message)
         }
     }
+
+    /**
+     * Project authenticated Olm plaintext into the existing display model only
+     * in memory. The source row remains AES-GCM encrypted in Room.
+     */
+    private fun DecryptedOlmMessage.toTimelineMessage(
+        currentUserId: String,
+        otherUserNickname: String
+    ): Message = Message(
+        id = messageId,
+        senderId = senderUserId,
+        senderNickname = if (senderUserId == currentUserId) "You" else otherUserNickname,
+        text = text,
+        timestamp = sentAtMillis
+    )
 
     /*
      * =========================================================
