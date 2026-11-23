@@ -447,6 +447,38 @@ internal class EncryptedGroupMessageRepository(
         }
     }
 
+    /** Remove one encrypted message from only this authenticated member's local timeline. */
+    suspend fun deleteMessageForMe(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): Int {
+        validateScope(ownerUserId, groupId)
+        require(MESSAGE_ID.matches(messageId)) { "Group message ID is invalid" }
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            val deleted = dao.deleteMessageForOwner(ownerUserId, groupId, messageId)
+            requireAuthenticatedOwner(ownerUserId)
+            deleted
+        }
+    }
+
+    /** Clear this account's encrypted timeline rows without touching other group members. */
+    suspend fun deleteConversationForMe(
+        ownerUserId: String,
+        groupId: String,
+    ): Int {
+        validateScope(ownerUserId, groupId)
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            val deleted = dao.deleteConversationForOwner(ownerUserId, groupId)
+            requireAuthenticatedOwner(ownerUserId)
+            deleted
+        }
+    }
+
     private fun validateScope(ownerUserId: String, groupId: String) {
         require(ID.matches(ownerUserId)) { "Group message owner account ID is invalid" }
         require(ID.matches(groupId)) { "Group ID has an invalid format" }

@@ -315,6 +315,7 @@ fun ChatScreen(
             isOwnMessage =
                 message.senderId ==
                         currentUserId,
+            isEncryptedMessage = chatViewModel.isEncryptedMessageForActions(message.id),
             deliveredTimestamp = otherUserDeliveredTimestamp,
             readTimestamp = otherUserReadTimestamp,
             onReply = {

@@ -188,6 +188,25 @@ abstract class EncryptedGroupMessageDao {
     abstract suspend fun hasStoredMessages(): Boolean
 
     @Query(
+        "DELETE FROM encrypted_group_messages " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId"
+    )
+    abstract suspend fun deleteMessageForOwner(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): Int
+
+    @Query(
+        "DELETE FROM encrypted_group_messages " +
+            "WHERE ownerUserId = :ownerUserId AND groupId = :groupId"
+    )
+    abstract suspend fun deleteConversationForOwner(
+        ownerUserId: String,
+        groupId: String,
+    ): Int
+
+    @Query(
         "SELECT * FROM encrypted_group_messages " +
             "WHERE ownerUserId = :ownerUserId AND groupId = :groupId " +
             "ORDER BY sentAtMillis ASC, messageId ASC"

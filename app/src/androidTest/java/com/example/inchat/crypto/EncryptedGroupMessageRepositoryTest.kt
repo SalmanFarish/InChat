@@ -660,6 +660,53 @@ class EncryptedGroupMessageRepositoryTest {
             .getOutgoingGroupCommit("alice", "group-123", outgoing.messageId) != null)
     }
 
+
+    @Test
+    fun deleteMessageForMeRemovesOnlyTheSelectedEncryptedGroupRow() = runBlocking {
+        val first = message().copy(messageId = "delete-group-one", messageIndex = 18L)
+        val second = message().copy(messageId = "keep-group-two", messageIndex = 19L)
+        assertTrue(repository.commitStagedMessage(
+            first,
+            receipt(first, "delete first".toByteArray()),
+            "delete first".toByteArray(),
+        ))
+        assertTrue(repository.commitStagedMessage(
+            second,
+            receipt(second, "keep second".toByteArray()),
+            "keep second".toByteArray(),
+        ))
+
+        assertEquals(1, repository.deleteMessageForMe("alice", "group-123", first.messageId))
+        assertNull(repository.getMessage("alice", "group-123", first.messageId))
+        assertEquals(second, repository.getMessage("alice", "group-123", second.messageId))
+        assertEquals(listOf(second), repository.observeMessages("alice", "group-123").first())
+        assertRejected {
+            repository.deleteMessageForMe("mallory", "group-123", second.messageId)
+        }
+    }
+
+    @Test
+    fun clearConversationForMeRemovesAllEncryptedGroupRowsOnlyForAuthenticatedOwner() = runBlocking {
+        val first = message().copy(messageId = "clear-group-one", messageIndex = 20L)
+        val second = message().copy(messageId = "clear-group-two", messageIndex = 21L)
+        assertTrue(repository.commitStagedMessage(
+            first,
+            receipt(first, "clear first".toByteArray()),
+            "clear first".toByteArray(),
+        ))
+        assertTrue(repository.commitStagedMessage(
+            second,
+            receipt(second, "clear second".toByteArray()),
+            "clear second".toByteArray(),
+        ))
+
+        assertEquals(2, repository.deleteConversationForMe("alice", "group-123"))
+        assertTrue(repository.observeMessages("alice", "group-123").first().isEmpty())
+        assertRejected {
+            repository.deleteConversationForMe("mallory", "group-123")
+        }
+    }
+
     private suspend fun assertRejected(block: suspend () -> Any?) {
         try {
             block()

@@ -73,7 +73,8 @@ fun ChatMessageActionsDialog(
     onDeleteForEveryone: () -> Unit,
     onSelectMessages: () -> Unit,
     onDismiss: () -> Unit,
-    onCopied: () -> Unit
+    onCopied: () -> Unit,
+    isEncryptedMessage: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -202,11 +203,13 @@ fun ChatMessageActionsDialog(
                         onClick = if (confirmingDeleteForMeState.value) onDeleteForMe else onDeleteForEveryone
                     )
                 } else {
-                    MessageActionRow(
-                        icon = Icons.AutoMirrored.Outlined.Reply,
-                        title = "Reply",
-                        onClick = onReply
-                    )
+                    if (!isEncryptedMessage) {
+                        MessageActionRow(
+                            icon = Icons.AutoMirrored.Outlined.Reply,
+                            title = "Reply",
+                            onClick = onReply
+                        )
+                    }
                     MessageActionRow(
                         icon = Icons.Outlined.Info,
                         title = "Info",
@@ -225,24 +228,26 @@ fun ChatMessageActionsDialog(
                             onCopied()
                         }
                     )
-                    if (editAllowed) {
+                    if (editAllowed && !isEncryptedMessage) {
                         MessageActionRow(
                             icon = Icons.Outlined.Edit,
                             title = "Edit",
                             onClick = onEdit
                         )
                     }
-                    MessageActionRow(
-                        icon = Icons.Outlined.SelectAll,
-                        title = "Select messages",
-                        onClick = onSelectMessages
-                    )
+                    if (!isEncryptedMessage) {
+                        MessageActionRow(
+                            icon = Icons.Outlined.SelectAll,
+                            title = "Select messages",
+                            onClick = onSelectMessages
+                        )
+                    }
                     MessageActionRow(
                         icon = Icons.Outlined.DeleteOutline,
                         title = "Delete for me",
                         onClick = { confirmingDeleteForMeState.value = true }
                     )
-                    if (isOwnMessage) {
+                    if (isOwnMessage && !isEncryptedMessage) {
                         MessageActionRow(
                             icon = Icons.Outlined.DeleteOutline,
                             title = "Delete for everyone",

@@ -152,13 +152,14 @@ fun GroupChatScreen(
 
     val actionTarget =
         messageForActions?.let { id ->
-            messages.firstOrNull { it.id == id }
+            displayMessages.firstOrNull { it.id == id }
         }
 
     actionTarget?.let { message ->
         ChatMessageActionsDialog(
             message = message,
             isOwnMessage = message.senderId == currentUserId,
+            isEncryptedMessage = message.id in encryptedMessageIds,
             readTimestamp =
                 groupReadTimestamps.values
                     .filter { it >= message.timestamp && message.timestamp > 0L }
@@ -390,9 +391,7 @@ fun GroupChatScreen(
                     }
                 },
                 onLongClick = { message ->
-                    if (message.id !in encryptedMessageIds) {
-                        messageForActions = message.id
-                    }
+                    messageForActions = message.id
                 },
                 onReactionClick = { message, reaction ->
                     if (message.id !in encryptedMessageIds) {

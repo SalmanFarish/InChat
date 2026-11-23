@@ -476,7 +476,15 @@ class GroupChatViewModel : ViewModel() {
         }
     }
 
+    private fun isEncryptedGroupMessage(messageId: String): Boolean =
+        messageId.isNotBlank() && _encryptedMessages.value.any { it.messageId == messageId }
+
     fun setReplyingTo(message: Message) {
+        if (
+            isEncryptedGroupMessage(message.id)
+        ) {
+            return
+        }
         if (
             message.id.isBlank() ||
             message.senderId.isBlank() ||
@@ -498,6 +506,7 @@ class GroupChatViewModel : ViewModel() {
         message: Message,
         currentUserId: String
     ) {
+        if (isEncryptedGroupMessage(message.id)) return
         if (
             message.senderId != currentUserId ||
             message.id.isBlank()
@@ -735,6 +744,11 @@ class GroupChatViewModel : ViewModel() {
         val editing = _editingMessage.value
         val cleanText = newText.trim()
 
+        if (isEncryptedGroupMessage(messageId)) {
+            onResult(false, "Editing encrypted group messages is not supported yet.")
+            return
+        }
+
         if (
             editing == null ||
             editing.id != messageId ||
@@ -787,12 +801,32 @@ class GroupChatViewModel : ViewModel() {
             return
         }
 
+        val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank()) {
+            onResult(false, "You are not authenticated.")
+            return
+        }
+
+        val encryptedIdsForChat = _encryptedMessages.value.mapTo(mutableSetOf()) { it.messageId }
         viewModelScope.launch {
             for (messageId in messageIds) {
-                val result = chatRepository.deleteMessageForMe(groupId, messageId)
-                if (result.isFailure) {
-                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
-                    return@launch
+                if (messageId in encryptedIdsForChat) {
+                    try {
+                        encryptedGroupMessageRepository.deleteMessageForMe(
+                            ownerUserId = ownerUserId,
+                            groupId = groupId,
+                            messageId = messageId,
+                        )
+                    } catch (error: Exception) {
+                        onResult(false, error.localizedMessage ?: "Could not delete encrypted group message for you.")
+                        return@launch
+                    }
+                } else {
+                    val result = chatRepository.deleteMessageForMe(groupId, messageId)
+                    if (result.isFailure) {
+                        onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
+                        return@launch
+                    }
                 }
             }
             onResult(true, null)
@@ -807,6 +841,11 @@ class GroupChatViewModel : ViewModel() {
         val groupId = listeningGroupId
         if (groupId.isBlank() || messageIds.isEmpty()) {
             onResult(false, "No messages selected.")
+            return
+        }
+        val encryptedIdsForChat = _encryptedMessages.value.mapTo(mutableSetOf()) { it.messageId }
+        if (messageIds.any { it in encryptedIdsForChat }) {
+            onResult(false, "Encrypted group messages cannot be deleted for everyone yet.")
             return
         }
         val selectedMessages = _messages.value.filter { it.id in messageIds }
@@ -837,9 +876,29 @@ class GroupChatViewModel : ViewModel() {
             return
         }
         val pendingIds = _pendingMessageIds.value
+        val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank()) {
+            onResult(false, "You are not authenticated.")
+            return
+        }
         viewModelScope.launch {
             val result = chatRepository.clearChatForMe(groupId, pendingIds)
-            onResult(result.isSuccess, result.exceptionOrNull()?.message)
+            if (result.isFailure) {
+                onResult(false, result.exceptionOrNull()?.message)
+                return@launch
+            }
+            try {
+                encryptedGroupMessageRepository.deleteConversationForMe(
+                    ownerUserId = ownerUserId,
+                    groupId = groupId,
+                )
+                onResult(true, null)
+            } catch (error: Exception) {
+                onResult(
+                    false,
+                    error.localizedMessage ?: "Legacy history was cleared, but encrypted group history could not be cleared.",
+                )
+            }
         }
     }
 
@@ -850,6 +909,10 @@ class GroupChatViewModel : ViewModel() {
 
         if (messageId.isBlank()) {
             onResult(false, "Invalid message.")
+            return
+        }
+        if (isEncryptedGroupMessage(messageId)) {
+            onResult(false, "Encrypted group messages cannot be deleted for everyone yet.")
             return
         }
 
@@ -933,7 +996,7 @@ class GroupChatViewModel : ViewModel() {
         currentUserId: String
     ) {
 
-        if (listeningGroupId.isBlank()) {
+        if (listeningGroupId.isBlank() || isEncryptedGroupMessage(messageId)) {
             return
         }
 

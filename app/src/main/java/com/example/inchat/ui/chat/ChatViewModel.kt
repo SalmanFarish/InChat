@@ -85,6 +85,9 @@ class ChatViewModel : ViewModel() {
     // Feature handlers use this to avoid sending those IDs to plaintext RTDB APIs.
     private val _encryptedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
+    fun isEncryptedMessageForActions(messageId: String): Boolean =
+        messageId.isNotBlank() && messageId in _encryptedMessageIds.value
+
     private val _messagesLoaded =
         MutableStateFlow(false)
 
