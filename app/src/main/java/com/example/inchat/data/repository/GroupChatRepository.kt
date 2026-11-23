@@ -608,6 +608,13 @@ class GroupChatRepository {
             awaitClose { ref.removeEventListener(listener) }
         }
 
+    /**
+     * Legacy plaintext group-send API retained only so older call sites fail
+     * closed at runtime. Group text must use the authenticated Megolm outbox.
+     */
+    @Deprecated(
+        message = "Plaintext group-message sending is disabled; use the encrypted Megolm coordinator.",
+    )
     suspend fun sendMessage(
         groupId: String,
         messageId: String,
@@ -616,123 +623,11 @@ class GroupChatRepository {
         senderNickname: String,
         replyTo: ReplyTo? = null,
         attachment: com.example.inchat.data.model.Attachment? = null
-    ): Result<String> {
-
-        return try {
-
-            val firebaseUser = auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != senderId
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match message sender."
-                    )
-                )
-            }
-
-            val cleanText = text.trim()
-
-            if (
-                groupId.isBlank() ||
-                messageId.isBlank() ||
-                senderId.isBlank() ||
-                senderNickname.isBlank() ||
-                cleanText.isBlank()
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid group message data."
-                    )
-                )
-            }
-
-            if (cleanText.length > 5000) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message is too long."
-                    )
-                )
-            }
-
-            /*
-             * Do not perform a remote get() before sending.
-             *
-             * A get() can suspend while offline, which prevents the
-             * message write from ever reaching Firebase's offline
-             * queue. Membership is enforced by Realtime Database
-             * security rules on the actual message write.
-             */
-            val messageData =
-                mutableMapOf<String, Any>(
-                    "id" to messageId,
-                    "senderId" to senderId,
-                    "senderNickname" to senderNickname,
-                    "text" to cleanText,
-                    "timestamp" to ServerValue.TIMESTAMP
-                )
-
-            if (attachment != null) {
-                messageData["attachment"] = mapOf(
-                    "type" to attachment.type,
-                    "storageKey" to attachment.storageKey,
-                    "fileName" to attachment.fileName,
-                    "mimeType" to attachment.mimeType,
-                    "sizeBytes" to attachment.sizeBytes
-                )
-            }
-
-            replyTo?.let { reply ->
-                messageData["replyTo"] =
-                    mapOf(
-                        "messageId" to reply.messageId,
-                        "senderId" to reply.senderId,
-                        "senderNickname" to reply.senderNickname,
-                        "text" to reply.text
-                    )
-            }
-
-            val messageWrite = database
-                .getReference("chats")
-                .child(groupId)
-                .child("messages")
-                .child(messageId)
-                .setValue(messageData)
-
-            // Persist the notification event before waiting for Firebase's
-            // server acknowledgement so an offline queued message survives
-            // Android process death. The Worker retries while the message is
-            // not yet visible to the trusted Worker backend.
-            try {
-                MessageNotificationWorker.enqueue(
-                    context = InChatApplication.instance,
-                    senderId = senderId,
-                    chatId = groupId,
-                    messageId = messageId
-                )
-            } catch (queueError: Exception) {
-                Log.e(
-                    "GroupChatRepository",
-                    "Group message was queued, but its background event could not be scheduled.",
-                    queueError
-                )
-            }
-
-            messageWrite.await()
-            Result.success(messageId)
-
-        } catch (e: Exception) {
-            MessageNotificationWorker.cancel(
-                context = InChatApplication.instance,
-                senderId = senderId,
-                chatId = groupId,
-                messageId = messageId
-            )
-            Result.failure(e)
-        }
-    }
+    ): Result<String> = Result.failure(
+        UnsupportedOperationException(
+            "Plaintext group-message delivery is disabled. Use the encrypted Megolm coordinator.",
+        ),
+    )
 
 
     /*
