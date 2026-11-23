@@ -787,7 +787,6 @@ class ChatViewModel : ViewModel() {
         otherUserNickname: String
     ) {
         encryptedTrustRetryJob?.cancel()
-        encryptedTrustRetryJob?.cancel()
         encryptedTrustRetryJob = viewModelScope.launch {
             try {
                 TrustedDeviceRepository(InChatApplication.instance)

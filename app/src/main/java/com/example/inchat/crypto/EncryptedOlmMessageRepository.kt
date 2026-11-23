@@ -124,9 +124,9 @@ internal class EncryptedOlmMessageRepository(
     }
 
     /**
-     * Persist the sender's own local timeline copy using the same Keystore AES-GCM
-     * envelope as inbound messages. This is a storage primitive only; callers must
-     * still coordinate it with the durable Olm outbox before enabling live sending.
+     * Legacy standalone storage primitive retained for controlled recovery and tests.
+     * Live direct sends must use prepareOutgoingMessage and commit the resulting
+     * encrypted row atomically with the complete durable Olm outbox.
      */
     suspend fun saveOutgoingMessage(message: DecryptedOlmMessage) = withContext(ioDispatcher) {
         validateScope(message.ownerUserId, message.conversationId)
