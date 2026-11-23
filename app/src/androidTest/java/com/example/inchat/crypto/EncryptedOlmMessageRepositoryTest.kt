@@ -161,6 +161,98 @@ class EncryptedOlmMessageRepositoryTest {
         }
     }
 
+
+    @Test
+    fun savesOutgoingSenderCopyEncryptedAndIdempotently() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-outgoing-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "alice" })
+            val outgoing = outgoingMessage("sender-copy", "private outgoing body")
+            repository.saveOutgoingMessage(outgoing)
+            repository.saveOutgoingMessage(outgoing)
+
+            val rows = dao.observeMessages("alice", "alice_bob").first()
+            assertEquals("A replay must not create a second sender timeline row", 1, rows.size)
+            assertTrue("The stored row must not contain plaintext", !rows.single().textCiphertextBase64.contains(outgoing.text))
+            assertEquals(outgoing, repository.getMessage("alice", "alice_bob", "sender-copy"))
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
+    @Test
+    fun outgoingMessageIdCollisionWithDifferentContentFailsWithoutReplacingOriginal() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-outgoing-collision-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "alice" })
+            val original = outgoingMessage("collision", "original body")
+            repository.saveOutgoingMessage(original)
+            assertTrue(
+                "Reusing a committed outgoing ID with different content must be rejected",
+                runCatching { repository.saveOutgoingMessage(original.copy(text = "replacement body")) }.isFailure,
+            )
+            assertEquals(original, repository.getMessage("alice", "alice_bob", "collision"))
+            assertEquals(1, dao.observeMessages("alice", "alice_bob").first().size)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
+    @Test
+    fun outgoingMessageCannotBeSavedForAnotherAuthenticatedAccount() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-outgoing-owner-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "mallory" })
+            assertTrue(
+                "An account switch must prevent writing a sender-owned message",
+                runCatching { repository.saveOutgoingMessage(outgoingMessage("wrong-owner", "must not persist")) }.isFailure,
+            )
+            assertTrue(dao.observeMessages("alice", "alice_bob").first().isEmpty())
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
+    private fun outgoingMessage(messageId: String, text: String) = DecryptedOlmMessage(
+        ownerUserId = "alice",
+        conversationId = "alice_bob",
+        messageId = messageId,
+        conversationPeerUserId = "bob",
+        senderUserId = "alice",
+        senderDeviceId = "alice-device",
+        recipientUserId = "bob",
+        recipientDeviceId = "bob-device",
+        sentAtMillis = 100L,
+        text = text,
+    )
+
     private fun message(
         messageId: String,
         sentAtMillis: Long,
