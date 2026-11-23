@@ -281,10 +281,20 @@ test("senders cannot seed Worker-owned message receipt markers", async () => {
   );
 });
 
-test("valid message replies and attachments remain writable without extra metadata", async () => {
+test("direct plaintext messages, replies, and attachments are rejected", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
 
-  await assertSucceeds(
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/plaintext-direct"), {
+      id: "plaintext-direct",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "Direct plaintext must use Olm instead",
+      timestamp: 2000,
+    }),
+  );
+
+  await assertFails(
     set(ref(aliceDb, "chats/dm/messages/valid-reply-attachment"), {
       id: "valid-reply-attachment",
       senderId: "alice",
