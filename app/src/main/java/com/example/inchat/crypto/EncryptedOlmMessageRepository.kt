@@ -53,6 +53,34 @@ internal class EncryptedOlmMessageRepository(
         }
     }
 
+    /** Delete one encrypted message only from this authenticated installation's local history. */
+    suspend fun deleteMessageForMe(
+        ownerUserId: String,
+        conversationId: String,
+        messageId: String,
+    ): Int = withContext(ioDispatcher) {
+        validateScope(ownerUserId, conversationId)
+        require(MESSAGE_ID_PATTERN.matches(messageId)) {
+            "Encrypted message ID has an invalid format"
+        }
+        requireAuthenticatedOwner(ownerUserId)
+        val deleted = dao.deleteMessageForOwner(ownerUserId, conversationId, messageId)
+        requireAuthenticatedOwner(ownerUserId)
+        deleted
+    }
+
+    /** Clear only this account's encrypted local history for one direct conversation. */
+    suspend fun deleteConversationForMe(
+        ownerUserId: String,
+        conversationId: String,
+    ): Int = withContext(ioDispatcher) {
+        validateScope(ownerUserId, conversationId)
+        requireAuthenticatedOwner(ownerUserId)
+        val deleted = dao.deleteConversationForOwner(ownerUserId, conversationId)
+        requireAuthenticatedOwner(ownerUserId)
+        deleted
+    }
+
     /**
      * Encrypt a sender-owned message without writing it yet. The encrypted entity
      * can then be committed atomically with its complete durable device fan-out.

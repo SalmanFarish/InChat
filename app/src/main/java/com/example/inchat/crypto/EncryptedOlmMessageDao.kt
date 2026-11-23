@@ -46,6 +46,26 @@ interface EncryptedOlmMessageDao {
     ): EncryptedOlmMessageEntity?
 
     @Query(
+        "DELETE FROM encrypted_olm_messages " +
+            "WHERE ownerUserId = :ownerUserId AND conversationId = :conversationId " +
+            "AND messageId = :messageId"
+    )
+    suspend fun deleteMessageForOwner(
+        ownerUserId: String,
+        conversationId: String,
+        messageId: String,
+    ): Int
+
+    @Query(
+        "DELETE FROM encrypted_olm_messages " +
+            "WHERE ownerUserId = :ownerUserId AND conversationId = :conversationId"
+    )
+    suspend fun deleteConversationForOwner(
+        ownerUserId: String,
+        conversationId: String,
+    ): Int
+
+    @Query(
         "SELECT * FROM encrypted_olm_messages " +
             "WHERE ownerUserId = :ownerUserId AND conversationId = :conversationId " +
             "ORDER BY sentAtMillis ASC, messageId ASC"

@@ -15,6 +15,7 @@ import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.ModerationRepository
 import com.example.inchat.data.repository.PresenceRepository
 import com.example.inchat.data.repository.UserRepository
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -79,6 +80,10 @@ class ChatViewModel : ViewModel() {
     val messages:
             StateFlow<List<Message>> =
         _messages.asStateFlow()
+
+    // IDs currently sourced from the authenticated encrypted Room timeline.
+    // Feature handlers use this to avoid sending those IDs to plaintext RTDB APIs.
+    private val _encryptedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
     private val _messagesLoaded =
         MutableStateFlow(false)
@@ -630,6 +635,7 @@ class ChatViewModel : ViewModel() {
         localMessagesJob?.cancel()
         localMessagesJob = null
         listenerJob?.cancel()
+        _encryptedMessageIds.value = emptySet()
 
         listenerJob =
             viewModelScope.launch {
@@ -646,6 +652,7 @@ class ChatViewModel : ViewModel() {
                         val encryptedIds = encryptedMessages.mapTo(mutableSetOf()) {
                             it.messageId
                         }
+                        _encryptedMessageIds.value = encryptedIds
                         val encryptedTimelineMessages = encryptedMessages.map { encrypted ->
                             encrypted.toTimelineMessage(
                                 currentUserId = currentUserId,
@@ -1337,6 +1344,10 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        if (message.id in _encryptedMessageIds.value) {
+            return
+        }
+
         if (
             message.senderId !=
             currentUserId
@@ -1385,6 +1396,11 @@ class ChatViewModel : ViewModel() {
                 "Invalid message data"
             )
 
+            return
+        }
+
+        if (messageId in _encryptedMessageIds.value) {
+            onResult(false, "Editing encrypted messages is not supported yet.")
             return
         }
 
@@ -1542,6 +1558,11 @@ class ChatViewModel : ViewModel() {
                 "Invalid reaction data"
             )
 
+            return
+        }
+
+        if (messageId in _encryptedMessageIds.value) {
+            onResult?.invoke(false, "Reactions on encrypted messages are not supported yet.")
             return
         }
 
@@ -2094,12 +2115,31 @@ class ChatViewModel : ViewModel() {
             return
         }
 
+        val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank()) {
+            onResult(false, "You are not authenticated.")
+            return
+        }
+
         viewModelScope.launch {
             for (messageId in messageIds) {
-                val result = chatRepository.deleteMessageForMe(chatId, messageId)
-                if (result.isFailure) {
-                    onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
-                    return@launch
+                if (messageId in _encryptedMessageIds.value) {
+                    try {
+                        encryptedOlmMessageRepository.deleteMessageForMe(
+                            ownerUserId = ownerUserId,
+                            conversationId = chatId,
+                            messageId = messageId,
+                        )
+                    } catch (error: Exception) {
+                        onResult(false, error.localizedMessage ?: "Could not delete encrypted message for you.")
+                        return@launch
+                    }
+                } else {
+                    val result = chatRepository.deleteMessageForMe(chatId, messageId)
+                    if (result.isFailure) {
+                        onResult(false, result.exceptionOrNull()?.message ?: "Could not delete message for you.")
+                        return@launch
+                    }
                 }
             }
             onResult(true, null)
@@ -2116,6 +2156,11 @@ class ChatViewModel : ViewModel() {
             onResult(false, "No messages selected.")
             return
         }
+        if (messageIds.any { it in _encryptedMessageIds.value }) {
+            onResult(false, "Encrypted messages cannot be deleted for everyone yet.")
+            return
+        }
+
         val selectedMessages = _messages.value.filter { it.id in messageIds }
         if (
             selectedMessages.size != messageIds.size ||
@@ -2144,9 +2189,30 @@ class ChatViewModel : ViewModel() {
             return
         }
         val pendingIds = _pendingMessageIds.value
+        val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (ownerUserId.isBlank()) {
+            onResult(false, "You are not authenticated.")
+            return
+        }
+
         viewModelScope.launch {
             val result = chatRepository.clearChatForMe(chatId, pendingIds)
-            onResult(result.isSuccess, result.exceptionOrNull()?.message)
+            if (result.isFailure) {
+                onResult(false, result.exceptionOrNull()?.message)
+                return@launch
+            }
+            try {
+                encryptedOlmMessageRepository.deleteConversationForMe(
+                    ownerUserId = ownerUserId,
+                    conversationId = chatId,
+                )
+                onResult(true, null)
+            } catch (error: Exception) {
+                onResult(
+                    false,
+                    error.localizedMessage ?: "Legacy history was cleared, but encrypted local history could not be cleared.",
+                )
+            }
         }
     }
 
@@ -2179,6 +2245,11 @@ class ChatViewModel : ViewModel() {
             messageId.isEmpty()
         ) {
 
+            return
+        }
+
+        if (messageId in _encryptedMessageIds.value) {
+            Log.w("ChatViewModel", "Delete-for-everyone is unavailable for an encrypted direct message.")
             return
         }
 
@@ -2277,6 +2348,7 @@ class ChatViewModel : ViewModel() {
         }
         _replyingTo.value = null
         _editingMessage.value = null
+        _encryptedMessageIds.value = emptySet()
         _otherUserTyping.value = false
     }
 

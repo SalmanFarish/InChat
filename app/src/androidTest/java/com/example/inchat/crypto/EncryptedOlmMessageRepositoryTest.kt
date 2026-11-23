@@ -240,6 +240,64 @@ class EncryptedOlmMessageRepositoryTest {
         }
     }
 
+
+    @Test
+    fun deleteMessageForMeRemovesOnlyTheSelectedAccountAndConversationRow() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-delete-local-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "alice" })
+            val first = outgoingMessage("delete-one", "first body")
+            val second = outgoingMessage("keep-two", "second body")
+            repository.saveOutgoingMessage(first)
+            repository.saveOutgoingMessage(second)
+
+            assertEquals(1, repository.deleteMessageForMe("alice", "alice_bob", "delete-one"))
+            assertEquals(null, repository.getMessage("alice", "alice_bob", "delete-one"))
+            assertEquals(second, repository.getMessage("alice", "alice_bob", "keep-two"))
+            assertEquals(1, dao.observeMessages("alice", "alice_bob").first().size)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
+    @Test
+    fun clearConversationForMeRemovesAllLocalEncryptedRowsAndEnforcesAccountScope() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "encrypted-olm-clear-local-${UUID.randomUUID()}.db"
+        val keyAlias = EncryptedOlmMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        val vault = EncryptedOlmMessageVault(keyAlias)
+        try {
+            val dao = database.encryptedOlmMessageDao()
+            val repository = EncryptedOlmMessageRepository(dao, vault, authenticatedUserId = { "alice" })
+            repository.saveOutgoingMessage(outgoingMessage("clear-one", "first body"))
+            repository.saveOutgoingMessage(outgoingMessage("clear-two", "second body"))
+
+            assertEquals(2, repository.deleteConversationForMe("alice", "alice_bob"))
+            assertTrue(dao.observeMessages("alice", "alice_bob").first().isEmpty())
+            assertTrue(
+                runCatching {
+                    repository.deleteConversationForMe("mallory", "alice_bob")
+                }.isFailure,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+            deleteKey(keyAlias)
+        }
+    }
+
     private fun outgoingMessage(messageId: String, text: String) = DecryptedOlmMessage(
         ownerUserId = "alice",
         conversationId = "alice_bob",
