@@ -245,6 +245,26 @@ test("two accounts cannot reserve the same username concurrently", async () => {
   );
 });
 
+test("legacy accounts can release their own username indexes without an owner marker", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+
+  // The fixture intentionally has no usernameClaims marker for Alice or Bob.
+  await assertFails(
+    remove(ref(bobDb, "usernames/alice")),
+  );
+  await assertFails(
+    remove(ref(bobDb, "publicUsernames/alice")),
+  );
+
+  await assertSucceeds(
+    remove(ref(aliceDb, "usernames/alice")),
+  );
+  await assertSucceeds(
+    remove(ref(aliceDb, "publicUsernames/alice")),
+  );
+});
+
 test("users can manage only their own device-scoped FCM token registrations", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
