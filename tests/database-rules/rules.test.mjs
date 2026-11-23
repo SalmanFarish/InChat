@@ -528,7 +528,7 @@ test("private user records accept only bounded notification token fields", async
 
   await assertFails(
     set(
-      ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/invalid.device"),
+      ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/invalid device"),
       "token",
     ),
   );
