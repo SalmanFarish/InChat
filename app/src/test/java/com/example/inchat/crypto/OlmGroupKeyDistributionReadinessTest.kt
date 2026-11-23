@@ -364,5 +364,11 @@ class OlmGroupKeyDistributionReadinessTest {
             recipientUserId: String,
             messageId: String,
         ): Flow<Boolean> = flowOf(false)
+
+        override fun observeDeliveredMessageIdsForConversation(
+            ownerUserId: String,
+            recipientUserId: String,
+            conversationId: String,
+        ): Flow<List<String>> = flowOf(emptyList())
     }
 }

@@ -296,6 +296,11 @@ class OlmGroupSessionKeyOutboxCoordinatorTest {
         ): Flow<Int> = flowOf(0)
 
         override fun observeHasRecipientAcknowledgement(ownerUserId: String, senderDeviceId: String, recipientUserId: String, messageId: String): Flow<Boolean> = flowOf(false)
+        override fun observeDeliveredMessageIdsForConversation(
+            ownerUserId: String,
+            recipientUserId: String,
+            conversationId: String,
+        ): Flow<List<String>> = flowOf(emptyList())
     }
     private class FakeMetadataStore : OlmGroupKeyDistributionMetadataStore {
         private val records = mutableMapOf<String, OlmGroupKeyDistributionEntity>()
