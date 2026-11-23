@@ -27,25 +27,6 @@ internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
             senderDeviceId = metadata.senderDeviceId,
             distributionId = metadata.distributionId,
         )
-        val queueTargets = mutableSetOf<Pair<String, String>>()
-        val failedTargets = mutableSetOf<Pair<String, String>>()
-        queueRows.forEach { row ->
-            val target = row.recipientUserId to row.recipientDeviceId
-            require(queueTargets.add(target)) {
-                "Outbox contains duplicate target rows for one group-key distribution"
-            }
-            when (row.status) {
-                "QUEUED", "IN_FLIGHT", "UPLOADED" -> Unit
-                "FAILED" -> failedTargets += target
-                "ACKNOWLEDGED" -> {
-                    // ACK rows are normally removed only after a durable receipt.
-                    // Treat a retained ACK row as accounted for, but the receipt
-                    // ledger remains the authoritative acknowledgement source.
-                }
-                else -> throw IllegalArgumentException("Outbox contains an unknown delivery status")
-            }
-        }
-
         val acknowledgedTargets = receiptDao
             .getAcknowledgedTargetIdentitiesForDistribution(
                 ownerUserId = metadata.ownerUserId,
@@ -54,10 +35,9 @@ internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
             )
             .mapTo(mutableSetOf(), ::decodeTargetIdentity)
 
-        return OlmGroupKeyDistributionRecoveryState(
-            queuedTargets = queueTargets - failedTargets,
+        return OlmGroupKeyDistributionRecoveryStateReducer.reduce(
+            queueRows = queueRows,
             acknowledgedTargets = acknowledgedTargets,
-            failedTargets = failedTargets,
         )
     }
 
@@ -77,5 +57,53 @@ internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
     private companion object {
         val USER_ID = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+    }
+}
+
+
+/**
+ * Reconciles the queue snapshot with the durable acknowledgement ledger.
+ * An ACKNOWLEDGED queue row without its receipt is inconsistent and must not
+ * be treated as success or silently recreated as a new key delivery.
+ */
+internal object OlmGroupKeyDistributionRecoveryStateReducer {
+    fun reduce(
+        queueRows: List<OlmDeliveryQueueTargetState>,
+        acknowledgedTargets: Set<Pair<String, String>>,
+    ): OlmGroupKeyDistributionRecoveryState {
+        val seenTargets = mutableSetOf<Pair<String, String>>()
+        val queuedTargets = mutableSetOf<Pair<String, String>>()
+        val failedTargets = mutableSetOf<Pair<String, String>>()
+
+        queueRows.forEach { row ->
+            val target = row.recipientUserId to row.recipientDeviceId
+            require(seenTargets.add(target)) {
+                "Outbox contains duplicate target rows for one group-key distribution"
+            }
+            when (row.status) {
+                "QUEUED", "IN_FLIGHT", "UPLOADED" -> {
+                    require(target !in acknowledgedTargets) {
+                        "Outbox queue state conflicts with a durable acknowledgement receipt"
+                    }
+                    queuedTargets += target
+                }
+                "FAILED" -> {
+                    require(target !in acknowledgedTargets) {
+                        "Failed outbox state conflicts with a durable acknowledgement receipt"
+                    }
+                    failedTargets += target
+                }
+                "ACKNOWLEDGED" -> require(target in acknowledgedTargets) {
+                    "Acknowledged outbox row is missing its durable receipt"
+                }
+                else -> throw IllegalArgumentException("Outbox contains an unknown delivery status")
+            }
+        }
+
+        return OlmGroupKeyDistributionRecoveryState(
+            queuedTargets = queuedTargets,
+            acknowledgedTargets = acknowledgedTargets,
+            failedTargets = failedTargets,
+        )
     }
 }
