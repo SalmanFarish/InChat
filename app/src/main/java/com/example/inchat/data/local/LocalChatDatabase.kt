@@ -261,7 +261,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
                                 textCiphertextBase64
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """.trimIndent(),
-                            arrayOf(
+                            arrayOf<Any?>(
                                 encrypted.ownerUserId,
                                 encrypted.conversationId,
                                 encrypted.messageId,
