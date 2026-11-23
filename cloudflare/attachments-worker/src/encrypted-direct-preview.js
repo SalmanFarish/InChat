@@ -19,7 +19,7 @@ export function databaseUrl(env, path) {
   return base + "/" + encodedPath + ".json";
 }
 
-async export function readWithEtag(env, adminToken, path, fetchImpl) {
+export async function readWithEtag(env, adminToken, path, fetchImpl) {
   const response = await fetchImpl(databaseUrl(env, path), {
     headers: {
       Authorization: "Bearer " + adminToken,
@@ -36,7 +36,7 @@ async export function readWithEtag(env, adminToken, path, fetchImpl) {
   };
 }
 
-async export function putWithEtag(env, adminToken, path, etag, value, fetchImpl) {
+export async function putWithEtag(env, adminToken, path, etag, value, fetchImpl) {
   const response = await fetchImpl(databaseUrl(env, path), {
     method: "PUT",
     headers: {
