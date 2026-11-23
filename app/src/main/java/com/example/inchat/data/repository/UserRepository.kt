@@ -1720,21 +1720,51 @@ class UserRepository {
                 )
             }
 
-            val fallbackUsernameKey =
-                usernameKey(
-                    username
-                )
-
             val usernameOwnerClaimRef =
                 database.getReference("usernameClaims").child(uid)
 
             val usernameOwnerClaimSnapshot =
                 usernameOwnerClaimRef.get().await()
 
-            val usernameKey =
-                usernameOwnerClaimSnapshot.getValue(String::class.java)
-                    ?.takeIf { it.isNotBlank() }
-                    ?: fallbackUsernameKey
+            // Treat the claim and profile username as candidate keys only.
+            // A stale/fallback username must never authorize deletion of an
+            // index that has since been assigned to a different account.
+            val usernameIndexCandidates =
+                setOfNotNull(
+                    usernameOwnerClaimSnapshot
+                        .getValue(String::class.java)
+                        ?.let(::usernameKey),
+                    usernameKey(username)
+                ).filter {
+                    Regex("^[a-z0-9_.]{3,20}$").matches(it)
+                }
+
+            val ownedUsernameIndexKeys = mutableSetOf<String>()
+            val ownedPublicUsernameIndexKeys = mutableSetOf<String>()
+
+            for (candidateKey in usernameIndexCandidates) {
+                val usernameIndexOwner =
+                    database.getReference("usernames")
+                        .child(candidateKey)
+                        .get()
+                        .await()
+                        .getValue(String::class.java)
+
+                if (usernameIndexOwner == uid) {
+                    ownedUsernameIndexKeys.add(candidateKey)
+                }
+
+                val publicUsernameIndexOwner =
+                    database.getReference("publicUsernames")
+                        .child(candidateKey)
+                        .get()
+                        .await()
+                        .getValue(String::class.java)
+
+                if (publicUsernameIndexOwner == uid) {
+                    ownedPublicUsernameIndexKeys.add(candidateKey)
+                }
+            }
 
             val blockedSnapshot =
                 database
@@ -1776,18 +1806,12 @@ class UserRepository {
             ] =
                 null
 
-            if (
-                usernameKey.isNotBlank()
-            ) {
-                updates[
-                    "usernames/$usernameKey"
-                ] =
-                    null
+            for (ownedKey in ownedUsernameIndexKeys) {
+                updates["usernames/$ownedKey"] = null
+            }
 
-                updates[
-                    "publicUsernames/$usernameKey"
-                ] =
-                    null
+            for (ownedKey in ownedPublicUsernameIndexKeys) {
+                updates["publicUsernames/$ownedKey"] = null
             }
 
             for (
@@ -1855,6 +1879,8 @@ class UserRepository {
                 Unit
             )
 
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (
             e: Exception
         ) {
