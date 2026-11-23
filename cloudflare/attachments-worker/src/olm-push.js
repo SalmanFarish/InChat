@@ -55,8 +55,7 @@ function validateRequest(body, authenticatedUid) {
     typeof body.recipientDeviceId !== "string" ||
     !DEVICE_PATTERN.test(body.recipientDeviceId) ||
     typeof body.recipientUid !== "string" ||
-    !UID_PATTERN.test(body.recipientUid) ||
-    body.senderDeviceId === body.recipientDeviceId
+    !UID_PATTERN.test(body.recipientUid)
   ) {
     return { error: result(400, { error: "Encrypted push request contains an invalid identifier." }) };
   }
@@ -77,7 +76,7 @@ function validateRequest(body, authenticatedUid) {
   };
 }
 
-function isPublishedDevice(value, expectedDeviceId) {
+export function isPublishedDevice(value, expectedDeviceId) {
   return (
     isRecord(value) &&
     value.schemaVersion === 1 &&
@@ -87,7 +86,7 @@ function isPublishedDevice(value, expectedDeviceId) {
   );
 }
 
-function isValidEnvelopeRecord(record, expected) {
+export function isValidEnvelopeRecord(record, expected) {
   if (!isRecord(record)) return false;
   const expectedFields = expected.groupId ? [
     "conversationId", "conversationType", "envelope", "groupId",

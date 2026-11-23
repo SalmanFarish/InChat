@@ -375,6 +375,36 @@ class EncryptedOlmDeliveryWorker(
                         ).getOrThrow()
                     }
                 },
+                syncEncryptedGroupPreview = groupPreview@{ delivery ->
+                    val groupId = delivery.groupId
+                    if (groupId != null && delivery.recipientUserId != ownerUserId) {
+                        // Group-key distributions use the same Olm device outbox
+                        // but are not chat messages. Only a committed Megolm
+                        // message may update the conversation preview.
+                        val commit = database.olmDeliveryQueueDao().getOutgoingGroupCommit(
+                            ownerUserId = ownerUserId,
+                            groupId = groupId,
+                            messageId = delivery.messageId,
+                        ) ?: return@groupPreview
+                        check(
+                            commit.senderDeviceId == senderDeviceId &&
+                                commit.membershipEpoch == delivery.membershipEpoch,
+                        ) {
+                            "Encrypted group delivery does not match its durable group-message commit"
+                        }
+                        notifications.syncEncryptedGroupMessagePreview(
+                            senderUserId = ownerUserId,
+                            groupId = groupId,
+                            messageId = delivery.messageId,
+                            sentAtMillis = commit.sentAtMillis,
+                            membershipEpoch = commit.membershipEpoch,
+                            deliveryId = delivery.deliveryId,
+                            recipientUserId = delivery.recipientUserId,
+                            senderDeviceId = senderDeviceId,
+                            recipientDeviceId = delivery.recipientDeviceId,
+                        ).getOrThrow()
+                    }
+                },
                 notifyEncryptedRecipient = { delivery ->
                     if (delivery.groupId == null) {
                         notifications.notifyEncryptedDelivery(

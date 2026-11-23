@@ -129,8 +129,7 @@ class CloudflareNotificationRepository {
             deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
             messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
             senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            senderDeviceId != recipientDeviceId
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}"))
         if (!valid) {
             return Result.failure(
                 IllegalArgumentException("Invalid encrypted delivery notification reference.")
@@ -182,7 +181,6 @@ class CloudflareNotificationRepository {
             deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
             senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
             recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            senderDeviceId != recipientDeviceId &&
             sentAtMillis > 0L
         if (!valid) {
             return Result.failure(
@@ -223,6 +221,74 @@ class CloudflareNotificationRepository {
         )
     }
 
+
+    /** Sync generic member inbox previews only after the exact group relay is verified. */
+    suspend fun syncEncryptedGroupMessagePreview(
+        senderUserId: String,
+        groupId: String,
+        messageId: String,
+        sentAtMillis: Long,
+        membershipEpoch: Long,
+        deliveryId: String,
+        recipientUserId: String,
+        senderDeviceId: String,
+        recipientDeviceId: String,
+    ): Result<Unit> {
+        if (senderUserId.isBlank() || auth.currentUser?.uid != senderUserId) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match encrypted group preview owner."),
+            )
+        }
+        val valid = groupId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
+            messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
+            recipientUserId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            recipientUserId != senderUserId &&
+            senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            membershipEpoch > 0L &&
+            sentAtMillis > 0L
+        if (!valid) {
+            return Result.failure(
+                IllegalArgumentException("Invalid encrypted group preview reference."),
+            )
+        }
+        if (!CloudflareWorkerConfig.isConfigured) return Result.success(Unit)
+
+        var lastFailure: Throwable? = null
+        for (waitMs in longArrayOf(0L, 1_000L)) {
+            if (waitMs > 0L) delay(waitMs)
+            val attempt = post(
+                path = "/events/encrypted-group-preview",
+                body = JSONObject()
+                    .put("groupId", groupId)
+                    .put("messageId", messageId)
+                    .put("sentAtMillis", sentAtMillis)
+                    .put("membershipEpoch", membershipEpoch)
+                    .put("deliveryId", deliveryId)
+                    .put("recipientUserId", recipientUserId)
+                    .put("senderDeviceId", senderDeviceId)
+                    .put("recipientDeviceId", recipientDeviceId),
+            )
+            if (attempt.isSuccess) {
+                val response = attempt.getOrThrow()
+                if (!response.optBoolean("success", false)) {
+                    return Result.failure(
+                        IllegalStateException("Worker did not confirm encrypted group preview synchronization."),
+                    )
+                }
+                return Result.success(Unit)
+            }
+            val failure = attempt.exceptionOrNull()
+                ?: IllegalStateException("Encrypted group preview synchronization failed.")
+            lastFailure = failure
+            if (!isRetryableNotificationFailure(failure)) return Result.failure(failure)
+        }
+        return Result.failure(
+            lastFailure ?: IllegalStateException("Encrypted group preview synchronization failed."),
+        )
+    }
+
     /**
      * Sends a ciphertext-only group wake-up for one uploaded Olm device delivery.
      * The Worker revalidates the current member map and crypto epoch before FCM.
@@ -246,8 +312,7 @@ class CloudflareNotificationRepository {
             deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
             messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
             senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
-            senderDeviceId != recipientDeviceId
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}"))
         if (!valid) {
             return Result.failure(IllegalArgumentException("Invalid encrypted group delivery notification reference."))
         }

@@ -1,8 +1,9 @@
+import { isPublishedDevice, isValidEnvelopeRecord } from "./olm-push.js";
+
 const UID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const CHAT_PATTERN = /^[A-Za-z0-9_-]{3,257}$/;
 const MESSAGE_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const RECENT_MESSAGE_LIMIT = 128;
-const MAX_CIPHERTEXT_BYTES = 1024 * 1024;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -12,13 +13,13 @@ function result(status, payload) {
   return { status, payload };
 }
 
-function databaseUrl(env, path) {
+export function databaseUrl(env, path) {
   const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
   return base + "/" + encodedPath + ".json";
 }
 
-async function readWithEtag(env, adminToken, path, fetchImpl) {
+async export function readWithEtag(env, adminToken, path, fetchImpl) {
   const response = await fetchImpl(databaseUrl(env, path), {
     headers: {
       Authorization: "Bearer " + adminToken,
@@ -35,7 +36,7 @@ async function readWithEtag(env, adminToken, path, fetchImpl) {
   };
 }
 
-async function putWithEtag(env, adminToken, path, etag, value, fetchImpl) {
+async export function putWithEtag(env, adminToken, path, etag, value, fetchImpl) {
   const response = await fetchImpl(databaseUrl(env, path), {
     method: "PUT",
     headers: {
@@ -238,7 +239,6 @@ export async function syncEncryptedDirectPreview({
       typeof body.deliveryId !== "string" || !/^[A-Fa-f0-9]{64}$/.test(body.deliveryId) ||
       typeof body.senderDeviceId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(body.senderDeviceId) ||
       typeof body.recipientDeviceId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(body.recipientDeviceId) ||
-      body.senderDeviceId === body.recipientDeviceId ||
       !Number.isSafeInteger(body.sentAtMillis) || body.sentAtMillis <= 0 ||
       body.sentAtMillis > now + 5 * 60_000) {
     return result(400, { error: "Encrypted direct preview request contains invalid metadata." });
@@ -287,81 +287,21 @@ export async function syncEncryptedDirectPreview({
       "olmInbox/" + peerUid + "/" + body.recipientDeviceId + "/" + body.deliveryId.toLowerCase(),
     ),
   ]);
-  const isPublishedDevice = (value, deviceId) =>
-    isRecord(value) &&
-    value.schemaVersion === 1 &&
-    value.deviceId === deviceId &&
-    typeof value.ed25519IdentityKey === "string" &&
-    value.ed25519IdentityKey.length > 0;
   if (!isPublishedDevice(senderDevice, body.senderDeviceId) ||
       !isPublishedDevice(recipientDevice, body.recipientDeviceId)) {
     return result(404, { error: "Sender or recipient device is no longer published." });
   }
-
-  const relayFields = [
-    "conversationId",
-    "conversationPeerUserId",
-    "conversationType",
-    "envelope",
-    "messageId",
-    "senderDeviceId",
-    "senderUid",
-  ].sort();
-  const actualRelayFields = isRecord(relayRecord) ? Object.keys(relayRecord).sort() : [];
-  if (actualRelayFields.length !== relayFields.length ||
-      actualRelayFields.some((field, index) => field !== relayFields[index])) {
-    return result(503, { error: "Encrypted relay record is missing or incomplete.", retryable: true });
+  if (!isRecord(relayRecord)) {
+    return result(503, { error: "Encrypted relay record is missing.", retryable: true });
   }
-  let envelope;
-  try {
-    envelope = JSON.parse(relayRecord.envelope);
-  } catch (_) {
-    envelope = null;
-  }
-  const expectedEnvelopeFields = [
-    "algorithm",
-    "ciphertext",
-    "encryptionVersion",
-    "recipientDeviceId",
-    "senderDeviceId",
-    "sessionId",
-  ].sort();
-  const actualEnvelopeFields = isRecord(envelope) ? Object.keys(envelope).sort() : [];
-  const validEnvelope =
-    actualEnvelopeFields.length === expectedEnvelopeFields.length &&
-    actualEnvelopeFields.every((field, index) => field === expectedEnvelopeFields[index]) &&
-    envelope.encryptionVersion === 1 &&
-    envelope.algorithm === "olm" &&
-    envelope.senderDeviceId === body.senderDeviceId &&
-    envelope.recipientDeviceId === body.recipientDeviceId &&
-    typeof envelope.sessionId === "string" &&
-    envelope.sessionId.trim() !== "" &&
-    typeof envelope.ciphertext === "string" &&
-    /^[A-Za-z0-9_-]+={0,2}$/.test(envelope.ciphertext);
-  let validCiphertext = false;
-  if (validEnvelope) {
-    try {
-      const normalized = envelope.ciphertext.replace(/-/g, "+").replace(/_/g, "/");
-      const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-      const decoded = atob(padded);
-      const canonical = btoa(decoded)
-        .replace(/=/g, "")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_");
-      validCiphertext = decoded.length >= 2 &&
-        decoded.length <= MAX_CIPHERTEXT_BYTES &&
-        envelope.ciphertext.replace(/=/g, "") === canonical;
-    } catch (_) {
-      validCiphertext = false;
-    }
-  }
-  if (!validEnvelope || !validCiphertext ||
-      relayRecord.senderUid !== uid ||
-      relayRecord.senderDeviceId !== body.senderDeviceId ||
-      relayRecord.messageId !== body.messageId ||
-      relayRecord.conversationType !== "direct" ||
-      relayRecord.conversationId !== body.chatId ||
-      relayRecord.conversationPeerUserId !== peerUid) {
+  if (!isValidEnvelopeRecord(relayRecord, {
+    senderUid: uid,
+    senderDeviceId: body.senderDeviceId,
+    recipientDeviceId: body.recipientDeviceId,
+    messageId: body.messageId,
+    chatId: body.chatId,
+    conversationPeerUserId: peerUid,
+  })) {
     return result(409, { error: "Encrypted relay record does not match the authenticated preview request." });
   }
 
