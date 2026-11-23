@@ -29,6 +29,15 @@ internal object OlmGroupKeyDistributionRecoveryPlanner {
         require(failedTargets.all { it in immutableTargets }) {
             "Failed outbox state contains a target outside the persisted group-key distribution"
         }
+        require(queuedTargets.intersect(acknowledgedTargets).isEmpty()) {
+            "Queued targets conflict with durable acknowledgement receipts"
+        }
+        require(queuedTargets.intersect(failedTargets).isEmpty()) {
+            "Queued targets conflict with failed outbox state"
+        }
+        require(acknowledgedTargets.intersect(failedTargets).isEmpty()) {
+            "Acknowledged targets conflict with failed outbox state"
+        }
 
         val accountedFor = queuedTargets + acknowledgedTargets + failedTargets
         val missing = immutableTargets - accountedFor

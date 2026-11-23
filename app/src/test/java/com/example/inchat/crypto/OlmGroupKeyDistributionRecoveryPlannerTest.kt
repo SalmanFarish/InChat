@@ -43,6 +43,34 @@ class OlmGroupKeyDistributionRecoveryPlannerTest {
     }
 
     @Test
+    fun rejectsTargetsOverlappingAcrossQueueAcknowledgementAndFailureStates() {
+        val target = "bob" to "bob-phone"
+        assertRejected {
+            OlmGroupKeyDistributionRecoveryPlanner.plan(
+                metadata = metadata(),
+                queuedTargets = setOf(target),
+                acknowledgedTargets = setOf(target),
+            )
+        }
+        assertRejected {
+            OlmGroupKeyDistributionRecoveryPlanner.plan(
+                metadata = metadata(),
+                queuedTargets = setOf(target),
+                acknowledgedTargets = emptySet(),
+                failedTargets = setOf(target),
+            )
+        }
+        assertRejected {
+            OlmGroupKeyDistributionRecoveryPlanner.plan(
+                metadata = metadata(),
+                queuedTargets = emptySet(),
+                acknowledgedTargets = setOf(target),
+                failedTargets = setOf(target),
+            )
+        }
+    }
+
+    @Test
     fun rejectsQueueOrAcknowledgementTargetsOutsideImmutableMetadata() {
         assertRejected {
             OlmGroupKeyDistributionRecoveryPlanner.plan(
