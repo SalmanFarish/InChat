@@ -18,6 +18,10 @@ import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
 import { cleanupGroupNotificationTokens } from "./group-topic-subscription.js";
 import { submitUserReport } from "./user-reports.js";
+import {
+  PayloadTooLargeError,
+  readRequestTextLimited,
+} from "./bounded-request-body.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -3317,17 +3321,18 @@ async function remove(env, chatId, messageId, uid, adminToken) {
   return json({ success: true, deleted: true });
 }
 async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
-  const contentLength = Number(request.headers.get("Content-Length") || 0);
-  if (contentLength > 4096) {
-    return json({ error: "Encrypted push request is too large." }, 413);
+  let raw;
+  try {
+    raw = await readRequestTextLimited(request, 4096);
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return json({ error: "Encrypted push request is too large." }, 413);
+    }
+    return json({ error: "Invalid JSON body." }, 400);
   }
 
   let body;
   try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).length > 4096) {
-      return json({ error: "Encrypted push request is too large." }, 413);
-    }
     body = JSON.parse(raw);
   } catch (_) {
     return json({ error: "Invalid JSON body." }, 400);
@@ -3345,17 +3350,18 @@ async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
 }
 
 async function processUserReportRequest(request, env, uid, adminAuth) {
-  const contentLength = Number(request.headers.get("Content-Length") || 0);
-  if (contentLength > 8192) {
-    return json({ error: "Report request is too large." }, 413);
+  let raw;
+  try {
+    raw = await readRequestTextLimited(request, 8192);
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return json({ error: "Report request is too large." }, 413);
+    }
+    return json({ error: "Invalid report request JSON." }, 400);
   }
 
   let body;
   try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).length > 8192) {
-      return json({ error: "Report request is too large." }, 413);
-    }
     body = JSON.parse(raw);
   } catch (_) {
     return json({ error: "Invalid report request JSON." }, 400);
