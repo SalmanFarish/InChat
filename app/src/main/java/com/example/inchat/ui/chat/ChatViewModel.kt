@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedOlmMessage
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.Presence
@@ -18,6 +19,7 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class BlockState {
     NONE,
@@ -44,11 +47,19 @@ class ChatViewModel : ViewModel() {
     // Incoming Olm messages are persisted separately from the legacy plaintext
     // cache. Observe that encrypted store directly so authenticated E2EE messages
     // can appear in the same conversation timeline without being copied to it.
+    private val localChatDatabase by lazy {
+        LocalChatDatabase.getInstance(InChatApplication.instance)
+    }
+
     private val encryptedOlmMessageRepository by lazy {
-        EncryptedOlmMessageRepository(
-            LocalChatDatabase.getInstance(InChatApplication.instance)
-                .encryptedOlmMessageDao()
-        )
+        EncryptedOlmMessageRepository(localChatDatabase.encryptedOlmMessageDao())
+    }
+
+    private val encryptedDirectMessageSender by lazy {
+        OlmDirectMessageSendCoordinatorFactory(
+            context = InChatApplication.instance,
+            database = localChatDatabase,
+        ).create()
     }
 
     private val moderationRepository =
@@ -2018,14 +2029,11 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        val selectedReply = _replyingTo.value
-        val replyTo = selectedReply?.let { message ->
-            ReplyTo(
-                messageId = message.id,
-                senderId = message.senderId,
-                senderNickname = message.senderNickname,
-                text = message.text
-            )
+        // Reply metadata is not part of the authenticated Olm text schema yet.
+        // Refuse the action instead of leaking reply text through the legacy RTDB path.
+        if (_replyingTo.value != null) {
+            onResult(false, "Replies are not available in encrypted direct messages yet.")
+            return
         }
 
         onTypingChanged(
@@ -2040,106 +2048,39 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        val outgoingMessage = Message(
-            id = messageId,
-            senderId = currentUserId,
-            senderNickname = senderNickname,
-            text = cleanText,
-            timestamp = System.currentTimeMillis(),
-            replyTo = replyTo
-        )
-
+        val sentAtMillis = System.currentTimeMillis()
         _pendingMessageIds.value = _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
-            var locallyQueued = false
             try {
-                // Room is the source of truth for the sender's history.
-                // The composer is released only after this write succeeds.
-                try {
-                    chatRepository.cacheOutgoingMessage(
-                        chatId = chatId,
-                        message = outgoingMessage
+                // This single operation encrypts the sender's local timeline copy
+                // and commits it atomically with every per-device Olm envelope.
+                // There is deliberately no plaintext cache/Firebase fallback.
+                withContext(Dispatchers.IO) {
+                    encryptedDirectMessageSender.sendTextMessage(
+                        senderUserId = currentUserId,
+                        recipientUserId = otherUserId,
+                        conversationId = chatId,
+                        messageId = messageId,
+                        sentAtMillis = sentAtMillis,
+                        text = cleanText,
                     )
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (cacheError: Exception) {
-                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                    Log.e(
-                        "ChatViewModel",
-                        "Outgoing message could not be saved locally; it was not sent.",
-                        cacheError
-                    )
-                    onResult(
-                        false,
-                        "Could not save the message on this device. It was not sent."
-                    )
-                    return@launch
                 }
 
-                locallyQueued = true
+                _pendingMessageIds.value = _pendingMessageIds.value - messageId
                 onQueued()
-
-                if (_replyingTo.value?.id == selectedReply?.id) {
-                    _replyingTo.value = null
-                }
-
-                // Network delivery is best-effort here. WorkManager owns the
-                // durable retry path if this foreground attempt fails or dies.
-                val sendResult = chatRepository.sendMessage(
-                    chatId = chatId,
-                    messageId = messageId,
-                    text = cleanText,
-                    senderId = currentUserId,
-                    senderNickname = senderNickname,
-                    receiverId = otherUserId,
-                    receiverNickname = otherUserNickname,
-                    replyTo = replyTo
-                )
-
-                sendResult
-                    .onSuccess {
-                        runCatching {
-                            chatRepository.markOutgoingMessageSent(chatId, messageId)
-                        }.onFailure { cacheError ->
-                            Log.e(
-                                "ChatViewModel",
-                                "Message sent but local pending flag could not be cleared",
-                                cacheError
-                            )
-                        }
-                        _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                        Log.d("ChatViewModel", "Message sent successfully: $messageId")
-                        onResult(true, null)
-                    }
-                    .onFailure { error ->
-                        // The message remains in Room and its background job
-                        // retries with this same ID. Do not restore the draft:
-                        // it is already safely represented in the conversation.
-                        Log.w(
-                            "ChatViewModel",
-                            "Message remains queued locally after the foreground delivery attempt failed: $messageId",
-                            error
-                        )
-                        onResult(true, null)
-                    }
+                Log.d("ChatViewModel", "Encrypted direct message committed to the durable outbox: $messageId")
+                onResult(true, null)
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // A committed Room row and its WorkManager request outlive this
-                // ViewModel coroutine; never remove the queued message here.
+                // The Room transaction, once committed, outlives this ViewModel.
                 throw e
             } catch (e: Exception) {
-                if (locallyQueued) {
-                    Log.w(
-                        "ChatViewModel",
-                        "Message remains queued locally after an unexpected delivery error: $messageId",
-                        e
-                    )
-                    onResult(true, null)
-                } else {
-                    _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                    Log.e("ChatViewModel", "Unexpected send error before local queueing.", e)
-                    onResult(false, e.localizedMessage ?: "Message could not be saved locally.")
-                }
+                _pendingMessageIds.value = _pendingMessageIds.value - messageId
+                Log.e("ChatViewModel", "Encrypted direct message was not queued: $messageId", e)
+                onResult(
+                    false,
+                    e.localizedMessage ?: "Encrypted message could not be queued. Check device verification and try again.",
+                )
             }
         }
     }

@@ -11,7 +11,8 @@ import com.google.firebase.auth.FirebaseAuth
 /**
  * Reads encrypted_olm_messages and decrypts text only in process memory on an IO dispatcher.
  *
- * This repository is deliberately not connected to ChatRepository or the existing chat UI.
+ * The existing plaintext ChatRepository is not used for encrypted Olm message bodies.
+ * Live direct sending commits its sender-owned rows with the complete durable outbox.
  */
 internal class EncryptedOlmMessageRepository(
     private val dao: EncryptedOlmMessageDao,
@@ -49,6 +50,48 @@ internal class EncryptedOlmMessageRepository(
             val decrypted = row?.let(vault::decrypt)
             requireAuthenticatedOwner(ownerUserId)
             decrypted
+        }
+    }
+
+    /**
+     * Encrypt a sender-owned message without writing it yet. The encrypted entity
+     * can then be committed atomically with its complete durable device fan-out.
+     */
+    suspend fun prepareOutgoingMessage(message: DecryptedOlmMessage): EncryptedOlmMessageEntity =
+        withContext(ioDispatcher) {
+            validateOutgoingMessage(message)
+            requireAuthenticatedOwner(message.ownerUserId)
+            val encrypted = vault.encrypt(message)
+            requireAuthenticatedOwner(message.ownerUserId)
+            encrypted
+        }
+
+    /** Verify the committed local copy by decrypting it and comparing all metadata and text. */
+    suspend fun verifyOutgoingMessage(message: DecryptedOlmMessage) = withContext(ioDispatcher) {
+        validateOutgoingMessage(message)
+        val existing = dao.getMessage(
+            message.ownerUserId,
+            message.conversationId,
+            message.messageId,
+        ) ?: error("Committed direct message is missing its encrypted sender-local copy")
+        requireAuthenticatedOwner(message.ownerUserId)
+        val decrypted = vault.decrypt(existing)
+        require(decrypted.copy(recipientDeviceId = message.recipientDeviceId) == message) {
+            "Outgoing encrypted message ID is already bound to different content or metadata"
+        }
+        requireAuthenticatedOwner(message.ownerUserId)
+    }
+
+    private fun validateOutgoingMessage(message: DecryptedOlmMessage) {
+        validateScope(message.ownerUserId, message.conversationId)
+        require(message.isOutgoing) {
+            "Outgoing encrypted message owner must match the authenticated sender"
+        }
+        require(message.recipientUserId == message.conversationPeerUserId) {
+            "Outgoing direct message recipient must match the conversation peer"
+        }
+        require(message.senderUserId != message.recipientUserId) {
+            "An outgoing direct message must target another account"
         }
     }
 

@@ -14,6 +14,7 @@ internal class OlmOutboundDeliveryCoordinator(
     private val queue: OlmDeliveryQueue,
     private val trustVerifier: OlmDeviceTrustVerifier,
     private val scheduleDelivery: (ownerUserId: String, senderDeviceId: String) -> Unit,
+    private val senderMessageRepository: EncryptedOlmMessageRepository? = null,
 ) {
     /**
      * Prepare every independently encrypted copy before inserting any outbox
@@ -101,11 +102,36 @@ internal class OlmOutboundDeliveryCoordinator(
             sentAtMillis = sentAtMillis,
             recipientDeviceCount = payloads.size,
         )
+        // The local timeline copy is encrypted with the same Keystore-backed
+        // AES-GCM vault as inbound records. Its recipient-device binding is
+        // deterministic so retries cannot change immutable local metadata.
+        val senderLocalMessage = senderMessageRepository?.let {
+            DecryptedOlmMessage(
+                ownerUserId = senderUserId,
+                conversationId = conversationId,
+                messageId = messageId,
+                conversationPeerUserId = recipientUserId,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                recipientUserId = recipientUserId,
+                recipientDeviceId = recipientDevices.minBy { device -> device.deviceId }.deviceId,
+                sentAtMillis = sentAtMillis,
+                text = text,
+            )
+        }
         // Check the permanent commit ledger before claiming any one-time prekeys.
         // A committed replay only repairs the WorkManager scheduling window.
         if (queue.hasDirectMessageCommit(directCommit)) {
+            senderLocalMessage?.let { senderMessageRepository?.verifyOutgoingMessage(it) }
             scheduleDelivery(senderUserId, senderDeviceId)
             return 0
+        }
+
+        // Prepare the encrypted timeline row before the transaction, but do not
+        // persist it independently. The Room store commits it with the complete
+        // ciphertext fan-out and permanent message marker in one transaction.
+        val encryptedSenderLocalCopy = senderLocalMessage?.let {
+            senderMessageRepository?.prepareOutgoingMessage(it)
         }
 
         // Do not enqueue a partial fan-out if any target cannot be prepared.
@@ -127,7 +153,9 @@ internal class OlmOutboundDeliveryCoordinator(
             conversationId = conversationId,
             conversationPeerUserId = recipientUserId,
             directMessageCommit = directCommit,
+            directMessageLocalCopy = encryptedSenderLocalCopy,
         )
+        senderLocalMessage?.let { senderMessageRepository?.verifyOutgoingMessage(it) }
 
         // WorkManager uses unique account/device work names, so replaying this
         // request is safe and can restore a missed immediate delivery trigger.

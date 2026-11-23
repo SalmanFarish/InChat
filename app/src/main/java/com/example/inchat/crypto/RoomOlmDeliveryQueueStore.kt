@@ -24,6 +24,7 @@ private fun EncryptedDirectOutgoingCommitEntity.matchesImmutableIdentity(
 internal class RoomOlmDeliveryQueueStore(
     private val database: RoomDatabase,
     private val dao: OlmDeliveryQueueDao,
+    private val encryptedMessageDao: EncryptedOlmMessageDao? = null,
 ) : OlmDeliveryQueueStore {
     override fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int {
         if (deliveries.isEmpty()) return 0
@@ -89,6 +90,90 @@ internal class RoomOlmDeliveryQueueStore(
             inserted
         })
     }
+
+    override fun insertDirectMessageWithLocalCopyIfAbsent(
+        deliveries: List<QueuedOlmDeviceDelivery>,
+        commit: DirectOutgoingMessageCommit,
+        localCopy: EncryptedOlmMessageEntity,
+    ): Int {
+        require(deliveries.isNotEmpty()) { "A committed direct message requires device deliveries" }
+        val messageDao = requireNotNull(encryptedMessageDao) {
+            "Encrypted message DAO is required for atomic sender-local-copy commits"
+        }
+        require(
+            localCopy.ownerUserId == commit.ownerUserId &&
+                localCopy.conversationId == commit.conversationId &&
+                localCopy.conversationPeerUserId == commit.conversationPeerUserId &&
+                localCopy.messageId == commit.messageId &&
+                localCopy.senderUserId == commit.ownerUserId &&
+                localCopy.senderDeviceId == commit.senderDeviceId &&
+                localCopy.recipientUserId == commit.conversationPeerUserId &&
+                localCopy.sentAtMillis == commit.sentAtMillis &&
+                localCopy.recipientDeviceId.isNotBlank() &&
+                localCopy.textNonceBase64.isNotBlank() &&
+                localCopy.textCiphertextBase64.isNotBlank()
+        ) {
+            "Encrypted sender-local copy metadata does not match its direct-message commit"
+        }
+
+        return database.runInTransaction(Callable {
+            val existingCommit = dao.getOutgoingDirectCommit(
+                commit.ownerUserId,
+                commit.conversationId,
+                commit.messageId,
+            )
+            val existingLocalCopy = messageDao.getMessageInTransaction(
+                commit.ownerUserId,
+                commit.conversationId,
+                commit.messageId,
+            )
+            if (existingCommit != null) {
+                require(existingCommit.matchesImmutableIdentity(commit)) {
+                    "Outgoing direct message ID is already committed with different metadata"
+                }
+                require(existingLocalCopy != null) {
+                    "Committed direct message is missing its encrypted sender-local copy"
+                }
+                require(existingLocalCopy.matchesDirectLocalCopyIdentity(localCopy)) {
+                    "Committed direct message has a conflicting encrypted sender-local copy"
+                }
+                // Never recreate acknowledged delivery rows or rewrite ciphertext on replay.
+                return@Callable 0
+            }
+            check(existingLocalCopy == null) {
+                "Encrypted sender-local copy exists without its direct outbox commit"
+            }
+            check(
+                dao.insertOutgoingDirectCommitIfAbsent(commit.toEntity()) != -1L,
+            ) {
+                "Outgoing direct message commit marker could not be inserted"
+            }
+            val inserted = dao.insertIfAbsent(deliveries.map { it.toEntity() })
+                .count { it != -1L }
+            check(inserted == deliveries.size) {
+                "Outgoing direct fan-out conflicts with pre-existing delivery rows"
+            }
+            check(messageDao.insertMessageIfAbsentInTransaction(localCopy) != -1L) {
+                "Encrypted sender-local copy could not be committed with its outbox"
+            }
+            inserted
+        })
+    }
+
+    private fun EncryptedOlmMessageEntity.matchesDirectLocalCopyIdentity(
+        candidate: EncryptedOlmMessageEntity,
+    ): Boolean =
+        ownerUserId == candidate.ownerUserId &&
+            conversationId == candidate.conversationId &&
+            messageId == candidate.messageId &&
+            conversationPeerUserId == candidate.conversationPeerUserId &&
+            senderUserId == candidate.senderUserId &&
+            senderDeviceId == candidate.senderDeviceId &&
+            recipientUserId == candidate.recipientUserId &&
+            // The locally retained copy is independent of later recipient-device
+            // additions/removals; preserve the original target binding on replay.
+            sentAtMillis == candidate.sentAtMillis &&
+            contentEncryptionVersion == candidate.contentEncryptionVersion
 
     override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
         dao.hasMatchingDelivery(

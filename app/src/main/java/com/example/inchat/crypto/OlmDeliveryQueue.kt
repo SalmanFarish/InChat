@@ -107,6 +107,15 @@ internal interface OlmDeliveryQueueStore {
 
     fun insertDirectMessageIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>, commit: DirectOutgoingMessageCommit): Int = throw UnsupportedOperationException("Queue store must implement atomic direct-message commit persistence")
 
+    /** Atomically persist the direct outbox, commit marker, and sender-owned encrypted timeline row. */
+    fun insertDirectMessageWithLocalCopyIfAbsent(
+        deliveries: List<QueuedOlmDeviceDelivery>,
+        commit: DirectOutgoingMessageCommit,
+        localCopy: EncryptedOlmMessageEntity,
+    ): Int = throw UnsupportedOperationException(
+        "Queue store must implement atomic direct-message and encrypted local-copy persistence",
+    )
+
     /** Check all immutable delivery identity fields, independent of queue status. */
     fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean
 
@@ -171,6 +180,7 @@ internal class OlmDeliveryQueue(
         membershipEpoch: Long? = null,
         conversationId: String? = null,
         conversationPeerUserId: String? = null,
+        directMessageLocalCopy: EncryptedOlmMessageEntity? = null,
     ): Int {
         require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
         require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
@@ -182,6 +192,9 @@ internal class OlmDeliveryQueue(
             "Encrypted delivery fan-out exceeds the supported device count"
         }
         require(groupMessageCommit == null || directMessageCommit == null) { "A delivery batch cannot be both direct and group scoped" }
+        require(directMessageLocalCopy == null || directMessageCommit != null) {
+            "An encrypted sender-local copy must belong to a committed direct message"
+        }
         val scopedGroupId = groupMessageCommit?.groupId ?: groupId
         val scopedMembershipEpoch = groupMessageCommit?.membershipEpoch ?: membershipEpoch
         require((scopedGroupId == null) == (scopedMembershipEpoch == null) &&
@@ -256,7 +269,11 @@ internal class OlmDeliveryQueue(
         }
         directMessageCommit?.let { commit ->
             require(commit.ownerUserId == ownerUserId && commit.senderDeviceId == senderDeviceId && commit.messageId == messageId && commit.conversationId == scopedConversationId && commit.conversationPeerUserId == scopedPeerUserId && commit.sentAtMillis >= 0L && commit.recipientDeviceCount == rows.size) { "Direct outgoing commit metadata does not match its durable delivery batch" }
-            return store.insertDirectMessageIfAbsent(rows, commit)
+            return if (directMessageLocalCopy == null) {
+                store.insertDirectMessageIfAbsent(rows, commit)
+            } else {
+                store.insertDirectMessageWithLocalCopyIfAbsent(rows, commit, directMessageLocalCopy)
+            }
         }
         return store.insertIfAbsent(rows)
     }
