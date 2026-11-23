@@ -1678,7 +1678,7 @@ async function clearPersonalNotificationTopic(
 }
 
 
-async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
+export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   const [membershipIndex, readIndex, inbox, registrationTokenValue] =
     await Promise.all([
       adminDatabaseRequest(env, adminAuth.token, "groupMemberships/" + uid),
@@ -1941,10 +1941,6 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     if (!mutation.result?.wasMember) {
       continue;
     }
-
-    updates["groupMemberships/" + uid + "/" + chatId] = null;
-    updates["groupReads/" + uid + "/" + chatId] = null;
-    updates["userChats/" + uid + "/" + chatId] = null;
 
     const currentRemainingMembers = mutation.result.remainingMembers;
 
