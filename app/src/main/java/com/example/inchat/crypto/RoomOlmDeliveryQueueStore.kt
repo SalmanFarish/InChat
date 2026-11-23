@@ -11,6 +11,16 @@ import java.util.concurrent.Callable
  * Invoke from a background dispatcher: this synchronous adapter intentionally
  * keeps the queue contract small and must never run on the Android main thread.
  */
+private fun EncryptedDirectOutgoingCommitEntity.matchesImmutableIdentity(
+    candidate: DirectOutgoingMessageCommit,
+): Boolean =
+    ownerUserId == candidate.ownerUserId &&
+        conversationId == candidate.conversationId &&
+        conversationPeerUserId == candidate.conversationPeerUserId &&
+        messageId == candidate.messageId &&
+        senderDeviceId == candidate.senderDeviceId &&
+        sentAtMillis == candidate.sentAtMillis
+
 internal class RoomOlmDeliveryQueueStore(
     private val database: RoomDatabase,
     private val dao: OlmDeliveryQueueDao,
@@ -57,7 +67,9 @@ internal class RoomOlmDeliveryQueueStore(
 
     override fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean {
         val existing = dao.getOutgoingDirectCommit(commit.ownerUserId, commit.conversationId, commit.messageId) ?: return false
-        require(existing == commit.toEntity()) { "Outgoing direct message ID is already committed with different metadata" }
+        require(existing.matchesImmutableIdentity(commit)) {
+            "Outgoing direct message ID is already committed with different metadata"
+        }
         return true
     }
 
@@ -66,7 +78,9 @@ internal class RoomOlmDeliveryQueueStore(
         return database.runInTransaction(Callable {
             val existing = dao.getOutgoingDirectCommit(commit.ownerUserId, commit.conversationId, commit.messageId)
             if (existing != null) {
-                require(existing == commit.toEntity()) { "Outgoing direct message ID is already committed with different metadata" }
+                require(existing.matchesImmutableIdentity(commit)) {
+                    "Outgoing direct message ID is already committed with different metadata"
+                }
                 return@Callable 0
             }
             check(dao.insertOutgoingDirectCommitIfAbsent(commit.toEntity()) != -1L) { "Outgoing direct message commit marker could not be inserted" }
