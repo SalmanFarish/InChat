@@ -77,7 +77,11 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                 targetUid: String,
                 deviceId: String,
                 keyId: String,
+                scope: OlmPreKeyClaimScope,
             ): Boolean {
+                assertEquals(conversationId, scope.conversationId)
+                assertEquals("direct", scope.conversationType)
+                assertEquals(recipientUserId, scope.conversationPeerUserId)
                 assertEquals(recipientUserId, targetUid)
                 assertEquals(recipientBundle.deviceId, deviceId)
                 if (recipientBundle.oneTimeKeys.none { it.keyId == keyId }) return false

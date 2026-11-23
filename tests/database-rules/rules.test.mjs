@@ -687,30 +687,24 @@ test("authenticated clients can claim a one-time prekey exactly once", async () 
   const bobDb = testEnv.authenticatedContext("bob").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
-  const [aliceResult, bobResult] = await Promise.all([
-    runTransaction(ref(aliceDb, path), (current) =>
-      current === null ? directPreKeyClaim("alice", "bob") : undefined,
-    ),
-    runTransaction(ref(bobDb, path), (current) =>
-      current === null ? directPreKeyClaim("bob", "alice") : undefined,
-    ),
+  const [aliceResult, bobResult] = await Promise.allSettled([
+    set(ref(aliceDb, path), directPreKeyClaim("alice", "bob")),
+    set(ref(bobDb, path), directPreKeyClaim("bob", "alice")),
   ]);
-
   assert.equal(
-    Number(aliceResult.committed) + Number(bobResult.committed),
+    Number(aliceResult.status === "fulfilled") + Number(bobResult.status === "fulfilled"),
     1,
     "only one concurrent claimant should commit",
   );
 
-  const winnerDb = aliceResult.committed ? aliceDb : bobDb;
-  const loserDb = aliceResult.committed ? bobDb : aliceDb;
-  const retry = await runTransaction(ref(loserDb, path), (current) =>
-    current === null ? true : undefined,
-  );
-  assert.equal(retry.committed, false, "a second claimant must not overwrite the claim");
+  const winnerDb = aliceResult.status === "fulfilled" ? aliceDb : bobDb;
+  const loserDb = aliceResult.status === "fulfilled" ? bobDb : aliceDb;
   await assertSucceeds(get(ref(winnerDb, path)));
+  await assertFails(set(ref(loserDb, path), directPreKeyClaim(
+    loserDb === aliceDb ? "alice" : "bob",
+    loserDb === aliceDb ? "bob" : "alice",
+  )));
 });
-
 test("a one-time prekey cannot be claimed after its device is revoked", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();

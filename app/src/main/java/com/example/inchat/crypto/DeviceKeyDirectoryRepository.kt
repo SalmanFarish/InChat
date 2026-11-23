@@ -173,30 +173,19 @@ internal class DeviceKeyDirectoryRepository(
             .child(deviceId)
             .child(keyId)
 
-        return suspendCancellableCoroutine { continuation ->
-            claimReference.runTransaction(object : com.google.firebase.database.Transaction.Handler {
-                override fun doTransaction(currentData: com.google.firebase.database.MutableData):
-                    com.google.firebase.database.Transaction.Result {
-                    if (currentData.value != null) {
-                        return com.google.firebase.database.Transaction.abort()
-                    }
-                    currentData.value = claimRecord
-                    return com.google.firebase.database.Transaction.success(currentData)
-                }
-
-                override fun onComplete(
-                    error: com.google.firebase.database.DatabaseError?,
-                    committed: Boolean,
-                    currentData: DataSnapshot?,
-                ) {
-                    if (!continuation.isActive) return
-                    if (error != null) {
-                        continuation.resumeWithException(error.toException())
-                    } else {
-                        continuation.resume(committed)
-                    }
-                }
-            }, false)
+        return try {
+            // A conditional RTDB write is evaluated atomically by the server.
+            // Unlike runTransaction(), it does not require a read of the claim
+            // record before creation, so claim metadata can remain private to
+            // the device owner and the successful claimant.
+            claimReference.setValue(claimRecord).await()
+            true
+        } catch (error: com.google.firebase.database.DatabaseException) {
+            if (error.message?.contains("Permission denied", ignoreCase = true) == true) {
+                false
+            } else {
+                throw error
+            }
         }
     }
 
