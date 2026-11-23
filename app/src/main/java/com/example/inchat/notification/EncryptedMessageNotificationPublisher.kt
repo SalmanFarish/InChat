@@ -38,7 +38,7 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
     ) {
         val recipientUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         if (recipientUserId.isBlank() || chatId.isBlank() || senderUserId.isBlank()) return
-        if (ActiveConversationTracker.shouldSuppressNotification(chatId)) return
+        if (ActiveConversationTracker.shouldSuppressNotification(chatId, recipientUserId)) return
 
         val manager = appContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(

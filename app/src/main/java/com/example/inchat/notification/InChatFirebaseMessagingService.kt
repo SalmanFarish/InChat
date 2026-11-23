@@ -99,7 +99,7 @@ class InChatFirebaseMessagingService :
             "Push received: type=" + (remoteMessage.data["type"] ?: "unknown")
         )
 
-        if (ActiveConversationTracker.shouldSuppressNotification(presentation.chatId)) {
+        if (ActiveConversationTracker.shouldSuppressNotification(presentation.chatId, recipientUserId)) {
             Log.i("InChatFCM", "Suppressed push because this chat is currently open.")
             return
         }

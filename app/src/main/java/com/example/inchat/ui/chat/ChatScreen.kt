@@ -173,10 +173,10 @@ fun ChatScreen(
         chatViewModel.isLoadingOlderMessages.collectAsState()
 
     DisposableEffect(chatViewModel, currentUserId, chatId) {
-        ActiveConversationTracker.setActiveChat(chatId)
+        ActiveConversationTracker.setActiveChat(chatId, currentUserId)
         chatViewModel.setChatVisible(currentUserId, true)
         onDispose {
-            ActiveConversationTracker.clearActiveChat(chatId)
+            ActiveConversationTracker.clearActiveChat(chatId, currentUserId)
             chatViewModel.setChatVisible(currentUserId, false)
         }
     }

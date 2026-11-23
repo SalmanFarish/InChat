@@ -70,10 +70,10 @@ fun GroupChatScreen(
         )
     }
 
-    DisposableEffect(groupId) {
-        ActiveConversationTracker.setActiveChat(groupId)
+    DisposableEffect(groupId, currentUserId) {
+        ActiveConversationTracker.setActiveChat(groupId, currentUserId)
         onDispose {
-            ActiveConversationTracker.clearActiveChat(groupId)
+            ActiveConversationTracker.clearActiveChat(groupId, currentUserId)
         }
     }
 
