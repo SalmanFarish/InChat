@@ -41,6 +41,14 @@ beforeEach(async () => {
     const db = context.database();
 
     await set(ref(db), {
+      usernames: {
+        alice: "alice",
+        bob: "bob",
+      },
+      publicUsernames: {
+        alice: "alice",
+        bob: "bob",
+      },
       users: {
         alice: {
           uid: "alice",
@@ -155,6 +163,86 @@ beforeEach(async () => {
 
 after(async () => {
   await testEnv?.cleanup();
+});
+
+test("username reservations are limited to one normalized name per account", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const charlieDb = testEnv.authenticatedContext("charlie").database();
+
+  // Existing accounts can backfill an ownership marker only for the
+  // username key they already own.
+  await assertSucceeds(
+    set(ref(aliceDb, "usernameClaims/alice"), "alice"),
+  );
+  await assertFails(
+    set(ref(bobDb, "usernameClaims/bob"), "alice"),
+  );
+
+  // A marker is immutable and all future reservation/index writes must match it.
+  await assertFails(
+    set(ref(aliceDb, "usernameClaims/alice"), "alice_2"),
+  );
+  await assertFails(
+    set(ref(aliceDb, "usernames/alice_2"), "alice"),
+  );
+  await assertFails(
+    set(ref(aliceDb, "publicUsernames/alice_2"), "alice"),
+  );
+  await assertSucceeds(
+    set(ref(aliceDb, "usernames/alice"), "alice"),
+  );
+
+  // A new account may claim one free name, but cannot create aliases.
+  await assertSucceeds(
+    set(ref(charlieDb, "usernameClaims/charlie"), "charlie"),
+  );
+  await assertSucceeds(
+    set(ref(charlieDb, "usernames/charlie"), "charlie"),
+  );
+  await assertSucceeds(
+    set(ref(charlieDb, "publicUsernames/charlie"), "charlie"),
+  );
+  await assertFails(
+    set(ref(charlieDb, "usernameClaims/charlie"), "another"),
+  );
+  await assertFails(
+    set(ref(charlieDb, "usernames/another"), "charlie"),
+  );
+  await assertFails(
+    set(ref(charlieDb, "publicUsernames/another"), "charlie"),
+  );
+
+  // An incomplete registration can release its unused owner marker.
+  await assertSucceeds(remove(ref(charlieDb, "usernames/charlie")));
+  await assertSucceeds(remove(ref(charlieDb, "usernameClaims/charlie")));
+});
+
+test("two accounts cannot reserve the same username concurrently", async () => {
+  const charlieDb = testEnv.authenticatedContext("charlie").database();
+  const daveDb = testEnv.authenticatedContext("dave").database();
+
+  await assertSucceeds(
+    set(ref(charlieDb, "usernameClaims/charlie"), "shared_name"),
+  );
+  await assertSucceeds(
+    set(ref(daveDb, "usernameClaims/dave"), "shared_name"),
+  );
+
+  const [charlieResult, daveResult] = await Promise.all([
+    runTransaction(ref(charlieDb, "usernames/shared_name"), (current) =>
+      current == null || current === "charlie" ? "charlie" : undefined,
+    ),
+    runTransaction(ref(daveDb, "usernames/shared_name"), (current) =>
+      current == null || current === "dave" ? "dave" : undefined,
+    ),
+  ]);
+
+  assert.equal(
+    Number(charlieResult.committed) + Number(daveResult.committed),
+    1,
+    "only one account may reserve the same username",
+  );
 });
 
 test("users can manage only their own device-scoped FCM token registrations", async () => {

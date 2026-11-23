@@ -9,6 +9,7 @@ import android.util.Log
 import com.example.inchat.data.model.User
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
@@ -141,223 +142,204 @@ class UserRepository {
     suspend fun claimUsername(
         username: String,
         uid: String
-    ): Result<Unit> =
-        suspendCancellableCoroutine { continuation ->
+    ): Result<Unit> {
+        val key = usernameKey(username)
+        if (!key.matches(Regex("[a-z0-9_.]{3,20}"))) {
+            return Result.failure(IllegalArgumentException("Username is invalid."))
+        }
+        if (uid.isBlank()) {
+            return Result.failure(IllegalArgumentException("UID cannot be blank"))
+        }
 
-            val key =
-                usernameKey(
-                    username
-                )
-
-            if (
-                key.isBlank()
-            ) {
-
-                continuation.resume(
-                    Result.failure(
-                        IllegalArgumentException(
-                            "Username cannot be blank"
-                        )
-                    )
-                )
-
-                return@suspendCancellableCoroutine
-            }
-
-            if (
-                uid.isBlank()
-            ) {
-
-                continuation.resume(
-                    Result.failure(
-                        IllegalArgumentException(
-                            "UID cannot be blank"
-                        )
-                    )
-                )
-
-                return@suspendCancellableCoroutine
-            }
-
-            val usernameRef =
-                database
-                    .getReference(
-                        "usernames"
-                    )
-                    .child(
-                        key
-                    )
-
-            usernameRef.runTransaction(
-
-                object :
-                    Transaction.Handler {
-
-                    override fun doTransaction(
-                        currentData:
-                        MutableData
-                    ): Transaction.Result {
-
-                        if (
-                            currentData.value != null
-                        ) {
-
-                            val existingUid =
-                                currentData.getValue(
-                                    String::class.java
-                                )
-
-                            return if (
-                                existingUid == uid
-                            ) {
-
-                                Transaction.success(
-                                    currentData
-                                )
-
-                            } else {
-
-                                Transaction.abort()
-                            }
-                        }
-
-                        currentData.value =
-                            uid
-
-                        return Transaction.success(
-                            currentData
-                        )
-                    }
-
-                    override fun onComplete(
-                        error:
-                        DatabaseError?,
-                        committed:
-                        Boolean,
-                        currentData:
-                        DataSnapshot?
-                    ) {
-
-                        if (
-                            error != null
-                        ) {
-
-                            continuation.resume(
-                                Result.failure(
-                                    error.toException()
-                                )
-                            )
-
-                            return
-                        }
-
-                        if (
-                            !committed
-                        ) {
-
-                            continuation.resume(
-                                Result.failure(
-                                    UsernameAlreadyTakenException()
-                                )
-                            )
-
-                            return
-                        }
-
-                        continuation.resume(
-                            Result.success(
-                                Unit
-                            )
-                        )
-                    }
-                }
+        val firebaseUser = auth.currentUser
+        if (firebaseUser == null || firebaseUser.uid != uid) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match username owner.")
             )
         }
 
-    /*
-     * =========================================================
-     * RELEASE USERNAME
-     * =========================================================
-     */
+        return try {
+            val ownerClaimRef = database.getReference("usernameClaims").child(uid)
+            val existingOwnerClaim = ownerClaimRef.get().await()
+                .getValue(String::class.java)
+
+            if (existingOwnerClaim != null && existingOwnerClaim != key) {
+                return Result.failure(
+                    IllegalStateException("This account already has a different username reservation.")
+                )
+            }
+
+            val usernameRef = database.getReference("usernames").child(key)
+            val currentUsernameOwner = usernameRef.get().await()
+                .getValue(String::class.java)
+            if (currentUsernameOwner != null && currentUsernameOwner != uid) {
+                return Result.failure(UsernameAlreadyTakenException())
+            }
+
+            val ownerClaimCommitted = runStringClaimTransaction(ownerClaimRef, key)
+            if (!ownerClaimCommitted) {
+                return Result.failure(
+                    IllegalStateException("This account already has a different username reservation.")
+                )
+            }
+
+            val usernameCommitted = try {
+                runStringClaimTransaction(usernameRef, uid)
+            } catch (error: Exception) {
+                if (existingOwnerClaim == null) {
+                    runCatching { releaseUncommittedUsernameClaim(uid, key) }
+                }
+                throw error
+            }
+
+            if (!usernameCommitted) {
+                if (existingOwnerClaim == null) {
+                    runCatching { releaseUncommittedUsernameClaim(uid, key) }
+                }
+                return Result.failure(UsernameAlreadyTakenException())
+            }
+
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
 
     suspend fun releaseUsername(
         username: String,
         uid: String
     ): Result<Unit> {
+        val key = usernameKey(username)
+        if (key.isBlank() || uid.isBlank()) return Result.success(Unit)
 
-        val key =
-            usernameKey(
-                username
-            )
-
-        if (
-            key.isBlank() ||
-            uid.isBlank()
-        ) {
-            return Result.success(
-                Unit
-            )
-        }
-
-        val firebaseUser =
-            auth.currentUser
-
-        if (
-            firebaseUser == null ||
-            firebaseUser.uid != uid
-        ) {
+        val firebaseUser = auth.currentUser
+        if (firebaseUser == null || firebaseUser.uid != uid) {
             return Result.failure(
-                IllegalStateException(
-                    "Authenticated user does not match username owner."
-                )
+                IllegalStateException("Authenticated user does not match username owner.")
             )
         }
 
         return try {
-
-            val usernameRef =
-                database
-                    .getReference(
-                        "usernames"
-                    )
-                    .child(
-                        key
-                    )
-
-            val snapshot =
-                usernameRef
-                    .get()
-                    .await()
-
-            val existingUid =
-                snapshot.getValue(
-                    String::class.java
-                )
-
-            if (
-                existingUid == uid
-            ) {
-
-                usernameRef
-                    .removeValue()
-                    .await()
+            val usernameRef = database.getReference("usernames").child(key)
+            if (usernameRef.get().await().getValue(String::class.java) == uid) {
+                usernameRef.removeValue().await()
             }
 
-            /*
-             * The public search index is cleaned separately during
-             * account deletion and whenever discoverability changes.
-             */
-            Result.success(
-                Unit
-            )
+            val publicUsernameRef = database.getReference("publicUsernames").child(key)
+            if (publicUsernameRef.get().await().getValue(String::class.java) == uid) {
+                publicUsernameRef.removeValue().await()
+            }
 
-        } catch (
-            e: Exception
-        ) {
+            val userRef = database.getReference("users").child(uid)
+            val userSnapshot = userRef.get().await()
+            val profileUsername = userSnapshot.child("username")
+                .getValue(String::class.java)
+                .orEmpty()
+            if (userSnapshot.exists() &&
+                (profileUsername.isBlank() || usernameKey(profileUsername) == key)
+            ) {
+                userRef.removeValue().await()
+            }
 
-            Result.failure(
-                e
-            )
+            if (!userRef.get().await().exists()) {
+                val ownerClaimRef = database.getReference("usernameClaims").child(uid)
+                if (ownerClaimRef.get().await().getValue(String::class.java) == key) {
+                    ownerClaimRef.removeValue().await()
+                }
+            }
+
+            userCache.remove(uid)
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    /**
+     * Runs a server-serialized string reservation. Repeating the same value is
+     * idempotent; an existing different value is never overwritten.
+     */
+    private suspend fun runStringClaimTransaction(
+        reference: DatabaseReference,
+        value: String
+    ): Boolean = suspendCancellableCoroutine { continuation ->
+        reference.runTransaction(
+            object : Transaction.Handler {
+                override fun doTransaction(currentData: MutableData): Transaction.Result {
+                    val existing = currentData.getValue(String::class.java)
+                    return when {
+                        existing == null -> {
+                            currentData.value = value
+                            Transaction.success(currentData)
+                        }
+                        existing == value -> Transaction.success(currentData)
+                        else -> Transaction.abort()
+                    }
+                }
+
+                override fun onComplete(
+                    error: DatabaseError?,
+                    committed: Boolean,
+                    currentData: DataSnapshot?
+                ) {
+                    if (error != null) {
+                        continuation.resumeWithException(error.toException())
+                    } else {
+                        continuation.resume(committed)
+                    }
+                }
+            }
+        )
+    }
+
+    /**
+     * Removes a newly-created owner marker only when registration did not
+     * create a profile and the username key is not owned by this account.
+     */
+    private suspend fun releaseUncommittedUsernameClaim(
+        uid: String,
+        key: String
+    ) {
+        val userSnapshot = database.getReference("users").child(uid).get().await()
+        val currentOwner = database.getReference("usernames").child(key).get().await()
+            .getValue(String::class.java)
+        if (!userSnapshot.exists() && currentOwner != uid) {
+            val ownerClaimRef = database.getReference("usernameClaims").child(uid)
+            if (ownerClaimRef.get().await().getValue(String::class.java) == key) {
+                ownerClaimRef.removeValue().await()
+            }
+        }
+    }
+
+    /**
+     * Backfills existing accounts' private owner marker only when the private
+     * reservation index already proves that the username belongs to the UID.
+     */
+    private suspend fun ensureUsernameClaimOwnership(
+        uid: String,
+        key: String
+    ) {
+        val ownerClaimRef = database.getReference("usernameClaims").child(uid)
+        val existingClaim = ownerClaimRef.get().await().getValue(String::class.java)
+        if (existingClaim != null) {
+            check(existingClaim == key) {
+                "This account already has a different username reservation."
+            }
+            return
+        }
+
+        val existingOwner = database.getReference("usernames").child(key).get().await()
+            .getValue(String::class.java)
+        check(existingOwner == uid) {
+            "The account does not own the username reservation."
+        }
+
+        check(runStringClaimTransaction(ownerClaimRef, key)) {
+            "Could not migrate the account's username reservation."
         }
     }
 
@@ -1738,10 +1720,21 @@ class UserRepository {
                 )
             }
 
-            val usernameKey =
+            val fallbackUsernameKey =
                 usernameKey(
                     username
                 )
+
+            val usernameOwnerClaimRef =
+                database.getReference("usernameClaims").child(uid)
+
+            val usernameOwnerClaimSnapshot =
+                usernameOwnerClaimRef.get().await()
+
+            val usernameKey =
+                usernameOwnerClaimSnapshot.getValue(String::class.java)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: fallbackUsernameKey
 
             val blockedSnapshot =
                 database
@@ -1848,6 +1841,10 @@ class UserRepository {
                         updates
                     )
                     .await()
+            }
+
+            if (usernameOwnerClaimSnapshot.exists()) {
+                usernameOwnerClaimRef.removeValue().await()
             }
 
             userCache.remove(
@@ -2388,6 +2385,11 @@ class UserRepository {
         if (
             discoverable
         ) {
+
+            ensureUsernameClaimOwnership(
+                uid = uid,
+                key = key
+            )
 
             publicRef
                 .setValue(
