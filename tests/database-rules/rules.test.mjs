@@ -268,6 +268,9 @@ test("new user profiles require the matching reserved username", async () => {
   assert.equal(ownerMarker.val(), "charlie");
 
   await assertSucceeds(
+    set(ref(charlieDb, "usernames/charlie"), "charlie"),
+  );
+  await assertSucceeds(
     set(ref(charlieDb, "users/charlie"), profile),
   );
 
@@ -289,6 +292,9 @@ test("new user profiles require the matching reserved username", async () => {
     set(ref(daveDb, "usernameClaims/dave"), "dave"),
   );
   await assertSucceeds(
+    set(ref(daveDb, "usernames/dave"), "dave"),
+  );
+  await assertSucceeds(
     set(ref(daveDb, "users/dave"), {
       uid: "dave",
       username: "Dave",
@@ -301,6 +307,9 @@ test("new user profiles require the matching reserved username", async () => {
   const emmaDb = testEnv.authenticatedContext("emma").database();
   await assertSucceeds(
     set(ref(emmaDb, "usernameClaims/emma"), "emma"),
+  );
+  await assertSucceeds(
+    set(ref(emmaDb, "usernames/emma"), "emma"),
   );
   await assertFails(
     set(ref(emmaDb, "users/emma"), {
