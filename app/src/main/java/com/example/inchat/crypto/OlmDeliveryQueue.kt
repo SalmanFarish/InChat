@@ -103,7 +103,7 @@ internal interface OlmDeliveryQueueStore {
         "Queue store must implement atomic group commit persistence",
     )
 
-    fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean = throw UnsupportedOperationException("Queue store must support direct-message commit lookup")
+    fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean = false
 
     fun insertDirectMessageIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>, commit: DirectOutgoingMessageCommit): Int = throw UnsupportedOperationException("Queue store must implement atomic direct-message commit persistence")
 
