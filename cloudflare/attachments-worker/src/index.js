@@ -1795,6 +1795,9 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       );
 
     const wasMember = memberEntries.some(([memberId]) => memberId === uid);
+    const remainingMembers = memberEntries
+      .filter(([memberId]) => memberId !== uid)
+      .sort(([left], [right]) => left.localeCompare(right));
 
     if (!wasMember) {
       updates["typing/" + chatId + "/" + uid] = null;
@@ -1802,13 +1805,10 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       continue;
     }
 
-    const remainingMembers = memberEntries
-      .filter(([memberId]) => memberId !== uid)
-      .sort(([left], [right]) => left.localeCompare(right));
-
     if (remainingMembers.length < 2) {
       // The app requires at least two group members. Dissolve a group that
       // would otherwise leave one person in an unusable group conversation.
+      // The group and its related inbox records are removed together below.
       updates["chats/" + chatId] = null;
       updates["attachments/" + chatId] = null;
       updates["typing/" + chatId] = null;
@@ -1841,25 +1841,89 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       continue;
     }
 
-    updates["chats/" + chatId + "/members/" + uid] = null;
+    // Use the same ETag-protected membership path as normal admin removals.
+    // This writes chats/{id}/members and cryptoMembership (new epoch + exact
+    // roster) together, so account deletion cannot leave a stale E2EE roster.
+    const mutation = await mutateGroupMembersWithEtag(
+      env,
+      adminAuth.token,
+      chatId,
+      (currentMembers, currentChat) => {
+        const currentEntries = Object.entries(currentMembers || {})
+          .filter(([memberId, role]) =>
+            typeof memberId === "string" &&
+            memberId.length > 0 &&
+            typeof role === "string" &&
+            role.length > 0
+          );
+
+        if (!currentEntries.some(([memberId]) => memberId === uid)) {
+          return {
+            noChange: true,
+            result: { wasMember: false },
+          };
+        }
+
+        const nextEntries = currentEntries
+          .filter(([memberId]) => memberId !== uid)
+          .sort(([left], [right]) => left.localeCompare(right));
+
+        // Another membership mutation may have reduced the group while this
+        // cleanup was preparing. Abort without writing; a retry will take the
+        // existing full group-dissolution path using the current roster.
+        if (nextEntries.length < 2) {
+          return {
+            noChange: true,
+            result: { wasMember: true, requiresDissolution: true },
+          };
+        }
+
+        const nextMembers = Object.fromEntries(nextEntries);
+        const remainingAdmins = nextEntries
+          .filter(([, role]) => role === "admin");
+        let nextCreator = currentChat.createdBy;
+
+        if (nextCreator === uid || remainingAdmins.length === 0) {
+          nextCreator = remainingAdmins.length > 0 ?
+            remainingAdmins[0][0] :
+            nextEntries[0][0];
+        }
+
+        return {
+          members: nextMembers,
+          cryptoMembershipChanged: true,
+          ...(nextCreator && nextCreator !== currentChat.createdBy ?
+            { createdBy: nextCreator } :
+            {}),
+          result: {
+            wasMember: true,
+            remainingMembers: nextEntries,
+          },
+        };
+      },
+    );
+
+    if (mutation.result?.requiresDissolution) {
+      throw new Error(
+        "Group membership changed during account cleanup. Retry account deletion.",
+      );
+    }
+
     updates["typing/" + chatId + "/" + uid] = null;
     updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
-
-    const remainingAdmins = remainingMembers
-      .filter(([, role]) => role === "admin");
-
-    if (chat.createdBy === uid || remainingAdmins.length === 0) {
-      const successor = remainingAdmins.length > 0 ?
-        remainingAdmins[0][0] :
-        remainingMembers[0][0];
-
-      updates["chats/" + chatId + "/members/" + successor] = "admin";
-      updates["chats/" + chatId + "/createdBy"] = successor;
+    if (!mutation.result?.wasMember) {
+      continue;
     }
+
+    updates["groupMemberships/" + uid + "/" + chatId] = null;
+    updates["groupReads/" + uid + "/" + chatId] = null;
+    updates["userChats/" + uid + "/" + chatId] = null;
+
+    const currentRemainingMembers = mutation.result.remainingMembers;
 
     // Update only inbox entries that already exist; never create partial rows.
     const remainingInboxEntries = await Promise.all(
-      remainingMembers.map(async ([memberId]) => ({
+      currentRemainingMembers.map(async ([memberId]) => ({
         memberId: memberId,
         entry: await adminDatabaseRequest(
           env,
@@ -1873,7 +1937,7 @@ async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       if (item.entry && typeof item.entry === "object") {
         updates[
           "userChats/" + item.memberId + "/" + chatId + "/memberCount"
-        ] = remainingMembers.length;
+        ] = currentRemainingMembers.length;
       }
     }
 

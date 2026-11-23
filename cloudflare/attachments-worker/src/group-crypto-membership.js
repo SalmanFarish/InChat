@@ -76,7 +76,7 @@ export async function mutateGroupMembersWithEtag(
     if (!etag) throw new Error("Realtime Database did not return a group ETag.");
 
     const currentMembers = currentChat.members;
-    const decision = mutate(currentMembers);
+    const decision = mutate(currentMembers, currentChat);
     if (!decision || decision.noChange) {
       return {
         members: currentMembers,
@@ -104,6 +104,9 @@ export async function mutateGroupMembersWithEtag(
         epoch: resolvedEpoch,
         members: decision.members,
       },
+      ...(typeof decision.createdBy === "string" ?
+        { createdBy: decision.createdBy } :
+        {}),
     };
 
     const writeResponse = await fetchImpl(url, {
