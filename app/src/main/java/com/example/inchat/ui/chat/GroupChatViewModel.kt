@@ -1066,6 +1066,7 @@ class GroupChatViewModel : ViewModel() {
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
         pendingIntentRetryJob?.cancel()
+        trustChangeRetryJob?.cancel()
         connectionListenerJob?.cancel()
         groupReadJobs.values.forEach { it.cancel() }
         groupReadJobs.clear()
