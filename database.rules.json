@@ -25,6 +25,9 @@
         },
         "profilePhotoData": {
           ".validate": "newData.isString() && newData.val().length <= 275000"
+        },
+        "$other": {
+          ".validate": "false"
         }
       }
     },

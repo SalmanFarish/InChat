@@ -487,6 +487,27 @@ test("a sender can delete their own direct message", async () => {
   );
 });
 
+test("user profiles reject fields outside the supported profile schema", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(
+    set(ref(aliceDb, "users/alice/isAdmin"), true),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "users/alice/unboundedMetadata"), "x".repeat(300000)),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "users/alice/featureFlags/isAdmin"), true),
+  );
+
+  // Existing, modeled profile fields remain writable for their owner.
+  await assertSucceeds(
+    set(ref(aliceDb, "users/alice/displayName"), "Alice Updated"),
+  );
+});
+
 test("profile photo payloads above the server-side limit are rejected", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
 
