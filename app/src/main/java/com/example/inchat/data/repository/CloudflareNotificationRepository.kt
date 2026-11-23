@@ -159,6 +159,71 @@ class CloudflareNotificationRepository {
     }
 
     /**
+     * Updates both participants' inbox metadata after the ciphertext-only direct
+     * relay upload. The Worker accepts message identifiers/timestamp only and
+     * writes a generic preview; it never receives message text.
+     */
+    suspend fun syncEncryptedDirectMessagePreview(
+        senderUserId: String,
+        chatId: String,
+        messageId: String,
+        sentAtMillis: Long,
+        deliveryId: String,
+        senderDeviceId: String,
+        recipientDeviceId: String,
+    ): Result<Unit> {
+        if (senderUserId.isBlank() || auth.currentUser?.uid != senderUserId) {
+            return Result.failure(
+                IllegalStateException("Authenticated user does not match encrypted preview owner."),
+            )
+        }
+        val valid = chatId.matches(Regex("[A-Za-z0-9_-]{3,257}")) &&
+            messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
+            senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            senderDeviceId != recipientDeviceId &&
+            sentAtMillis > 0L
+        if (!valid) {
+            return Result.failure(
+                IllegalArgumentException("Invalid encrypted direct preview reference."),
+            )
+        }
+        if (!CloudflareWorkerConfig.isConfigured) return Result.success(Unit)
+
+        var lastFailure: Throwable? = null
+        for (waitMs in longArrayOf(0L, 1_000L)) {
+            if (waitMs > 0L) delay(waitMs)
+            val attempt = post(
+                path = "/events/encrypted-direct-preview",
+                body = JSONObject()
+                    .put("chatId", chatId)
+                    .put("messageId", messageId)
+                    .put("sentAtMillis", sentAtMillis)
+                    .put("deliveryId", deliveryId)
+                    .put("senderDeviceId", senderDeviceId)
+                    .put("recipientDeviceId", recipientDeviceId),
+            )
+            if (attempt.isSuccess) {
+                val response = attempt.getOrThrow()
+                if (!response.optBoolean("success", false)) {
+                    return Result.failure(
+                        IllegalStateException("Worker did not confirm encrypted direct preview synchronization."),
+                    )
+                }
+                return Result.success(Unit)
+            }
+            val failure = attempt.exceptionOrNull()
+                ?: IllegalStateException("Encrypted direct preview synchronization failed.")
+            lastFailure = failure
+            if (!isRetryableNotificationFailure(failure)) return Result.failure(failure)
+        }
+        return Result.failure(
+            lastFailure ?: IllegalStateException("Encrypted direct preview synchronization failed."),
+        )
+    }
+
+    /**
      * Sends a ciphertext-only group wake-up for one uploaded Olm device delivery.
      * The Worker revalidates the current member map and crypto epoch before FCM.
      */

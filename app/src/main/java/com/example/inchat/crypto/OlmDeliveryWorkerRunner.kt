@@ -28,6 +28,7 @@ internal class OlmDeliveryWorkerRunner(
     private val maxDeliveriesPerRun: Int = DEFAULT_BATCH_SIZE,
     private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit,
     private val validateBeforeUpload: suspend (QueuedOlmDeviceDelivery) -> Boolean = { true },
+    private val syncEncryptedDirectPreview: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
     private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
 ) {
     init {
@@ -106,6 +107,29 @@ internal class OlmDeliveryWorkerRunner(
                 )
             }
 
+            if (delivery.recipientUserId != senderUserId && delivery.groupId == null) {
+                try {
+                    syncEncryptedDirectPreview(delivery)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    withContext(ioDispatcher) {
+                        queue.retry(
+                            delivery = delivery,
+                            nowMillis = clock().coerceAtLeast(0L),
+                            errorCode = DIRECT_PREVIEW_SYNC_ERROR,
+                        )
+                    }
+                    return OlmDeliveryWorkerRunResult(
+                        uploaded = uploaded,
+                        acknowledged = acknowledgements.removed,
+                        unmatchedAcknowledgements = acknowledgements.unmatched,
+                        retryRequired = true,
+                        notificationDispatchFailures = notificationDispatchFailures,
+                    )
+                }
+            }
+
             if (delivery.recipientUserId != senderUserId) {
                 try {
                     notifyEncryptedRecipient(delivery)
@@ -157,6 +181,7 @@ internal class OlmDeliveryWorkerRunner(
         const val DEFAULT_BATCH_SIZE = 25
         const val RELAY_UPLOAD_ERROR = "relay_upload_failed"
         const val STALE_GROUP_MEMBERSHIP = "group_membership_epoch_stale"
+        const val DIRECT_PREVIEW_SYNC_ERROR = "direct_preview_sync_failed"
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     }

@@ -901,6 +901,71 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun directPreviewFailureRetriesDurableDeliveryBeforeDispatchingPush() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            ownerUserId = "alice",
+            senderDeviceId = "sender-device",
+            messageId = "preview-retry",
+            prepared = listOf(prepared("sender-device", "bob-phone")),
+        )
+
+        var previewAttempts = 0
+        var pushAttempts = 0
+        val uploadedIds = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = mutableListOf(),
+            acknowledgements = mutableListOf(),
+            uploadedDeliveryIds = uploadedIds,
+        )
+
+        val firstPass = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+            syncEncryptedDirectPreview = {
+                previewAttempts++
+                throw IllegalStateException("temporary preview endpoint failure")
+            },
+            notifyEncryptedRecipient = { pushAttempts++ },
+        ).run()
+
+        val queued = store.rows.values.single()
+        assertEquals(0, firstPass.uploaded)
+        assertTrue(firstPass.retryRequired)
+        assertEquals(1, previewAttempts)
+        assertEquals(0, pushAttempts)
+        assertEquals(OlmDeliveryStatus.QUEUED, queued.status)
+        assertEquals("direct_preview_sync_failed", queued.lastError)
+        assertEquals(12_000L, queued.nextAttemptAtMillis)
+
+        val recoveredPass = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 12_000L },
+            syncEncryptedDirectPreview = { previewAttempts++ },
+            notifyEncryptedRecipient = { pushAttempts++ },
+        ).run()
+
+        val delivered = store.rows.values.single()
+        assertEquals(1, recoveredPass.uploaded)
+        assertFalse(recoveredPass.retryRequired)
+        assertEquals(2, previewAttempts)
+        assertEquals(1, pushAttempts)
+        assertEquals(2, uploadedIds.size)
+        assertEquals(uploadedIds[0], uploadedIds[1])
+        assertEquals(OlmDeliveryStatus.UPLOADED, delivered.status)
+        assertEquals(null, delivered.lastError)
+    }
+
+    @Test
     fun failedEncryptedPushDispatchDoesNotRetryAnAlreadyStoredRelayDelivery() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)

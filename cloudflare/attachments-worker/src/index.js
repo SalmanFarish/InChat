@@ -5,6 +5,7 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
+import { syncEncryptedDirectPreview } from "./encrypted-direct-preview.js";
 import {
   buildAddressedMessagePushData,
   buildGroupTopicMessagePushData,
@@ -3644,6 +3645,35 @@ export default {
       ) {
         const adminAuth = await getFirebaseAdminToken(env);
         return processMessageEvent(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/events/encrypted-direct-preview"
+      ) {
+        const adminAuth = await getFirebaseAdminToken(env);
+        let body;
+        try {
+          body = await request.json();
+        } catch (_) {
+          return json({ error: "Invalid encrypted direct preview request." }, 400);
+        }
+        try {
+          const response = await syncEncryptedDirectPreview({
+            env,
+            uid: user.uid,
+            body,
+            adminToken: adminAuth.token,
+            adminDatabaseRequest,
+          });
+          return json(response.payload, response.status);
+        } catch (error) {
+          console.error("Encrypted direct preview synchronization failed.", error);
+          return json({
+            error: "Encrypted direct preview synchronization failed.",
+            retryable: true,
+          }, 503);
+        }
       }
 
       if (

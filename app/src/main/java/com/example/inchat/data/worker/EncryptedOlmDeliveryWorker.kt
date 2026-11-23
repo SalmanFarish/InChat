@@ -350,6 +350,31 @@ class EncryptedOlmDeliveryWorker(
                         senderDeviceId,
                     )
                 },
+                syncEncryptedDirectPreview = { delivery ->
+                    if (delivery.groupId == null && delivery.recipientUserId != ownerUserId) {
+                        val conversationId = requireNotNull(delivery.conversationId) {
+                            "Encrypted direct delivery is missing its conversation scope"
+                        }
+                        val commit = requireNotNull(
+                            database.olmDeliveryQueueDao().getOutgoingDirectCommit(
+                                ownerUserId = ownerUserId,
+                                conversationId = conversationId,
+                                messageId = delivery.messageId,
+                            ),
+                        ) {
+                            "Encrypted direct delivery has no immutable outgoing commit marker"
+                        }
+                        notifications.syncEncryptedDirectMessagePreview(
+                            senderUserId = ownerUserId,
+                            chatId = conversationId,
+                            messageId = delivery.messageId,
+                            sentAtMillis = commit.sentAtMillis,
+                            deliveryId = delivery.deliveryId,
+                            senderDeviceId = senderDeviceId,
+                            recipientDeviceId = delivery.recipientDeviceId,
+                        ).getOrThrow()
+                    }
+                },
                 notifyEncryptedRecipient = { delivery ->
                     if (delivery.groupId == null) {
                         notifications.notifyEncryptedDelivery(
