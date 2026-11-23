@@ -670,6 +670,18 @@ function groupPreKeyClaim(claimantUid, groupId = "group", membershipEpoch = 3) {
   };
 }
 
+test("prekey claim metadata is visible only to its owner and claimant", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+
+  await assertSucceeds(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
+  await assertSucceeds(get(ref(aliceDb, path)));
+  await assertSucceeds(get(ref(bobDb, path)));
+  await assertFails(get(ref(malloryDb, path)));
+});
+
 test("authenticated clients can claim a one-time prekey exactly once", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
