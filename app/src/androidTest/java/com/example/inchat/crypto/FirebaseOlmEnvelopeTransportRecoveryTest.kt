@@ -273,6 +273,60 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
         assertEquals(0, store.inboxPutAttempts)
     }
 
+    @Test
+    fun revokedRecipientTrustPreventsQueuedCiphertextFromBeingRelayed() = runBlocking {
+        val store = FakeRelayStore()
+        var trustChecks = 0
+        val transport = FirebaseOlmEnvelopeTransport(
+            trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                trustChecks++
+                assertEquals("bob", userId)
+                assertEquals("recipient-device", deviceId)
+                assertEquals("recipient-ed25519", identityKey)
+                false
+            },
+            relayStore = store,
+            currentAuthenticatedUserId = { "alice" },
+            readPublishedDevices = { listOf(recipientBundle()) },
+            expectedAuthenticatedUserId = "alice",
+        )
+
+        val result = runCatching {
+            transport.upload(queuedDelivery(), "sender-device")
+        }
+
+        assertTrue("A locally revoked device must not receive a queued group/direct envelope", result.isFailure)
+        assertEquals(1, trustChecks)
+        assertEquals(0, store.inboxPutAttempts)
+        assertTrue(store.inbox.isEmpty())
+    }
+
+    @Test
+    fun replacedRecipientIdentityKeyCannotReuseTrustForOldDeviceIdentity() = runBlocking {
+        val store = FakeRelayStore()
+        val replacement = recipientBundle().copy(ed25519IdentityKey = "replacement-ed25519")
+        var checkedIdentityKey: String? = null
+        val transport = FirebaseOlmEnvelopeTransport(
+            trustVerifier = OlmDeviceTrustVerifier { _, _, identityKey ->
+                checkedIdentityKey = identityKey
+                identityKey == "recipient-ed25519"
+            },
+            relayStore = store,
+            currentAuthenticatedUserId = { "alice" },
+            readPublishedDevices = { listOf(replacement) },
+            expectedAuthenticatedUserId = "alice",
+        )
+
+        val result = runCatching {
+            transport.upload(queuedDelivery(), "sender-device")
+        }
+
+        assertTrue("A replacement identity key must require a fresh SAS trust decision", result.isFailure)
+        assertEquals("replacement-ed25519", checkedIdentityKey)
+        assertEquals(0, store.inboxPutAttempts)
+        assertTrue(store.inbox.isEmpty())
+    }
+
     private fun transport(
         store: FakeRelayStore,
         user: () -> String?,
