@@ -103,6 +103,8 @@ internal interface OlmDeliveryQueueStore {
         "Queue store must implement atomic group commit persistence",
     )
 
+    fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean = throw UnsupportedOperationException("Queue store must support direct-message commit lookup")
+
     fun insertDirectMessageIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>, commit: DirectOutgoingMessageCommit): Int = throw UnsupportedOperationException("Queue store must implement atomic direct-message commit persistence")
 
     /** Check all immutable delivery identity fields, independent of queue status. */
@@ -258,6 +260,8 @@ internal class OlmDeliveryQueue(
         }
         return store.insertIfAbsent(rows)
     }
+
+    fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean = store.hasDirectMessageCommit(commit)
 
     /** Check that an acknowledgement exactly identifies a durable outbox row. */
     fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =

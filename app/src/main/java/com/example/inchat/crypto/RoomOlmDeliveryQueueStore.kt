@@ -55,6 +55,12 @@ internal class RoomOlmDeliveryQueueStore(
         })
     }
 
+    override fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean {
+        val existing = dao.getOutgoingDirectCommit(commit.ownerUserId, commit.conversationId, commit.messageId) ?: return false
+        require(existing == commit.toEntity()) { "Outgoing direct message ID is already committed with different metadata" }
+        return true
+    }
+
     override fun insertDirectMessageIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>, commit: DirectOutgoingMessageCommit): Int {
         require(deliveries.isNotEmpty()) { "A committed direct message requires device deliveries" }
         return database.runInTransaction(Callable {

@@ -92,6 +92,22 @@ internal class OlmOutboundDeliveryCoordinator(
             ).also { OlmAuthenticatedMessagePayloadCodec.encode(it) }
         }
 
+        val directCommit = DirectOutgoingMessageCommit(
+            ownerUserId = senderUserId,
+            conversationId = conversationId,
+            conversationPeerUserId = recipientUserId,
+            messageId = messageId,
+            senderDeviceId = senderDeviceId,
+            sentAtMillis = sentAtMillis,
+            recipientDeviceCount = payloads.size,
+        )
+        // Check the permanent commit ledger before claiming any one-time prekeys.
+        // A committed replay only repairs the WorkManager scheduling window.
+        if (queue.hasDirectMessageCommit(directCommit)) {
+            scheduleDelivery(senderUserId, senderDeviceId)
+            return 0
+        }
+
         // Do not enqueue a partial fan-out if any target cannot be prepared.
         val prepared = payloads.map { payload ->
             preparer.prepareFirstMessage(payload).also { delivery ->
@@ -110,7 +126,7 @@ internal class OlmOutboundDeliveryCoordinator(
             prepared = prepared,
             conversationId = conversationId,
             conversationPeerUserId = recipientUserId,
-            directMessageCommit = DirectOutgoingMessageCommit(senderUserId, conversationId, recipientUserId, messageId, senderDeviceId, sentAtMillis, prepared.size),
+            directMessageCommit = directCommit,
         )
 
         // WorkManager uses unique account/device work names, so replaying this
