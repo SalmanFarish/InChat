@@ -653,7 +653,7 @@ test("private user records accept only bounded notification token fields", async
   );
 });
 
-test("user reports reject unknown fields and impossible future timestamps", async () => {
+test("clients cannot directly create moderation reports or manipulate report cooldown state", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const report = {
     reporterId: "alice",
@@ -663,21 +663,27 @@ test("user reports reject unknown fields and impossible future timestamps", asyn
     timestamp: 1700000000000,
   };
 
-  await assertSucceeds(
-    set(ref(aliceDb, "reports/report-valid"), report),
-  );
-
+  // Report creation is exclusively routed through the authenticated Worker.
   await assertFails(
-    set(ref(aliceDb, "reports/report-extra"), {
+    set(ref(aliceDb, "reports/report-direct"), report),
+  );
+  await assertFails(
+    set(ref(aliceDb, "reports/report-with-extra-field"), {
       ...report,
       isAdmin: true,
     }),
   );
 
+  // Clients cannot read, forge, or reset the server-owned cooldown marker.
+  await assertFails(get(ref(aliceDb, "reportRateLimits/alice")));
   await assertFails(
-    set(ref(aliceDb, "reports/report-future"), {
-      ...report,
-      timestamp: Date.now() + 24 * 60 * 60 * 1000,
+    set(ref(aliceDb, "reportRateLimits/alice"), {
+      lastReportAt: 0,
+    }),
+  );
+  await assertFails(
+    set(ref(aliceDb, "reportRateLimits/bob"), {
+      lastReportAt: 0,
     }),
   );
 });

@@ -279,7 +279,7 @@
     "reports": {
       "$reportId": {
         ".read": false,
-        ".write": "auth != null &&                    !data.exists() &&                    newData.exists() &&                    newData.child('reporterId').val() === auth.uid",
+        ".write": false,
         ".validate": "newData.hasChildren([                         'reporterId',                         'reportedUserId',                         'reportedUsername',                         'reason',                         'timestamp'                       ]) &&                        newData.child('reporterId').isString() &&                       newData.child('reporterId').val() === auth.uid &&                        newData.child('reportedUserId').isString() &&                       newData.child('reportedUserId').val() !== auth.uid &&                        newData.child('reportedUsername').isString() &&                       newData.child('reportedUsername').val().length >= 1 &&                       newData.child('reportedUsername').val().length <= 20 &&                        newData.child('reason').isString() &&                       newData.child('reason').val().length >= 1 &&                       newData.child('reason').val().length <= 500 &&                        newData.child('timestamp').isNumber() &&                       newData.child('timestamp').val() >= 0 && newData.child('timestamp').val() <= now + 120000",
         "$other": {
           ".validate": "false"
@@ -617,6 +617,13 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid && ( (!data.exists() && newData.exists() && newData.isString() && newData.val().matches(/^[a-z0-9_.]{3,20}$/) && ((!root.child('users').child($uid).exists() && !root.child('usernames').child(newData.val()).exists()) || root.child('usernames').child(newData.val()).val() === auth.uid)) || (data.exists() && newData.exists() && newData.val() === data.val()) || (!newData.exists() && data.exists() && !root.child('users').child($uid).exists() && root.child('usernames').child(data.val()).val() !== auth.uid) )",
         ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^[a-z0-9_.]{3,20}$/))"
+      }
+    },
+    "reportRateLimits": {
+      "$uid": {
+        ".read": false,
+        ".write": false,
+        ".validate": false
       }
     }
   }

@@ -17,6 +17,7 @@ import {
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
 import { cleanupGroupNotificationTokens } from "./group-topic-subscription.js";
+import { submitUserReport } from "./user-reports.js";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 1 * 1024 * 1024;
@@ -3343,6 +3344,48 @@ async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
   return json(outcome.payload, outcome.status);
 }
 
+async function processUserReportRequest(request, env, uid, adminAuth) {
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > 8192) {
+    return json({ error: "Report request is too large." }, 413);
+  }
+
+  let body;
+  try {
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).length > 8192) {
+      return json({ error: "Report request is too large." }, 413);
+    }
+    body = JSON.parse(raw);
+  } catch (_) {
+    return json({ error: "Invalid report request JSON." }, 400);
+  }
+
+  const result = await submitUserReport({
+    uid,
+    body,
+    env,
+    adminToken: adminAuth.token,
+    adminDatabaseRequest,
+  });
+  return json(result.payload, result.status);
+}
+
+async function enforceUserReportIpRateLimit(request, env) {
+  const limiter = env.REPORT_IP_LIMITER;
+  if (!limiter) {
+    return json({
+      error: "Report rate limiting is not configured on this Worker.",
+    }, 503);
+  }
+  const sourceIp = request.headers.get("CF-Connecting-IP") || "unknown";
+  const limit = await limiter.limit({ key: sourceIp });
+  if (!limit.success) {
+    return json({ error: "Too many report submissions. Please try again later." }, 429);
+  }
+  return null;
+}
+
 async function enforceEncryptedOlmPushIpRateLimit(request, env) {
   const ipLimiter = env.OLM_PUSH_IP_LIMITER;
   if (!ipLimiter) {
@@ -3458,6 +3501,19 @@ export default {
 
         const adminAuth = await getFirebaseAdminToken(env);
         return processEncryptedOlmPushRequest(request, env, user.uid, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/reports"
+      ) {
+        // Throttle before Firebase token verification to limit auth-proxy abuse.
+        const ipLimitResponse = await enforceUserReportIpRateLimit(request, env);
+        if (ipLimitResponse) return ipLimitResponse;
+
+        const user = await authenticate(getBearer(request), env);
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processUserReportRequest(request, env, user.uid, adminAuth);
       }
 
       const user = await authenticate(getBearer(request), env);

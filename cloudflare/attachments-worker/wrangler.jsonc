@@ -36,6 +36,14 @@
         "limit": 300,
         "period": 60
       }
+    },
+    {
+      "name": "REPORT_IP_LIMITER",
+      "namespace_id": "27112030",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
     }
   ],
   "vars": {

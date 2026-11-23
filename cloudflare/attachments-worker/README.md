@@ -271,3 +271,13 @@ Database rules separately when they change:
 ```sh
 firebase deploy --only database
 ```
+
+
+## User reports and abuse protection
+
+- Android submits reports through the authenticated `POST /v1/reports` Worker endpoint; clients cannot write directly to `reports/{reportId}`.
+- The Worker derives `reporterId` from the verified Firebase ID token and creates the timestamp with Firebase's server-value timestamp. Neither field is accepted from the app.
+- Before saving, the Worker verifies the target profile UID, the profile's canonical username, and the normalized `usernames/{username}` ownership index.
+- Reports are rejected for self-targets, malformed IDs/usernames, empty or overlong reasons, nonexistent users, mismatched username indexes, and unexpected request fields.
+- `REPORT_IP_LIMITER` applies an approximate 30-request per minute limit per source IP. A separate ETag compare-and-swap marker in `reportRateLimits/{reporterUid}` enforces one report per account per 60 seconds across Worker locations. Report records and cooldown markers are server-owned; database rules deny direct client reads/writes to the cooldown marker and direct client report creation.
+- Cloudflare rate limiting is approximate and regional. The account cooldown is the globally serialized safeguard; the IP limit is an additional abuse barrier. Both use the existing free Worker and Firebase services and do not require another paid service.

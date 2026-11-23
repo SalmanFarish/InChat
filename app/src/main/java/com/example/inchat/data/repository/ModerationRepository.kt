@@ -9,10 +9,16 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class ModerationRepository {
 
@@ -267,99 +273,86 @@ class ModerationRepository {
         reportedUserId: String,
         reportedUsername: String,
         reason: String
-    ): Result<Unit> {
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val firebaseUser = auth.currentUser
+                ?: return@withContext Result.failure(
+                    IllegalStateException("You must be signed in.")
+                )
 
-        return try {
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != reporterId
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match report owner."
-                    )
+            if (firebaseUser.uid != reporterId || reporterId.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("Authenticated user does not match report owner.")
+                )
+            }
+            if (reportedUserId.isBlank() || reportedUserId == reporterId) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Invalid report target.")
                 )
             }
 
-            if (
-                reporterId.isBlank() ||
-                reportedUserId.isBlank()
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid report request"
-                    )
+            val cleanUsername = reportedUsername.trim()
+            val cleanReason = reason.trim()
+            if (cleanUsername.isBlank() || cleanReason.isBlank() || cleanReason.length > 500) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Report details are invalid.")
+                )
+            }
+            if (!CloudflareWorkerConfig.isConfigured) {
+                return@withContext Result.failure(
+                    IllegalStateException("The report service is not configured.")
                 )
             }
 
-            if (
-                reporterId ==
-                reportedUserId
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "You cannot report yourself"
+            val idToken = firebaseUser.getIdToken(false).await().token
+                ?: throw IllegalStateException("Could not obtain Firebase ID token.")
+            val connection = URL(
+                CloudflareWorkerConfig.API_BASE_URL + "/reports"
+            ).openConnection() as HttpURLConnection
+
+            try {
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 15_000
+                connection.doOutput = true
+                connection.setRequestProperty("Authorization", "Bearer $idToken")
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connection.outputStream.use { output ->
+                    output.write(
+                        JSONObject()
+                            .put("reportedUserId", reportedUserId)
+                            .put("reportedUsername", cleanUsername)
+                            .put("reason", cleanReason)
+                            .toString()
+                            .toByteArray(Charsets.UTF_8)
                     )
-                )
-            }
+                }
 
-            val cleanReason =
-                reason.trim()
-
-            if (cleanReason.isBlank()) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Report reason cannot be empty"
-                    )
-                )
-            }
-
-            if (cleanReason.length > 500) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Report reason is too long"
-                    )
-                )
-            }
-
-            val reportRef =
-                database
-                    .getReference("reports")
-                    .push()
-
-            val reportId =
-                reportRef.key
-                    ?: return Result.failure(
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    val responseText = runCatching {
+                        (connection.errorStream ?: connection.inputStream)
+                            .bufferedReader()
+                            .use { it.readText() }
+                    }.getOrDefault("")
+                    val serverMessage = runCatching {
+                        JSONObject(responseText).optString("error")
+                    }.getOrNull()?.takeIf { it.isNotBlank() }
+                    return@withContext Result.failure(
                         IllegalStateException(
-                            "Could not create report ID"
+                            serverMessage ?: "Report submission failed ($responseCode)."
                         )
                     )
+                }
 
-            val reportData =
-                mapOf(
-                    "reporterId" to reporterId,
-                    "reportedUserId" to
-                            reportedUserId,
-                    "reportedUsername" to
-                            reportedUsername,
-                    "reason" to cleanReason,
-                    "timestamp" to
-                            ServerValue.TIMESTAMP
-                )
-
-            reportRef
-                .setValue(reportData)
-                .await()
-
-            Result.success(Unit)
-
-        } catch (e: Exception) {
-
-            Result.failure(e)
+                Result.success(Unit)
+            } finally {
+                connection.disconnect()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 }
