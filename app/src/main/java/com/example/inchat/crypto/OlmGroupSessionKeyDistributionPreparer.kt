@@ -154,6 +154,10 @@ internal class OlmGroupSessionKeyDistributionPreparer(
                         targetUid = target.userId,
                         deviceId = target.device.deviceId,
                         keyId = candidate.keyId,
+                        scope = OlmPreKeyClaimScope.group(
+                            groupId = groupId,
+                            membershipEpoch = membershipEpoch,
+                        ),
                     )
                 ) {
                     claimedPreKey = candidate

@@ -63,6 +63,9 @@ class OlmGroupSessionKeyDistributionPreparerTest {
         )
         assertEquals(3, sessions.createdSessions.size)
         assertTrue(directory.claimedPreKeys.all { it.second != "recipient-laptop" })
+        assertTrue(directory.claimScopes.all {
+            it == OlmPreKeyClaimScope.group("group-1", 3L)
+        })
 
         result.deliveries.forEach { delivery ->
             val payload = OlmGroupSessionKeyDistributionPayloadCodec.decodeAndValidate(
@@ -424,6 +427,7 @@ class OlmGroupSessionKeyDistributionPreparerTest {
     ) : OlmOutboundKeyDirectory {
         val readUsers = mutableListOf<String>()
         val claimedPreKeys = mutableListOf<Pair<String, String>>()
+        val claimScopes = mutableListOf<OlmPreKeyClaimScope>()
 
         override suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle> {
             readUsers += uid
@@ -434,8 +438,10 @@ class OlmGroupSessionKeyDistributionPreparerTest {
             targetUid: String,
             deviceId: String,
             keyId: String,
+            scope: OlmPreKeyClaimScope,
         ): Boolean {
             claimedPreKeys += targetUid to deviceId
+            claimScopes += scope
             return claimResult
         }
     }

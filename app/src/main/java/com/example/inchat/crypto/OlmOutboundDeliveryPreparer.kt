@@ -23,11 +23,92 @@ internal fun interface OlmFirstMessagePreparer {
     suspend fun prepareFirstMessage(payload: OlmAuthenticatedMessagePayload): PreparedOlmDelivery
 }
 
+/**
+ * Server-authorized context for consuming a public one-time prekey. The claim
+ * remains globally unique per device/key, while Firebase rules ensure the
+ * claimant and key owner currently share this direct chat or group.
+ */
+internal data class OlmPreKeyClaimScope(
+    val conversationType: String,
+    val conversationId: String,
+    val conversationPeerUserId: String? = null,
+    val membershipEpoch: Long? = null,
+) {
+    fun toClaimRecord(claimantUid: String): Map<String, Any> {
+        require(USER_ID_PATTERN.matches(claimantUid)) {
+            "Prekey claim account has an invalid user ID"
+        }
+        return when (conversationType) {
+            "direct" -> {
+                val peerUid = requireNotNull(conversationPeerUserId) {
+                    "Direct prekey claim is missing its conversation peer"
+                }
+                require(USER_ID_PATTERN.matches(peerUid) && peerUid != claimantUid) {
+                    "Direct prekey claim peer is invalid"
+                }
+                require(
+                    conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                        claimantUid,
+                        peerUid,
+                    ) && membershipEpoch == null
+                ) {
+                    "Direct prekey claim scope does not match its participants"
+                }
+                mapOf(
+                    "claimantUid" to claimantUid,
+                    "conversationType" to conversationType,
+                    "conversationId" to conversationId,
+                    "conversationPeerUserId" to peerUid,
+                )
+            }
+            "group" -> {
+                require(
+                    GROUP_ID_PATTERN.matches(conversationId) &&
+                        conversationPeerUserId == null &&
+                        membershipEpoch != null &&
+                        membershipEpoch > 0L
+                ) {
+                    "Group prekey claim scope is invalid"
+                }
+                mapOf(
+                    "claimantUid" to claimantUid,
+                    "conversationType" to conversationType,
+                    "conversationId" to conversationId,
+                    "membershipEpoch" to requireNotNull(membershipEpoch),
+                )
+            }
+            else -> error("Unsupported prekey claim conversation type")
+        }
+    }
+
+    companion object {
+        fun direct(conversationId: String, peerUserId: String) = OlmPreKeyClaimScope(
+            conversationType = "direct",
+            conversationId = conversationId,
+            conversationPeerUserId = peerUserId,
+        )
+
+        fun group(groupId: String, membershipEpoch: Long) = OlmPreKeyClaimScope(
+            conversationType = "group",
+            conversationId = groupId,
+            membershipEpoch = membershipEpoch,
+        )
+
+        private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
+        private val GROUP_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
+    }
+}
+
 /** Narrow key-directory contract needed to prepare a first Olm message. */
 internal interface OlmOutboundKeyDirectory {
     val authenticatedUserId: String
     suspend fun getUserDevices(uid: String): List<PublicDeviceKeyBundle>
-    suspend fun claimOneTimePreKey(targetUid: String, deviceId: String, keyId: String): Boolean
+    suspend fun claimOneTimePreKey(
+        targetUid: String,
+        deviceId: String,
+        keyId: String,
+        scope: OlmPreKeyClaimScope,
+    ): Boolean
 }
 
 /** Native session operations required by the first-message preparer. */
@@ -77,7 +158,15 @@ internal class OlmOutboundDeliveryPreparer(
 
         var claimedPreKey: SignedOlmPreKey? = null
         for (candidate in remoteDevice.oneTimeKeys) {
-            if (directory.claimOneTimePreKey(recipientUserId, recipientDeviceId, candidate.keyId)) {
+            if (directory.claimOneTimePreKey(
+                    recipientUserId,
+                    recipientDeviceId,
+                    candidate.keyId,
+                    OlmPreKeyClaimScope.direct(
+                        conversationId = payload.conversationId,
+                        peerUserId = payload.conversationPeerUserId,
+                    ),
+                )) {
                 claimedPreKey = candidate
                 break
             }

@@ -141,8 +141,12 @@ internal class DeviceKeyDirectoryRepository(
         targetUid: String,
         deviceId: String,
         keyId: String,
+        scope: OlmPreKeyClaimScope,
     ): Boolean {
-        requireNotNull(auth.currentUser) { "Sign in before claiming a one-time prekey" }
+        val claimantUid = requireNotNull(auth.currentUser?.uid) {
+            "Sign in before claiming a one-time prekey"
+        }
+        val claimRecord = scope.toClaimRecord(claimantUid)
         require(UID_REGEX.matches(targetUid)) { "User ID has an invalid format" }
         require(DEVICE_ID_REGEX.matches(deviceId)) { "Device ID has an invalid format" }
         require(KEY_ID_REGEX.matches(keyId)) { "Prekey ID has an invalid format" }
@@ -159,6 +163,9 @@ internal class DeviceKeyDirectoryRepository(
         }) {
             "The requested one-time prekey is not in the published device bundle"
         }
+        require(auth.currentUser?.uid == claimantUid) {
+            "Authenticated account changed while resolving the one-time prekey"
+        }
 
         val claimReference = database.reference
             .child(CLAIMS_NODE)
@@ -173,7 +180,7 @@ internal class DeviceKeyDirectoryRepository(
                     if (currentData.value != null) {
                         return com.google.firebase.database.Transaction.abort()
                     }
-                    currentData.value = true
+                    currentData.value = claimRecord
                     return com.google.firebase.database.Transaction.success(currentData)
                 }
 
@@ -203,13 +210,14 @@ internal class DeviceKeyDirectoryRepository(
     suspend fun claimAvailableOneTimePreKey(
         targetUid: String,
         deviceId: String,
+        scope: OlmPreKeyClaimScope,
     ): SignedOlmPreKey? {
         require(DEVICE_ID_REGEX.matches(deviceId)) { "Device ID has an invalid format" }
         val device = getUserDevices(targetUid).firstOrNull { it.deviceId == deviceId }
             ?: return null
 
         for (prekey in device.oneTimeKeys) {
-            if (claimOneTimePreKey(targetUid, deviceId, prekey.keyId)) {
+            if (claimOneTimePreKey(targetUid, deviceId, prekey.keyId, scope)) {
                 return prekey
             }
         }
