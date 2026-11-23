@@ -139,6 +139,63 @@ test("commits member map and next epoch together under one root ETag", async () 
   }]);
 });
 
+test("membership changes can transfer group creator in the same ETag-protected root patch", async () => {
+  const fixture = groupFixture({
+    type: "group",
+    createdBy: "alice",
+    members: { alice: "admin", bob: "admin", carol: "member" },
+    cryptoMembership: {
+      epoch: 3,
+      members: { alice: "admin", bob: "admin", carol: "member" },
+    },
+  });
+
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    (members, currentChat) => {
+      assert.equal(currentChat.createdBy, "alice");
+      const nextMembers = { ...members };
+      delete nextMembers.alice;
+      return {
+        members: nextMembers,
+        cryptoMembershipChanged: true,
+        createdBy: "bob",
+      };
+    },
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.cryptoMembershipEpoch, 4);
+  assert.equal(fixture.group.createdBy, "bob");
+  assert.deepEqual(fixture.group.members, {
+    bob: "admin",
+    carol: "member",
+  });
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 4,
+    members: {
+      bob: "admin",
+      carol: "member",
+    },
+  });
+  assert.deepEqual(fixture.patches, [{
+    members: {
+      bob: "admin",
+      carol: "member",
+    },
+    cryptoMembership: {
+      epoch: 4,
+      members: {
+        bob: "admin",
+        carol: "member",
+      },
+    },
+    createdBy: "bob",
+  }]);
+});
+
 test("role-only update patches members without advancing or inventing an epoch", async () => {
   const fixture = groupFixture({
     type: "group",
