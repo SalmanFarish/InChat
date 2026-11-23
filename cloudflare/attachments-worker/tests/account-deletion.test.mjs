@@ -201,3 +201,93 @@ test("account deletion removes owned E2EE data and rotates retained group member
     globalThis.fetch = previousFetch;
   }
 });
+
+
+test("account deletion dissolves a two-member group without overlapping group-root paths", async () => {
+  const previousFetch = globalThis.fetch;
+  const group = {
+    chatId: "group_2",
+    type: "group",
+    name: "Small group",
+    createdBy: "alice",
+    members: {
+      alice: "admin",
+      bob: "member",
+    },
+    cryptoMembership: {
+      epoch: 2,
+      members: {
+        alice: "admin",
+        bob: "member",
+      },
+    },
+  };
+  let cleanupPatch = null;
+
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const path = decodeURIComponent(
+      url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""),
+    );
+    const method = options.method || "GET";
+
+    if (method === "GET") {
+      if (path === "groupMemberships/alice") {
+        return jsonResponse({ group_2: true });
+      }
+      if (
+        path === "groupReads/alice" ||
+        path === "privateUsers/alice/fcmToken" ||
+        path === "groupNotificationDevices/group_2/alice" ||
+        path === "privateUsers/bob/fcmToken"
+      ) {
+        return jsonResponse(null);
+      }
+      if (path === "userChats/alice") {
+        return jsonResponse({ group_2: { chatType: "group" } });
+      }
+      if (path === "chats/group_2") return jsonResponse(group);
+      throw new Error("Unexpected GET request: " + url.toString());
+    }
+
+    if (method === "PATCH" && path === "") {
+      cleanupPatch = JSON.parse(options.body);
+      assertNoOverlappingPatchPaths(cleanupPatch);
+      return jsonResponse(null);
+    }
+
+    throw new Error("Unexpected request: " + method + " " + url.toString());
+  };
+
+  try {
+    const response = await cleanupAccountGroupsForDeletion(
+      {
+        FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com",
+        FCM_TOPIC_SECRET: "test-only-topic-secret-at-least-32-bytes",
+      },
+      "alice",
+      { token: "admin-token", projectId: "demo-inchat" },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      success: true,
+      updatedGroups: 0,
+      dissolvedGroups: 1,
+    });
+    assert.equal(cleanupPatch["chats/group_2"], null);
+    assert.equal(cleanupPatch["attachments/group_2"], null);
+    assert.equal(cleanupPatch["groupMemberships/bob/group_2"], null);
+    assert.equal(cleanupPatch["groupReads/bob/group_2"], null);
+    assert.equal(cleanupPatch["userChats/bob/group_2"], null);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        cleanupPatch,
+        "chats/group_2/groupReadCursors/alice",
+      ),
+      false,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
