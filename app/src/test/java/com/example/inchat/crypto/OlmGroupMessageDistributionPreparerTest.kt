@@ -198,7 +198,11 @@ class OlmGroupMessageDistributionPreparerTest {
             targetUid: String,
             deviceId: String,
             keyId: String,
+            scope: OlmPreKeyClaimScope,
         ): Boolean {
+            assertEquals("group", scope.conversationType)
+            assertEquals("group-1", scope.conversationId)
+            assertEquals(5L, scope.membershipEpoch)
             claimedPreKeys += targetUid to deviceId
             return claimResult
         }
