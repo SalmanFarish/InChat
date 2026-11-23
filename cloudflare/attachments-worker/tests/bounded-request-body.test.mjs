@@ -22,7 +22,7 @@ function makeRequest({ chunks = [], contentLength = null, body = true } = {}) {
     cancel() {
       cancelled = true;
     },
-  }) : null;
+  }, { highWaterMark: 0 }) : null;
   const headers = new Headers();
   if (contentLength !== null) headers.set("Content-Length", String(contentLength));
   return {
