@@ -236,8 +236,9 @@ class OlmOutboundDeliveryCoordinatorTest {
 
         assertEquals(0, replayInserted)
         assertEquals(firstEnvelopes, store.rows.mapValues { it.value.envelope })
+        assertEquals("A committed replay must not prepare another Olm session or claim another prekey", 1, preparer.payloads.size)
         assertEquals(2, scheduleAttempts)
-        assertEquals(listOf("insert:1", "insert:0"), events)
+        assertEquals(listOf("insert:1"), events)
     }
 
     @Test
@@ -363,6 +364,30 @@ class OlmOutboundDeliveryCoordinatorTest {
         private val events: MutableList<String>,
     ) : OlmDeliveryQueueStore {
         val rows = linkedMapOf<String, QueuedOlmDeviceDelivery>()
+        private val directCommits = linkedMapOf<Triple<String, String, String>, DirectOutgoingMessageCommit>()
+
+        override fun hasDirectMessageCommit(commit: DirectOutgoingMessageCommit): Boolean {
+            val key = Triple(commit.ownerUserId, commit.conversationId, commit.messageId)
+            val existing = directCommits[key] ?: return false
+            require(existing == commit) { "Conflicting direct message commit metadata" }
+            return true
+        }
+
+        override fun insertDirectMessageIfAbsent(
+            deliveries: List<QueuedOlmDeviceDelivery>,
+            commit: DirectOutgoingMessageCommit,
+        ): Int {
+            val key = Triple(commit.ownerUserId, commit.conversationId, commit.messageId)
+            val existing = directCommits[key]
+            if (existing != null) {
+                require(existing == commit) { "Conflicting direct message commit metadata" }
+                return 0
+            }
+            val inserted = insertIfAbsent(deliveries)
+            check(inserted == deliveries.size) { "Direct message fan-out was not inserted completely" }
+            directCommits[key] = commit
+            return inserted
+        }
 
         override fun insertIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>): Int {
             var inserted = 0
