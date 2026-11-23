@@ -6,7 +6,6 @@ import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.local.toCachedEntity
 import com.example.inchat.data.local.toMessage
 import com.example.inchat.data.worker.MessageNotificationWorker
-import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.ReplyTo
@@ -553,36 +552,17 @@ class ChatRepository {
      * New direct-message sends must go through the encrypted Olm coordinator.
      * A missing legacy Firebase record is never delivered by the background worker.
      */
+    /**
+     * Legacy plaintext cache API retained only for source compatibility.
+     * New direct messages must be committed by the encrypted Olm coordinator.
+     */
+    @Deprecated(
+        message = "Plaintext outgoing-message caching is disabled; use encrypted Olm sending.",
+    )
     suspend fun cacheOutgoingMessage(chatId: String, message: Message) {
-        val ownerUserId = auth.currentUser?.uid.orEmpty()
-        require(ownerUserId.isNotBlank()) { "You are not authenticated." }
-        require(chatId.isNotBlank() && message.id.isNotBlank()) { "Invalid outgoing message." }
-        require(message.senderId == ownerUserId) {
-            "Outgoing message sender does not match the signed-in account."
-        }
-
-        localMessageDao.upsertMessage(
-            message.toCachedEntity(
-                ownerUserId = ownerUserId,
-                chatId = chatId,
-                isPending = true
-            )
+        throw UnsupportedOperationException(
+            "Plaintext outgoing-message caching is disabled. Use the encrypted Olm coordinator.",
         )
-
-        // Schedule a reconciliation check for old Firebase writes. The worker
-        // does not transmit a missing message; active chats retry it through Olm.
-        try {
-            PendingMessageDeliveryWorker.enqueue(
-                context = InChatApplication.instance,
-                ownerUserId = ownerUserId,
-                chatId = chatId,
-                messageId = message.id
-            )
-        } catch (queueError: Exception) {
-            // Application startup also scans Room for pending rows, so a
-            // transient WorkManager scheduling failure does not lose the message.
-            Log.e(TAG, "Could not schedule background delivery for ${message.id}", queueError)
-        }
     }
 
     suspend fun markOutgoingMessageSent(chatId: String, messageId: String) {
@@ -1476,6 +1456,13 @@ class ChatRepository {
      * SEND MESSAGE
      * =========================================================
      */
+    /**
+     * Legacy plaintext direct-send API retained only so older call sites fail
+     * closed at runtime. New direct messages must use OlmDirectMessageSendCoordinator.
+     */
+    @Deprecated(
+        message = "Plaintext direct-message sending is disabled; use encrypted Olm sending.",
+    )
     suspend fun sendMessage(
         chatId: String,
         messageId: String,
@@ -1486,122 +1473,12 @@ class ChatRepository {
         receiverNickname: String,
         replyTo: ReplyTo? = null,
         attachment: com.example.inchat.data.model.Attachment? = null,
-        onQueued: () -> Unit = {}
-    ): Result<String> {
-
-        return try {
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank() ||
-                text.isBlank() ||
-                senderId.isBlank() ||
-                receiverId.isBlank() ||
-                senderId == receiverId
-            ) {
-                return Result.failure(IllegalArgumentException("Invalid message data"))
-            }
-
-            val firebaseUser = auth.currentUser
-            if (firebaseUser == null || firebaseUser.uid != senderId) {
-                return Result.failure(
-                    IllegalStateException("Authenticated user does not match message sender.")
-                )
-            }
-
-            if (
-                replyTo != null &&
-                (
-                    replyTo.messageId.isBlank() ||
-                    replyTo.senderId.isBlank() ||
-                    replyTo.senderNickname.isBlank() ||
-                    replyTo.text.isBlank()
-                )
-            ) {
-                return Result.failure(IllegalArgumentException("Invalid reply data"))
-            }
-
-            val messageData = mutableMapOf<String, Any>(
-                "id" to messageId,
-                "senderId" to senderId,
-                "senderNickname" to senderNickname,
-                "text" to text,
-                "timestamp" to ServerValue.TIMESTAMP
-            )
-
-            if (attachment != null) {
-                messageData["attachment"] = mapOf(
-                    "type" to attachment.type,
-                    "storageKey" to attachment.storageKey,
-                    "fileName" to attachment.fileName,
-                    "mimeType" to attachment.mimeType,
-                    "sizeBytes" to attachment.sizeBytes
-                )
-            }
-
-            if (replyTo != null) {
-                messageData["replyTo"] = mapOf(
-                    "messageId" to replyTo.messageId,
-                    "senderId" to replyTo.senderId,
-                    "senderNickname" to replyTo.senderNickname,
-                    "text" to replyTo.text
-                )
-            }
-
-            /*
-             * Start the message write first, then persist its trusted Worker
-             * event before waiting for server acknowledgement. The Worker
-             * verifies the saved message and updates both inbox records. This
-             * client deliberately does not write either user's inbox metadata.
-             */
-            val messageWrite = database.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .child(messageId)
-                .setValue(messageData)
-
-            // Queue the event immediately after the RTDB write enters its
-            // local queue. This preserves notification delivery if Android is
-            // killed while an offline message is waiting to reach Firebase.
-            try {
-                MessageNotificationWorker.enqueue(
-                    context = InChatApplication.instance,
-                    senderId = senderId,
-                    chatId = chatId,
-                    messageId = messageId
-                )
-            } catch (queueError: Exception) {
-                // The message itself can still be sent. Log the scheduling
-                // failure rather than turning it into a failed message send.
-                Log.e(
-                    TAG,
-                    "Message was queued, but its background event could not be scheduled.",
-                    queueError
-                )
-            }
-
-            // Realtime Database publishes the write to local listeners
-            // immediately. The composer can clear before server acknowledgement.
-            onQueued()
-            messageWrite.await()
-
-            // The Cloudflare Worker creates and updates both direct-chat inbox
-            // records after verifying the persisted message. Clients never write
-            // another user's inbox entry.
-
-            Result.success(messageId)
-        } catch (e: Exception) {
-            // A rejected RTDB write must not leave a retrying notification
-            // event behind for a message that was never saved.
-            MessageNotificationWorker.cancel(
-                context = InChatApplication.instance,
-                senderId = senderId,
-                chatId = chatId,
-                messageId = messageId
-            )
-            Log.e(TAG, "Message write failed for chat $chatId", e)
-            Result.failure(e)
-        }
-    }
+        onQueued: () -> Unit = {},
+    ): Result<String> = Result.failure(
+        UnsupportedOperationException(
+            "Plaintext direct-message delivery is disabled. Use the encrypted Olm coordinator.",
+        ),
+    )
 
     /*
      * =========================================================
