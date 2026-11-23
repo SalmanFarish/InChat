@@ -1,15 +1,20 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
-//! Isolated cryptographic prototype for InChat.
+//! Native cryptographic core for InChat's encrypted messaging paths.
 //!
-//! This crate is not connected to message sending, receiving, or Firebase.
-//! The JNI surface exposes isolated device-identity and Olm-session operations,
-//! alongside self-tests and test-only persistence checks. Private keys and
-//! serialized ratchet state remain in Rust and are stored only through the
-//! Android Keystore-backed encrypted state store. This prototype is not wired
-//! into live message sending, receiving, or Firebase.
+//! The JNI surface implements device identity and signed key bundles, Olm
+//! sessions, process-local SAS verification, and Megolm group-session state,
+//! encryption, and decryption. Secret ratchet state remains in Rust and is
+//! persisted only through the Android Keystore-backed encrypted state store.
+//!
+//! The Android application coordinates authenticated membership checks,
+//! identity-key-bound trust decisions, encrypted Room commits, and relay
+//! delivery. This crate does not access Firebase, Room, or the UI directly.
 
-/// Isolated Megolm group-session primitives. Not connected to chat delivery.
+/// Megolm primitives used by the JNI-backed group messaging path.
+///
+/// Membership, epoch authorization, replay persistence, and transport policy
+/// remain enforced by the authenticated application protocol.
 pub mod megolm;
 
 use jni::objects::{JByteArray, JObject, JString, JValue};
@@ -19,7 +24,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
 use zeroize::Zeroize;
 
-/// The exact upstream cryptography engine version used by this prototype.
+/// The exact upstream cryptography engine version used by this native core.
 pub const VODOZEMAC_VERSION: &str = "0.11.2";
 
 /// The two parts required to reconstruct an Olm message across a transport boundary.
