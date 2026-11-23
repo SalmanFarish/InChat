@@ -187,14 +187,42 @@ test("a user cannot forge another user's direct-chat inbox preview", async () =>
   );
 });
 
-test("a user can update their own direct-chat inbox entry", async () => {
+test("direct inbox previews accept only generic encrypted or empty-state text", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(
+    update(ref(aliceDb, "userChats/alice/dm"), {
+      lastMessage: "This plaintext must not enter inbox metadata",
+      lastTimestamp: 2000,
+      lastSenderId: "bob",
+    }),
+  );
 
   await assertSucceeds(
     update(ref(aliceDb, "userChats/alice/dm"), {
-      lastMessage: "Updated locally",
+      lastMessage: "Encrypted message",
       lastTimestamp: 2000,
       lastSenderId: "bob",
+    }),
+  );
+
+  await assertSucceeds(
+    update(ref(aliceDb, "userChats/alice/dm"), {
+      lastMessage: "No messages yet",
+      lastTimestamp: 3000,
+      lastSenderId: "alice",
+    }),
+  );
+});
+
+test("group inbox previews cannot be written by group members", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertFails(
+    update(ref(aliceDb, "userChats/alice/group"), {
+      lastMessage: "Plaintext group preview",
+      lastTimestamp: 2000,
+      lastSenderId: "alice",
     }),
   );
 });

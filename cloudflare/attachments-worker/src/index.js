@@ -1956,9 +1956,7 @@ async function syncGroupConversationPreview(
       updates[base + "otherUserId"] = "";
       updates[base + "otherUsername"] = "";
       updates[base + "lastMessage"] =
-        typeof latestMessage.text === "string" ?
-          latestMessage.text :
-          "";
+        isSystemEvent ? "Group updated" : "Encrypted message";
       updates[base + "lastTimestamp"] = latestMessage.timestamp;
       updates[base + "lastSenderId"] =
         isSystemEvent ? "" : (latestMessage.senderId || "");
@@ -2127,8 +2125,9 @@ async function rebuildConversationPreview(
       updates[base + "memberCount"] = members.length;
       updates[base + "otherUserId"] = "";
       updates[base + "otherUsername"] = "";
-      updates[base + "lastMessage"] =
-        typeof latest?.text === "string" ? latest.text : "";
+      updates[base + "lastMessage"] = latest ?
+        (isSystemEvent ? "Group updated" : "Encrypted message") :
+        "No messages yet";
       updates[base + "lastTimestamp"] = latest?.timestamp || 0;
       updates[base + "lastSenderId"] =
         !isSystemEvent && latest?.senderId ? latest.senderId : "";
@@ -2150,10 +2149,7 @@ async function rebuildConversationPreview(
       throw new Error("Cannot rebuild preview for invalid direct chat.");
     }
 
-    const lastMessage =
-      typeof latest?.text === "string" && latest.text.trim() !== "" ?
-        latest.text :
-        "No messages yet";
+    const lastMessage = latest ? "Encrypted message" : "No messages yet";
     const lastTimestamp = latest?.timestamp || 0;
     const lastSenderId = latest?.senderId || participantA;
 
@@ -2317,10 +2313,7 @@ async function syncDirectInboxForNewMessage(
       recipientProfile.username.trim().slice(0, 20) :
       "User";
 
-  const lastMessage =
-    typeof message.text === "string" && message.text.trim() !== "" ?
-      message.text.slice(0, 5000) :
-      "Sent an attachment";
+  const lastMessage = "Encrypted message";
   const lastTimestamp =
     typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ?
       message.timestamp :
