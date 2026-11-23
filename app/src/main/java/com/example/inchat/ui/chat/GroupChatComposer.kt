@@ -239,6 +239,8 @@ fun GroupChatComposer(
                                     onActionMessage(
                                         error ?: "Could not save message on this device."
                                     )
+                                } else if (!error.isNullOrBlank()) {
+                                    onActionMessage(error)
                                 }
                             }
                         }

@@ -550,6 +550,7 @@ class GroupChatViewModel : ViewModel() {
         // create a plaintext Room pending row: the legacy retry worker would
         // otherwise be able to upload it to chats/{groupId}/messages.
         viewModelScope.launch {
+            var pendingIntentPersisted = false
             try {
                 pendingOutgoingIntentMutex.withLock {
                 val existingMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
@@ -635,6 +636,12 @@ class GroupChatViewModel : ViewModel() {
                         plaintext = cleanText,
                     )
                 }
+                // A persisted encrypted intent is now safely accepted by this
+                // device, even while group-key acknowledgements are outstanding.
+                // Clear the composer now so a tap/retry cannot create a duplicate ID.
+                pendingIntentPersisted = true
+                onQueued()
+
                 when (
                     val outcome = withContext(Dispatchers.IO) {
                         encryptedGroupMessageSendCoordinator.send(
@@ -647,8 +654,8 @@ class GroupChatViewModel : ViewModel() {
                 ) {
                     is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
                         onResult(
-                            false,
-                            "Message saved securely. It will be sent automatically after all trusted member devices acknowledge the group key."
+                            true,
+                            "Message saved securely. It is waiting for trusted member devices to acknowledge the group key.",
                         )
                     }
 
@@ -686,7 +693,6 @@ class GroupChatViewModel : ViewModel() {
                         }
                         // The coordinator returns only after ciphertext-only
                         // per-device deliveries are durably committed to Room.
-                        onQueued()
                         onResult(true, null)
                     }
                 }
@@ -699,10 +705,17 @@ class GroupChatViewModel : ViewModel() {
                     "Encrypted group message was not queued; plaintext fallback is disabled.",
                     e,
                 )
-                onResult(
-                    false,
-                    e.message ?: "Encrypted group message could not be queued.",
-                )
+                if (pendingIntentPersisted) {
+                    onResult(
+                        true,
+                        "Message is saved securely on this device. Delivery will retry when the group encryption prerequisites are ready.",
+                    )
+                } else {
+                    onResult(
+                        false,
+                        e.message ?: "Encrypted group message could not be queued.",
+                    )
+                }
             }
         }
     }
