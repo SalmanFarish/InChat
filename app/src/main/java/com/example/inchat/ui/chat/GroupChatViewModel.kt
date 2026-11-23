@@ -625,6 +625,12 @@ class GroupChatViewModel : ViewModel() {
                     )
                 }
 
+                // A previous send may have been securely staged while a device
+                // was untrusted or temporarily unavailable. Re-evaluate those
+                // intents before adding this new one, so a later successful send
+                // also drives recovery instead of stranding older messages.
+                retryPendingOutgoingIntents(groupId, currentUserId)
+
                 // Persist the user's intent before attempting key distribution or
                 // advancing the Megolm ratchet. Room stores only AES-GCM ciphertext.
                 withContext(Dispatchers.IO) {
