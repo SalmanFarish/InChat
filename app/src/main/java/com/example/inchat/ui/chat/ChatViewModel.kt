@@ -2115,7 +2115,6 @@ class ChatViewModel : ViewModel() {
     fun reportUser(
         reporterId: String,
         reportedUserId: String,
-        reportedUsername: String,
         reason: String,
         onResult:
             (Boolean, String?) -> Unit
@@ -2130,9 +2129,6 @@ class ChatViewModel : ViewModel() {
 
                     reportedUserId =
                         reportedUserId,
-
-                    reportedUsername =
-                        reportedUsername,
 
                     reason =
                         reason

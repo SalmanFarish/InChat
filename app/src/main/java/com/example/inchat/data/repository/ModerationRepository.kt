@@ -271,7 +271,6 @@ class ModerationRepository {
     suspend fun reportUser(
         reporterId: String,
         reportedUserId: String,
-        reportedUsername: String,
         reason: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -291,9 +290,8 @@ class ModerationRepository {
                 )
             }
 
-            val cleanUsername = reportedUsername.trim()
             val cleanReason = reason.trim()
-            if (cleanUsername.isBlank() || cleanReason.isBlank() || cleanReason.length > 500) {
+            if (cleanReason.isBlank() || cleanReason.length > 500) {
                 return@withContext Result.failure(
                     IllegalArgumentException("Report details are invalid.")
                 )
@@ -321,7 +319,6 @@ class ModerationRepository {
                     output.write(
                         JSONObject()
                             .put("reportedUserId", reportedUserId)
-                            .put("reportedUsername", cleanUsername)
                             .put("reason", cleanReason)
                             .toString()
                             .toByteArray(Charsets.UTF_8)

@@ -97,7 +97,7 @@ export async function submitUserReport({
   }
 
   const fields = Object.keys(body).sort();
-  const expectedFields = ["reason", "reportedUserId", "reportedUsername"];
+  const expectedFields = ["reason", "reportedUserId"];
   if (
     fields.length !== expectedFields.length ||
     fields.some((field, index) => field !== expectedFields[index])
@@ -106,16 +106,11 @@ export async function submitUserReport({
   }
 
   const reportedUserId = body.reportedUserId;
-  const suppliedUsername = typeof body.reportedUsername === "string" ?
-    body.reportedUsername.trim() :
-    "";
-  const normalizedUsername = suppliedUsername.toLowerCase();
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
   if (
     typeof reportedUserId !== "string" ||
     !UID_PATTERN.test(reportedUserId) ||
-    !USERNAME_PATTERN.test(suppliedUsername) ||
     reason.length < 1 ||
     reason.length > 500
   ) {
@@ -134,11 +129,13 @@ export async function submitUserReport({
     !isRecord(targetProfile) ||
     targetProfile.uid !== reportedUserId ||
     typeof targetProfile.username !== "string" ||
-    targetProfile.username.trim().toLowerCase() !== normalizedUsername
+    !USERNAME_PATTERN.test(targetProfile.username.trim())
   ) {
     return outcome(404, { error: "The reported account could not be verified." });
   }
 
+  const canonicalUsername = targetProfile.username.trim();
+  const normalizedUsername = canonicalUsername.toLowerCase();
   const usernameOwner = await adminDatabaseRequest(
     env,
     adminToken,

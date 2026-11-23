@@ -8,7 +8,6 @@ import {
 const env = { FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com" };
 const baseBody = {
   reportedUserId: "bob",
-  reportedUsername: "Bob",
   reason: "Abusive messages",
 };
 
@@ -80,11 +79,27 @@ test("submits a report only after verifying target UID and canonical username", 
   });
 });
 
-test("does not accept a client-supplied reporter ID, timestamp, or unknown fields", async () => {
+test("does not accept a client-supplied reporter ID, timestamp, username, or unknown fields", async () => {
   const database = databaseFixture();
   const result = await submitUserReport({
     uid: "alice",
     body: { ...baseBody, reporterId: "mallory", timestamp: 1 },
+    env,
+    adminToken: "admin-token",
+    adminDatabaseRequest: database.adminDatabaseRequest,
+    fetchImpl: cooldownStore().fetch,
+    now: 1_000_000,
+  });
+
+  assert.equal(result.status, 400);
+  assert.equal(database.writes.length, 0);
+});
+
+test("does not accept a client-selected target username", async () => {
+  const database = databaseFixture();
+  const result = await submitUserReport({
+    uid: "alice",
+    body: { ...baseBody, reportedUsername: "Mallory" },
     env,
     adminToken: "admin-token",
     adminDatabaseRequest: database.adminDatabaseRequest,

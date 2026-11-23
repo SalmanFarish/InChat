@@ -210,7 +210,6 @@ fun ChatInfoScreen(
                         chatViewModel.reportUser(
                             reporterId = currentUserId,
                             reportedUserId = otherUserId,
-                            reportedUsername = otherUserNickname,
                             reason = reportReason
                         ) { success, error ->
                             actionMessage = if (success) {
