@@ -25,6 +25,14 @@ class CloudflareAttachmentRepository {
 
     private val auth = FirebaseAuth.getInstance()
 
+    /**
+     * Raw attachment uploads are intentionally disabled. The current Olm and
+     * Megolm payload formats do not carry an authenticated media key, so
+     * uploading source bytes here would expose media outside E2EE.
+     *
+     * Legacy attachments remain downloadable/deletable; new media sending
+     * must wait for encrypted attachment envelopes and ciphertext storage.
+     */
     suspend fun upload(
         chatId: String,
         messageId: String,
@@ -32,107 +40,11 @@ class CloudflareAttachmentRepository {
         mimeType: String,
         attachmentType: AttachmentType,
         fileName: String
-    ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val user = auth.currentUser
-                ?: return@withContext Result.failure(
-                    IllegalStateException("You must be signed in.")
-                )
-
-            if (!sourceFile.exists() || !sourceFile.isFile) {
-                return@withContext Result.failure(
-                    IllegalArgumentException("Attachment file does not exist.")
-                )
-            }
-
-            val maxBytes =
-                if (attachmentType == AttachmentType.VOICE) {
-                    MAX_VOICE_BYTES
-                } else {
-                    MAX_FILE_BYTES
-                }
-
-            if (sourceFile.length() <= 0L || sourceFile.length() > maxBytes) {
-                return@withContext Result.failure(
-                    IllegalArgumentException("Attachment is too large or empty.")
-                )
-            }
-
-            val token =
-                user.getIdToken(false).await().token
-                    ?: throw IllegalStateException(
-                        "Could not obtain Firebase ID token."
-                    )
-
-            val url = URL(
-                "$BASE_URL/${
-                    URLEncoder.encode(chatId, Charsets.UTF_8.name())
-                }/${
-                    URLEncoder.encode(messageId, Charsets.UTF_8.name())
-                }"
-            )
-
-            val connection = url.openConnection() as HttpURLConnection
-            try {
-                connection.requestMethod = "PUT"
-                connection.connectTimeout = CONNECT_TIMEOUT
-                connection.readTimeout = READ_TIMEOUT
-                connection.doOutput = true
-                connection.setFixedLengthStreamingMode(sourceFile.length())
-                connection.setRequestProperty("Authorization", "Bearer $token")
-                connection.setRequestProperty(
-                    "Content-Type",
-                    mimeType.ifBlank { "application/octet-stream" }
-                )
-                connection.setRequestProperty(
-                    "Content-Length",
-                    sourceFile.length().toString()
-                )
-                connection.setRequestProperty(
-                    "X-InChat-Attachment-Type",
-                    attachmentType.name.lowercase()
-                )
-                connection.setRequestProperty(
-                    "X-InChat-File-Name",
-                    fileName.take(180)
-                )
-
-                sourceFile.inputStream().use { input ->
-                    connection.outputStream.use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                val responseCode = connection.responseCode
-                if (responseCode !in 200..299) {
-                    val error = connection.errorStream
-                        ?.bufferedReader()
-                        ?.use { it.readText() }
-                        .orEmpty()
-
-                    return@withContext Result.failure(
-                        IllegalStateException(
-                            if (error.isBlank()) {
-                                "Attachment upload failed ($responseCode)."
-                            } else {
-                                error
-                            }
-                        )
-                    )
-                }
-
-                Result.success(
-                    "attachments/$chatId/$messageId"
-                )
-            } finally {
-                connection.disconnect()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
+    ): Result<String> = Result.failure(
+        UnsupportedOperationException(
+            "Attachment uploads are disabled until end-to-end encrypted media is supported."
+        )
+    )
 
     suspend fun download(
         chatId: String,

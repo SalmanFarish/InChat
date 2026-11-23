@@ -230,8 +230,17 @@ inbox wake-up handling, and delivery-state reconciliation have been validated.
 
 ## Attachments
 
-- Attachment bytes are stored as Base64 under
-  `attachments/{chatId}/{messageId}` in Firebase Realtime Database.
+- New attachment uploads are disabled. The current authenticated Olm and
+  Megolm message payloads do not yet carry per-attachment encryption keys, so
+  accepting source bytes would expose media outside end-to-end encryption.
+  The Android repository fails closed and the Worker rejects every new
+  attachment PUT with HTTP 501.
+- Existing legacy attachment downloads and sender-authorized deletion remain
+  available for backward compatibility. They are not end-to-end encrypted and
+  must not be treated as secure E2EE media.
+- Encrypted media support requires ciphertext-only upload, authenticated
+  per-message key metadata inside Olm/Megolm payloads, integrity verification,
+  and receiver-side decryption before the upload route can be re-enabled.
 - Voice attachments are limited to 1 MiB; view-once photos are limited to 5 MiB.
 - View-once photos are consumed with a Firebase ETag-conditional delete so
   concurrent downloads cannot both successfully consume the same record.

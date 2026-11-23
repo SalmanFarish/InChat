@@ -3159,15 +3159,6 @@ function attachmentKey(chatId, messageId) {
   return "attachments/" + chatId + "/" + messageId;
 }
 
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
 function base64ToBytes(value) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -3175,168 +3166,6 @@ function base64ToBytes(value) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
-}
-
-async function upload(request, env, uid, chatId, messageId, message, adminToken) {
-  const contentLengthHeader = request.headers.get("Content-Length") || "";
-  const contentType =
-    request.headers.get("Content-Type") || "application/octet-stream";
-  const attachmentType =
-    request.headers.get("X-InChat-Attachment-Type") || "file";
-  const fileName = cleanFileName(
-    request.headers.get("X-InChat-File-Name"),
-  );
-
-  if (attachmentType !== "voice" && attachmentType !== "view_once_photo") {
-    return json({ error: "Unsupported attachment type." }, 400);
-  }
-
-  const key = attachmentKey(chatId, messageId);
-  if (
-    message.attachment?.storageKey !== key ||
-    message.attachment?.type !== attachmentType
-  ) {
-    return json({ error: "Attachment metadata does not match this message." }, 409);
-  }
-
-  const maxBytes =
-    attachmentType === "voice" ? MAX_VOICE_BYTES : MAX_PHOTO_BYTES;
-
-  if (!/^\d+$/.test(contentLengthHeader)) {
-    return json({ error: "A valid Content-Length is required." }, 400);
-  }
-
-  const contentLength = Number(contentLengthHeader);
-  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) {
-    return json({ error: "A valid Content-Length is required." }, 400);
-  }
-
-  if (contentLength > maxBytes) {
-    return json({ error: "Attachment is too large." }, 413);
-  }
-
-  const normalizedContentType = contentType.toLowerCase();
-  if (attachmentType === "voice" && !normalizedContentType.startsWith("audio/")) {
-    return json({ error: "Voice attachments must be audio files." }, 400);
-  }
-
-  if (
-    attachmentType === "view_once_photo" &&
-    !normalizedContentType.startsWith("image/")
-  ) {
-    return json({ error: "View-once attachments must be images." }, 400);
-  }
-
-  if (!request.body) {
-    return json({ error: "Empty upload." }, 400);
-  }
-
-  const attachmentPath = "attachments/" + chatId + "/" + messageId;
-  const attachmentUrl =
-    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
-    "/" +
-    attachmentPath.split("/").map(encodeURIComponent).join("/") +
-    ".json";
-
-  // Read an ETag before uploading, then use it for a create-only conditional
-  // write. This prevents simultaneous PUT requests from replacing one another.
-  const existingResponse = await fetch(attachmentUrl, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-      Accept: "application/json",
-    },
-  });
-
-  if (!existingResponse.ok) {
-    throw new Error("Could not check whether the attachment already exists.");
-  }
-
-  const existingRecord = await existingResponse.json();
-  if (existingRecord !== null) {
-    return json({ error: "Attachment already exists." }, 409);
-  }
-
-  const etag = existingResponse.headers.get("ETag");
-  if (!etag) {
-    throw new Error("Firebase did not return an attachment ETag.");
-  }
-
-  // Enforce the limit while streaming too; Content-Length alone is not trusted.
-  const reader = request.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) break;
-      if (!result.value) continue;
-
-      totalBytes += result.value.byteLength;
-      if (totalBytes > maxBytes || totalBytes > contentLength) {
-        await reader.cancel().catch(() => {});
-        return json({ error: "Attachment is too large." }, 413);
-      }
-
-      chunks.push(result.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (totalBytes !== contentLength) {
-    return json({ error: "Upload size did not match Content-Length." }, 400);
-  }
-
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  const writeResponse = await fetch(attachmentUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify({
-      data: bytesToBase64(bytes),
-      contentType: contentType,
-      fileName: fileName,
-      attachmentType: attachmentType,
-      sizeBytes: bytes.byteLength,
-      senderId: uid,
-      chatId: chatId,
-      messageId: messageId,
-      createdAt: { ".sv": "timestamp" },
-    }),
-  });
-
-  if (writeResponse.status === 412) {
-    return json({ error: "Attachment already exists." }, 409);
-  }
-  if (!writeResponse.ok) {
-    const details = await writeResponse.text();
-    throw new Error(
-      "Could not save attachment (" +
-      writeResponse.status +
-      "): " +
-      details.slice(0, 240),
-    );
-  }
-
-  return json({
-    success: true,
-    key: key,
-    size: bytes.byteLength,
-    contentType: contentType,
-    fileName: fileName,
-    attachmentType: attachmentType,
-  }, 201);
 }
 
 async function download(env, chatId, messageId, uid, adminToken, message) {
@@ -3763,23 +3592,11 @@ export default {
       await authorizeChat(chatId, user.uid, user.token, env);
 
       if (request.method === "PUT") {
-        const message = await authorizeMessageSender(
-          chatId,
-          messageId,
-          user.uid,
-          user.token,
-          env,
-        );
-        const adminAuth = await getFirebaseAdminToken(env);
-        return upload(
-          request,
-          env,
-          user.uid,
-          chatId,
-          messageId,
-          message,
-          adminAuth.token,
-        );
+        // Do not accept source media bytes until the app has an authenticated
+        // Olm/Megolm attachment envelope and a ciphertext-only storage flow.
+        return json({
+          error: "End-to-end encrypted attachment uploads are not available yet.",
+        }, 501);
       }
 
       if (request.method === "GET") {
