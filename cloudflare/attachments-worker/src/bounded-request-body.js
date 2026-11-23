@@ -17,7 +17,7 @@ export async function readRequestTextLimited(request, maxBytes) {
 
   const contentLength = request.headers.get("Content-Length");
   if (contentLength !== null) {
-    if (!/^\\d+$/.test(contentLength)) {
+    if (!/^\d+$/.test(contentLength)) {
       throw new TypeError("Invalid Content-Length header.");
     }
     const declaredLength = Number(contentLength);
