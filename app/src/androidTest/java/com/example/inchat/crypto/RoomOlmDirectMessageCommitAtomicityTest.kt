@@ -42,6 +42,19 @@ class RoomOlmDirectMessageCommitAtomicityTest {
         assertEquals(2, dao.getTargetStatesForDistribution("alice", "alice-phone", "direct-conflict").size)
     }
 
+    @Test fun replayAfterRecipientDeviceCountChangesKeepsOriginalFanout() {
+        val original = DirectOutgoingMessageCommit("alice", "alice_bob", "bob", "direct-device-change", "alice-phone", 100L, 2)
+        val originalRows = listOf(prepared("bob", "bob-phone"), prepared("alice", "alice-tablet"))
+        assertEquals(2, enqueue(original, originalRows))
+
+        // A newly published recipient device must not make a replay look like
+        // a different message or trigger fresh Olm session/prekey preparation.
+        val expandedRows = originalRows + prepared("bob", "bob-laptop")
+        assertEquals(0, enqueue(original.copy(recipientDeviceCount = 3), expandedRows))
+        assertEquals(original.toEntity(), dao.getOutgoingDirectCommit("alice", "alice_bob", "direct-device-change"))
+        assertEquals(2, dao.getTargetStatesForDistribution("alice", "alice-phone", "direct-device-change").size)
+    }
+
     private fun enqueue(c: DirectOutgoingMessageCommit, rows: List<PreparedOlmDelivery>) = queue.enqueue(c.ownerUserId, c.senderDeviceId, c.messageId, rows, conversationId = c.conversationId, conversationPeerUserId = c.conversationPeerUserId, directMessageCommit = c)
     private fun deliveryId(c: DirectOutgoingMessageCommit, item: PreparedOlmDelivery): String {
         val raw = "${c.ownerUserId}\u0000${c.senderDeviceId}\u0000${c.messageId}\u0000${item.recipientUserId}\u0000${item.recipientDeviceId}".toByteArray(Charsets.UTF_8)
