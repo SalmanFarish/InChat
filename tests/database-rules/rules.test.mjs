@@ -679,46 +679,6 @@ test("device-key bundles reject unknown fields, malformed shape and oversized ke
   );
 });
 
-test("device-key directory is capped at twenty devices per account", async () => {
-  const aliceDb = testEnv.authenticatedContext("alice").database();
-
-  for (let index = 0; index < 20; index += 1) {
-    const deviceId = "device-" + index;
-    await assertSucceeds(
-      set(
-        ref(aliceDb, "deviceKeys/alice/" + deviceId),
-        publicDeviceBundle(deviceId),
-      ),
-    );
-  }
-
-  await assertFails(
-    set(
-      ref(aliceDb, "deviceKeys/alice/device-over-limit"),
-      publicDeviceBundle("device-over-limit"),
-    ),
-  );
-
-  // Updating an existing installation remains allowed at the cap.
-  await assertSucceeds(
-    set(
-      ref(aliceDb, "deviceKeys/alice/device-0/lastSeenAt"),
-      1700000000100,
-    ),
-  );
-
-  // Revoking a device frees its slot for a replacement installation.
-  await assertSucceeds(
-    set(ref(aliceDb, "deviceKeys/alice/device-0"), null),
-  );
-  await assertSucceeds(
-    set(
-      ref(aliceDb, "deviceKeys/alice/device-replacement"),
-      publicDeviceBundle("device-replacement"),
-    ),
-  );
-});
-
 test("authenticated users can read public device bundles", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
 

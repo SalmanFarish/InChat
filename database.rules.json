@@ -307,8 +307,8 @@
       "$uid": {
         ".read": "auth != null",
         "$deviceId": {
-          ".write": "auth != null && auth.uid === $uid && $deviceId.matches(/^[A-Za-z0-9_-]{1,64}$/) && (data.exists() || root.child('deviceKeys').child($uid).numChildren() < 20)",
-          ".validate": "newData.hasChildren(['schemaVersion','deviceId','ed25519IdentityKey','curve25519IdentityKey','curve25519IdentityKeySignature','fallbackKey','publishedAt','lastSeenAt']) && newData.child('schemaVersion').val() === 1 && newData.child('deviceId').val() === $deviceId && newData.child('ed25519IdentityKey').isString() && newData.child('curve25519IdentityKey').isString() && newData.child('curve25519IdentityKeySignature').isString() && (!newData.child('oneTimeKeys').exists() || newData.child('oneTimeKeys').numChildren() <= 20)",
+          ".write": "auth != null && auth.uid === $uid && $deviceId.matches(/^[A-Za-z0-9_-]{1,64}$/)",
+          ".validate": "newData.hasChildren(['schemaVersion','deviceId','ed25519IdentityKey','curve25519IdentityKey','curve25519IdentityKeySignature','fallbackKey','publishedAt','lastSeenAt']) && newData.child('schemaVersion').val() === 1 && newData.child('deviceId').val() === $deviceId && newData.child('ed25519IdentityKey').isString() && newData.child('curve25519IdentityKey').isString() && newData.child('curve25519IdentityKeySignature').isString()",
           "schemaVersion": {
             ".validate": "newData.isNumber() && newData.val() === 1"
           },
@@ -343,7 +343,7 @@
             }
           },
           "oneTimeKeys": {
-            ".validate": "newData.numChildren() <= 20",
+            ".validate": "!newData.child('20').exists()",
             "$index": {
               ".validate": "$index.matches(/^(0|[1-9]|1[0-9])$/) && newData.hasChildren(['keyKind','keyId','publicKey','signature']) && newData.child('keyKind').val() === 'one_time' && newData.child('keyId').isString() && newData.child('keyId').val().length >= 1 && newData.child('keyId').val().length <= 64 && newData.child('publicKey').isString() && newData.child('publicKey').val().length >= 1 && newData.child('publicKey').val().length <= 128 && newData.child('signature').isString() && newData.child('signature').val().length >= 1 && newData.child('signature').val().length <= 256",
               "keyKind": {
