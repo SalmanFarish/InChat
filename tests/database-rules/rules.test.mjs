@@ -249,7 +249,7 @@ test("new user profiles require the matching reserved username", async () => {
   const charlieDb = testEnv.authenticatedContext("charlie").database();
   const profile = {
     uid: "charlie",
-    username: "Charlie",
+    username: "charlie",
     displayName: "Charlie",
     bio: "",
   };
@@ -276,6 +276,34 @@ test("new user profiles require the matching reserved username", async () => {
   // The owner can still update existing non-username profile fields.
   await assertSucceeds(
     set(ref(charlieDb, "users/charlie/displayName"), "Charlie Updated"),
+  );
+
+  // Display casing may differ from the normalized reservation key.
+  const daveDb = testEnv.authenticatedContext("dave").database();
+  await assertSucceeds(
+    set(ref(daveDb, "usernameClaims/dave"), "dave"),
+  );
+  await assertSucceeds(
+    set(ref(daveDb, "users/dave"), {
+      uid: "dave",
+      username: "Dave",
+      displayName: "Dave",
+      bio: "",
+    }),
+  );
+
+  // A different profile handle cannot be paired with Dave's reservation.
+  const emmaDb = testEnv.authenticatedContext("emma").database();
+  await assertSucceeds(
+    set(ref(emmaDb, "usernameClaims/emma"), "emma"),
+  );
+  await assertFails(
+    set(ref(emmaDb, "users/emma"), {
+      uid: "emma",
+      username: "another_name",
+      displayName: "Emma",
+      bio: "",
+    }),
   );
 });
 
