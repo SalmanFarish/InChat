@@ -72,7 +72,111 @@ class EncryptedMessageDeliveryStatusRepositoryTest {
         }
     }
 
-    private fun prepared(deviceId: String): PreparedOlmDelivery {
+    @Test
+    fun conversationStatusesUseEncryptedOutboxAndDurableRecipientAcksOnly() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "encrypted-conversation-status-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(database, database.olmDeliveryQueueDao()),
+            )
+            val repository = EncryptedMessageDeliveryStatusRepository(
+                queueDao = database.olmDeliveryQueueDao(),
+                receiptDao = database.olmDeliveryReceiptDao(),
+            )
+
+            val inserted = queue.enqueue(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                messageId = "direct-status",
+                prepared = listOf(
+                    prepared("bob-phone"),
+                    prepared("bob-tablet"),
+                ),
+                directMessageCommit = DirectOutgoingMessageCommit(
+                    ownerUserId = "alice",
+                    conversationId = "alice_bob",
+                    conversationPeerUserId = "bob",
+                    messageId = "direct-status",
+                    senderDeviceId = "alice-phone",
+                    sentAtMillis = 20_000L,
+                    recipientDeviceCount = 2,
+                ),
+                conversationId = "alice_bob",
+                conversationPeerUserId = "bob",
+            )
+            assertEquals(2, inserted)
+
+            val statusFlow = repository.observeConversation(
+                ownerUserId = "alice",
+                recipientUserId = "bob",
+                conversationId = "alice_bob",
+            )
+            val waiting = statusFlow.first()
+            assertEquals(EncryptedMessageDeliveryStatus.WAITING, waiting["direct-status"])
+
+            val firstDelivery = queue.claimNext("alice", "alice-phone", 30_000L)!!
+            assertTrue(queue.markUploaded(firstDelivery, 30_001L))
+            assertEquals(
+                EncryptedMessageDeliveryStatus.SENT,
+                statusFlow.first()["direct-status"],
+            )
+
+            RoomOlmDeliveryAcknowledgementRecorder(
+                database = database,
+                dao = database.olmDeliveryReceiptDao(),
+            ).record(
+                OlmDeliveryAcknowledgement(
+                    deliveryId = firstDelivery.deliveryId,
+                    recipientUserId = "bob",
+                    recipientDeviceId = firstDelivery.recipientDeviceId,
+                    messageId = "direct-status",
+                    senderUserId = "alice",
+                    senderDeviceId = "alice-phone",
+                ),
+                30_002L,
+            )
+            assertEquals(
+                EncryptedMessageDeliveryStatus.DELIVERED,
+                statusFlow.first()["direct-status"],
+            )
+
+            // The same projection must exclude messages from another conversation.
+            queue.enqueue(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                messageId = "other-conversation-status",
+                prepared = listOf(prepared("carol-phone", "carol")),
+                directMessageCommit = DirectOutgoingMessageCommit(
+                    ownerUserId = "alice",
+                    conversationId = "alice_carol",
+                    conversationPeerUserId = "carol",
+                    messageId = "other-conversation-status",
+                    senderDeviceId = "alice-phone",
+                    sentAtMillis = 21_000L,
+                    recipientDeviceCount = 1,
+                ),
+                conversationId = "alice_carol",
+                conversationPeerUserId = "carol",
+            )
+            assertTrue(
+                "Other conversations must be excluded",
+                "other-conversation-status" !in statusFlow.first(),
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    private fun prepared(
+        deviceId: String,
+        recipientUserId: String = "bob",
+    ): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)
             .put("algorithm", "olm")
@@ -84,6 +188,6 @@ class EncryptedMessageDeliveryStatusRepositoryTest {
                 Base64.encodeToString(byteArrayOf(1, 2, 3), Base64.URL_SAFE or Base64.NO_WRAP),
             )
             .toString()
-        return PreparedOlmDelivery("bob", deviceId, "session-$deviceId", envelope)
+        return PreparedOlmDelivery(recipientUserId, deviceId, "session-$deviceId", envelope)
     }
 }

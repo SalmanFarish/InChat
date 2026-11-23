@@ -113,6 +113,31 @@ interface OlmDeliveryReceiptDao {
         recipientUserId: String,
         messageId: String,
     ): Flow<Boolean>
+
+    /**
+     * Scope recipient acknowledgements to the immutable direct-message commit
+     * ledger. Group receipts and unrelated conversations cannot affect this DM.
+     */
+    @Query(
+        """
+        SELECT DISTINCT receipt.messageId
+        FROM olm_delivery_receipts AS receipt
+        INNER JOIN encrypted_direct_outgoing_commits AS outgoing
+            ON outgoing.ownerUserId = receipt.ownerUserId
+            AND outgoing.senderDeviceId = receipt.senderDeviceId
+            AND outgoing.messageId = receipt.messageId
+        WHERE receipt.ownerUserId = :ownerUserId
+          AND receipt.recipientUserId = :recipientUserId
+          AND outgoing.conversationId = :conversationId
+          AND outgoing.conversationPeerUserId = :recipientUserId
+        ORDER BY receipt.messageId ASC
+        """,
+    )
+    fun observeDeliveredMessageIdsForConversation(
+        ownerUserId: String,
+        recipientUserId: String,
+        conversationId: String,
+    ): Flow<List<String>>
 }
 
 /** Persists a recipient acknowledgement before its ciphertext outbox row is deleted. */

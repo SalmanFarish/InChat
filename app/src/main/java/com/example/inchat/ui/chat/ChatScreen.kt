@@ -218,6 +218,16 @@ fun ChatScreen(
         .pendingMessageIds
         .collectAsState()
 
+    val encryptedMessageIds by
+    chatViewModel
+        .encryptedMessageIds
+        .collectAsState()
+
+    val encryptedDeliveryStatuses by
+    chatViewModel
+        .encryptedDeliveryStatuses
+        .collectAsState()
+
     val replyingTo by
     chatViewModel
         .replyingTo
@@ -634,6 +644,12 @@ fun ChatScreen(
 
                 pendingMessageIds =
                     pendingMessageIds,
+
+                encryptedMessageIds =
+                    encryptedMessageIds,
+
+                encryptedDeliveryStatuses =
+                    encryptedDeliveryStatuses,
 
                 isConnected =
                     isConnected,

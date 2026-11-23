@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
@@ -58,7 +59,9 @@ fun ChatMessageList(
     onReactionClick: (Message, String) -> Unit,
     innerPadding: androidx.compose.foundation.layout.PaddingValues,
     selectedMessageIds: Set<String> = emptySet(),
-    onToggleMessageSelection: (Message) -> Unit = {}
+    onToggleMessageSelection: (Message) -> Unit = {},
+    encryptedMessageIds: Set<String> = emptySet(),
+    encryptedDeliveryStatuses: Map<String, EncryptedMessageDeliveryStatus> = emptyMap(),
 ) {
 
     val listState =
@@ -630,6 +633,14 @@ fun ChatMessageList(
                                         .NONE
                                 }
 
+                            val encryptedDeliveryStatus =
+                                if (isMe && message.id in encryptedMessageIds) {
+                                    encryptedDeliveryStatuses[message.id]
+                                        ?: EncryptedMessageDeliveryStatus.NOT_TRACKED
+                                } else {
+                                    null
+                                }
+
                             SwipeableMessageBubble(
 
                                 message =
@@ -640,6 +651,9 @@ fun ChatMessageList(
 
                                 deliveryStatus =
                                     deliveryStatus,
+
+                                encryptedDeliveryStatus =
+                                    encryptedDeliveryStatus,
 
                                 readTimestamp =
                                     otherUserReadTimestamp,

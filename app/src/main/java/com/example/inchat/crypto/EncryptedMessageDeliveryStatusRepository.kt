@@ -72,6 +72,65 @@ internal class EncryptedMessageDeliveryStatusRepository(
         ).distinctUntilChanged()
     }
 
+    /**
+     * Observe real encrypted delivery state for every message in one direct chat.
+     * This also supports history synced from another sender device: such a message
+     * may have a durable commit/receipt here without being in this device's outbox.
+     */
+    fun observeConversation(
+        ownerUserId: String,
+        recipientUserId: String,
+        conversationId: String,
+    ): Flow<Map<String, EncryptedMessageDeliveryStatus>> {
+        require(USER_ID_PATTERN.matches(ownerUserId)) {
+            "Owner user ID has an invalid format"
+        }
+        require(USER_ID_PATTERN.matches(recipientUserId)) {
+            "Recipient user ID has an invalid format"
+        }
+        require(ownerUserId != recipientUserId) {
+            "Encrypted direct-message status requires another account"
+        }
+        require(
+            conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
+                ownerUserId,
+                recipientUserId,
+            )
+        ) {
+            "Encrypted delivery status conversation does not match its participants"
+        }
+
+        return combine(
+            queueDao.observeConversationDeliveryStatuses(
+                ownerUserId = ownerUserId,
+                recipientUserId = recipientUserId,
+                conversationId = conversationId,
+            ),
+            receiptDao.observeDeliveredMessageIdsForConversation(
+                ownerUserId = ownerUserId,
+                recipientUserId = recipientUserId,
+                conversationId = conversationId,
+            ),
+        ) { queueRows, deliveredMessageIds ->
+            val deliveredIds = deliveredMessageIds.toSet()
+            buildMap<String, EncryptedMessageDeliveryStatus> {
+                queueRows.groupBy { it.messageId }.forEach { (messageId, rows) ->
+                    put(
+                        messageId,
+                        resolveEncryptedMessageDeliveryStatus(
+                            queueStatuses = rows.map { it.status },
+                            recipientAcknowledged = messageId in deliveredIds,
+                        ),
+                    )
+                }
+                // Acked outbox rows are deleted after the receipt is durable.
+                deliveredIds.forEach { messageId ->
+                    put(messageId, EncryptedMessageDeliveryStatus.DELIVERED)
+                }
+            }
+        }.distinctUntilChanged()
+    }
+
     private companion object {
         val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")

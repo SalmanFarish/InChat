@@ -13,6 +13,12 @@ data class OlmDeliveryQueueTargetState(
     val status: String,
 )
 
+/** Metadata-only delivery state projected for one direct message. */
+data class OlmMessageDeliveryStatusState(
+    val messageId: String,
+    val status: String,
+)
+
 @Dao
 interface OlmDeliveryQueueDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -109,6 +115,25 @@ interface OlmDeliveryQueueDao {
         recipientUserId: String,
         messageId: String,
     ): Flow<List<String>>
+
+    @Query(
+        """
+        SELECT messageId, status FROM olm_device_deliveries
+        WHERE ownerUserId = :ownerUserId
+          AND recipientUserId = :recipientUserId
+          AND conversationId = :conversationId
+          AND conversationPeerUserId = :recipientUserId
+          AND groupId IS NULL
+          AND membershipEpoch IS NULL
+          AND status IN ('QUEUED', 'IN_FLIGHT', 'UPLOADED', 'FAILED')
+        ORDER BY messageId ASC
+        """,
+    )
+    fun observeConversationDeliveryStatuses(
+        ownerUserId: String,
+        recipientUserId: String,
+        conversationId: String,
+    ): Flow<List<OlmMessageDeliveryStatusState>>
 
     @Query(
         "SELECT * FROM olm_device_deliveries " +

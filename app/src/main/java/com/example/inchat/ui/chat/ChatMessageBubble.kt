@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.zIndex
+import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.ui.theme.JetBrainsMono
@@ -74,7 +75,8 @@ fun SwipeableMessageBubble(
     isLastInGroup: Boolean = true,
     showSenderName: Boolean = false,
     onClick: () -> Unit = {},
-    isSelected: Boolean = false
+    isSelected: Boolean = false,
+    encryptedDeliveryStatus: EncryptedMessageDeliveryStatus? = null,
 ) {
     val density =
         LocalDensity.current
@@ -384,7 +386,19 @@ fun SwipeableMessageBubble(
                             maxLines = 1
                         )
 
-                        if (
+                        if (isMe && encryptedDeliveryStatus != null) {
+                            Spacer(Modifier.width(7.dp))
+                            EncryptedMessageDeliveryIndicator(
+                                status = encryptedDeliveryStatus,
+                                tint = if (
+                                    encryptedDeliveryStatus == EncryptedMessageDeliveryStatus.DELIVERED
+                                ) {
+                                    chatTheme.statusAccentColor
+                                } else {
+                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                                },
+                            )
+                        } else if (
                             isMe &&
                             deliveryStatus != MessageDeliveryStatus.NONE
                         ) {

@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedOlmMessage
+import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
+import com.example.inchat.crypto.EncryptedMessageDeliveryStatusRepository
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
 import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
 import com.example.inchat.data.local.LocalChatDatabase
@@ -56,6 +58,13 @@ class ChatViewModel : ViewModel() {
         EncryptedOlmMessageRepository(localChatDatabase.encryptedOlmMessageDao())
     }
 
+    private val encryptedMessageDeliveryStatusRepository by lazy {
+        EncryptedMessageDeliveryStatusRepository(
+            queueDao = localChatDatabase.olmDeliveryQueueDao(),
+            receiptDao = localChatDatabase.olmDeliveryReceiptDao(),
+        )
+    }
+
     private val encryptedDirectMessageSender by lazy {
         OlmDirectMessageSendCoordinatorFactory(
             context = InChatApplication.instance,
@@ -84,6 +93,13 @@ class ChatViewModel : ViewModel() {
     // IDs currently sourced from the authenticated encrypted Room timeline.
     // Feature handlers use this to avoid sending those IDs to plaintext RTDB APIs.
     private val _encryptedMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    val encryptedMessageIds: StateFlow<Set<String>> =
+        _encryptedMessageIds.asStateFlow()
+
+    private val _encryptedDeliveryStatuses =
+        MutableStateFlow<Map<String, EncryptedMessageDeliveryStatus>>(emptyMap())
+    val encryptedDeliveryStatuses: StateFlow<Map<String, EncryptedMessageDeliveryStatus>> =
+        _encryptedDeliveryStatuses.asStateFlow()
 
     fun isEncryptedMessageForActions(messageId: String): Boolean =
         messageId.isNotBlank() && messageId in _encryptedMessageIds.value
@@ -241,6 +257,8 @@ class ChatViewModel : ViewModel() {
 
     private var listenerJob:
             Job? = null
+
+    private var encryptedDeliveryStatusJob: Job? = null
 
     private var localMessagesJob:
             Job? = null
@@ -408,6 +426,8 @@ class ChatViewModel : ViewModel() {
         // Stop any previous conversation listeners before switching chats.
         initializationJob?.cancel()
         listenerJob?.cancel()
+        encryptedDeliveryStatusJob?.cancel()
+        _encryptedDeliveryStatuses.value = emptyMap()
         localMessagesJob?.cancel()
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
@@ -525,6 +545,7 @@ class ChatViewModel : ViewModel() {
                     startMessageListener(
                         chatId = chatId,
                         currentUserId = currentUserId,
+                        otherUserId = otherUserId,
                         otherUserNickname = otherUserNickname
                     )
 
@@ -663,8 +684,40 @@ class ChatViewModel : ViewModel() {
     private fun startMessageListener(
         chatId: String,
         currentUserId: String,
+        otherUserId: String,
         otherUserNickname: String
     ) {
+        encryptedDeliveryStatusJob?.cancel()
+        _encryptedDeliveryStatuses.value = emptyMap()
+        encryptedDeliveryStatusJob = viewModelScope.launch {
+            try {
+                encryptedMessageDeliveryStatusRepository
+                    .observeConversation(
+                        ownerUserId = currentUserId,
+                        recipientUserId = otherUserId,
+                        conversationId = chatId,
+                    )
+                    .collect { statuses ->
+                        if (
+                            currentChatId == chatId &&
+                            FirebaseAuth.getInstance().currentUser?.uid == currentUserId
+                        ) {
+                            _encryptedDeliveryStatuses.value = statuses
+                        }
+                    }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (currentChatId == chatId) {
+                    _encryptedDeliveryStatuses.value = emptyMap()
+                }
+                Log.e(
+                    "ChatViewModel",
+                    "Encrypted direct-message delivery state could not be observed",
+                    error,
+                )
+            }
+        }
 
         localMessagesJob?.cancel()
         localMessagesJob = null
@@ -2383,6 +2436,7 @@ class ChatViewModel : ViewModel() {
         _replyingTo.value = null
         _editingMessage.value = null
         _encryptedMessageIds.value = emptySet()
+        _encryptedDeliveryStatuses.value = emptyMap()
         _otherUserTyping.value = false
     }
 
@@ -2436,6 +2490,7 @@ class ChatViewModel : ViewModel() {
         deliveryListenerJob?.cancel()
 
         listenerJob?.cancel()
+        encryptedDeliveryStatusJob?.cancel()
         readListenerJob?.cancel()
         readReceiptPreferenceJob?.cancel()
         presenceJob?.cancel()
