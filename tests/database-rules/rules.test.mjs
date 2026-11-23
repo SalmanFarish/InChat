@@ -623,6 +623,7 @@ function publicDeviceBundle(deviceId = "device-alice-1") {
       },
     ],
     publishedAt: 1700000000000,
+    lastSeenAt: 1700000000000,
   };
 }
 
@@ -633,6 +634,87 @@ test("an authenticated owner can publish a public device-key bundle", async () =
     set(
       ref(aliceDb, "deviceKeys/alice/device-alice-1"),
       publicDeviceBundle(),
+    ),
+  );
+});
+
+test("device-key bundles reject unknown fields, malformed shape and oversized key material", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const path = "deviceKeys/alice/device-alice-1";
+
+  await assertFails(
+    set(ref(aliceDb, path), {
+      ...publicDeviceBundle(),
+      injectedMetadata: true,
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, path), {
+      ...publicDeviceBundle(),
+      ed25519IdentityKey: "x".repeat(129),
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, path), {
+      ...publicDeviceBundle(),
+      fallbackKey: {
+        ...publicDeviceBundle().fallbackKey,
+        unexpected: "field",
+      },
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, path), {
+      ...publicDeviceBundle(),
+      oneTimeKeys: Array.from({ length: 21 }, (_, index) => ({
+        keyKind: "one_time",
+        keyId: "one-time-" + index,
+        publicKey: "one-time-public-key",
+        signature: "one-time-signature",
+      })),
+    }),
+  );
+});
+
+test("device-key directory is capped at twenty devices per account", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  for (let index = 0; index < 20; index += 1) {
+    const deviceId = "device-" + index;
+    await assertSucceeds(
+      set(
+        ref(aliceDb, "deviceKeys/alice/" + deviceId),
+        publicDeviceBundle(deviceId),
+      ),
+    );
+  }
+
+  await assertFails(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-over-limit"),
+      publicDeviceBundle("device-over-limit"),
+    ),
+  );
+
+  // Updating an existing installation remains allowed at the cap.
+  await assertSucceeds(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-0/lastSeenAt"),
+      1700000000100,
+    ),
+  );
+
+  // Revoking a device frees its slot for a replacement installation.
+  await assertSucceeds(
+    set(ref(aliceDb, "deviceKeys/alice/device-0"), null),
+  );
+  await assertSucceeds(
+    set(
+      ref(aliceDb, "deviceKeys/alice/device-replacement"),
+      publicDeviceBundle("device-replacement"),
     ),
   );
 });

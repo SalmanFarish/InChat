@@ -306,8 +306,73 @@
     "deviceKeys": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
-        "$deviceId": {}
+        "$deviceId": {
+          ".write": "auth != null && auth.uid === $uid && $deviceId.matches(/^[A-Za-z0-9_-]{1,64}$/) && (data.exists() || root.child('deviceKeys').child($uid).numChildren() < 20)",
+          ".validate": "newData.hasChildren(['schemaVersion','deviceId','ed25519IdentityKey','curve25519IdentityKey','curve25519IdentityKeySignature','fallbackKey','publishedAt','lastSeenAt']) && newData.child('schemaVersion').val() === 1 && newData.child('deviceId').val() === $deviceId && newData.child('ed25519IdentityKey').isString() && newData.child('curve25519IdentityKey').isString() && newData.child('curve25519IdentityKeySignature').isString() && (!newData.child('oneTimeKeys').exists() || newData.child('oneTimeKeys').numChildren() <= 20)",
+          "schemaVersion": {
+            ".validate": "newData.isNumber() && newData.val() === 1"
+          },
+          "deviceId": {
+            ".validate": "newData.isString() && newData.val() === $deviceId && newData.val().matches(/^[A-Za-z0-9_-]{1,64}$/)"
+          },
+          "ed25519IdentityKey": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+          },
+          "curve25519IdentityKey": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+          },
+          "curve25519IdentityKeySignature": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 256"
+          },
+          "fallbackKey": {
+            ".validate": "newData.hasChildren(['keyKind','keyId','publicKey','signature']) && newData.child('keyKind').val() === 'fallback' && newData.child('keyId').isString() && newData.child('keyId').val().length >= 1 && newData.child('keyId').val().length <= 64 && newData.child('publicKey').isString() && newData.child('publicKey').val().length >= 1 && newData.child('publicKey').val().length <= 128 && newData.child('signature').isString() && newData.child('signature').val().length >= 1 && newData.child('signature').val().length <= 256",
+            "keyKind": {
+              ".validate": "newData.isString() && newData.val() === 'fallback'"
+            },
+            "keyId": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+            },
+            "publicKey": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+            },
+            "signature": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 256"
+            },
+            "$other": {
+              ".validate": "false"
+            }
+          },
+          "oneTimeKeys": {
+            ".validate": "newData.numChildren() <= 20",
+            "$index": {
+              ".validate": "$index.matches(/^(0|[1-9]|1[0-9])$/) && newData.hasChildren(['keyKind','keyId','publicKey','signature']) && newData.child('keyKind').val() === 'one_time' && newData.child('keyId').isString() && newData.child('keyId').val().length >= 1 && newData.child('keyId').val().length <= 64 && newData.child('publicKey').isString() && newData.child('publicKey').val().length >= 1 && newData.child('publicKey').val().length <= 128 && newData.child('signature').isString() && newData.child('signature').val().length >= 1 && newData.child('signature').val().length <= 256",
+              "keyKind": {
+                ".validate": "newData.isString() && newData.val() === 'one_time'"
+              },
+              "keyId": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+              },
+              "publicKey": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+              },
+              "signature": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 256"
+              },
+              "$other": {
+                ".validate": "false"
+              }
+            }
+          },
+          "publishedAt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 120000"
+          },
+          "lastSeenAt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 120000"
+          },
+          "$other": {
+            ".validate": "false"
+          }
+        }
       }
     },
     "deviceKeyClaims": {
