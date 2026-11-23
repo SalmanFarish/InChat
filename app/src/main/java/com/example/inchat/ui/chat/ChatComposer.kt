@@ -592,8 +592,9 @@ fun ChatComposer(
                                     otherUserNickname,
 
                                 onQueued = {
-                                    // The message is now in Firebase's local
-                                    // realtime queue and appears immediately.
+                                    // The encrypted message and complete device
+                                    // fan-out are committed to Room before this
+                                    // callback; the timeline observes that copy.
                                     sendingMessage = false
                                     onMessageSent()
                                     keyboardController?.hide()

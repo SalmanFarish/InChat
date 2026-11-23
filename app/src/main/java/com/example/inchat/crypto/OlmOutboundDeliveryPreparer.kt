@@ -15,8 +15,9 @@ internal data class PreparedOlmDelivery(
  * available, and falls back to the signed fallback key only when every OTK is
  * already claimed. No plaintext or private key is written to Firebase.
  *
- * This is an isolated crypto primitive: it does not enqueue, transmit, or persist
- * application messages and is not wired into live chat sending.
+ * This prepares one authenticated per-device ciphertext envelope. The live
+ * direct-message coordinator commits the complete prepared fan-out to the
+ * durable Room outbox; this class itself never transmits application messages.
  */
 internal fun interface OlmFirstMessagePreparer {
     suspend fun prepareFirstMessage(payload: OlmAuthenticatedMessagePayload): PreparedOlmDelivery
