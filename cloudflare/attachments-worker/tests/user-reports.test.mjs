@@ -128,7 +128,7 @@ test("rejects self-reports before reading or writing report data", async () => {
 });
 
 test("rejects nonexistent or mismatched target profiles", async () => {
-  for (const target of [null, { uid: "mallory", username: "Bob" }, { uid: "bob", username: "Carol" }]) {
+  for (const target of [null, { uid: "mallory", username: "Bob" }, { uid: "bob", username: "bad name" }]) {
     const database = databaseFixture({ target });
     const result = await submitUserReport({
       uid: "alice",
