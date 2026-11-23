@@ -45,8 +45,11 @@
         ".validate": "!newData.exists() || (!newData.hasChild('fcmToken') || (newData.child('fcmToken').isString() && newData.child('fcmToken').val().length <= 4096))",
         "olmDeviceFcmTokens": {
           "$deviceId": {
-            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 4096"
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 4096 && $deviceId.matches(/^[A-Za-z0-9_-]{1,64}$/)"
           }
+        },
+        "$other": {
+          ".validate": "false"
         }
       }
     },
@@ -274,7 +277,10 @@
       "$reportId": {
         ".read": false,
         ".write": "auth != null &&                    !data.exists() &&                    newData.exists() &&                    newData.child('reporterId').val() === auth.uid",
-        ".validate": "newData.hasChildren([                         'reporterId',                         'reportedUserId',                         'reportedUsername',                         'reason',                         'timestamp'                       ]) &&                        newData.child('reporterId').isString() &&                       newData.child('reporterId').val() === auth.uid &&                        newData.child('reportedUserId').isString() &&                       newData.child('reportedUserId').val() !== auth.uid &&                        newData.child('reportedUsername').isString() &&                       newData.child('reportedUsername').val().length >= 1 &&                       newData.child('reportedUsername').val().length <= 20 &&                        newData.child('reason').isString() &&                       newData.child('reason').val().length >= 1 &&                       newData.child('reason').val().length <= 500 &&                        newData.child('timestamp').isNumber() &&                       newData.child('timestamp').val() >= 0"
+        ".validate": "newData.hasChildren([                         'reporterId',                         'reportedUserId',                         'reportedUsername',                         'reason',                         'timestamp'                       ]) &&                        newData.child('reporterId').isString() &&                       newData.child('reporterId').val() === auth.uid &&                        newData.child('reportedUserId').isString() &&                       newData.child('reportedUserId').val() !== auth.uid &&                        newData.child('reportedUsername').isString() &&                       newData.child('reportedUsername').val().length >= 1 &&                       newData.child('reportedUsername').val().length <= 20 &&                        newData.child('reason').isString() &&                       newData.child('reason').val().length >= 1 &&                       newData.child('reason').val().length <= 500 &&                        newData.child('timestamp').isNumber() &&                       newData.child('timestamp').val() >= 0 && newData.child('timestamp').val() <= now + 120000",
+        "$other": {
+          ".validate": "false"
+        }
       }
     },
     "userMessageVisibility": {

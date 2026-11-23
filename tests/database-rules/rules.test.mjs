@@ -508,6 +508,72 @@ test("user profiles reject fields outside the supported profile schema", async (
   );
 });
 
+test("private user records accept only bounded notification token fields", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertSucceeds(
+    set(ref(aliceDb, "privateUsers/alice/fcmToken"), "f".repeat(4096)),
+  );
+
+  await assertSucceeds(
+    set(
+      ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/device-alice-1"),
+      "d".repeat(4096),
+    ),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "privateUsers/alice/isAdmin"), true),
+  );
+
+  await assertFails(
+    set(
+      ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/invalid.device"),
+      "token",
+    ),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "privateUsers/alice/fcmToken"), "f".repeat(4097)),
+  );
+
+  await assertFails(
+    set(
+      ref(aliceDb, "privateUsers/alice/olmDeviceFcmTokens/device-alice-2"),
+      "d".repeat(4097),
+    ),
+  );
+});
+
+test("user reports reject unknown fields and impossible future timestamps", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const report = {
+    reporterId: "alice",
+    reportedUserId: "bob",
+    reportedUsername: "bob",
+    reason: "Abusive messages",
+    timestamp: 1700000000000,
+  };
+
+  await assertSucceeds(
+    set(ref(aliceDb, "reports/report-valid"), report),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "reports/report-extra"), {
+      ...report,
+      isAdmin: true,
+    }),
+  );
+
+  await assertFails(
+    set(ref(aliceDb, "reports/report-future"), {
+      ...report,
+      timestamp: Date.now() + 24 * 60 * 60 * 1000,
+    }),
+  );
+});
+
 test("profile photo payloads above the server-side limit are rejected", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
 
