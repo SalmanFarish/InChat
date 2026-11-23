@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** Checks an identity-key-bound SAS trust decision for one published device. */
 internal fun interface OlmDeviceTrustVerifier {
@@ -45,7 +47,11 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
             verifiedAtMillis = verifiedAtMillis,
         )
         writeRecords(records)
+        TRUST_CHANGES.tryEmit(Unit)
     }
+
+    /** Observe local trust-roster changes without exposing device IDs or identity keys. */
+    fun observeTrustChanges(): Flow<Unit> = TRUST_CHANGES
 
     /** Returns the verification time only when the currently published key matches. */
     fun verifiedAtMillis(
@@ -81,6 +87,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
             false
         } else {
             writeRecords(remaining)
+            TRUST_CHANGES.tryEmit(Unit)
             true
         }
     }
@@ -160,5 +167,8 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
         val FINGERPRINT_REGEX = Regex("[a-f0-9]{64}")
         val LOCK = Any()
+        // Trust changes are process-local wake-ups; authoritative trust remains in
+        // the encrypted Keystore file and is re-read by every send before encryption.
+        val TRUST_CHANGES = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
     }
 }

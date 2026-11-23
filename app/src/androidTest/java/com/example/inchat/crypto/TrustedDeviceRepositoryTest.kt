@@ -10,9 +10,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 
 @RunWith(AndroidJUnit4::class)
 class TrustedDeviceRepositoryTest {
+    @Test
+    fun verificationAndRevocationWakeObserversAcrossRepositoryInstances() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val writer = TrustedDeviceRepository(context)
+        val observer = TrustedDeviceRepository(context)
+
+        val verified = async(start = CoroutineStart.UNDISPATCHED) {
+            observer.observeTrustChanges().first()
+        }
+        writer.markVerified(
+            peerUserId = "trust-event-user-$suffix",
+            peerDeviceId = "trust-event-device-$suffix",
+            peerEd25519IdentityKey = "trust-event-key-$suffix",
+            verifiedAtMillis = 1_800_000_000_000L,
+        )
+        verified.await()
+
+        val revoked = async(start = CoroutineStart.UNDISPATCHED) {
+            observer.observeTrustChanges().first()
+        }
+        assertTrue(writer.revoke("trust-event-user-$suffix", "trust-event-device-$suffix"))
+        revoked.await()
+    }
+
     @Test
     fun trustPersistsIsBoundToIdentityKeyAndCanBeRevoked() {
         val context = ApplicationProvider.getApplicationContext<Context>()

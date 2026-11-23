@@ -9,6 +9,7 @@ import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
 import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
 import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
+import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Group
 import com.example.inchat.data.model.Message
@@ -110,6 +111,7 @@ class GroupChatViewModel : ViewModel() {
     private var pendingMessagesJob: Job? = null
     private var pendingReconciliationJob: Job? = null
     private var pendingIntentRetryJob: Job? = null
+    private var trustChangeRetryJob: Job? = null
     private val pendingOutgoingIntentMutex = MegolmPendingGroupIntentRetryLock.mutex
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
@@ -178,6 +180,7 @@ class GroupChatViewModel : ViewModel() {
         pendingMessagesJob?.cancel()
         pendingReconciliationJob?.cancel()
         pendingIntentRetryJob?.cancel()
+        trustChangeRetryJob?.cancel()
         pendingMessagesJob = null
         pendingReconciliationJob = null
         pendingIntentRetryJob = null
@@ -366,6 +369,42 @@ class GroupChatViewModel : ViewModel() {
                 throw cancelled
             } catch (retryError: Exception) {
                 Log.e("GroupChatViewModel", "Automatic encrypted group-message retry observer stopped.", retryError)
+            }
+        }
+
+        // Device verification changes local SAS trust but does not itself create
+        // a delivery receipt. Wake pending group intents when that trust roster changes;
+        // the send coordinator independently revalidates membership and trust before use.
+        trustChangeRetryJob = viewModelScope.launch {
+            try {
+                TrustedDeviceRepository(InChatApplication.instance)
+                    .observeTrustChanges()
+                    .collect {
+                        if (listeningGroupId != groupId ||
+                            FirebaseAuth.getInstance().currentUser?.uid != currentUserId
+                        ) return@collect
+                        try {
+                            pendingOutgoingIntentMutex.withLock {
+                                retryPendingOutgoingIntents(groupId, currentUserId)
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (retryError: Exception) {
+                            Log.e(
+                                "GroupChatViewModel",
+                                "Trust-change retry pass failed; the encrypted intent remains stored.",
+                                retryError,
+                            )
+                        }
+                    }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (observerError: Exception) {
+                Log.e(
+                    "GroupChatViewModel",
+                    "Encrypted group trust-change observer stopped.",
+                    observerError,
+                )
             }
         }
 
