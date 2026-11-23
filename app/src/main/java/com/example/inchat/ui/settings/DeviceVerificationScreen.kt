@@ -45,7 +45,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
@@ -132,6 +134,21 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             }
             devices = restored.second
             if (restored.third != null) {
+                if (directoryRepository.authenticatedUserId == uid) {
+                    runCatching {
+                        EncryptedOlmDeviceWorkScheduler.schedule(
+                            context = context,
+                            ownerUserId = uid,
+                            deviceId = restored.first,
+                        )
+                    }.onFailure { failure ->
+                        Log.e(
+                            "DeviceVerification",
+                            "Could not restore encrypted delivery and device push jobs.",
+                            failure,
+                        )
+                    }
+                }
                 localDeviceId = restored.first
                 coordinator = restored.third
                 notice = "This device was restored automatically."
@@ -296,6 +313,21 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     )
                     val registeredDevices = directoryRepository.getUserDevices(uid)
                     bundle.deviceId to (newCoordinator to registeredDevices)
+                }
+                if (directoryRepository.authenticatedUserId == uid) {
+                    runCatching {
+                        EncryptedOlmDeviceWorkScheduler.schedule(
+                            context = context,
+                            ownerUserId = uid,
+                            deviceId = result.first,
+                        )
+                    }.onFailure { failure ->
+                        Log.e(
+                            "DeviceVerification",
+                            "Device was published, but encrypted delivery/push jobs could not be scheduled.",
+                            failure,
+                        )
+                    }
                 }
                 localDeviceId = result.first
                 coordinator = result.second.first

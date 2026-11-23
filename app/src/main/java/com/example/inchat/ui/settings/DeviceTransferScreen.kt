@@ -45,11 +45,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.util.Log
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceIdentityTransferCoordinator
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.DevicePairingProtocol
 import com.example.inchat.crypto.FirebaseDeviceTransferTransport
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -315,6 +317,21 @@ fun DeviceTransferScreen(
                                 withContext(Dispatchers.IO) {
                                     directoryRepository.publishMyDevice(bundle)
                                     identityRepository.markPublicKeyBundlePublished()
+                                }
+                                if (directoryRepository.authenticatedUserId == uid) {
+                                    runCatching {
+                                        EncryptedOlmDeviceWorkScheduler.schedule(
+                                            context = context,
+                                            ownerUserId = uid,
+                                            deviceId = bundle.deviceId,
+                                        )
+                                    }.onFailure { failure ->
+                                        Log.e(
+                                            "DeviceTransfer",
+                                            "Published source device, but encrypted delivery/push jobs could not be scheduled.",
+                                            failure,
+                                        )
+                                    }
                                 }
                                 val tx = UUID.randomUUID().toString().replace("-", "")
                                 val request = withContext(Dispatchers.IO) {
@@ -630,6 +647,21 @@ fun DeviceTransferScreen(
                                         transactionId = requireNotNull(transactionId),
                                         transport = transport,
                                     )
+                                }
+                                if (directoryRepository.authenticatedUserId == uid) {
+                                    runCatching {
+                                        EncryptedOlmDeviceWorkScheduler.schedule(
+                                            context = context,
+                                            ownerUserId = uid,
+                                            deviceId = requireNotNull(targetDeviceId),
+                                        )
+                                    }.onFailure { failure ->
+                                        Log.e(
+                                            "DeviceTransfer",
+                                            "Destination identity was published, but encrypted delivery/push jobs could not be scheduled.",
+                                            failure,
+                                        )
+                                    }
                                 }
                                 destinationProtocol.clearEphemeralSession(requireNotNull(transactionId))
                                 mode = TransferMode.DESTINATION_DONE
