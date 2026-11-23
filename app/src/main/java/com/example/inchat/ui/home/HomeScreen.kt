@@ -226,7 +226,7 @@ fun HomeScreen(
                         ) ||
 
                             conversation
-                                .lastMessage
+                                .safeInboxPreview()
                                 .lowercase(
                                     Locale.getDefault()
                                 )
@@ -1476,10 +1476,9 @@ private fun ConversationItem(
             ""
         }
 
-    val previewText =
-        conversation.lastMessage.ifBlank {
-            if (conversation.chatType == "group") "No messages yet" else ""
-        }
+    // Legacy inbox rows may still contain pre-E2EE plaintext previews.
+    // Never render or search that untrusted historical field.
+    val previewText = conversation.safeInboxPreview()
 
     Box {
         Surface(
@@ -1671,6 +1670,20 @@ private fun ConversationItem(
         }
     }
 }
+
+/*
+ * Firebase may still contain plaintext previews written before the
+ * encrypted-preview rules were deployed. Treat only fixed, non-sensitive
+ * labels as displayable; mask every legacy or unexpected value.
+ */
+private fun Conversation.safeInboxPreview(): String =
+    when (lastMessage) {
+        "Encrypted message" -> "Encrypted message"
+        "No messages yet" -> "No messages yet"
+        "Group updated" -> if (chatType == "group") "Group updated" else "Encrypted message"
+        "" -> if (chatType == "group") "No messages yet" else ""
+        else -> "Encrypted message"
+    }
 
 /*
  * ============================================================
