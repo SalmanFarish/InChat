@@ -110,6 +110,7 @@ internal class OlmOutboundDeliveryCoordinator(
             prepared = prepared,
             conversationId = conversationId,
             conversationPeerUserId = recipientUserId,
+            directMessageCommit = DirectOutgoingMessageCommit(senderUserId, conversationId, recipientUserId, messageId, senderDeviceId, sentAtMillis, prepared.size),
         )
 
         // WorkManager uses unique account/device work names, so replaying this

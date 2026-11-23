@@ -55,6 +55,21 @@ internal class RoomOlmDeliveryQueueStore(
         })
     }
 
+    override fun insertDirectMessageIfAbsent(deliveries: List<QueuedOlmDeviceDelivery>, commit: DirectOutgoingMessageCommit): Int {
+        require(deliveries.isNotEmpty()) { "A committed direct message requires device deliveries" }
+        return database.runInTransaction(Callable {
+            val existing = dao.getOutgoingDirectCommit(commit.ownerUserId, commit.conversationId, commit.messageId)
+            if (existing != null) {
+                require(existing == commit.toEntity()) { "Outgoing direct message ID is already committed with different metadata" }
+                return@Callable 0
+            }
+            check(dao.insertOutgoingDirectCommitIfAbsent(commit.toEntity()) != -1L) { "Outgoing direct message commit marker could not be inserted" }
+            val inserted = dao.insertIfAbsent(deliveries.map { it.toEntity() }).count { it != -1L }
+            check(inserted == deliveries.size) { "Outgoing direct fan-out conflicts with pre-existing delivery rows" }
+            inserted
+        })
+    }
+
     override fun hasMatchingDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
         dao.hasMatchingDelivery(
             deliveryId = acknowledgement.deliveryId,

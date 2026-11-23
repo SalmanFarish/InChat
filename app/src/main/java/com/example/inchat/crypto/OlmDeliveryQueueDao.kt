@@ -19,6 +19,12 @@ interface OlmDeliveryQueueDao {
     fun insertIfAbsent(rows: List<OlmDeviceDeliveryEntity>): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertOutgoingDirectCommitIfAbsent(commit: EncryptedDirectOutgoingCommitEntity): Long
+
+    @Query("SELECT * FROM encrypted_direct_outgoing_commits WHERE ownerUserId = :ownerUserId AND conversationId = :conversationId AND messageId = :messageId LIMIT 1")
+    fun getOutgoingDirectCommit(ownerUserId: String, conversationId: String, messageId: String): EncryptedDirectOutgoingCommitEntity?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertOutgoingGroupCommitIfAbsent(commit: EncryptedGroupOutgoingCommitEntity): Long
 
     @Query(
