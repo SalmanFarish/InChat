@@ -48,6 +48,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         )
         writeRecords(records)
         TRUST_CHANGES.tryEmit(Unit)
+        Unit
     }
 
     /** Observe local trust-roster changes without exposing device IDs or identity keys. */
