@@ -1014,6 +1014,7 @@ test("group prekey claims require both accounts in the current server-authored e
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
   await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
+  await assertSucceeds(set(ref(malloryDb, "deviceKeyClaimsByClaimant/mallory/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(set(ref(bobDb, path), groupPreKeyClaim("bob")));
   await assertFails(set(ref(malloryDb, path), groupPreKeyClaim("mallory")));
 });
