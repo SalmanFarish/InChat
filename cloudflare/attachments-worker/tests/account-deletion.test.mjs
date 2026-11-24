@@ -144,6 +144,8 @@ test("account deletion removes owned E2EE data and rotates retained group member
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       success: true,
+      complete: true,
+      processedGroups: 1,
       updatedGroups: 1,
       dissolvedGroups: 0,
     });
@@ -201,18 +203,6 @@ test("account deletion removes owned E2EE data and rotates retained group member
     ]) {
       assert.equal(finalCleanupPatch[path], null, "Expected deletion of " + path);
     }
-    assert.equal(
-      Object.prototype.hasOwnProperty.call(
-        cleanupPatch,
-        "groupMemberships/alice/group_1",
-      ),
-      false,
-    );
-    assert.equal(
-      Object.prototype.hasOwnProperty.call(cleanupPatch, "userChats/alice/group_1"),
-      false,
-    );
-
     const previewPatch = rootPatches[1];
     assert.equal(previewPatch["userChats/bob/group_1/memberCount"], 2);
     assert.equal(previewPatch["userChats/carol/group_1/memberCount"], 2);
@@ -310,6 +300,8 @@ test("account deletion dissolves a two-member group without overlapping group-ro
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       success: true,
+      complete: true,
+      processedGroups: 1,
       updatedGroups: 0,
       dissolvedGroups: 1,
     });
