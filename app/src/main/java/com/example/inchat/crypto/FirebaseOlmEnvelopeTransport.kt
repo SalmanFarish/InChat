@@ -6,6 +6,9 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import kotlinx.coroutines.tasks.await
 
+/** Identifies the remote relay that supplied a staged delivery or acknowledgement. */
+internal enum class OlmRelayOrigin { FIREBASE, CLOUDFLARE, BOTH }
+
 internal data class FirebaseOlmInboxItem(
     val deliveryId: String,
     val senderUid: String,
@@ -17,6 +20,7 @@ internal data class FirebaseOlmInboxItem(
     val conversationId: String? = null,
     val conversationType: String? = null,
     val conversationPeerUserId: String? = null,
+    val relayOrigin: OlmRelayOrigin = OlmRelayOrigin.FIREBASE,
 )
 
 internal data class FirebaseOlmRelayRecord(
@@ -152,11 +156,22 @@ internal interface OlmInboxTransport {
     suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem>
     suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem)
     suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String)
+
+    suspend fun removeFromMyDeviceInbox(deviceId: String, item: FirebaseOlmInboxItem) {
+        removeFromMyDeviceInbox(deviceId, item.deliveryId)
+    }
 }
 
 internal interface OlmDeliveryAckTransport {
     suspend fun readMyDeliveryAcknowledgements(senderDeviceId: String): List<OlmDeliveryAcknowledgement>
     suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String)
+
+    suspend fun removeMyDeliveryAcknowledgement(
+        senderDeviceId: String,
+        acknowledgement: OlmDeliveryAcknowledgement,
+    ) {
+        removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement.deliveryId)
+    }
 }
 
 /** Sender-side transport used only by the isolated encrypted device outbox. */
@@ -166,6 +181,8 @@ internal interface OlmOutgoingDeliveryTransport : OlmDeliveryAckTransport {
         senderDeviceId: String,
     ): FirebaseOlmUploadResult
 }
+
+internal interface OlmEnvelopeRelayTransport : OlmInboxTransport, OlmOutgoingDeliveryTransport
 
 internal enum class FirebaseOlmUploadResult {
     STORED,
@@ -188,7 +205,7 @@ internal class FirebaseOlmEnvelopeTransport(
         DeviceKeyDirectoryRepository().getUserDevices(uid)
     },
     private val expectedAuthenticatedUserId: String? = null,
-) : OlmInboxTransport, OlmOutgoingDeliveryTransport {
+) : OlmEnvelopeRelayTransport {
 
     /**
      * Bind each worker-created transport to its scheduled account. The callback
