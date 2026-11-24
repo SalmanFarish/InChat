@@ -21,12 +21,12 @@ class TestStorage {
     this.sql = {
       exec: (query, ...bindings) => {
         const normalized = query.trim();
-        if (/^(CREATE|DROP|ALTER|PRAGMA)\\b/i.test(normalized)) {
+        if (/^(CREATE|DROP|ALTER|PRAGMA)\b/i.test(normalized)) {
           this.database.exec(query);
           return { toArray: () => [] };
         }
         const statement = this.database.prepare(query);
-        if (/^(SELECT|WITH)\\b/i.test(normalized)) {
+        if (/^(SELECT|WITH)\b/i.test(normalized)) {
           return { toArray: () => statement.all(...bindings) };
         }
         statement.run(...bindings);
