@@ -5,6 +5,8 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
 import { processEncryptedOlmPush } from "./olm-push.js";
+import { processOlmMailboxRequest, OlmDeviceMailboxDurableObject } from "./olm-mailbox.js";
+export { OlmDeviceMailboxDurableObject };
 import { syncEncryptedDirectPreview } from "./encrypted-direct-preview.js";
 import { syncEncryptedGroupPreview } from "./encrypted-group-preview.js";
 import {
@@ -3747,6 +3749,21 @@ export default {
       }
 
       const user = await authenticate(getBearer(request), env);
+
+      if (url.pathname.startsWith("/v1/olm/mailbox/")) {
+        const ipLimitResponse = await enforceEncryptedOlmPushIpRateLimit(request, env);
+        if (ipLimitResponse) return ipLimitResponse;
+        const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(env, user.uid);
+        if (accountLimitResponse) return accountLimitResponse;
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processOlmMailboxRequest({
+          request,
+          env,
+          uid: user.uid,
+          adminToken: adminAuth,
+          adminDatabaseRequest,
+        });
+      }
 
       if (
         request.method === "POST" &&

@@ -353,6 +353,12 @@ async function proxyMailbox(stub, path, method = "GET", body = undefined) {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }));
     const text = await response.text();
+    if (response.status === 204) {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
     return new Response(text, {
       status: response.status,
       headers: {
@@ -453,6 +459,22 @@ export async function processOlmMailboxRequest({
         "/acknowledge",
         "POST",
         { deliveryId: body.deliveryId.toLowerCase(), retentionMillis, acceptedAt: now },
+      );
+    }
+
+    const deleteDelivery = url.pathname.match(
+      /^\\/v1\\/olm\\/mailbox\\/inbox\\/([A-Fa-f0-9]{64})$/,
+    );
+    if (request.method === "DELETE" && deleteDelivery) {
+      const deviceId = url.searchParams.get("deviceId") || "";
+      if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
+        return failure(404, "Recipient device is no longer published.");
+      }
+      return proxyMailbox(
+        mailboxStub(env, uid, deviceId),
+        "/inbox/" + deleteDelivery[1].toLowerCase(),
+        "DELETE",
+        { acceptedAt: now, retentionMillis },
       );
     }
 
@@ -599,6 +621,10 @@ export class OlmDeviceMailboxDurableObject {
       }
       if (request.method === "POST" && url.pathname === "/acknowledge") {
         return await this.acknowledge(request);
+      }
+      const deleteDelivery = url.pathname.match(/^\\/inbox\\/([A-Fa-f0-9]{64})$/);
+      if (request.method === "DELETE" && deleteDelivery) {
+        return await this.removeDelivery(deleteDelivery[1].toLowerCase(), request);
       }
       if (request.method === "POST" && url.pathname === "/ack-record") {
         return await this.storeAcknowledgementRecord(request);
@@ -768,7 +794,7 @@ export class OlmDeviceMailboxDurableObject {
     const rows = this.sql.exec(
       "SELECT seq,delivery_id,message_id,sender_uid,sender_device_id,envelope," +
         "conversation_type,conversation_id,conversation_peer_user_id,group_id,membership_epoch " +
-        "FROM deliveries WHERE status = 'pending' AND expires_at > ? AND seq > ? " +
+        "FROM deliveries WHERE status IN ('pending','acknowledged') AND expires_at > ? AND seq > ? " +
         "ORDER BY seq ASC LIMIT ?",
       now,
       cursor.value,
@@ -815,7 +841,10 @@ export class OlmDeviceMailboxDurableObject {
     if (delivery.status === "expired" || delivery.expires_at <= Date.now()) {
       return failure(410, "Mailbox delivery has expired.");
     }
-    if (delivery.status !== "pending" && delivery.status !== "acked") {
+    if (delivery.status === "acknowledged") {
+      return jsonResponse({ acknowledged: true, duplicate: true });
+    }
+    if (delivery.status !== "pending") {
       return failure(409, "Mailbox delivery is not acknowledgeable.");
     }
 
@@ -853,14 +882,44 @@ export class OlmDeviceMailboxDurableObject {
 
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
+        "UPDATE deliveries SET status = 'acknowledged' " +
+        "WHERE delivery_id = ? AND status = 'pending'",
+        deliveryId,
+      );
+    });
+    return jsonResponse({ acknowledged: true });
+  }
+
+  async removeDelivery(deliveryId, request) {
+    const body = await parseRequestBody(request, 4096);
+    if (!exactKeys(body, ["acceptedAt", "retentionMillis"])) {
+      return failure(400, "Mailbox removal metadata is invalid.");
+    }
+    const retention = parseRetentionMillis(body.retentionMillis);
+    if (retention === null || !Number.isSafeInteger(body.acceptedAt) || body.acceptedAt < 0) {
+      return failure(400, "Mailbox removal metadata is invalid.");
+    }
+    const current = this.sql.exec(
+      "SELECT status FROM deliveries WHERE delivery_id = ?",
+      deliveryId,
+    ).toArray()[0];
+    if (!current) return failure(404, "Mailbox delivery was not found.");
+    if (current.status === "acked") {
+      return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    }
+    if (current.status !== "acknowledged") {
+      return failure(409, "Mailbox delivery cannot be removed before its acknowledgement is stored.");
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
         "UPDATE deliveries SET status = 'acked', envelope = NULL, byte_size = 0, cleanup_at = ? " +
-        "WHERE delivery_id = ? AND status IN ('pending','acked')",
-        acknowledgement.acknowledgedAt + retention,
+        "WHERE delivery_id = ? AND status = 'acknowledged'",
+        Math.floor(body.acceptedAt) + retention,
         deliveryId,
       );
     });
     await this.scheduleNextAlarm();
-    return jsonResponse({ acknowledged: true });
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
   }
 
   async storeAcknowledgementRecord(request) {
@@ -1015,7 +1074,7 @@ export class OlmDeviceMailboxDurableObject {
     const tombstoneUntil = now + (retention || MIN_RETENTION_MILLIS);
     this.ctx.storage.transactionSync(() => {
       const expired = this.sql.exec(
-        "SELECT seq FROM deliveries WHERE status = 'pending' AND expires_at <= ? " +
+        "SELECT seq FROM deliveries WHERE status IN ('pending','acknowledged') AND expires_at <= ? " +
         "ORDER BY expires_at ASC LIMIT ?",
         now,
         EXPIRY_BATCH_SIZE,
@@ -1023,7 +1082,7 @@ export class OlmDeviceMailboxDurableObject {
       for (const row of expired) {
         this.sql.exec(
           "UPDATE deliveries SET status = 'expired', envelope = NULL, byte_size = 0, cleanup_at = ? " +
-          "WHERE seq = ? AND status = 'pending'",
+          "WHERE seq = ? AND status IN ('pending','acknowledged')",
           tombstoneUntil,
           row.seq,
         );
@@ -1051,7 +1110,7 @@ export class OlmDeviceMailboxDurableObject {
 
     // Keep alarms bounded. If a batch was full, another pass starts shortly.
     const remainingExpired = this.sql.exec(
-      "SELECT 1 AS present FROM deliveries WHERE (status = 'pending' AND expires_at <= ?) " +
+      "SELECT 1 AS present FROM deliveries WHERE (status IN ('pending','acknowledged') AND expires_at <= ?) " +
       "OR (status IN ('expired','acked') AND cleanup_at <= ?) LIMIT 1",
       now,
       now,

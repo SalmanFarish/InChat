@@ -16,6 +16,40 @@ InChat does not deploy Firebase Cloud Functions or use Firebase Cloud Storage.
 The Android app never contains a Firebase service-account key or FCM server
 credential.
 
+
+## Encrypted mailbox backend (not enabled in the deployed Worker)
+
+The Worker source now contains a SQLite-backed Durable Object mailbox and
+authenticated HTTP routes:
+
+- `POST /v1/olm/mailbox/enqueue`
+- `GET /v1/olm/mailbox/inbox?deviceId=...`
+- `POST /v1/olm/mailbox/acknowledge?deviceId=...`
+- `DELETE /v1/olm/mailbox/inbox/{deliveryId}?deviceId=...`
+- `GET /v1/olm/mailbox/acks?deviceId=...`
+- `DELETE /v1/olm/mailbox/acks/{deliveryId}?deviceId=...`
+
+The Worker verifies Firebase authentication, published sender/recipient
+devices, conversation participation or the exact current group membership
+epoch, and both block directions before enqueue. The mailbox stores only Olm
+ciphertext and routing/delivery metadata. It provides immutable idempotency,
+50-item pages, sender ACK persistence before recipient ciphertext deletion,
+per-device caps (200 pending deliveries / 20 MiB and 500 acknowledgements),
+and alarm-driven expiry cleanup. Expired and acknowledged ciphertext is cleared
+before its small idempotency tombstone is eventually removed.
+
+The API deliberately returns retryable 503 responses until
+`OLM_MAILBOX_RETENTION_MS` is explicitly configured to an integer between
+one hour and 30 days. No default retention has been selected, and this variable
+is intentionally absent from `wrangler.jsonc`.
+
+The Durable Object binding and SQLite class migration are declared in
+`wrangler.jsonc`, but no migration has been deployed and Android still uses
+its existing Firebase relay. Do not deploy until the account's Free-plan /
+no-payment-method requirement is confirmed and the retention policy is
+explicitly selected. Free quota exhaustion is a retryable failure; there is no
+paid fallback or automatic upgrade.
+
 ## Worker setup
 
 1. No R2 bucket is required. Attachment bytes are stored in the existing Firebase Realtime Database.

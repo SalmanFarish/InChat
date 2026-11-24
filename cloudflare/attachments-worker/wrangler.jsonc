@@ -50,5 +50,21 @@
     "FIREBASE_CLIENT_EMAIL": "firebase-adminsdk-fbsvc@inchat-24b8b.iam.gserviceaccount.com",
     "FIREBASE_DATABASE_URL": "https://inchat-24b8b-default-rtdb.firebaseio.com",
     "FIREBASE_PROJECT_ID": "inchat-24b8b"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OLM_MAILBOX",
+        "class_name": "OlmDeviceMailboxDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "OlmDeviceMailboxDurableObject"
+      ]
+    }
+  ]
 }
