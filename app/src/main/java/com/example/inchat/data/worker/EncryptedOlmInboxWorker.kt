@@ -123,6 +123,7 @@ class EncryptedOlmInboxWorker(
                 firebase = firebaseTransport,
                 cloudflare = cloudflareTransport,
                 cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
+                cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
             )
             val receiver = FirebaseOlmInboxReceiver(
                 transport = inboxTransport,
