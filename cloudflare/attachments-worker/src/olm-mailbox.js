@@ -463,7 +463,7 @@ export async function processOlmMailboxRequest({
     }
 
     const deleteDelivery = url.pathname.match(
-      /^\\/v1\\/olm\\/mailbox\\/inbox\\/([A-Fa-f0-9]{64})$/,
+      /^\/v1\/olm\/mailbox\/inbox\/([A-Fa-f0-9]{64})$/,
     );
     if (request.method === "DELETE" && deleteDelivery) {
       const deviceId = url.searchParams.get("deviceId") || "";
@@ -841,10 +841,8 @@ export class OlmDeviceMailboxDurableObject {
     if (delivery.status === "expired" || delivery.expires_at <= Date.now()) {
       return failure(410, "Mailbox delivery has expired.");
     }
-    if (delivery.status === "acknowledged") {
-      return jsonResponse({ acknowledged: true, duplicate: true });
-    }
-    if (delivery.status !== "pending") {
+    const alreadyAcknowledged = delivery.status === "acknowledged";
+    if (delivery.status !== "pending" && !alreadyAcknowledged) {
       return failure(409, "Mailbox delivery is not acknowledgeable.");
     }
 
@@ -880,14 +878,16 @@ export class OlmDeviceMailboxDurableObject {
       return failure(503, "Sender acknowledgement could not be stored; retry safely.", true);
     }
 
-    this.ctx.storage.transactionSync(() => {
-      this.sql.exec(
-        "UPDATE deliveries SET status = 'acknowledged' " +
-        "WHERE delivery_id = ? AND status = 'pending'",
-        deliveryId,
-      );
-    });
-    return jsonResponse({ acknowledged: true });
+    if (!alreadyAcknowledged) {
+      this.ctx.storage.transactionSync(() => {
+        this.sql.exec(
+          "UPDATE deliveries SET status = 'acknowledged' " +
+          "WHERE delivery_id = ? AND status = 'pending'",
+          deliveryId,
+        );
+      });
+    }
+    return jsonResponse({ acknowledged: true, duplicate: alreadyAcknowledged });
   }
 
   async removeDelivery(deliveryId, request) {
@@ -1049,8 +1049,8 @@ export class OlmDeviceMailboxDurableObject {
 
   async scheduleNextAlarm() {
     const delivery = this.sql.exec(
-      "SELECT MIN(CASE WHEN status = 'pending' THEN expires_at ELSE cleanup_at END) AS next_time " +
-      "FROM deliveries WHERE status IN ('pending','expired','acked')",
+      "SELECT MIN(CASE WHEN status IN ('pending','acknowledged') THEN expires_at ELSE cleanup_at END) AS next_time " +
+      "FROM deliveries WHERE status IN ('pending','acknowledged','expired','acked')",
     ).toArray()[0]?.next_time;
     const acknowledgement = this.sql.exec(
       "SELECT MIN(expires_at) AS next_time FROM acknowledgements",

@@ -317,6 +317,47 @@ test("per-device queue cap rejects new ciphertext without evicting existing deli
   assert.equal((await json(await mailbox.fetch(req("/inbox?limit=50")))).items.length, 50);
 });
 
+test("acknowledged deliveries keep expiry scheduled and can restore a lost sender ACK", async () => {
+  const originalNow = Date.now;
+  let fakeNow = 2_000_000;
+  Date.now = () => fakeNow;
+  try {
+    const { namespace } = makeEnvironment();
+    const recipient = namespace.get(namespace.idFromName("bob:bob-device"));
+    const sender = namespace.get(namespace.idFromName("alice:alice-device"));
+    assert.equal((await recipient.fetch(req("/enqueue", "POST", directDelivery()))).status, 200);
+    const originalExpiry = await recipient.object.ctx.storage.getAlarm();
+    assert.equal(originalExpiry, fakeNow + RETENTION);
+
+    const ackBody = { deliveryId, acceptedAt: fakeNow, retentionMillis: RETENTION };
+    assert.equal((await recipient.fetch(req("/acknowledge", "POST", ackBody))).status, 200);
+    assert.equal((await json(await sender.fetch(req("/acks")))).items.length, 1);
+
+    // Simulate a sender consuming its ACK before the recipient's separate
+    // inbox-delete request succeeds. A repeated recipient ACK recreates it.
+    assert.equal((await sender.fetch(req("/acks/" + deliveryId, "DELETE"))).status, 204);
+    assert.equal((await recipient.fetch(req("/acknowledge", "POST", ackBody))).status, 200);
+    assert.equal((await json(await sender.fetch(req("/acks")))).items.length, 1);
+
+    // The acknowledged recipient row still owns its expiry even when the
+    // alarm is recalculated after a restart or another mailbox operation.
+    await recipient.object.ctx.storage.deleteAlarm();
+    await recipient.object.scheduleNextAlarm();
+    assert.equal(await recipient.object.ctx.storage.getAlarm(), originalExpiry);
+
+    fakeNow += RETENTION + 1;
+    await recipient.object.alarm();
+    const row = recipient.object.sql.exec(
+      "SELECT status,envelope FROM deliveries WHERE delivery_id = ?",
+      deliveryId,
+    ).toArray()[0];
+    assert.equal(row.status, "expired");
+    assert.equal(row.envelope, null);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("expiry removes ciphertext, keeps a temporary idempotency tombstone, then cleans it", async () => {
   const originalNow = Date.now;
   let fakeNow = 1_000_000;
