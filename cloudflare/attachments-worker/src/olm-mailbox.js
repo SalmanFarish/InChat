@@ -378,8 +378,15 @@ export async function processOlmMailboxRequest({
       ) {
         return failure(400, "Mailbox device ID is invalid.");
       }
-      // The UID is derived from the verified token. A revoked device may
-      // still purge its own mailbox, but cannot select another account's DO.
+      if (typeof adminAccessToken !== "string" || !adminAccessToken) {
+        return failure(503, "Mailbox authorization metadata is unavailable.", true);
+      }
+      // A normal published device must never be able to erase its own active
+      // mailbox through the retirement endpoint. Only a device whose public
+      // key is no longer published may trigger this account-scoped purge.
+      if (await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceIds[0])) {
+        return failure(409, "Published devices cannot purge their active mailbox.", false, "device_still_published");
+      }
       return proxyMailbox(
         mailboxStub(env, uid, deviceIds[0]),
         "/purge",
