@@ -250,12 +250,23 @@ internal class CloudflareOlmRelayStore(
         require(UID_PATTERN.matches(recipientUid))
         require(DEVICE_PATTERN.matches(fields["recipientDeviceId"] as? String ?: ""))
         require(MESSAGE_PATTERN.matches(fields["messageId"] as? String ?: ""))
-        val response = execute(
-            authenticatedUserId = recipientUid,
-            method = "POST",
-            path = "/olm/mailbox/acknowledge?deviceId=" + fields["recipientDeviceId"],
-            body = JSONObject().put("deliveryId", deliveryId),
-        )
+        val response = try {
+            execute(
+                authenticatedUserId = recipientUid,
+                method = "POST",
+                path = "/olm/mailbox/acknowledge?deviceId=" + fields["recipientDeviceId"],
+                body = JSONObject().put("deliveryId", deliveryId),
+            )
+        } catch (error: OlmMailboxHttpException) {
+            if (error.statusCode == 410 && error.errorCode == RETIRED_MAILBOX_ERROR_CODE) {
+                // The caller stores the decrypted receipt in Room before asking
+                // for this ACK. A retired sender device can never consume it,
+                // so do not retain the recipient's ciphertext just to retry an
+                // acknowledgement for a device that no longer exists.
+                return
+            }
+            throw error
+        }
         check(response?.optBoolean("acknowledged", false) == true) {
             "Cloudflare Worker did not confirm the stored delivery acknowledgement."
         }
@@ -413,6 +424,7 @@ internal class CloudflareOlmRelayStore(
 
     private companion object {
         const val DEVICE_NOT_PUBLISHED_ERROR_CODE = "device_not_published"
+        const val RETIRED_MAILBOX_ERROR_CODE = "device_mailbox_retired"
         const val PAGE_SIZE = 50
         const val MAX_INBOX_PAGES = 5
         const val MAX_ACKNOWLEDGEMENT_PAGES = 11
