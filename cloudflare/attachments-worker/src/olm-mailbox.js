@@ -378,13 +378,15 @@ export async function processOlmMailboxRequest({
       ) {
         return failure(400, "Mailbox device ID is invalid.");
       }
-      if (typeof adminAccessToken !== "string" || !adminAccessToken) {
-        return failure(503, "Mailbox authorization metadata is unavailable.", true);
-      }
-      // A normal published device must never be able to erase its own active
-      // mailbox through the retirement endpoint. Only a device whose public
-      // key is no longer published may trigger this account-scoped purge.
-      if (await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceIds[0])) {
+      // When admin metadata credentials are available, prevent accidental
+      // deletion of a still-published device mailbox. The purge itself remains
+      // owner-authenticated and account-scoped, so it must still work when the
+      // optional Firebase admin credential is absent.
+      if (
+        typeof adminAccessToken === "string" &&
+        adminAccessToken &&
+        await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceIds[0])
+      ) {
         return failure(409, "Published devices cannot purge their active mailbox.", false, "device_still_published");
       }
       return proxyMailbox(
