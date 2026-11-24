@@ -400,6 +400,7 @@ internal class DeviceKeyDirectoryRepository(
         const val DEVICE_FCM_TOKENS_NODE = "olmDeviceFcmTokens"
         const val ROOT_NODE = "deviceKeys"
         const val CLAIMS_NODE = "deviceKeyClaims"
+        const val CLAIMANT_INDEX_NODE = "deviceKeyClaimsByClaimant"
         const val SCHEMA_VERSION = 1
         const val MAX_ONE_TIME_KEYS = 20
         val UID_REGEX = Regex("[A-Za-z0-9_-]{1,128}")
