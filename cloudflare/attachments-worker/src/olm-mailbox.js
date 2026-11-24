@@ -696,12 +696,44 @@ export class OlmDeviceMailboxDurableObject {
       if (existing) {
         if (!immutableFieldsMatch(existing, incoming)) return { status: "conflict" };
         if (existing.status === "expired") return { status: "expired" };
-        if (existing.status === "acked") return { status: "acked" };
+        if (existing.status === "acked") {
+          // The sender deliberately deletes a received ACK before persisting
+          // its Room receipt. If that process stops in between, Android resends
+          // the same immutable delivery ID. Re-stage the original ciphertext
+          // so the recipient's durable receipt ledger can deduplicate it and
+          // publish the ACK again instead of stranding the sender outbox.
+          const usage = this.sql.exec(
+            "SELECT COUNT(*) AS pending_count, COALESCE(SUM(byte_size), 0) AS pending_bytes " +
+            "FROM deliveries WHERE status IN ('pending','acknowledged')",
+          ).toArray()[0];
+          if (
+            Number(usage.pending_count) >= MAX_PENDING_DELIVERIES ||
+            Number(usage.pending_bytes) + incoming.byte_size > MAX_PENDING_BYTES
+          ) return { status: "full" };
+
+          this.sql.exec(
+            "UPDATE deliveries SET envelope = ?, created_at = ?, expires_at = ?, cleanup_at = NULL, " +
+            "byte_size = ?, status = 'pending' WHERE delivery_id = ? AND status = 'acked'",
+            incoming.envelope,
+            incoming.created_at,
+            incoming.expires_at,
+            incoming.byte_size,
+            incoming.delivery_id,
+          );
+          return {
+            status: "stored",
+            createdAt: incoming.created_at,
+            expiresAt: incoming.expires_at,
+            duplicate: true,
+            replayedAfterAck: true,
+          };
+        }
         return {
           status: "stored",
           createdAt: existing.created_at,
           expiresAt: existing.expires_at,
           duplicate: true,
+          replayedAfterAck: false,
         };
       }
 
@@ -744,12 +776,12 @@ export class OlmDeviceMailboxDurableObject {
 
     if (result.status === "conflict") return failure(409, "Delivery ID was reused with different immutable content.");
     if (result.status === "expired") return failure(410, "This delivery has expired.");
-    if (result.status === "acked") return jsonResponse({ accepted: true, alreadyAcknowledged: true });
     if (result.status === "full") return failure(503, "Recipient mailbox is full; sender must retry later.", true);
     await this.scheduleNextAlarm();
     return jsonResponse({
       accepted: true,
       duplicate: result.duplicate,
+      replayedAfterAck: result.replayedAfterAck === true,
       createdAt: result.createdAt,
       expiresAt: result.expiresAt,
     });

@@ -179,6 +179,67 @@ test("exact enqueue retries preserve the original server expiry", async () => {
   assert.equal(secondPayload.expiresAt, firstPayload.expiresAt);
 });
 
+test("an exact retry re-stages an acknowledged delivery so a lost sender ACK can be recovered", async () => {
+  const state = workerFixture();
+  const body = apiEnqueueBody();
+  assert.equal((await state.dispatch("/v1/olm/mailbox/enqueue", "POST", body)).status, 200);
+
+  const acknowledged = await state.dispatch(
+    "/v1/olm/mailbox/acknowledge?deviceId=bob-device",
+    "POST",
+    { deliveryId },
+    "bob",
+  );
+  assert.equal(acknowledged.status, 200);
+
+  const inboxDelete = await state.dispatch(
+    "/v1/olm/mailbox/inbox/" + deliveryId + "?deviceId=bob-device",
+    "DELETE",
+    { acceptedAt: Date.now(), retentionMillis: RETENTION },
+    "bob",
+  );
+  assert.equal(inboxDelete.status, 204);
+
+  // Match OlmDeliveryAckProcessor's interruption point: relay ACK has been
+  // consumed, but the sender has not yet committed its Room receipt.
+  const lostAck = await state.dispatch(
+    "/v1/olm/mailbox/acks/" + deliveryId + "?deviceId=alice-device",
+    "DELETE",
+    undefined,
+    "alice",
+  );
+  assert.equal(lostAck.status, 204);
+
+  const retry = await state.dispatch("/v1/olm/mailbox/enqueue", "POST", body);
+  assert.equal(retry.status, 200);
+  const retryPayload = await json(retry);
+  assert.equal(retryPayload.accepted, true);
+  assert.equal(retryPayload.replayedAfterAck, true);
+
+  const inbox = await state.dispatch(
+    "/v1/olm/mailbox/inbox?deviceId=bob-device",
+    "GET",
+    undefined,
+    "bob",
+  );
+  assert.equal((await json(inbox)).items.length, 1);
+
+  const repeatedAck = await state.dispatch(
+    "/v1/olm/mailbox/acknowledge?deviceId=bob-device",
+    "POST",
+    { deliveryId },
+    "bob",
+  );
+  assert.equal(repeatedAck.status, 200);
+  const senderAcks = await state.dispatch(
+    "/v1/olm/mailbox/acks?deviceId=alice-device",
+    "GET",
+    undefined,
+    "alice",
+  );
+  assert.equal((await json(senderAcks)).items.length, 1);
+});
+
 test("delivery ID reuse with changed ciphertext is rejected", async () => {
   const state = workerFixture();
   const body = apiEnqueueBody();
