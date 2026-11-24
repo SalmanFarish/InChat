@@ -629,7 +629,22 @@ test("account deletion releases claimant-owned prekey claims one ETag-protected 
           path === "userChats/alice" || path === "privateUsers/alice/fcmToken") {
         return jsonResponse(null);
       }
-      if (path === "deviceKeyClaimsByClaimant/alice") return jsonResponse(index);
+      if (path === "deviceKeyClaimsByClaimant/alice") {
+        const firstTarget = Object.keys(index).sort()[0];
+        return jsonResponse(firstTarget ? { [firstTarget]: index[firstTarget] } : null);
+      }
+      if (path === "deviceKeyClaimsByClaimant/alice/target_a") {
+        return jsonResponse(index.target_a ? { device_a: index.target_a.device_a } : null);
+      }
+      if (path === "deviceKeyClaimsByClaimant/alice/target_a/device_a") {
+        return jsonResponse(index.target_a?.device_a ? { key_a: index.target_a.device_a.key_a } : null);
+      }
+      if (path === "deviceKeyClaimsByClaimant/alice/target_b") {
+        return jsonResponse(index.target_b ? { device_b: index.target_b.device_b } : null);
+      }
+      if (path === "deviceKeyClaimsByClaimant/alice/target_b/device_b") {
+        return jsonResponse(index.target_b?.device_b ? { key_b: index.target_b.device_b.key_b } : null);
+      }
       if (path.startsWith("deviceKeyClaims/")) {
         const key = path.slice("deviceKeyClaims/".length);
         return jsonResponse(claims[key], { ETag: '"claim-' + key + '"' });
