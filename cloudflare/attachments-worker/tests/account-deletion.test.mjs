@@ -647,10 +647,10 @@ test("account deletion releases claimant-owned prekey claims one ETag-protected 
 
     if (method === "DELETE" && path.startsWith("deviceKeyClaimsByClaimant/alice/")) {
       const parts = path.split("/");
-      indexDeletes.push(parts.slice(1).join("/"));
-      delete index[parts[1]]?.[parts[2]]?.[parts[3]];
-      if (Object.keys(index[parts[1]]?.[parts[2]] || {}).length === 0) delete index[parts[1]][parts[2]];
-      if (Object.keys(index[parts[1]] || {}).length === 0) delete index[parts[1]];
+      indexDeletes.push(parts.slice(2).join("/"));
+      delete index[parts[2]]?.[parts[3]]?.[parts[4]];
+      if (Object.keys(index[parts[2]]?.[parts[3]] || {}).length === 0) delete index[parts[2]][parts[3]];
+      if (Object.keys(index[parts[2]] || {}).length === 0) delete index[parts[2]];
       return jsonResponse(null);
     }
 
