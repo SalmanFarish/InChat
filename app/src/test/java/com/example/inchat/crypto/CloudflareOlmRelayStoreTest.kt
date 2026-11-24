@@ -201,6 +201,50 @@ class CloudflareOlmRelayStoreTest {
     }
 
     @Test
+    fun retiredDeviceMailboxPurgeUsesOnlyTheAuthenticatedAccountAndDeviceId() = runBlocking {
+        val requests = RecordingHttpClient { request ->
+            assertEquals("DELETE", request.method)
+            assertTrue(request.body == null)
+            JSONObject().put("purged", true)
+        }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        store.purgeOwnDeviceMailbox("bob", "retired-device")
+
+        val request = requests.requests.single()
+        assertEquals("DELETE", request.method)
+        assertEquals(
+            "https://worker.example/v1/olm/mailbox/device?deviceId=retired-device",
+            request.url,
+        )
+        assertEquals("bob-token", request.bearerToken)
+        assertEquals(listOf("bob"), tokens.accountIds)
+        assertTrue(request.body == null)
+    }
+
+    @Test
+    fun retiredDeviceMailboxPurgeRejectsInvalidIdentityBeforeNetworkAccess() = runBlocking {
+        val requests = RecordingHttpClient { JSONObject().put("purged", true) }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        assertTrue(runCatching {
+            store.purgeOwnDeviceMailbox("bob", "../other-device")
+        }.isFailure)
+        assertTrue(requests.requests.isEmpty())
+        assertTrue(tokens.accountIds.isEmpty())
+    }
+
+    @Test
     fun retryableWorkerFailuresRemainVisibleToTheExistingWorkManagerRetryPath() = runBlocking {
         val requests = RecordingHttpClient {
             throw OlmMailboxHttpException(503, retryable = true, message = "mailbox unavailable")
