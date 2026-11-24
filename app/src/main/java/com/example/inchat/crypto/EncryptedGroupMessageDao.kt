@@ -178,6 +178,13 @@ abstract class EncryptedGroupMessageDao {
     @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId ORDER BY sentAtMillis ASC, messageId ASC")
     abstract suspend fun getPendingMessages(ownerUserId: String, groupId: String): List<EncryptedGroupPendingMessageEntity>
 
+    /** Observe locally encrypted outgoing intents while group-key acknowledgements are pending. */
+    @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId ORDER BY sentAtMillis ASC, messageId ASC")
+    abstract fun observePendingMessages(
+        ownerUserId: String,
+        groupId: String,
+    ): Flow<List<EncryptedGroupPendingMessageEntity>>
+
     @Query("SELECT * FROM encrypted_group_pending_messages WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId LIMIT 1")
     abstract suspend fun getPendingMessage(ownerUserId: String, groupId: String, messageId: String): EncryptedGroupPendingMessageEntity?
 
