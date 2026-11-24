@@ -186,12 +186,15 @@ internal class CloudflareOlmRelayStore(
         body.put("deliveryId", deliveryId)
         body.put("recipientUid", recipientUid)
         body.put("recipientDeviceId", recipientDeviceId)
-        execute(
+        val response = execute(
             authenticatedUserId = senderUid,
             method = "POST",
             path = "/olm/mailbox/enqueue",
             body = body,
         )
+        check(response?.optBoolean("accepted", false) == true) {
+            "Cloudflare Worker did not confirm encrypted mailbox acceptance."
+        }
     }
 
     override suspend fun readInbox(
@@ -238,12 +241,15 @@ internal class CloudflareOlmRelayStore(
         require(UID_PATTERN.matches(recipientUid))
         require(DEVICE_PATTERN.matches(fields["recipientDeviceId"] as? String ?: ""))
         require(MESSAGE_PATTERN.matches(fields["messageId"] as? String ?: ""))
-        execute(
+        val response = execute(
             authenticatedUserId = recipientUid,
             method = "POST",
             path = "/olm/mailbox/acknowledge?deviceId=" + fields["recipientDeviceId"],
             body = JSONObject().put("deliveryId", deliveryId),
         )
+        check(response?.optBoolean("acknowledged", false) == true) {
+            "Cloudflare Worker did not confirm the stored delivery acknowledgement."
+        }
     }
 
     override suspend fun readAcknowledgements(
