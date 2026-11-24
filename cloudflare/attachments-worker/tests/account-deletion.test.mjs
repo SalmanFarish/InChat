@@ -469,3 +469,126 @@ test("account deletion processes many groups one bounded batch at a time", async
     globalThis.fetch = previousFetch;
   }
 });
+
+
+test("account deletion retries a preview after membership was already committed", async () => {
+  const previousFetch = globalThis.fetch;
+  const group = {
+    chatId: "group_retry",
+    type: "group",
+    name: "Retry group",
+    createdBy: "alice",
+    members: { alice: "admin", bob: "admin", carol: "member" },
+    cryptoMembership: {
+      epoch: 8,
+      members: { alice: "admin", bob: "admin", carol: "member" },
+    },
+  };
+  let membershipIndex = { group_retry: true };
+  let inboxIndex = { group_retry: { chatType: "group" } };
+  let groupVersion = 1;
+  let failFirstPreviewRead = true;
+  const rootPatches = [];
+
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const path = decodeURIComponent(
+      url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""),
+    );
+    const method = options.method || "GET";
+
+    if (method === "GET") {
+      if (path === "groupMemberships/alice") return jsonResponse(membershipIndex);
+      if (path === "groupReads/alice" || path === "privateUsers/alice/fcmToken") {
+        return jsonResponse(null);
+      }
+      if (path === "userChats/alice") return jsonResponse(inboxIndex);
+      if (path === "groupNotificationDevices/group_retry/alice") {
+        return jsonResponse(null);
+      }
+      if (path === "chats/group_retry") {
+        if (options.headers?.["X-Firebase-ETag"] === "true") {
+          return jsonResponse(group, { ETag: '"group-v' + groupVersion + '"' });
+        }
+        return jsonResponse(group);
+      }
+      if (path === "chats/group_retry/messages") {
+        if (failFirstPreviewRead) {
+          failFirstPreviewRead = false;
+          throw new Error("Simulated transient preview read failure.");
+        }
+        return jsonResponse({});
+      }
+      throw new Error("Unexpected GET request: " + url.toString());
+    }
+
+    if (method === "PATCH" && path === "chats/group_retry") {
+      assert.equal(options.headers?.["If-Match"], '"group-v' + groupVersion + '"');
+      const patch = JSON.parse(options.body);
+      Object.assign(group, patch);
+      groupVersion += 1;
+      return jsonResponse(null);
+    }
+
+    if (method === "PATCH" && path === "") {
+      const patch = JSON.parse(options.body);
+      assertNoOverlappingPatchPaths(patch);
+      rootPatches.push(patch);
+      if (Object.prototype.hasOwnProperty.call(
+        patch,
+        "groupMemberships/alice/group_retry",
+      )) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(
+        patch,
+        "userChats/alice/group_retry",
+      )) {
+        inboxIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "groupMemberships/alice")) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "userChats/alice")) {
+        inboxIndex = null;
+      }
+      return jsonResponse(null);
+    }
+
+    throw new Error("Unexpected request: " + method + " " + url.toString());
+  };
+
+  try {
+    const env = {
+      FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com",
+      FCM_TOPIC_SECRET: "test-only-topic-secret-at-least-32-bytes",
+    };
+    const adminAuth = { token: "admin-token", projectId: "demo-inchat" };
+
+    await assert.rejects(
+      cleanupAccountGroupsForDeletion(env, "alice", adminAuth),
+      /Simulated transient preview read failure/,
+    );
+    assert.deepEqual(group.members, { bob: "admin", carol: "member" });
+    assert.deepEqual(membershipIndex, { group_retry: true });
+    assert.equal(rootPatches.length, 0);
+
+    const retry = await cleanupAccountGroupsForDeletion(env, "alice", adminAuth);
+    assert.deepEqual(await retry.json(), {
+      success: true,
+      complete: true,
+      processedGroups: 1,
+      updatedGroups: 0,
+      dissolvedGroups: 0,
+    });
+    assert.deepEqual(membershipIndex, null);
+    assert.equal(rootPatches.some((patch) =>
+      patch["userChats/bob/group_retry/memberCount"] === 2
+    ), true);
+    assert.equal(rootPatches.some((patch) =>
+      Object.prototype.hasOwnProperty.call(patch, "deviceKeys/alice")
+    ), true);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
