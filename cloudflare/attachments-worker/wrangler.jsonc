@@ -49,7 +49,8 @@
   "vars": {
     "FIREBASE_CLIENT_EMAIL": "firebase-adminsdk-fbsvc@inchat-24b8b.iam.gserviceaccount.com",
     "FIREBASE_DATABASE_URL": "https://inchat-24b8b-default-rtdb.firebaseio.com",
-    "FIREBASE_PROJECT_ID": "inchat-24b8b"
+    "FIREBASE_PROJECT_ID": "inchat-24b8b",
+    "OLM_MAILBOX_RETENTION_MS": "604800000"
   },
   "durable_objects": {
     "bindings": [

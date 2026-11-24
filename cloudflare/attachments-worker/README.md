@@ -38,17 +38,36 @@ per-device caps (200 pending deliveries / 20 MiB and 500 acknowledgements),
 and alarm-driven expiry cleanup. Expired and acknowledged ciphertext is cleared
 before its small idempotency tombstone is eventually removed.
 
-The API deliberately returns retryable 503 responses until
-`OLM_MAILBOX_RETENTION_MS` is explicitly configured to an integer between
-one hour and 30 days. No default retention has been selected, and this variable
-is intentionally absent from `wrangler.jsonc`.
+The mailbox uses an explicit seven-day ciphertext retention policy
+(`OLM_MAILBOX_RETENTION_MS=604800000`). The Worker rejects invalid values;
+the accepted range is one hour through 30 days. Ciphertext is removed on
+expiry, with small idempotency tombstones retained temporarily for retry
+safety.
 
 The Durable Object binding and SQLite class migration are declared in
-`wrangler.jsonc`, but no migration has been deployed and Android still uses
-its existing Firebase relay. Do not deploy until the account's Free-plan /
-no-payment-method requirement is confirmed and the retention policy is
-explicitly selected. Free quota exhaustion is a retryable failure; there is no
-paid fallback or automatic upgrade.
+`wrangler.jsonc`. The mailbox is still not deployed or enabled in Android.
+The seven-day retention policy is explicit. Free quota exhaustion is a
+retryable failure; there is no paid fallback or automatic upgrade.
+
+Before deploying, run `npm ci`, `npm test`, and `npm run predeploy` from
+this directory. The deploy script runs the preflight automatically. The
+preflight checks the expected Worker, SQLite binding and migration, explicit
+retention, and absence of KV, R2, D1, Queues, and Containers bindings. It
+cannot inspect the Cloudflare account's billing plan: confirm in the
+Cloudflare dashboard that the account remains on Workers Free and that no
+paid plan or payment method is being enabled. Do not accept a plan upgrade
+prompt. Deployment itself is a separate operation and is not run by CI.
+
+## Free-plan mailbox limits
+
+Cloudflare's current Workers Free limits include 100,000 Worker requests per
+day, 10 ms CPU time per Worker request, and 50 external subrequests per
+invocation. SQLite-backed Durable Objects on Free include 100,000 requests
+per day, 13,000 GB-seconds of duration per day, 5 million SQL rows read per
+day, 100,000 SQL rows written per day, and 5 GB total SQLite storage. Exceeding
+a Free quota causes the affected operation to fail; this project does not
+enable a paid fallback. These limits are shared at account level and must be
+monitored before increasing traffic.
 
 ## Worker setup
 
@@ -126,11 +145,16 @@ paid fallback or automatic upgrade.
    Change the example path to the file you saved. Do not commit this JSON
    file, paste it into chat, or put it in the Android project.
 
-8. Deploy the Worker:
+8. Run the deployment preflight and deploy the Worker only after confirming the
+   Cloudflare account is on the Free plan:
 
    ```sh
+   npm run predeploy
    npm run deploy
    ```
+
+   `npm run deploy` repeats the preflight automatically before Wrangler runs.
+   Do not accept a paid-plan or billing upgrade prompt.
 
 9. The Android project already has the deployed Worker URL configured in
    `CloudflareWorkerConfig.BASE_URL`. Keep the URL only, with no `/v1`

@@ -32,6 +32,9 @@ jobs:
       - name: Run Cloudflare Worker unit tests
         working-directory: cloudflare/attachments-worker
         run: npm test
+      - name: Run Worker deployment preflight
+        working-directory: cloudflare/attachments-worker
+        run: npm run predeploy
       - name: Validate Worker bundle and wrangler configuration
         working-directory: cloudflare/attachments-worker
         run: npx wrangler deploy --dry-run
