@@ -2396,7 +2396,10 @@ export default {
       if (isOlmMailboxRequest) {
         const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(env, user.uid);
         if (accountLimitResponse) return accountLimitResponse;
-        const adminAuth = await getFirebaseAdminToken(env);
+        const isOwnerPurge =
+          request.method === "DELETE" &&
+          url.pathname === "/v1/olm/mailbox/device";
+        const adminAuth = isOwnerPurge ? null : await getFirebaseAdminToken(env);
         return processOlmMailboxRequest({
           request,
           env,
