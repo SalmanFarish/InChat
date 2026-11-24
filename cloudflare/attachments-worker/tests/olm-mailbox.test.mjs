@@ -471,7 +471,7 @@ test("expiry removes ciphertext, keeps a temporary idempotency tombstone, then c
 
     fakeNow += RETENTION + 1;
     await mailbox.object.alarm();
-    const tombstone = mailbox.object.sql.exec(
+    const tombstone = mailbox.sql.exec(
       "SELECT status,envelope,byte_size FROM deliveries WHERE delivery_id = ?",
       deliveryId,
     ).toArray()[0];
@@ -550,13 +550,13 @@ test("owner can purge ciphertext and ACKs for a revoked device mailbox", async (
   assert.deepEqual(await json(purged), { purged: true });
 
   const recipientMailbox = state.namespace.objects.get("bob:bob-device");
-  assert.equal(recipientMailbox.object.sql.exec(
+  assert.equal(recipientMailbox.sql.exec(
     "SELECT COUNT(*) AS total FROM deliveries",
   ).toArray()[0].total, 0);
   assert.equal(recipientMailbox.object.sql.exec(
     "SELECT COUNT(*) AS total FROM acknowledgements",
   ).toArray()[0].total, 0);
-  assert.equal(recipientMailbox.object.ctx.storage.alarm, null);
+  assert.equal(recipientMailbox.ctx.storage.alarm, null);
 });
 
 test("revoked-device purge works without a retention value or Firebase admin token", async () => {
