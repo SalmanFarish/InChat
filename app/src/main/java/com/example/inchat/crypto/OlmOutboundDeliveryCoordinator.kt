@@ -62,18 +62,17 @@ internal class OlmOutboundDeliveryCoordinator(
         require(targets.any { it.userId == recipientUserId }) {
             "No recipient-device delivery targets are available"
         }
-        // Signature-valid directory entries are not automatically trusted people.
-        // Every target (including another sender-owned device) must have a local
-        // SAS verification record bound to its current Ed25519 identity key.
+        // Each target is checked against this installation's encrypted identity pins.
+        // First-use pins are automatic; only a changed key requires a new SAS check.
         targets.forEach { target ->
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = target.userId,
                     peerDeviceId = target.device.deviceId,
                     peerEd25519IdentityKey = target.device.ed25519IdentityKey,
                 )
             ) {
-                "Device ${target.userId}/${target.device.deviceId} has not been verified on this installation"
+                "Device ${target.userId}/${target.device.deviceId} has a changed identity; verify its safety number before messaging"
             }
         }
 

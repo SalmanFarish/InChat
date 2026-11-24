@@ -39,7 +39,7 @@ internal data class PreparedOlmGroupKeyDistribution(
 )
 
 /**
- * Creates one separately authenticated Olm envelope for each SAS-trusted
+ * Creates one separately authenticated Olm envelope for each pinned
  * device belonging to the supplied group-membership snapshot.
  *
  * This prepares envelopes only. The caller still needs a durable, retryable
@@ -98,7 +98,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         }
         if (!allTargets.containsAll(immutableTargets)) {
             throw OlmGroupKeyDistributionDeferredException(
-                "An original group-key target is no longer a current SAS-trusted device",
+                "An original group-key target no longer has the same pinned device identity",
             )
         }
         val selectedTargets = selectedTargetDevices ?: immutableTargets
@@ -134,13 +134,13 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         val deliveries = targetsToPrepare.map { target ->
             // Trust is checked again immediately before claiming a prekey and
             // creating a session, rather than relying only on the earlier plan.
-            if (!trustVerifier.isVerified(
+            if (!trustVerifier.isTrustedForMessaging(
                 peerUserId = target.userId,
                 peerDeviceId = target.device.deviceId,
                 peerEd25519IdentityKey = target.device.ed25519IdentityKey,
             )) {
                 throw OlmGroupKeyDistributionDeferredException(
-                    "Recipient device trust changed before group-key preparation",
+                    "Recipient device identity changed before group-key preparation",
                 )
             }
             require(target.device.oneTimeKeys.size <= MAX_ONE_TIME_KEYS) {
@@ -214,7 +214,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
     }
 
     /**
-     * Re-read the live public directory and local SAS trust immediately before
+     * Re-read the live public directory and local identity pins immediately before
      * recovered envelopes are committed to the durable outbox. This closes the
      * preparation-to-enqueue window for device removal and trust revocation.
      */
@@ -231,7 +231,7 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             val currentDevice = devicesByUser[delivery.recipientUserId]
                 ?.firstOrNull { it.deviceId == delivery.recipientDeviceId }
                 ?: return@all false
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = delivery.recipientUserId,
                 peerDeviceId = delivery.recipientDeviceId,
                 peerEd25519IdentityKey = currentDevice.ed25519IdentityKey,

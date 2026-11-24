@@ -7,18 +7,35 @@ import java.security.MessageDigest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
-/** Checks an identity-key-bound SAS trust decision for one published device. */
+/** Checks and records the local trust state of a published device identity. */
 internal fun interface OlmDeviceTrustVerifier {
+    /** True only after both users completed the SAS comparison for this exact key. */
     fun isVerified(
         peerUserId: String,
         peerDeviceId: String,
         peerEd25519IdentityKey: String,
     ): Boolean
+
+    /**
+     * Messaging may use a stable first-seen identity without forcing a SAS ceremony.
+     * Implementations pin a new key once and reject a changed key. The default
+     * keeps existing test doubles and strict policies fail-closed.
+     */
+    fun isTrustedForMessaging(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+    ): Boolean = isVerified(peerUserId, peerDeviceId, peerEd25519IdentityKey)
 }
 
 /**
- * Stores verified peer-device identities locally in an Android Keystore AES-GCM
- * encrypted file. Firebase is not used as an authority for trust decisions.
+ * Stores peer identity pins and SAS confirmations locally in an Android Keystore
+ * AES-GCM encrypted file. Firebase is never an authority for trust decisions.
+ *
+ * An identity first encountered during ordinary messaging is pinned locally
+ * (trust on first use). A later key change is rejected until the user completes
+ * SAS verification for the new identity. First-use pinning is not displayed as
+ * SAS verification and never creates a verifiedAt timestamp.
  */
 internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifier, SasVerificationTrustStore {
     private val stateStore = CryptoStateStore(
@@ -36,25 +53,70 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         require(peerEd25519IdentityKey.isNotBlank()) { "Peer identity key is missing" }
         require(verifiedAtMillis >= 0L) { "Verification time is invalid" }
 
-        val fingerprint = fingerprint(peerEd25519IdentityKey)
-        val records = readRecords().filterNot {
+        val keyFingerprint = fingerprint(peerEd25519IdentityKey)
+        val records = readRecords()
+        val previous = records.firstOrNull {
+            it.peerUserId == peerUserId &&
+                it.peerDeviceId == peerDeviceId &&
+                it.identityKeyFingerprint == keyFingerprint
+        }
+        val updated = records.filterNot {
             it.peerUserId == peerUserId && it.peerDeviceId == peerDeviceId
         }.toMutableList()
-        records += TrustedDeviceRecord(
+        updated += TrustedDeviceRecord(
             peerUserId = peerUserId,
             peerDeviceId = peerDeviceId,
-            identityKeyFingerprint = fingerprint,
+            identityKeyFingerprint = keyFingerprint,
+            firstSeenAtMillis = previous?.firstSeenAtMillis ?: verifiedAtMillis,
             verifiedAtMillis = verifiedAtMillis,
         )
-        writeRecords(records)
+        writeRecords(updated)
         TRUST_CHANGES.tryEmit(Unit)
         Unit
     }
 
-    /** Observe local trust-roster changes without exposing device IDs or identity keys. */
+    /**
+     * Pin the first observed identity for ordinary messaging. Existing pins are
+     * accepted only while the published Ed25519 identity key remains unchanged.
+     * A changed key is deliberately not overwritten here; it requires an explicit
+     * SAS comparison before a new identity can become trusted.
+     */
+    override fun isTrustedForMessaging(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+    ): Boolean = synchronized(LOCK) {
+        validateIdentifiers(peerUserId, peerDeviceId)
+        require(peerEd25519IdentityKey.isNotBlank()) { "Peer identity key is missing" }
+        val expectedFingerprint = fingerprint(peerEd25519IdentityKey)
+        val records = readRecords()
+        val existing = records.firstOrNull {
+            it.peerUserId == peerUserId && it.peerDeviceId == peerDeviceId
+        }
+
+        when {
+            existing == null -> {
+                writeRecords(
+                    records + TrustedDeviceRecord(
+                        peerUserId = peerUserId,
+                        peerDeviceId = peerDeviceId,
+                        identityKeyFingerprint = expectedFingerprint,
+                        firstSeenAtMillis = System.currentTimeMillis().coerceAtLeast(0L),
+                        verifiedAtMillis = null,
+                    )
+                )
+                TRUST_CHANGES.tryEmit(Unit)
+                true
+            }
+            existing.identityKeyFingerprint == expectedFingerprint -> true
+            else -> false
+        }
+    }
+
+    /** Observe local pin/verification/revocation changes without exposing key material. */
     fun observeTrustChanges(): Flow<Unit> = TRUST_CHANGES
 
-    /** Returns the verification time only when the currently published key matches. */
+    /** Returns the verification time only after SAS confirmed this exact identity key. */
     fun verifiedAtMillis(
         peerUserId: String,
         peerDeviceId: String,
@@ -70,14 +132,14 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         }?.verifiedAtMillis
     }
 
-    /** A changed directory identity key is untrusted until the user verifies it again. */
+    /** SAS verification status is intentionally distinct from first-use messaging trust. */
     override fun isVerified(
         peerUserId: String,
         peerDeviceId: String,
         peerEd25519IdentityKey: String,
     ): Boolean = verifiedAtMillis(peerUserId, peerDeviceId, peerEd25519IdentityKey) != null
 
-    /** Revocation is local to this installation and removes the stored trust decision. */
+    /** Revocation is local to this installation and removes the stored identity pin. */
     fun revoke(peerUserId: String, peerDeviceId: String): Boolean = synchronized(LOCK) {
         validateIdentifiers(peerUserId, peerDeviceId)
         val records = readRecords()
@@ -97,22 +159,37 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         val plaintext = stateStore.read() ?: return emptyList()
         return try {
             val root = JSONObject(String(plaintext, Charsets.UTF_8))
-            require(root.getInt("schemaVersion") == SCHEMA_VERSION) {
+            val version = root.getInt("schemaVersion")
+            require(version == LEGACY_SCHEMA_VERSION || version == SCHEMA_VERSION) {
                 "Unsupported trusted-device store version"
             }
             val array = root.getJSONArray("devices")
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.getJSONObject(index)
+                    val verifiedAt = if (
+                        version == LEGACY_SCHEMA_VERSION ||
+                        (item.has("verifiedAtMillis") && !item.isNull("verifiedAtMillis"))
+                    ) {
+                        item.getLong("verifiedAtMillis")
+                    } else {
+                        null
+                    }
                     val record = TrustedDeviceRecord(
                         peerUserId = item.getString("peerUserId"),
                         peerDeviceId = item.getString("peerDeviceId"),
                         identityKeyFingerprint = item.getString("identityKeyFingerprint"),
-                        verifiedAtMillis = item.getLong("verifiedAtMillis"),
+                        firstSeenAtMillis = if (version == LEGACY_SCHEMA_VERSION) {
+                            requireNotNull(verifiedAt)
+                        } else {
+                            item.getLong("firstSeenAtMillis")
+                        },
+                        verifiedAtMillis = verifiedAt,
                     )
                     validateIdentifiers(record.peerUserId, record.peerDeviceId)
                     require(FINGERPRINT_REGEX.matches(record.identityKeyFingerprint))
-                    require(record.verifiedAtMillis >= 0L)
+                    require(record.firstSeenAtMillis >= 0L)
+                    require(record.verifiedAtMillis == null || record.verifiedAtMillis >= 0L)
                     add(record)
                 }
             }
@@ -124,13 +201,13 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
     private fun writeRecords(records: List<TrustedDeviceRecord>) {
         val array = JSONArray()
         records.forEach { record ->
-            array.put(
-                JSONObject()
-                    .put("peerUserId", record.peerUserId)
-                    .put("peerDeviceId", record.peerDeviceId)
-                    .put("identityKeyFingerprint", record.identityKeyFingerprint)
-                    .put("verifiedAtMillis", record.verifiedAtMillis)
-            )
+            val item = JSONObject()
+                .put("peerUserId", record.peerUserId)
+                .put("peerDeviceId", record.peerDeviceId)
+                .put("identityKeyFingerprint", record.identityKeyFingerprint)
+                .put("firstSeenAtMillis", record.firstSeenAtMillis)
+            record.verifiedAtMillis?.let { item.put("verifiedAtMillis", it) }
+            array.put(item)
         }
         val plaintext = JSONObject()
             .put("schemaVersion", SCHEMA_VERSION)
@@ -158,18 +235,18 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         val peerUserId: String,
         val peerDeviceId: String,
         val identityKeyFingerprint: String,
-        val verifiedAtMillis: Long,
+        val firstSeenAtMillis: Long,
+        val verifiedAtMillis: Long?,
     )
 
     private companion object {
         const val STATE_ID = "trusted-devices-v1"
-        const val SCHEMA_VERSION = 1
+        const val LEGACY_SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         val USER_ID_REGEX = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
         val FINGERPRINT_REGEX = Regex("[a-f0-9]{64}")
         val LOCK = Any()
-        // Trust changes are process-local wake-ups; authoritative trust remains in
-        // the encrypted Keystore file and is re-read by every send before encryption.
         val TRUST_CHANGES = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
     }
 }

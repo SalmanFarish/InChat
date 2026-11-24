@@ -147,13 +147,13 @@ internal class OlmOutboundDeliveryPreparer(
         // earlier trust check is not sufficient by itself because the directory
         // could change between planning and prekey preparation.
         check(
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = recipientUserId,
                 peerDeviceId = recipientDeviceId,
                 peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
             )
         ) {
-            "Recipient device identity changed or has not been verified"
+            "Recipient device identity changed. Verify its safety number before messaging"
         }
 
         var claimedPreKey: SignedOlmPreKey? = null

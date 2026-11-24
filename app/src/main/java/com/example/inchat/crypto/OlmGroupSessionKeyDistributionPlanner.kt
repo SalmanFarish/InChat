@@ -2,7 +2,7 @@ package com.example.inchat.crypto
 
 /**
  * Result of preparing the device targets for one group-key distribution.
- * Untrusted devices are deliberately omitted rather than receiving a key.
+ * Devices with a new identity are pinned on first use. Devices with a changed key are omitted rather than receiving a group key.
  */
 internal data class OlmGroupKeyDeliveryPlan(
     val targets: List<OlmDeliveryTarget>,
@@ -11,7 +11,7 @@ internal data class OlmGroupKeyDeliveryPlan(
 
 /**
  * Builds a fan-out only from the exact current group membership snapshot and
- * devices whose published identity is already SAS-trusted on this installation.
+ * devices whose published identity is pinned on this installation, automatically on first use or through SAS.
  *
  * The device directory must be queried for every non-sender member; missing
  * map entries are rejected so a partial network response cannot silently
@@ -61,7 +61,7 @@ internal object OlmGroupSessionKeyDistributionPlanner {
                 "Group member has too many registered devices"
             }
             val trusted = devices.filter { device ->
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = userId,
                     peerDeviceId = device.deviceId,
                     peerEd25519IdentityKey = device.ed25519IdentityKey,
@@ -69,7 +69,7 @@ internal object OlmGroupSessionKeyDistributionPlanner {
             }
             if (trusted.isEmpty()) {
                 throw OlmGroupKeyDistributionDeferredException(
-                    "Every current group member needs at least one SAS-verified device before group key distribution",
+                    "Every current group member needs at least one stable device identity before group key distribution",
                 )
             }
             skippedUntrusted += devices.size - trusted.size
@@ -82,7 +82,7 @@ internal object OlmGroupSessionKeyDistributionPlanner {
             if (device.deviceId == senderDeviceId) {
                 false
             } else {
-                val trusted = trustVerifier.isVerified(
+                val trusted = trustVerifier.isTrustedForMessaging(
                     peerUserId = senderUserId,
                     peerDeviceId = device.deviceId,
                     peerEd25519IdentityKey = device.ed25519IdentityKey,

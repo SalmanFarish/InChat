@@ -5,7 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-/** Olm operation required to wrap a Megolm ciphertext for one trusted device. */
+/** Olm operation required to wrap a Megolm ciphertext for one pinned device identity. */
 internal interface OlmGroupMessageOutboundSessionRepository : OlmOutboundSessionRepository {
     fun encryptGroupMessageEnvelope(
         sessionId: String,
@@ -102,12 +102,12 @@ internal class OlmGroupMessageDistributionPreparer(
         }
         val deliveries = resolved.plan.targets.map { target ->
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = target.userId,
                     peerDeviceId = target.device.deviceId,
                     peerEd25519IdentityKey = target.device.ed25519IdentityKey,
                 )
-            ) { "Recipient device trust changed before group-message preparation" }
+            ) { "Recipient device identity changed before group-message preparation" }
             require(target.device.oneTimeKeys.size <= MAX_ONE_TIME_KEYS) {
                 "Recipient device publishes too many one-time prekeys"
             }
