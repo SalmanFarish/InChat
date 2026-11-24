@@ -26,6 +26,7 @@ import kotlin.coroutines.resumeWithException
 internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val retiredDeviceMailboxPurger: RetiredDeviceMailboxPurger = RetiredDeviceMailboxPurger(),
 ) : DeviceIdentityTransferDirectory, OlmOutboundKeyDirectory {
     /** Current Firebase account used as the owner of this device directory. */
     override val authenticatedUserId: String
@@ -270,6 +271,12 @@ internal class DeviceKeyDirectoryRepository(
             .child(deviceId)
             .removeValue()
             .await()
+
+        // Revoke the public key and remove dependent directory state before
+        // purging the matching temporary ciphertext mailbox. If Worker cleanup
+        // fails, identity-transfer retirement remains retryable and this method
+        // can safely be called again.
+        retiredDeviceMailboxPurger.purgeAfterRevocation(uid, deviceId)
     }
 
     private fun parseDirectoryEntry(snapshot: DataSnapshot): PublicDeviceKeyBundle {
