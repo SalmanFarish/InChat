@@ -727,8 +727,8 @@ private fun DeviceVerificationAttemptCard(
             when (state?.phase) {
                 null, SasVerificationPhase.CANCELLED, SasVerificationPhase.EXPIRED, SasVerificationPhase.FAILED -> {
                     Text(
-                        if (trustedAtMillis != null) "This phone trusts this device"
-                        else state?.error ?: "Not verified",
+                        if (trustedAtMillis != null) "Safety numbers matched on this phone"
+                        else state?.error ?: "Messaging is available. Compare safety numbers to confirm this device independently.",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (trustedAtMillis != null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
@@ -738,7 +738,7 @@ private fun DeviceVerificationAttemptCard(
                             Text("Remove trust on this phone")
                         }
                     } else {
-                        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Verify this device") }
+                        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Compare safety numbers") }
                     }
                 }
                 SasVerificationPhase.WAITING_FOR_PEER -> {
@@ -757,7 +757,7 @@ private fun DeviceVerificationAttemptCard(
                 }
                 SasVerificationPhase.COMPLETE -> {
                     Text(
-                        if (trustedAtMillis != null) "Verified; this phone trusts this device"
+                        if (trustedAtMillis != null) "Safety numbers matched; this phone trusts this device"
                         else "Verification completed. Checking whether this phone saved trust…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
