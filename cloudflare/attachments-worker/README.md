@@ -100,6 +100,86 @@ npm run smoke:deployed
 
 The separate `npm run smoke` command checks the local in-process Worker, not the deployed service. The probe calls only `GET /health`; it sends no credentials or message data. A successful response confirms that the Worker is running with the SQLite mailbox binding and a valid configured retention window. It does not prove end-to-end delivery; complete authenticated two-device mailbox tests before enabling Android routing. The health endpoint exposes no secrets or account data and returns HTTP 503 when mailbox configuration is incomplete.
 
+## Authenticated deployed mailbox round-trip
+
+The deployed transport test is an explicit, local-only command; CI and Worker
+deployment never run it automatically:
+
+```sh
+npm run smoke:deployed:mailbox
+```
+
+It signs in two Firebase accounts (or validates two supplied Firebase ID
+tokens), discovers their published Olm devices, and exercises the deployed
+Worker's direct-message mailbox API. It verifies authenticated enqueue,
+recipient retrieval, exact duplicate retries, sender ACK persistence before
+ciphertext deletion, recovery after a consumed/lost sender ACK, and cleanup of
+the test delivery and acknowledgement.
+
+The test requires two different Firebase accounts with an existing direct
+conversation, a published sender device, and a published recipient **test
+device that is offline and not running InChat or its background mailbox worker**.
+The recipient device ID must be selected explicitly. The harness refuses to
+send its synthetic probe unless `INCHAT_MAILBOX_TEST_CONFIRM_RECIPIENT_DEVICE_OFFLINE=YES`
+is set. The sender device ID may be omitted only when that account has exactly
+one published device.
+
+PowerShell example (run from this Worker directory):
+
+```powershell
+$env:INCHAT_MAILBOX_TEST_SENDER_EMAIL = "sender-test-account@example.com"
+$env:INCHAT_MAILBOX_TEST_RECIPIENT_EMAIL = "recipient-test-account@example.com"
+$env:INCHAT_MAILBOX_TEST_SENDER_DEVICE_ID = "published-sender-device-id"
+$env:INCHAT_MAILBOX_TEST_RECIPIENT_DEVICE_ID = "published-inactive-test-device-id"
+$env:INCHAT_MAILBOX_TEST_CONFIRM_RECIPIENT_DEVICE_OFFLINE = "YES"
+# Enter each password locally when prompted; do not put passwords in source files.
+$secure = Read-Host "Sender password" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:INCHAT_MAILBOX_TEST_SENDER_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+$secure = Read-Host "Recipient password" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:INCHAT_MAILBOX_TEST_RECIPIENT_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+
+npm run smoke:deployed:mailbox
+```
+
+Instead of email/password, each account can use
+`INCHAT_MAILBOX_TEST_SENDER_ID_TOKEN` or
+`INCHAT_MAILBOX_TEST_RECIPIENT_ID_TOKEN`. The Firebase Web API key and
+Realtime Database URL are read from the repository's
+`app/google-services.json`; optional overrides are
+`INCHAT_FIREBASE_WEB_API_KEY` and `INCHAT_FIREBASE_DATABASE_URL`.
+`INCHAT_WORKER_URL` overrides the deployed Worker origin.
+
+The probe is a synthetic, structurally valid Olm envelope with test bytes; it
+is **not** encrypted with an Olm session and cannot be decrypted by InChat.
+The harness does not create a Firebase chat message or call the push endpoint.
+It stores one temporary probe in the selected recipient-device Durable Object
+mailbox and removes the probe and ACK on completion. If the process is
+interrupted, the configured mailbox retention policy eventually expires it.
+This verifies deployed Worker authentication and mailbox transport semantics,
+not Android-side encryption/decryption or a live Android app round trip.
+
+The test uses only the existing Firebase Authentication/Realtime Database
+and deployed Cloudflare Worker endpoints. It adds no Cloudflare service,
+Firebase Cloud Function, paid plan, or billing requirement. Remove the local
+environment variables after testing:
+
+```powershell
+"INCHAT_MAILBOX_TEST_SENDER_EMAIL",
+"INCHAT_MAILBOX_TEST_SENDER_PASSWORD",
+"INCHAT_MAILBOX_TEST_RECIPIENT_EMAIL",
+"INCHAT_MAILBOX_TEST_RECIPIENT_PASSWORD",
+"INCHAT_MAILBOX_TEST_SENDER_ID_TOKEN",
+"INCHAT_MAILBOX_TEST_RECIPIENT_ID_TOKEN",
+"INCHAT_MAILBOX_TEST_SENDER_DEVICE_ID",
+"INCHAT_MAILBOX_TEST_RECIPIENT_DEVICE_ID",
+"INCHAT_MAILBOX_TEST_CONFIRM_RECIPIENT_DEVICE_OFFLINE" |
+  ForEach-Object { Remove-Item ("Env:" + $_) -ErrorAction SilentlyContinue }
+```
+
 ## Worker setup
 
 1. No R2 bucket is required. Attachment bytes are stored in the existing Firebase Realtime Database.
