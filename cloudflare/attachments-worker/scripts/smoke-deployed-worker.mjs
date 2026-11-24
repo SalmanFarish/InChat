@@ -1,6 +1,5 @@
 const baseUrl = (process.env.INCHAT_WORKER_URL || "https://icy-base-2bc4.s91670002.workers.dev").replace(/\/+$/, "");
 if (!/^https:\/\//i.test(baseUrl)) {
-if (!/^https:\\/\\//i.test(baseUrl)) {
   throw new Error("INCHAT_WORKER_URL must be an HTTPS URL.");
 }
 
