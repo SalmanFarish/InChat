@@ -76,6 +76,7 @@ class CloudflareOlmRelayStoreTest {
                 messageId = delivery.messageId,
                 senderUserId = "alice",
                 senderDeviceId = "sender-device",
+                relayOrigin = OlmRelayOrigin.CLOUDFLARE,
             ),
             acknowledgement,
         )
