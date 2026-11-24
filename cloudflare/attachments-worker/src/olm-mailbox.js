@@ -35,8 +35,12 @@ function jsonResponse(payload, status = 200) {
   });
 }
 
-function failure(status, error, retryable = false) {
-  return jsonResponse({ error, ...(retryable ? { retryable: true } : {}) }, status);
+function failure(status, error, retryable = false, code = null) {
+  return jsonResponse({
+    error,
+    ...(retryable ? { retryable: true } : {}),
+    ...(code ? { code } : {}),
+  }, status);
 }
 
 function parseRetentionMillis(value) {
@@ -236,7 +240,7 @@ async function authorizeEnqueue({ input, env, adminToken, adminDatabaseRequest }
   ]);
 
   if (!senderDevice || !recipientDevice) {
-    return failure(404, "Sender or recipient device is no longer published.");
+    return failure(404, "Sender or recipient device is no longer published.", false, "device_not_published");
   }
 
   const [senderBlockedRecipient, recipientBlockedSender] =
@@ -407,7 +411,7 @@ export async function processOlmMailboxRequest({
     if (request.method === "GET" && url.pathname === "/v1/olm/mailbox/inbox") {
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
-        return failure(404, "Recipient device is no longer published.");
+        return failure(404, "Recipient device is no longer published.", false, "device_not_published");
       }
       const limit = url.searchParams.get("limit") || "50";
       const cursor = url.searchParams.get("cursor") || "0";
@@ -430,7 +434,7 @@ export async function processOlmMailboxRequest({
       }
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
-        return failure(404, "Recipient device is no longer published.");
+        return failure(404, "Recipient device is no longer published.", false, "device_not_published");
       }
       return proxyMailbox(
         mailboxStub(env, uid, deviceId),
@@ -446,7 +450,7 @@ export async function processOlmMailboxRequest({
     if (request.method === "DELETE" && deleteDelivery) {
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
-        return failure(404, "Recipient device is no longer published.");
+        return failure(404, "Recipient device is no longer published.", false, "device_not_published");
       }
       return proxyMailbox(
         mailboxStub(env, uid, deviceId),
@@ -459,7 +463,7 @@ export async function processOlmMailboxRequest({
     if (request.method === "GET" && url.pathname === "/v1/olm/mailbox/acks") {
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
-        return failure(404, "Sender device is no longer published.");
+        return failure(404, "Sender device is no longer published.", false, "device_not_published");
       }
       const limit = url.searchParams.get("limit") || "50";
       const cursor = url.searchParams.get("cursor") || "0";
@@ -479,7 +483,7 @@ export async function processOlmMailboxRequest({
     if (request.method === "DELETE" && deleteMatch) {
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
-        return failure(404, "Sender device is no longer published.");
+        return failure(404, "Sender device is no longer published.", false, "device_not_published");
       }
       return proxyMailbox(
         mailboxStub(env, uid, deviceId),
