@@ -506,6 +506,37 @@ test("owner can purge ciphertext and ACKs for a revoked device mailbox", async (
     200,
   );
 
+  // Put both a pending inbound envelope and an ACK into Bob's mailbox,
+  // then revoke Bob's published key before the owner cleanup operation.
+  const reverseDeliveryId = "b".repeat(64);
+  const reverseEnvelope = JSON.stringify({
+    ...JSON.parse(envelope),
+    senderDeviceId: "bob-device",
+    recipientDeviceId: "alice-device",
+  });
+  const reverseBody = apiEnqueueBody({
+    deliveryId: reverseDeliveryId,
+    messageId: "message-2",
+    recipientUid: "alice",
+    recipientDeviceId: "alice-device",
+    senderDeviceId: "bob-device",
+    envelope: reverseEnvelope,
+    conversationPeerUserId: "alice",
+  });
+  assert.equal(
+    (await state.dispatch("/v1/olm/mailbox/enqueue", "POST", reverseBody, "bob")).status,
+    200,
+  );
+  assert.equal(
+    (await state.dispatch(
+      "/v1/olm/mailbox/acknowledge?deviceId=alice-device",
+      "POST",
+      { deliveryId: reverseDeliveryId },
+      "alice",
+    )).status,
+    200,
+  );
+
   // Purging remains available after another device has revoked this device's
   // public key. Authentication still binds the operation to bob.
   state.database.delete("deviceKeys/bob/bob-device");
