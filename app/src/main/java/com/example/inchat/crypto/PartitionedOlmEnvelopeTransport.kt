@@ -36,15 +36,18 @@ internal class PartitionedOlmEnvelopeTransport(
     override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
         val firebaseItems = firebase.readMyDeviceInbox(deviceId)
             .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
-        if (!cloudflareDirectEnabled) return firebaseItems
+        if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) return firebaseItems
 
         val cloudflareItems = cloudflare.readMyDeviceInbox(deviceId).map { item ->
-            require(
-                item.conversationType == "direct" &&
-                    item.groupId == null &&
-                    item.membershipEpoch == null &&
-                    item.conversationPeerUserId != null
-            ) { "Cloudflare direct mailbox returned a non-direct delivery." }
+            val isDirect = item.conversationType == "direct" &&
+                item.groupId == null && item.membershipEpoch == null &&
+                item.conversationPeerUserId != null
+            val isGroup = item.conversationType == "group" &&
+                item.groupId != null && item.membershipEpoch != null &&
+                item.conversationId == item.groupId && item.conversationPeerUserId == null
+            require((cloudflareDirectEnabled && isDirect) || (cloudflareGroupEnabled && isGroup)) {
+                "Cloudflare mailbox returned a delivery outside its enabled conversation scope."
+            }
             item.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE)
         }
         return mergeInboxItems(firebaseItems, cloudflareItems)
