@@ -58,17 +58,17 @@ internal class FirebaseOlmInboxReceiver(
                     }
                     OlmInboundRegistration.PENDING_RETRY -> {
                         transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        transport.removeFromMyDeviceInbox(deviceId, item)
                         pending++
                     }
                     OlmInboundRegistration.DUPLICATE_PROCESSED -> {
                         transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        transport.removeFromMyDeviceInbox(deviceId, item)
                         processed++
                     }
                     OlmInboundRegistration.DUPLICATE_REJECTED -> {
                         transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        transport.removeFromMyDeviceInbox(deviceId, item)
                         rejected++
                     }
                 }
