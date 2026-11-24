@@ -324,3 +324,147 @@ test("account deletion dissolves a two-member group without overlapping group-ro
     globalThis.fetch = previousFetch;
   }
 });
+
+
+test("account deletion processes many groups one bounded batch at a time", async () => {
+  const previousFetch = globalThis.fetch;
+  const groups = {
+    group_a: {
+      chatId: "group_a",
+      type: "group",
+      name: "Alpha",
+      createdBy: "alice",
+      members: { alice: "admin", bob: "admin", carol: "member" },
+      cryptoMembership: {
+        epoch: 1,
+        members: { alice: "admin", bob: "admin", carol: "member" },
+      },
+    },
+    group_b: {
+      chatId: "group_b",
+      type: "group",
+      name: "Beta",
+      createdBy: "alice",
+      members: { alice: "admin", dan: "admin", erin: "member" },
+      cryptoMembership: {
+        epoch: 7,
+        members: { alice: "admin", dan: "admin", erin: "member" },
+      },
+    },
+  };
+  const membershipIndex = { group_a: true, group_b: true };
+  const inboxIndex = {
+    group_a: { chatType: "group" },
+    group_b: { chatType: "group" },
+  };
+  const rootPatches = [];
+  const groupPatches = [];
+  const versions = { group_a: 1, group_b: 1 };
+
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const path = decodeURIComponent(
+      url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""),
+    );
+    const method = options.method || "GET";
+
+    if (method === "GET") {
+      if (path === "groupMemberships/alice") {
+        return jsonResponse(membershipIndex);
+      }
+      if (path === "groupReads/alice" || path === "privateUsers/alice/fcmToken") {
+        return jsonResponse(null);
+      }
+      if (path === "userChats/alice") {
+        return jsonResponse(inboxIndex);
+      }
+      const deviceMatch = path.match(/^groupNotificationDevices\/(group_[ab])\/alice$/);
+      if (deviceMatch) return jsonResponse(null);
+
+      const chatMatch = path.match(/^chats\/(group_[ab])$/);
+      if (chatMatch) {
+        const chatId = chatMatch[1];
+        if (options.headers?.["X-Firebase-ETag"] === "true") {
+          return jsonResponse(groups[chatId], {
+            ETag: '"group-v' + versions[chatId] + '"',
+          });
+        }
+        return jsonResponse(groups[chatId]);
+      }
+      if (/^chats\/group_[ab]\/messages$/.test(path)) {
+        return jsonResponse({});
+      }
+      throw new Error("Unexpected GET request: " + url.toString());
+    }
+
+    if (method === "PATCH" && /^chats\/group_[ab]$/.test(path)) {
+      const chatId = path.split("/")[1];
+      assert.equal(options.headers?.["If-Match"], '"group-v' + versions[chatId] + '"');
+      const patch = JSON.parse(options.body);
+      groupPatches.push({ chatId, patch });
+      Object.assign(groups[chatId], patch);
+      versions[chatId] += 1;
+      return jsonResponse(null);
+    }
+
+    if (method === "PATCH" && path === "") {
+      const patch = JSON.parse(options.body);
+      assertNoOverlappingPatchPaths(patch);
+      rootPatches.push(patch);
+      for (const chatId of ["group_a", "group_b"]) {
+        if (Object.prototype.hasOwnProperty.call(
+          patch,
+          "groupMemberships/alice/" + chatId,
+        )) {
+          delete membershipIndex[chatId];
+        }
+        if (Object.prototype.hasOwnProperty.call(
+          patch,
+          "userChats/alice/" + chatId,
+        )) {
+          delete inboxIndex[chatId];
+        }
+      }
+      return jsonResponse(null);
+    }
+
+    throw new Error("Unexpected request: " + method + " " + url.toString());
+  };
+
+  try {
+    const env = {
+      FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com",
+      FCM_TOPIC_SECRET: "test-only-topic-secret-at-least-32-bytes",
+    };
+    const adminAuth = { token: "admin-token", projectId: "demo-inchat" };
+
+    const first = await cleanupAccountGroupsForDeletion(env, "alice", adminAuth);
+    assert.deepEqual(await first.json(), {
+      success: true,
+      complete: false,
+      processedGroups: 1,
+      updatedGroups: 1,
+      dissolvedGroups: 0,
+    });
+    assert.deepEqual(Object.keys(membershipIndex), ["group_b"]);
+    assert.equal(groupPatches.length, 1);
+
+    const second = await cleanupAccountGroupsForDeletion(env, "alice", adminAuth);
+    assert.deepEqual(await second.json(), {
+      success: true,
+      complete: true,
+      processedGroups: 1,
+      updatedGroups: 1,
+      dissolvedGroups: 0,
+    });
+    assert.deepEqual(Object.keys(membershipIndex), []);
+    assert.equal(groupPatches.length, 2);
+    assert.deepEqual(groups.group_a.cryptoMembership.members, groups.group_a.members);
+    assert.deepEqual(groups.group_b.cryptoMembership.members, groups.group_b.members);
+    assert.equal(rootPatches.some((patch) =>
+      Object.prototype.hasOwnProperty.call(patch, "deviceKeys/alice")
+    ), true);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
