@@ -26,7 +26,7 @@ internal fun extractOlmGroupMessageRouteGroupId(authenticatedOlmPlaintext: Strin
 
 /**
  * Handles an authenticated Olm plaintext that carries a typed Megolm group
- * message. The outer Olm session, sender device signature and SAS trust must
+ * message. The outer Olm session, sender device signature and pinned sender identity must
  * already have been verified before this callback is invoked.
  */
 internal fun interface OlmInboundGroupMessageHandoff {

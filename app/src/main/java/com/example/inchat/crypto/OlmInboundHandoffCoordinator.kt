@@ -150,7 +150,7 @@ internal class OlmInboundHandoffCoordinator(
                 "Authenticated account changed during native decryption"
             }
 
-            // Native staging can suspend while trust is revoked elsewhere in the app.
+            // Native staging can suspend while the pinned identity changes elsewhere in the app.
             // Recheck before routing or committing either direct or group payloads.
             check(
                 trustVerifier.isTrustedForMessaging(

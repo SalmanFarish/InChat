@@ -113,8 +113,8 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
             // Membership lookup and key decoding can suspend. Fence the import
             // against sign-out/account replacement just like the message commit.
             requireUnchangedGroupRecipient(localUserId, authenticatedLocalUserId())
-            // Membership lookup suspends and can take long enough for local SAS
-            // trust to be revoked. Recheck the pinned sender identity immediately before importing the key.
+            // Membership lookup suspends and can take long enough for local identity
+            // pin to change. Recheck the pinned sender identity immediately before importing the key.
             check(
                 trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
