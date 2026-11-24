@@ -1896,9 +1896,37 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
             },
           };
           updatedGroups += 1;
+        } else {
+          // A previous attempt may have committed the ETag membership update
+          // but failed before rebuilding the inbox preview. Re-read the
+          // authoritative group so this retry can finish that pending work.
+          const latestChat = await adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "chats/" + chatId,
+          );
+          if (
+            latestChat &&
+            latestChat.type === "group" &&
+            Object.keys(latestChat.members || {}).length >= 2
+          ) {
+            previewToRebuild = {
+              chatId: chatId,
+              chat: latestChat,
+            };
+          }
         }
       } else {
         updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
+        // The member may already have been removed by an earlier interrupted
+        // attempt. Finish rebuilding the current roster's preview before
+        // deleting the stale account-owned indexes.
+        if (remainingMembers.length >= 2) {
+          previewToRebuild = {
+            chatId: chatId,
+            chat: chat,
+          };
+        }
       }
     }
 
