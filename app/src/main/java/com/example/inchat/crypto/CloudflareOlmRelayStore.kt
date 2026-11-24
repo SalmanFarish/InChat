@@ -281,6 +281,28 @@ internal class CloudflareOlmRelayStore(
         )
     }
 
+    /**
+     * Permanently clears this account's retired device mailbox on the Worker.
+     * The UID is used only to obtain the matching Firebase ID token; the Worker
+     * derives mailbox ownership from that verified token rather than a body UID.
+     */
+    suspend fun purgeOwnDeviceMailbox(authenticatedUserId: String, deviceId: String) {
+        require(UID_PATTERN.matches(authenticatedUserId)) {
+            "Mailbox account ID has an invalid format."
+        }
+        require(DEVICE_PATTERN.matches(deviceId)) {
+            "Mailbox device ID has an invalid format."
+        }
+        val response = execute(
+            authenticatedUserId = authenticatedUserId,
+            method = "DELETE",
+            path = "/olm/mailbox/device?deviceId=" + deviceId,
+        )
+        check(response?.optBoolean("purged", false) == true) {
+            "Cloudflare Worker did not confirm device mailbox cleanup."
+        }
+    }
+
     private suspend fun readPages(
         authenticatedUserId: String,
         path: String,
