@@ -93,7 +93,7 @@ internal class PartitionedOlmEnvelopeTransport(
 
     override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
         firebase.removeMyDeliveryAcknowledgement(senderDeviceId, deliveryId)
-        if (cloudflareDirectEnabled) {
+        if (cloudflareDirectEnabled || cloudflareGroupEnabled) {
             cloudflare.removeMyDeliveryAcknowledgement(senderDeviceId, deliveryId)
         }
     }
