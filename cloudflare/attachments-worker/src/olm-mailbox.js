@@ -345,8 +345,12 @@ export async function processOlmMailboxRequest({
     return failure(404, "Not found.");
   }
 
-  const retentionMillis = parseRetentionMillis(env.OLM_MAILBOX_RETENTION_MS);
-  if (retentionMillis === null) {
+  const isOwnerPurge =
+    request.method === "DELETE" &&
+    url.pathname === "/v1/olm/mailbox/device";
+  const retentionMillis = isOwnerPurge ? null :
+    parseRetentionMillis(env.OLM_MAILBOX_RETENTION_MS);
+  if (!isOwnerPurge && retentionMillis === null) {
     return failure(503, "Encrypted mailbox retention is not configured; message delivery is disabled.", true);
   }
   if (!mailboxStub(env, uid, "placeholder")) {
@@ -355,11 +359,29 @@ export async function processOlmMailboxRequest({
 
   const adminAccessToken = typeof adminToken === "string" ? adminToken :
     (isRecord(adminToken) ? adminToken.token : "");
-  if (typeof adminAccessToken !== "string" || !adminAccessToken) {
+  if (!isOwnerPurge &&
+      (typeof adminAccessToken !== "string" || !adminAccessToken)) {
     return failure(503, "Mailbox authorization metadata is unavailable.", true);
   }
 
   try {
+    if (isOwnerPurge) {
+      const deviceIds = url.searchParams.getAll("deviceId");
+      if (
+        deviceIds.length !== 1 ||
+        [...url.searchParams.keys()].some((key) => key !== "deviceId") ||
+        !DEVICE_PATTERN.test(deviceIds[0])
+      ) {
+        return failure(400, "Mailbox device ID is invalid.");
+      }
+      // The UID is derived from the verified token. A revoked device may
+      // still purge its own mailbox, but cannot select another account's DO.
+      return proxyMailbox(
+        mailboxStub(env, uid, deviceIds[0]),
+        "/purge",
+        "DELETE",
+      );
+    }
     if (request.method === "POST" && url.pathname === "/v1/olm/mailbox/enqueue") {
       const parsed = validateEnqueueBody(
         await parseRequestBody(request),
@@ -379,28 +401,6 @@ export async function processOlmMailboxRequest({
         "/enqueue",
         "POST",
         { ...parsed.value, retentionMillis, acceptedAt: now },
-      );
-    }
-
-    if (
-      request.method === "DELETE" &&
-      url.pathname === "/v1/olm/mailbox/device"
-    ) {
-      const deviceIds = url.searchParams.getAll("deviceId");
-      if (
-        deviceIds.length !== 1 ||
-        [...url.searchParams.keys()].some((key) => key !== "deviceId") ||
-        !DEVICE_PATTERN.test(deviceIds[0])
-      ) {
-        return failure(400, "Mailbox device ID is invalid.");
-      }
-
-      // The UID is derived from the verified token. A revoked device may
-      // still purge its own mailbox, but cannot select another account's DO.
-      return proxyMailbox(
-        mailboxStub(env, uid, deviceIds[0]),
-        "/purge",
-        "DELETE",
       );
     }
 
