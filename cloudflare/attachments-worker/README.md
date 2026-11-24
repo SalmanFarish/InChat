@@ -144,6 +144,14 @@ credential.
   creation are denied by `database.rules.json`. Deploy the Worker before
   deploying the updated database rules and Android app.
 
+## Account deletion cleanup
+
+- Android calls `POST /v1/account/group-cleanup` before removing the Firebase Auth identity.
+- The Worker handles one group per request and returns `complete: false` while group indexes remain. Android repeats the authenticated request until the Worker returns `complete: true`; it must not delete the Firebase Auth identity after an intermediate batch.
+- Each group's E2EE membership mutation, creator transfer, notification-token unsubscribe, preview rebuild, and account-owned index cleanup are performed before advancing to the next request. Failed preview or token cleanup leaves the group's indexes available for retry.
+- Only after no group memberships or group inbox entries remain does the Worker remove the account's published device keys, key claims, encrypted relay/control inboxes, delivery acknowledgements, push-dispatch receipts, read state, and remaining direct-chat read receipts.
+- Processing one group per invocation keeps the operation below the Cloudflare Workers Free 50 external-subrequest limit even when the account belongs to many groups. The endpoint uses the existing Firebase Admin and FCM services; it adds no paid infrastructure.
+
 ## Notification flow
 
 - Android queues the message write in Realtime Database and immediately
