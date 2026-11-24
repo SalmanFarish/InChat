@@ -456,6 +456,79 @@ class CloudflareOlmRelayStoreTest {
         assertEquals(listOf("GET", "DELETE"), requests.requests.map { it.method })
     }
 
+    @Test
+    fun acknowledgementForPermanentlyRetiredSenderMailboxIsTerminal() = runBlocking {
+        val requests = RecordingHttpClient {
+            throw OlmMailboxHttpException(
+                410,
+                retryable = false,
+                message = "Sender device mailbox has been retired.",
+                errorCode = "device_mailbox_retired",
+            )
+        }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        // The caller reaches this method only after the encrypted receipt is
+        // durably saved in Room; no ACK retry is useful for a retired sender.
+        store.putAcknowledgement(
+            senderUid = "alice",
+            senderDeviceId = "retired-sender",
+            deliveryId = "d".repeat(64),
+            fields = mapOf(
+                "recipientUid" to "bob",
+                "recipientDeviceId" to "recipient-device",
+                "messageId" to "message-1",
+                "acknowledgedAt" to 1234L,
+            ),
+        )
+
+        assertEquals(1, requests.requests.size)
+        assertTrue(requests.requests.single().url.endsWith(
+            "/olm/mailbox/acknowledge?deviceId=recipient-device",
+        ))
+        assertEquals(listOf("bob"), tokens.accountIds)
+    }
+
+    @Test
+    fun unrelatedGoneAcknowledgementErrorsAreNotSilentlyIgnored() = runBlocking {
+        val requests = RecordingHttpClient {
+            throw OlmMailboxHttpException(
+                410,
+                retryable = false,
+                message = "Delivery expired.",
+                errorCode = "delivery_expired",
+            )
+        }
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = RecordingTokenProvider(),
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        val failure = runCatching {
+            store.putAcknowledgement(
+                senderUid = "alice",
+                senderDeviceId = "sender-device",
+                deliveryId = "e".repeat(64),
+                fields = mapOf(
+                    "recipientUid" to "bob",
+                    "recipientDeviceId" to "recipient-device",
+                    "messageId" to "message-1",
+                    "acknowledgedAt" to 1234L,
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is OlmMailboxHttpException)
+        assertEquals(410, (failure as OlmMailboxHttpException).statusCode)
+        assertEquals("delivery_expired", failure.errorCode)
+    }
+
     private fun directInboxJson() = JSONObject()
         .put("deliveryId", "a".repeat(64))
         .put("senderUid", "alice")
