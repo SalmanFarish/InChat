@@ -595,6 +595,11 @@ export class OlmDeviceMailboxDurableObject {
         ON acknowledgements(seq, expires_at);
       CREATE INDEX IF NOT EXISTS acknowledgements_expiry
         ON acknowledgements(expires_at);
+      CREATE TABLE IF NOT EXISTS mailbox_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        retired INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO mailbox_state (id, retired) VALUES (1, 0);
     `);
   }
 
@@ -649,6 +654,7 @@ export class OlmDeviceMailboxDurableObject {
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM deliveries");
       this.sql.exec("DELETE FROM acknowledgements");
+      this.sql.exec("UPDATE mailbox_state SET retired = 1 WHERE id = 1");
     });
     await this.ctx.storage.deleteAlarm();
     return jsonResponse({ purged: true });
@@ -732,6 +738,14 @@ export class OlmDeviceMailboxDurableObject {
     };
 
     const result = this.ctx.storage.transactionSync(() => {
+      // A delivery can finish authorization just before device revocation and
+      // reach this object after purge. The retired marker and row deletion share
+      // a SQLite transaction, so a late request can never resurrect ciphertext.
+      const mailboxState = this.sql.exec(
+        "SELECT retired FROM mailbox_state WHERE id = 1",
+      ).toArray()[0];
+      if (mailboxState?.retired === 1) return { status: "retired" };
+
       const existing = this.sql.exec(
         "SELECT * FROM deliveries WHERE delivery_id = ?",
         incoming.delivery_id,
@@ -817,6 +831,9 @@ export class OlmDeviceMailboxDurableObject {
       return { status: "stored", createdAt, expiresAt, duplicate: false };
     });
 
+    if (result.status === "retired") {
+      return failure(410, "This device mailbox has been permanently retired.", false, "device_mailbox_retired");
+    }
     if (result.status === "conflict") return failure(409, "Delivery ID was reused with different immutable content.");
     if (result.status === "expired") return failure(410, "This delivery has expired.");
     if (result.status === "full") return failure(503, "Recipient mailbox is full; sender must retry later.", true);
@@ -952,6 +969,9 @@ export class OlmDeviceMailboxDurableObject {
     ));
     if (!storedAck.ok) {
       if (storedAck.status === 409) return failure(409, "Acknowledgement identity conflicts with an existing receipt.");
+      if (storedAck.status === 410) {
+        return failure(410, "Sender device mailbox has been retired.", false, "device_mailbox_retired");
+      }
       return failure(503, "Sender acknowledgement could not be stored; retry safely.", true);
     }
 
@@ -1023,6 +1043,11 @@ export class OlmDeviceMailboxDurableObject {
     const expiresAt = body.acknowledgedAt + retention;
     if (!Number.isSafeInteger(expiresAt)) return failure(400, "Acknowledgement expiry is invalid.");
     const result = this.ctx.storage.transactionSync(() => {
+      const mailboxState = this.sql.exec(
+        "SELECT retired FROM mailbox_state WHERE id = 1",
+      ).toArray()[0];
+      if (mailboxState?.retired === 1) return "retired";
+
       const existing = this.sql.exec(
         "SELECT * FROM acknowledgements WHERE delivery_id = ?",
         body.deliveryId.toLowerCase(),
@@ -1059,6 +1084,9 @@ export class OlmDeviceMailboxDurableObject {
       return "stored";
     });
 
+    if (result === "retired") {
+      return failure(410, "This device mailbox has been permanently retired.", false, "device_mailbox_retired");
+    }
     if (result === "conflict") return failure(409, "Acknowledgement delivery ID conflicts with an existing receipt.");
     if (result === "full") return failure(503, "Sender acknowledgement mailbox is full.", true);
     await this.scheduleNextAlarm();
