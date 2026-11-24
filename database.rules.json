@@ -405,7 +405,7 @@
         "$targetUid": {
           "$deviceId": {
             "$keyId": {
-              ".write": "auth != null && auth.uid === $claimantUid && !root.child('accountDeletionLocks').child($claimantUid).exists() && ((!data.exists() && newData.val() === true && root.child('deviceKeys').child($targetUid).child($deviceId).exists()) || (data.exists() && !newData.exists()))",
+              ".write": "auth != null && auth.uid === $claimantUid && !root.child('accountDeletionLocks').child($claimantUid).exists() && ((!data.exists() && newData.val() === true && root.child('deviceKeys').child($targetUid).child($deviceId).exists()) || (data.exists() && !newData.exists() && (!root.child('deviceKeyClaims').child($targetUid).child($deviceId).child($keyId).child('claimantUid').exists() || root.child('deviceKeyClaims').child($targetUid).child($deviceId).child($keyId).child('claimantUid').val() !== auth.uid))))",
               ".validate": "newData.val() === true"
             }
           }
