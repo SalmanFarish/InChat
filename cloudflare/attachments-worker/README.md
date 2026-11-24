@@ -43,7 +43,12 @@ A retired or revoked device can explicitly purge its own mailbox, including
 pending ciphertext, acknowledgement records, and tombstones. The Worker
 accepts this cleanup even after the device key is unpublished, but derives the
 account namespace from the verified caller token; a caller cannot select
-another account's mailbox by supplying its device ID.
+another account's mailbox by supplying its device ID. Purging permanently retires
+that mailbox identity: a SQLite state marker is committed in the same transaction
+as deletion, so an enqueue that passed metadata authorization before revocation
+cannot arrive late and recreate ciphertext. Late sender acknowledgements are
+also rejected. The Android adapter treats that specific retired-sender ACK
+response as terminal only after the recipient has persisted its receipt locally.
 
 The mailbox uses an explicit seven-day ciphertext retention policy
 (`OLM_MAILBOX_RETENTION_MS=604800000`). The Worker rejects invalid values;
