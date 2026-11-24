@@ -1680,28 +1680,43 @@ async function clearPersonalNotificationTopic(
 
 async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
   const indexPath = "deviceKeyClaimsByClaimant/" + uid;
-  const index = await adminDatabaseRequest(env, adminToken, indexPath);
-  const targetUid = Object.keys(index || {}).sort()[0];
-  if (targetUid === undefined) return { complete: true };
+  const firstChild = (path) => adminDatabaseRequest(
+    env,
+    adminToken,
+    path,
+    "GET",
+    undefined,
+    "orderBy=%22$key%22&limitToFirst=1",
+  );
 
-  const safeTargetUid = cleanSegment(targetUid, "targetUid");
-  const deviceIndex = index[targetUid];
+  // Query one child at each level rather than downloading the entire reverse
+  // index. This keeps both response size and work bounded for long-lived users.
+  const targetIndex = await firstChild(indexPath);
+  const targetUid = Object.keys(targetIndex || {}).sort()[0];
+  if (targetUid === undefined) return { complete: true };
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(targetUid)) {
+    throw new Error("Invalid target UID in claimant prekey index.");
+  }
+
+  const deviceIndex = await firstChild(indexPath + "/" + targetUid);
   const deviceId = Object.keys(deviceIndex || {}).sort()[0];
   if (deviceId === undefined) {
-    await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid, "DELETE");
+    await adminDatabaseRequest(env, adminToken, indexPath + "/" + targetUid, "DELETE");
     return { complete: false };
   }
-
   const safeDeviceId = cleanSegment(deviceId, "deviceId");
-  const keyIndex = deviceIndex[deviceId];
+
+  const keyIndex = await firstChild(indexPath + "/" + targetUid + "/" + safeDeviceId);
   const keyId = Object.keys(keyIndex || {}).sort()[0];
   if (keyId === undefined) {
-    await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid + "/" + safeDeviceId, "DELETE");
+    await adminDatabaseRequest(
+      env, adminToken, indexPath + "/" + targetUid + "/" + safeDeviceId, "DELETE",
+    );
     return { complete: false };
   }
-
   const safeKeyId = cleanSegment(keyId, "keyId");
-  const claimPath = "deviceKeyClaims/" + safeTargetUid + "/" + safeDeviceId + "/" + safeKeyId;
+
+  const claimPath = "deviceKeyClaims/" + targetUid + "/" + safeDeviceId + "/" + safeKeyId;
   const claimUrl = new URL(
     env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
       "/" + claimPath.split("/").map(encodeURIComponent).join("/") + ".json",
@@ -1709,7 +1724,9 @@ async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
   const read = await fetch(claimUrl.toString(), {
     headers: { Authorization: "Bearer " + adminToken, "X-Firebase-ETag": "true" },
   });
-  if (!read.ok) throw new Error("Could not read indexed one-time prekey claim (" + read.status + ").");
+  if (!read.ok) {
+    throw new Error("Could not read indexed one-time prekey claim (" + read.status + ").");
+  }
   const claim = await read.json();
   const etag = read.headers.get("ETag") || "null_etag";
 
@@ -1719,10 +1736,19 @@ async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
       headers: { Authorization: "Bearer " + adminToken, "If-Match": etag },
     });
     if (removeClaim.status === 412) return { complete: false, conflict: true };
-    if (!removeClaim.ok) throw new Error("Could not release indexed one-time prekey claim (" + removeClaim.status + ").");
+    if (!removeClaim.ok) {
+      throw new Error("Could not release indexed one-time prekey claim (" + removeClaim.status + ").");
+    }
   }
 
-  await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid + "/" + safeDeviceId + "/" + safeKeyId, "DELETE");
+  // Remove the index only after the matching claim is absent or conditionally
+  // deleted. A concurrent replacement is protected by the claim ETag above.
+  await adminDatabaseRequest(
+    env,
+    adminToken,
+    indexPath + "/" + targetUid + "/" + safeDeviceId + "/" + safeKeyId,
+    "DELETE",
+  );
   return { complete: false, processed: true };
 }
 
