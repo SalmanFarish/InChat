@@ -46,7 +46,8 @@ test("attachment PUT is rejected until encrypted media envelopes are supported",
 
     assert.equal(response.status, 501);
     assert.match((await response.json()).error, /encrypted attachment uploads/i);
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
+    assert.ok(requests.every(({ url }) => !url.includes("/chats/")));
   } finally {
     globalThis.fetch = originalFetch;
   }

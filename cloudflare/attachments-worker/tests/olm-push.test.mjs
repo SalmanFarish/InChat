@@ -259,15 +259,16 @@ test("rejects group wake-ups for stale membership epochs", async () => {
   assert.equal(state.sentMessages.length, 0);
 });
 
-test("rejects group membership maps that disagree with the crypto snapshot", async () => {
-  const inconsistentChat = {
+test("canonical crypto membership overrides a stale legacy members mirror", async () => {
+  const staleLegacyMirror = {
     ...groupChat,
     members: { ...groupChat.members, bob: "admin" },
   };
-  const state = fixture({ chat: inconsistentChat, relayRecord: groupRelayRecord });
+  const state = fixture({ chat: staleLegacyMirror, relayRecord: groupRelayRecord });
   const response = await state.dispatch(groupRequest);
-  assert.equal(response.status, 409);
-  assert.equal(state.sentMessages.length, 0);
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
 });
 
 test("rejects unknown group member roles even when both maps agree", async () => {
@@ -471,18 +472,21 @@ test("rejects a relay envelope whose authenticated device metadata differs", asy
   assert.equal(state.sentMessages.length, 0);
 });
 
-test("fails closed when a conversation has a missing or unknown type", async () => {
-  const missingTypeState = fixture({
+test("legacy direct chats infer direct type only from a complete participant pair", async () => {
+  const legacyDirectState = fixture({
     chat: { participantA: "alice", participantB: "bob" },
   });
   const unknownTypeState = fixture({
     chat: { type: "legacy", participantA: "alice", participantB: "bob" },
   });
+  const orphanState = fixture({ chat: { participantA: "alice" } });
 
-  assert.equal((await missingTypeState.dispatch()).status, 404);
+  assert.equal((await legacyDirectState.dispatch()).status, 200);
+  assert.equal(legacyDirectState.sentMessages.length, 1);
   assert.equal((await unknownTypeState.dispatch()).status, 404);
-  assert.equal(missingTypeState.sentMessages.length, 0);
+  assert.equal((await orphanState.dispatch()).status, 403);
   assert.equal(unknownTypeState.sentMessages.length, 0);
+  assert.equal(orphanState.sentMessages.length, 0);
 });
 
 test("does not send a push for a group chat or a non-member sender", async () => {

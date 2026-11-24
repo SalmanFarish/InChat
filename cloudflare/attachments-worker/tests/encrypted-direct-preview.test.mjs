@@ -317,11 +317,17 @@ test("rejects unknown fields, invalid participant scope, and future timestamps",
       sentAtMillis: 1_000,
     },
     adminToken: "admin-token",
-    adminDatabaseRequest: async () => ({
-      type: "direct",
-      participantA: "alice",
-      participantB: "bob",
-    }),
+    adminDatabaseRequest: async (_env, _token, path) => {
+      const values = {
+        "chats/alice_bob/type": "direct",
+        "chats/alice_bob/participantA": "alice",
+        "chats/alice_bob/participantB": "bob",
+      };
+      if (path === "chats/alice_bob") {
+        throw new Error("Whole direct-chat root reads are forbidden.");
+      }
+      return values[path] ?? null;
+    },
     fetchImpl: async () => {
       throw new Error("Inbox must not be accessed for a non-member");
     },

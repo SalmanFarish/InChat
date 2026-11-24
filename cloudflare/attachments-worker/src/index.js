@@ -80,6 +80,36 @@ async function authenticate(token, env) {
   return { uid: user.localId, token };
 }
 
+/**
+ * Authenticated Firebase metadata GET helper. Callers must request a single
+ * metadata child, never the whole chats/{chatId} node or message history.
+ */
+export async function firebaseUserDatabaseGet(path, token, env, fetchImpl = fetch) {
+  if (
+    typeof path !== "string" || path.trim() === "" ||
+    typeof token !== "string" || token.trim() === ""
+  ) {
+    throw new TypeError("A Firebase database path and ID token are required.");
+  }
+  const segments = path.split("/").filter(Boolean);
+  if (
+    segments[0] === "chats" &&
+    (segments.length === 2 || segments[2] === "messages")
+  ) {
+    throw new TypeError(
+      "Firebase chat roots and message history are not readable; request a metadata child only.",
+    );
+  }
+  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
+  const encodedPath = segments.map(encodeURIComponent).join("/");
+  return fetchImpl(base + "/" + encodedPath + ".json", {
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + token,
+    },
+  });
+}
+
 let cachedAdminToken = "";
 let cachedAdminTokenExpiresAt = 0;
 let cachedAdminTokenEmail = "";
