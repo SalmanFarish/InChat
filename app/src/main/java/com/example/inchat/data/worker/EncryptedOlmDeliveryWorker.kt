@@ -36,6 +36,7 @@ import com.example.inchat.data.repository.CloudflareWorkerConfig
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.CloudflareOlmEnvelopeTransport
+import com.example.inchat.crypto.PartitionedOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmOutgoingDeliveryTransport
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDeliveryWorkerRunner
@@ -262,18 +263,20 @@ class EncryptedOlmDeliveryWorker(
                 Log.w(TAG, "Staged encrypted group-message recovery failed; retrying.", error)
             }
 
-            val transport: OlmOutgoingDeliveryTransport =
-                if (CloudflareWorkerConfig.ENCRYPTED_OLM_MAILBOX_ENABLED) {
-                    CloudflareOlmEnvelopeTransport(
-                        trustVerifier = TrustedDeviceRepository(applicationContext),
-                        expectedAuthenticatedUserId = ownerUserId,
-                    )
-                } else {
-                    FirebaseOlmEnvelopeTransport(
-                        trustVerifier = TrustedDeviceRepository(applicationContext),
-                        expectedAuthenticatedUserId = ownerUserId,
-                    )
-                }
+            val trustRepository = TrustedDeviceRepository(applicationContext)
+            val firebaseTransport = FirebaseOlmEnvelopeTransport(
+                trustVerifier = trustRepository,
+                expectedAuthenticatedUserId = ownerUserId,
+            )
+            val cloudflareTransport = CloudflareOlmEnvelopeTransport(
+                trustVerifier = trustRepository,
+                expectedAuthenticatedUserId = ownerUserId,
+            )
+            val transport: OlmOutgoingDeliveryTransport = PartitionedOlmEnvelopeTransport(
+                firebase = firebaseTransport,
+                cloudflare = cloudflareTransport,
+                cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
+            )
             val groupRepository = GroupChatRepository()
             val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(
