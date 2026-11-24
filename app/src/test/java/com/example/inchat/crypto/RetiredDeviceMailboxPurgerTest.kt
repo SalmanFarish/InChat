@@ -5,7 +5,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RetiredDeviceMailboxPurgerTest {
@@ -58,6 +57,5 @@ class RetiredDeviceMailboxPurgerTest {
         purger.purgeAfterRevocation("account-1", "revoked-device")
 
         assertEquals(2, attempts)
-        assertTrue(true)
     }
 }
