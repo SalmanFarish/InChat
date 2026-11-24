@@ -2292,6 +2292,23 @@ export default {
 
       const url = new URL(request.url);
 
+      // Public, non-sensitive deployment probe. It reports readiness only;
+      // it never exposes bindings, secrets, account data, or quota details.
+      if (request.method === "GET" && url.pathname === "/health") {
+        const retention = typeof env.OLM_MAILBOX_RETENTION_MS === "string" &&
+          /^\\d+$/.test(env.OLM_MAILBOX_RETENTION_MS) ?
+          Number(env.OLM_MAILBOX_RETENTION_MS) : NaN;
+        const mailboxReady = Boolean(env.OLM_MAILBOX) &&
+          Number.isSafeInteger(retention) &&
+          retention >= 60 * 60 * 1000 &&
+          retention <= 30 * 24 * 60 * 60 * 1000;
+        return json({
+          status: mailboxReady ? "ok" : "not_ready",
+          service: "inchat-worker",
+          encryptedMailbox: mailboxReady ? "ready" : "not_ready",
+        }, mailboxReady ? 200 : 503);
+      }
+
       if (
         request.method === "POST" &&
         (url.pathname === "/recover" || url.pathname === "/v1/recover")
