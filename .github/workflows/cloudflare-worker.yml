@@ -32,6 +32,9 @@ jobs:
       - name: Run Cloudflare Worker unit tests
         working-directory: cloudflare/attachments-worker
         run: npm test
+      - name: Run local Worker smoke check
+        working-directory: cloudflare/attachments-worker
+        run: npm run smoke
       - name: Run Worker deployment preflight
         working-directory: cloudflare/attachments-worker
         run: npm run predeploy
