@@ -228,6 +228,89 @@ class CloudflareOlmRelayStoreTest {
     }
 
     @Test
+    fun revokedRecipientDevicePollPurgesItsOwnMailboxAndReturnsNoMessages() = runBlocking {
+        val requests = RecordingHttpClient { request ->
+            when (request.method) {
+                "GET" -> throw OlmMailboxHttpException(
+                    404,
+                    retryable = false,
+                    message = "Encrypted mailbox request failed (404): Recipient device is no longer published.",
+                )
+                "DELETE" -> JSONObject().put("purged", true)
+                else -> error("Unexpected mailbox request: " + request.method)
+            }
+        }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        assertTrue(store.readInbox("bob", "retired-device").isEmpty())
+        assertEquals(listOf("GET", "DELETE"), requests.requests.map { it.method })
+        assertEquals(
+            "https://worker.example/v1/olm/mailbox/device?deviceId=retired-device",
+            requests.requests[1].url,
+        )
+        assertEquals(listOf("bob", "bob"), tokens.accountIds)
+    }
+
+    @Test
+    fun revokedSenderDevicePollPurgesItsOwnMailboxAndReturnsNoAcknowledgements() = runBlocking {
+        val requests = RecordingHttpClient { request ->
+            when (request.method) {
+                "GET" -> throw OlmMailboxHttpException(
+                    404,
+                    retryable = false,
+                    message = "Encrypted mailbox request failed (404): Sender device is no longer published.",
+                )
+                "DELETE" -> JSONObject().put("purged", true)
+                else -> error("Unexpected mailbox request: " + request.method)
+            }
+        }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        assertTrue(store.readAcknowledgements("alice", "retired-device").isEmpty())
+        assertEquals(listOf("GET", "DELETE"), requests.requests.map { it.method })
+        assertEquals(
+            "https://worker.example/v1/olm/mailbox/device?deviceId=retired-device",
+            requests.requests[1].url,
+        )
+        assertEquals(listOf("alice", "alice"), tokens.accountIds)
+    }
+
+    @Test
+    fun unrelatedMailboxNotFoundErrorsAreNotTreatedAsDeviceRevocation() = runBlocking {
+        val requests = RecordingHttpClient {
+            throw OlmMailboxHttpException(
+                404,
+                retryable = false,
+                message = "Encrypted mailbox request failed (404): Not found.",
+            )
+        }
+        val tokens = RecordingTokenProvider()
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = tokens,
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        val failure = runCatching {
+            store.readInbox("bob", "recipient-device")
+        }.exceptionOrNull()
+
+        assertTrue(failure is OlmMailboxHttpException)
+        assertEquals(listOf("GET"), requests.requests.map { it.method })
+        assertEquals(listOf("bob"), tokens.accountIds)
+    }
+
+    @Test
     fun retiredDeviceMailboxPurgeRejectsInvalidIdentityBeforeNetworkAccess() = runBlocking {
         val requests = RecordingHttpClient { JSONObject().put("purged", true) }
         val tokens = RecordingTokenProvider()
