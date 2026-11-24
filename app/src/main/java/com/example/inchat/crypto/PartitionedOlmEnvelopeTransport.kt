@@ -9,6 +9,7 @@ internal class PartitionedOlmEnvelopeTransport(
     private val firebase: OlmEnvelopeRelayTransport,
     private val cloudflare: OlmEnvelopeRelayTransport,
     private val cloudflareDirectEnabled: Boolean,
+    private val cloudflareGroupEnabled: Boolean = false,
 ) : OlmEnvelopeRelayTransport {
 
     override suspend fun upload(
