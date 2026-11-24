@@ -178,8 +178,11 @@ internal class CloudflareOlmRelayStore(
             "Encrypted delivery conversation type does not match its routing fields."
         }
 
+        // senderUid is authenticated from the Firebase ID token by the
+        // Worker and is intentionally not accepted as a client body field.
         val body = JSONObject()
-        fields.forEach { (key, value) -> body.put(key, value) }
+        fields.filterKeys { it != "senderUid" }
+            .forEach { (key, value) -> body.put(key, value) }
         body.put("deliveryId", deliveryId)
         body.put("recipientUid", recipientUid)
         body.put("recipientDeviceId", recipientDeviceId)

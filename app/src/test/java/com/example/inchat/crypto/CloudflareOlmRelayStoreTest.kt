@@ -53,6 +53,7 @@ class CloudflareOlmRelayStoreTest {
         assertEquals("bob", enqueue.body?.getString("recipientUid"))
         assertEquals("recipient-device", enqueue.body?.getString("recipientDeviceId"))
         assertEquals(delivery.envelope, enqueue.body?.getString("envelope"))
+        assertFalse("Sender UID must come from Worker-verified Firebase auth", enqueue.body?.has("senderUid") == true)
         assertEquals("alice_bob", enqueue.body?.getString("conversationId"))
         assertEquals("direct", enqueue.body?.getString("conversationType"))
 
