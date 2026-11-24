@@ -1,6 +1,6 @@
 # ADR-002: Move encrypted message relay out of Firebase
 
-- Status: Accepted architecture direction; implementation and rollout are not yet approved
+- Status: Accepted; Worker mailbox backend implemented and CI-verified in source; not deployed or activated. Android migration and production rollout remain incomplete.
 - Date: 2026-11-24
 - Branch at audit: `chore/spark-free-worker-migration`
 - Audited commit: `f37c52cf2f529f179f1415fd51c72a82bc573e11`
