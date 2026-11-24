@@ -385,7 +385,7 @@ internal class CloudflareOlmEnvelopeTransport(
         DeviceKeyDirectoryRepository().getUserDevices(uid)
     },
     expectedAuthenticatedUserId: String? = null,
-) : OlmInboxTransport, OlmOutgoingDeliveryTransport {
+) : OlmEnvelopeRelayTransport {
     private val delegate = FirebaseOlmEnvelopeTransport(
         trustVerifier = trustVerifier,
         relayStore = relayStore,
@@ -395,7 +395,7 @@ internal class CloudflareOlmEnvelopeTransport(
     )
 
     override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> =
-        delegate.readMyDeviceInbox(deviceId)
+        delegate.readMyDeviceInbox(deviceId).map { it.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE) }
 
     override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) =
         delegate.acknowledgeStoredDelivery(deviceId, item)
@@ -405,6 +405,7 @@ internal class CloudflareOlmEnvelopeTransport(
 
     override suspend fun readMyDeliveryAcknowledgements(senderDeviceId: String): List<OlmDeliveryAcknowledgement> =
         delegate.readMyDeliveryAcknowledgements(senderDeviceId)
+            .map { it.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE) }
 
     override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) =
         delegate.removeMyDeliveryAcknowledgement(senderDeviceId, deliveryId)
