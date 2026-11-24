@@ -92,7 +92,7 @@ class CloudflareOlmRelayStoreTest {
             requests.requests.map { it.method },
         )
         assertEquals(
-            listOf("alice", "bob", "bob", "alice", "alice"),
+            listOf("alice", "bob", "bob", "bob", "alice", "alice"),
             tokenProvider.accountIds,
         )
         assertEquals(

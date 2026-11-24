@@ -120,7 +120,7 @@ internal class UrlConnectionOlmMailboxHttpClient(
 
     private fun InputStream.readUtf8Limited(maxBytes: Int): String {
         val output = ByteArrayOutputStream()
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(8 * 1024)
         var total = 0
         while (true) {
             val count = read(buffer)
