@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import worker from "../src/index.js";
 import { OlmDeviceMailboxDurableObject, processOlmMailboxRequest } from "../src/olm-mailbox.js";
 
 const RETENTION = 60 * 60 * 1000;
@@ -398,6 +399,33 @@ test("expiry removes ciphertext, keeps a temporary idempotency tombstone, then c
   } finally {
     Date.now = originalNow;
   }
+});
+
+test("Worker mailbox routes apply IP throttling before requiring Firebase authentication", async () => {
+  let ipCalls = 0;
+  const throttled = await worker.fetch(
+    req("/v1/olm/mailbox/inbox?deviceId=bob-device"),
+    {
+      OLM_PUSH_IP_LIMITER: {
+        limit: async () => {
+          ipCalls += 1;
+          return { success: false };
+        },
+      },
+      FIREBASE_WEB_API_KEY: "test-api-key",
+    },
+  );
+  assert.equal(throttled.status, 429);
+  assert.equal(ipCalls, 1);
+
+  const unauthenticated = await worker.fetch(
+    req("/v1/olm/mailbox/inbox?deviceId=bob-device"),
+    {
+      OLM_PUSH_IP_LIMITER: { limit: async () => ({ success: true }) },
+      FIREBASE_WEB_API_KEY: "test-api-key",
+    },
+  );
+  assert.equal(unauthenticated.status, 401);
 });
 
 test("mailbox routes fail closed until an explicit retention policy is configured", async () => {
