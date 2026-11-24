@@ -203,7 +203,7 @@ internal class CloudflareOlmRelayStore(
     ): List<FirebaseOlmRelayRecord> {
         require(UID_PATTERN.matches(recipientUid))
         require(DEVICE_PATTERN.matches(recipientDeviceId))
-        return readPages(
+        return readPublishedDevicePages(
             authenticatedUserId = recipientUid,
             path = "/olm/mailbox/inbox",
             deviceId = recipientDeviceId,
@@ -258,7 +258,7 @@ internal class CloudflareOlmRelayStore(
     ): List<FirebaseOlmRelayRecord> {
         require(UID_PATTERN.matches(senderUid))
         require(DEVICE_PATTERN.matches(senderDeviceId))
-        return readPages(
+        return readPublishedDevicePages(
             authenticatedUserId = senderUid,
             path = "/olm/mailbox/acks",
             deviceId = senderDeviceId,
@@ -300,6 +300,35 @@ internal class CloudflareOlmRelayStore(
         )
         check(response?.optBoolean("purged", false) == true) {
             "Cloudflare Worker did not confirm device mailbox cleanup."
+        }
+    }
+
+    private suspend fun readPublishedDevicePages(
+        authenticatedUserId: String,
+        path: String,
+        deviceId: String,
+        maxPages: Int,
+    ): List<FirebaseOlmRelayRecord> {
+        return try {
+            readPages(
+                authenticatedUserId = authenticatedUserId,
+                path = path,
+                deviceId = deviceId,
+                maxPages = maxPages,
+            )
+        } catch (error: OlmMailboxHttpException) {
+            val revokedDevice = error.statusCode == 404 &&
+                error.message.orEmpty().contains(
+                    "device is no longer published.",
+                    ignoreCase = true,
+                )
+            if (!revokedDevice) throw error
+
+            // A revoked device can no longer read its normal inbox/ACK pages.
+            // Purge is still owner-authenticated and intentionally independent
+            // of public-key publication, so abandoned ciphertext is removed.
+            purgeOwnDeviceMailbox(authenticatedUserId, deviceId)
+            emptyList()
         }
     }
 
