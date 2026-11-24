@@ -1710,12 +1710,28 @@ class UserRepository {
                 )
             }
 
-            // Group topics were removed by the Worker. Finish the existing
-            // personal-topic and saved-token cleanup.
-            clearFcmToken(uid).onFailure { notificationError ->
+            // Personal-topic removal is mandatory before deleting the account:
+            // otherwise a stale FCM subscription could continue receiving
+            // account-addressed notifications after the profile is gone.
+            val personalTopicCleanup =
+                CloudflareNotificationRepository().clearMyPersonalTopic(uid)
+            if (personalTopicCleanup.isFailure) {
+                return Result.failure(
+                    personalTopicCleanup.exceptionOrNull()
+                        ?: IllegalStateException("Could not remove the personal notification topic.")
+                )
+            }
+
+            // The personal topic is now confirmed removed. Clear the saved
+            // token without repeating that network operation; group topics
+            // were already removed by the deletion Worker.
+            clearFcmToken(
+                uid = uid,
+                clearPersonalTopicSubscription = false
+            ).onFailure { notificationError ->
                 Log.w(
                     "UserRepository",
-                    "Account data will be deleted, but some FCM topic subscriptions may remain.",
+                    "Account data will be deleted, but some saved FCM token cleanup may remain.",
                     notificationError
                 )
             }
@@ -1970,6 +1986,7 @@ class UserRepository {
     suspend fun clearFcmToken(
         uid: String,
         olmDeviceId: String? = null,
+        clearPersonalTopicSubscription: Boolean = true,
     ): Result<Unit> {
 
         if (
@@ -1996,15 +2013,17 @@ class UserRepository {
                     )
                 }
 
-            CloudflareNotificationRepository()
-                .clearMyPersonalTopic(uid)
-                .onFailure { notificationError ->
-                    Log.w(
-                        "UserRepository",
-                        "Personal notification topic could not be cleared during logout.",
-                        notificationError
-                    )
-                }
+            if (clearPersonalTopicSubscription) {
+                CloudflareNotificationRepository()
+                    .clearMyPersonalTopic(uid)
+                    .onFailure { notificationError ->
+                        Log.w(
+                            "UserRepository",
+                            "Personal notification topic could not be cleared during logout.",
+                            notificationError
+                        )
+                    }
+            }
 
             val tokenUpdates = mutableMapOf<String, Any?>(
                 "fcmToken" to null,
