@@ -29,6 +29,7 @@ class CloudflareNotificationRepository {
         private const val TAG = "CloudflareNotifications"
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 20_000
+        private const val MAX_ACCOUNT_CLEANUP_BATCHES = 10_000
     }
 
     private val auth = FirebaseAuth.getInstance()
@@ -501,7 +502,7 @@ class CloudflareNotificationRepository {
         var completed = false
         var batches = 0
 
-        while (!completed && batches < 10_000) {
+        while (!completed && batches < MAX_ACCOUNT_CLEANUP_BATCHES) {
             val response = post(
                 path = "/account/group-cleanup",
                 body = JSONObject()
@@ -526,7 +527,8 @@ class CloudflareNotificationRepository {
         } else {
             Result.failure(
                 IllegalStateException(
-                    "Account cleanup exceeded the safe batch limit. Please retry."
+                    "Account cleanup exceeded $MAX_ACCOUNT_CLEANUP_BATCHES batches. " +
+                        "It is safe to retry; completed groups have already been cleaned."
                 )
             )
         }
