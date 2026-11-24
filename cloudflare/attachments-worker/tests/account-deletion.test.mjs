@@ -178,7 +178,15 @@ test("account deletion removes owned E2EE data and rotates retained group member
     }]);
 
     assert.equal(rootPatches.length, 3);
-    const cleanupPatch = rootPatches[0];
+    const previewPatch = rootPatches[0];
+    assert.equal(previewPatch["userChats/bob/group_1/memberCount"], 2);
+    assert.equal(previewPatch["userChats/carol/group_1/memberCount"], 2);
+    assert.equal(
+      Object.keys(previewPatch).some((path) => path.startsWith("userChats/alice/")),
+      false,
+    );
+
+    const cleanupPatch = rootPatches[1];
     for (const path of [
       "groupMemberships/alice/group_1",
       "groupReads/alice/group_1",
@@ -203,13 +211,6 @@ test("account deletion removes owned E2EE data and rotates retained group member
     ]) {
       assert.equal(finalCleanupPatch[path], null, "Expected deletion of " + path);
     }
-    const previewPatch = rootPatches[1];
-    assert.equal(previewPatch["userChats/bob/group_1/memberCount"], 2);
-    assert.equal(previewPatch["userChats/carol/group_1/memberCount"], 2);
-    assert.equal(
-      Object.keys(previewPatch).some((path) => path.startsWith("userChats/alice/")),
-      false,
-    );
   } finally {
     globalThis.fetch = previousFetch;
   }
