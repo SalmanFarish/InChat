@@ -64,6 +64,10 @@ test("account deletion removes owned E2EE data and rotates retained group member
       return jsonResponse({});
     }
 
+    if (method === "PUT" && path === "accountDeletionLocks/alice") {
+      return jsonResponse(true);
+    }
+
     if (method === "GET") {
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
@@ -250,6 +254,10 @@ test("account deletion dissolves a two-member group without overlapping group-ro
     );
     const method = options.method || "GET";
 
+    if (method === "PUT" && path === "accountDeletionLocks/alice") {
+      return jsonResponse(true);
+    }
+
     if (method === "GET") {
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
@@ -374,6 +382,10 @@ test("account deletion processes many groups one bounded batch at a time", async
       url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""),
     );
     const method = options.method || "GET";
+
+    if (method === "PUT" && path === "accountDeletionLocks/alice") {
+      return jsonResponse(true);
+    }
 
     if (method === "GET") {
       if (path === "deviceKeyClaimsByClaimant/alice") {
@@ -506,6 +518,10 @@ test("account deletion retries a preview after membership was already committed"
     );
     const method = options.method || "GET";
 
+    if (method === "PUT" && path === "accountDeletionLocks/alice") {
+      return jsonResponse(true);
+    }
+
     if (method === "GET") {
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
@@ -623,6 +639,10 @@ test("account deletion releases claimant-owned prekey claims one ETag-protected 
     const url = new URL(String(input));
     const path = decodeURIComponent(url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""));
     const method = options.method || "GET";
+
+    if (method === "PUT" && path === "accountDeletionLocks/alice") {
+      return jsonResponse(true);
+    }
 
     if (method === "GET") {
       if (path === "groupMemberships/alice" || path === "groupReads/alice" ||
