@@ -82,14 +82,21 @@ fun GroupChatScreen(
     val group by groupViewModel.group.collectAsState()
     val messages by groupViewModel.messages.collectAsState()
     val encryptedMessages by groupViewModel.encryptedMessages.collectAsState()
-    val encryptedMessageIds = remember(messages, encryptedMessages) {
+    val pendingEncryptedMessages by groupViewModel.pendingEncryptedMessages.collectAsState()
+    val encryptedMessageIds = remember(messages, encryptedMessages, pendingEncryptedMessages) {
         val legacyIds = messages.mapTo(mutableSetOf()) { it.id }
-        encryptedMessages.mapNotNullTo(mutableSetOf()) { encrypted ->
-            encrypted.messageId.takeUnless { it in legacyIds }
+        buildSet {
+            encryptedMessages.forEach { encrypted ->
+                if (encrypted.messageId !in legacyIds) add(encrypted.messageId)
+            }
+            pendingEncryptedMessages.forEach { pending ->
+                if (pending.messageId !in legacyIds) add(pending.messageId)
+            }
         }
     }
-    val displayMessages = remember(messages, encryptedMessages) {
+    val displayMessages = remember(messages, encryptedMessages, pendingEncryptedMessages) {
         val legacyIds = messages.mapTo(mutableSetOf()) { it.id }
+        val committedEncryptedIds = encryptedMessages.mapTo(mutableSetOf()) { it.messageId }
         val encryptedRows = encryptedMessages
             .filterNot { it.messageId in legacyIds }
             .map { encrypted ->
@@ -101,7 +108,23 @@ fun GroupChatScreen(
                     timestamp = encrypted.sentAtMillis,
                 )
             }
-        (messages + encryptedRows).sortedWith(
+        // A pending local intent is shown immediately while key distribution
+        // waits for member-device acknowledgements. The committed encrypted row
+        // replaces it once the outbox transaction completes.
+        val pendingRows = pendingEncryptedMessages
+            .filterNot {
+                it.messageId in legacyIds || it.messageId in committedEncryptedIds
+            }
+            .map { pending ->
+                Message(
+                    id = pending.messageId,
+                    senderId = currentUserId,
+                    senderNickname = "🔒 $currentNickname",
+                    text = pending.plaintext,
+                    timestamp = pending.sentAtMillis,
+                )
+            }
+        (messages + encryptedRows + pendingRows).sortedWith(
             compareBy<Message> { it.timestamp }.thenBy { it.id },
         )
     }
@@ -391,7 +414,11 @@ fun GroupChatScreen(
                     }
                 },
                 onLongClick = { message ->
-                    messageForActions = message.id
+                    // A not-yet-distributed encrypted intent is immutable while
+                    // its key-acknowledgement gate is pending.
+                    if (message.id !in pendingMessageIds) {
+                        messageForActions = message.id
+                    }
                 },
                 onReactionClick = { message, reaction ->
                     if (message.id !in encryptedMessageIds) {
