@@ -559,7 +559,7 @@ class ChatViewModel : ViewModel() {
                     )
 
                     // Encrypted Room outbox workers own delivery recovery.
-                    startDeliveryListener(                    startDeliveryListener(
+                    startDeliveryListener(
                         chatId = chatId,
                         otherUserId = otherUserId
                     )

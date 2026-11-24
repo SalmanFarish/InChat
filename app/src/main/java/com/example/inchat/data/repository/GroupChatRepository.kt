@@ -592,7 +592,7 @@ class GroupChatRepository {
                 snapshot.children.mapNotNull { child ->
                     val uid = child.key
                     val role = child.getValue(String::class.java)
-                    if (uid.isNullOrBlank() || role !in setOf("admin", "member")) null
+                    if (uid.isNullOrBlank() || role == null || role !in setOf("admin", "member")) null
                     else uid to role
                 }.toMap()
 

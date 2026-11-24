@@ -12,8 +12,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.example.inchat.data.repository.CloudflareNotificationRepository
-import com.google.firebase.auth.FirebaseAuth
 import java.util.concurrent.TimeUnit
 
 /**
@@ -35,40 +33,17 @@ class MessageNotificationWorker(
         val messageId = inputData.getString(KEY_MESSAGE_ID).orEmpty()
 
         if (senderId.isBlank() || chatId.isBlank() || messageId.isBlank()) {
-            Log.e(TAG, "Message event work is missing required identifiers.")
-            return Result.failure()
+            Log.w(TAG, "Retired Firebase message event work is missing identifiers; skipping.")
+            return Result.success()
         }
 
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser == null) {
-            // The sender may sign back in while this persisted work is waiting.
-            return Result.retry()
-        }
-        if (currentUser.uid != senderId) {
-            // Never send an old user's event using a different account's token.
-            Log.w(TAG, "Skipping message event because the signed-in account changed.")
-            return Result.failure()
-        }
-
-        Log.i(TAG, "Processing message event in background for chat=$chatId message=$messageId")
-        val notifications = CloudflareNotificationRepository()
-        val result = notifications.notifyMessage(chatId, messageId)
-
-        return result.fold(
-            onSuccess = {
-                Log.i(TAG, "Message event endpoint completed for chat=$chatId message=$messageId")
-                Result.success()
-            },
-            onFailure = { error ->
-                if (notifications.isRetryableNotificationFailure(error)) {
-                    Log.w(TAG, "Temporary message event failure; WorkManager will retry.", error)
-                    Result.retry()
-                } else {
-                    Log.e(TAG, "Message event failed permanently; message remains saved.", error)
-                    Result.failure()
-                }
-            }
+        // Plaintext Firebase message events have been retired. Encrypted
+        // mailbox delivery uses the dedicated encrypted notification worker.
+        Log.i(
+            TAG,
+            "Skipping retired Firebase message event for chat=$chatId message=$messageId",
         )
+        return Result.success()
     }
 
     companion object {
