@@ -89,6 +89,7 @@ internal class MegolmGroupMessageSendCoordinator(
     private val recoverPendingOutboundMessages: suspend () -> Int = { 0 },
     private val observeAcknowledgementCount: (String, String) -> Flow<Int> = { _, _ -> flowOf(0) },
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val ensureLocalDevicePublished: suspend () -> Unit = {},
 ) {
     /** Resume exact native-staged ciphertexts after process death; never re-encrypt. */
     suspend fun recoverPendingMessages(): Int = sendMutex.withLock {
@@ -125,7 +126,12 @@ internal class MegolmGroupMessageSendCoordinator(
         require(plaintext.isNotEmpty()) { "Group message cannot be empty" }
         require(sentAtMillis >= 0L) { "Group message timestamp is invalid" }
 
+        val requestedOwnerUid = authenticatedUserId()
+        ensureLocalDevicePublished()
         val ownerUid = authenticatedUserId()
+        require(ownerUid == requestedOwnerUid) {
+            "Authenticated account changed while preparing secure group messaging"
+        }
         val senderDevice = localDeviceId()
         require(ownerUid.matches(ID) && senderDevice.matches(DEVICE_ID)) {
             "Authenticated group sender identity is invalid"

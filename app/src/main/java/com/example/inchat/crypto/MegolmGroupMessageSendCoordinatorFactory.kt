@@ -180,6 +180,13 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
                 firstFailure?.let { throw it }
                 recovered
             },
+            ensureLocalDevicePublished = {
+                val owner = authenticatedUserId()
+                directory.replenishAndPublishMyDevice(identity)
+                require(authenticatedUserId() == owner) {
+                    "Authenticated account changed while publishing the group sender identity"
+                }
+            },
         )
     }
 }

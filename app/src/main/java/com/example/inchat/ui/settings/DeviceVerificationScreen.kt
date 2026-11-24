@@ -362,9 +362,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("Verify your devices", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+            Text("Your devices and safety checks", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
             Text(
-                "Publish this phone's public identity, then compare the same safety numbers on both phones. Trust is saved separately on each phone; one phone's trust does not automatically appear on the other. Private keys stay on their respective phones.",
+                "Secure messaging is set up automatically. Comparing safety numbers is optional and adds extra confidence that a device belongs to the person you expect. Use this screen to review devices, remove old ones, or complete that extra check. Private keys stay on their respective phones.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -378,7 +378,7 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                 }
             } else if (!initializationReady) {
                 Text(
-                    "InChat couldn't check whether this device is already registered. Retry before publishing to avoid creating a duplicate entry.",
+                    "InChat couldn't check this device list. Retry the check; ordinary messaging will attempt secure setup automatically when needed.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -393,11 +393,11 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
                     } else {
                         Icon(Icons.Outlined.Lock, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Publish this phone's identity")
+                        Text("Retry secure setup")
                     }
                 }
                 Text(
-                    "This phone is not yet listed in this account's device directory. Publishing shares only its public keys; it does not grant or change trust.",
+                    "InChat normally registers this phone automatically. Retry here only if setup could not finish; this shares public keys and does not verify another device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -43,6 +43,39 @@ class TrustedDeviceRepositoryTest {
     }
 
     @Test
+    fun firstUsePinsIdentityForMessagingWithoutClaimingSasVerification() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val userId = "first-use-user-$suffix"
+        val deviceId = "first-use-device-$suffix"
+        val firstIdentityKey = "first-ed25519-public-key-$suffix"
+        val changedIdentityKey = "changed-ed25519-public-key-$suffix"
+        val repository = TrustedDeviceRepository(context)
+        repository.revoke(userId, deviceId)
+
+        assertTrue(repository.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
+        assertNull(repository.verifiedAtMillis(userId, deviceId, firstIdentityKey))
+        assertFalse(repository.isVerified(userId, deviceId, firstIdentityKey))
+
+        val reopened = TrustedDeviceRepository(context)
+        assertTrue(reopened.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
+        assertFalse(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
+        assertNull(reopened.verifiedAtMillis(userId, deviceId, changedIdentityKey))
+
+        // Only a real SAS completion can replace a changed first-use pin.
+        reopened.markVerified(
+            peerUserId = userId,
+            peerDeviceId = deviceId,
+            peerEd25519IdentityKey = changedIdentityKey,
+            verifiedAtMillis = 1_800_000_000_000L,
+        )
+        assertTrue(reopened.isVerified(userId, deviceId, changedIdentityKey))
+        assertTrue(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
+        assertFalse(reopened.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
+        assertTrue(reopened.revoke(userId, deviceId))
+    }
+
+    @Test
     fun trustPersistsIsBoundToIdentityKeyAndCanBeRevoked() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val suffix = UUID.randomUUID().toString().replace("-", "")

@@ -85,18 +85,37 @@ internal class DeviceKeyDirectoryRepository(
     }
 
     /**
-     * Generate/replenish this installation's unpublished prekeys, upload the
-     * verified public bundle, and only then mark those keys as published in the
-     * encrypted native account state. A failed upload leaves keys unpublished
-     * so a retry can safely publish the same material.
+     * Ensure this installation has a current public bundle in the signed directory.
      *
-     * This remains an explicit E2EE setup operation; it is not wired into live
-     * messaging or app startup.
+     * This operation is safe to call during sign-in and immediately before a send:
+     * it creates the local identity if needed, publishes only when the public bundle
+     * is missing or changed, refreshes activity/token registration otherwise, and
+     * marks native prekeys published only after the directory operation succeeds.
+     * Repeated calls are idempotent and never create a SAS trust decision.
      */
-    suspend fun replenishAndPublishMyDevice(identityRepository: DeviceIdentityRepository) {
+    suspend fun replenishAndPublishMyDevice(
+        identityRepository: DeviceIdentityRepository,
+    ): PublicDeviceKeyBundle {
+        val ownerUserId = authenticatedUserId
         val bundle = identityRepository.ensurePublicKeyBundle()
-        publishMyDevice(bundle)
+        require(auth.currentUser?.uid == ownerUserId) {
+            "Authenticated account changed while preparing this device identity"
+        }
+
+        val publishedBundle = getUserDevices(ownerUserId)
+            .firstOrNull { it.deviceId == bundle.deviceId }
+        if (publishedBundle?.copy(lastSeenAtMillis = null) == bundle) {
+            touchMyDevice(bundle.deviceId)
+            registerDeviceScopedFcmToken(ownerUserId, bundle.deviceId)
+        } else {
+            publishMyDevice(bundle)
+        }
+
+        require(auth.currentUser?.uid == ownerUserId) {
+            "Authenticated account changed while publishing this device identity"
+        }
         identityRepository.markPublicKeyBundlePublished()
+        return bundle
     }
 
     /** Read the public device directory for a user. Requires Firebase auth. */

@@ -10,6 +10,7 @@ import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
 import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CancellationException
@@ -105,6 +106,28 @@ class InChatApplication : Application() {
 
             backgroundScope.launch {
                 try {
+                    // Provision encrypted messaging automatically after a verified
+                    // sign-in. This creates and publishes only public device material;
+                    // it never creates SAS trust or transfers private keys.
+                    if (firebaseAuth.currentUser?.isEmailVerified == true) {
+                        try {
+                            DeviceKeyDirectoryRepository(auth = firebaseAuth)
+                                .replenishAndPublishMyDevice(
+                                    DeviceIdentityRepository(applicationContext),
+                                )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (provisioningError: Exception) {
+                            // A later send retries this operation. The user never
+                            // needs to open Device Verification to recover setup.
+                            Log.w(
+                                "InChatApplication",
+                                "Automatic secure-device setup did not finish; it will retry when needed.",
+                                provisioningError,
+                            )
+                        }
+                    }
+
                     // This lookup never creates a device ID or native identity.
                     // A failed read keeps the current account's existing schedule;
                     // an account change still retires the previous account's work.

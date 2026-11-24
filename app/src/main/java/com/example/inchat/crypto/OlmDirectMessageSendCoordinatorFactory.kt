@@ -2,6 +2,7 @@ package com.example.inchat.crypto
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.google.firebase.auth.FirebaseAuth
@@ -117,10 +118,23 @@ internal class OlmDirectMessageSendCoordinator(
             "Direct conversation does not match its authenticated participants"
         }
 
-        val senderDeviceId = identity.existingDeviceIdForDelivery()
-            ?: throw IllegalStateException(
-                "This device has no published Olm identity. Open Device Verification and publish this device first.",
+        // First-use setup is automatic. This is also a race-safe fallback when
+        // the user sends before the application startup provisioning finishes.
+        val senderBundle = try {
+            directory.replenishAndPublishMyDevice(identity)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (setupError: Exception) {
+            Log.w(TAG, "Automatic secure-device setup failed before direct send.", setupError)
+            throw IllegalStateException(
+                "Secure messaging is still being set up. Check your connection and try again.",
+                setupError,
             )
+        }
+        val senderDeviceId = senderBundle.deviceId
+        require(auth.currentUser?.uid == senderUserId) {
+            "Authenticated account changed while preparing secure messaging"
+        }
         val senderDevices = directory.getUserDevices(senderUserId)
         val recipientDevices = directory.getUserDevices(recipientUserId)
         require(auth.currentUser?.uid == senderUserId) {
