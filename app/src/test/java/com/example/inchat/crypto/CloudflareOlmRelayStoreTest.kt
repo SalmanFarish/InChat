@@ -525,8 +525,10 @@ class CloudflareOlmRelayStoreTest {
         }.exceptionOrNull()
 
         assertTrue(failure is OlmMailboxHttpException)
-        assertEquals(410, (failure as OlmMailboxHttpException).statusCode)
-        assertEquals("delivery_expired", failure.errorCode)
+        val mailboxError = failure as? OlmMailboxHttpException
+            ?: error("Expected the mailbox HTTP error to propagate.")
+        assertEquals(410, mailboxError.statusCode)
+        assertEquals("delivery_expired", mailboxError.errorCode)
     }
 
     private fun directInboxJson() = JSONObject()
