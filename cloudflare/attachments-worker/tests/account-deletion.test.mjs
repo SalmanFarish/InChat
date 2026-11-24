@@ -49,6 +49,8 @@ test("account deletion removes owned E2EE data and rotates retained group member
   };
   const rootPatches = [];
   const groupPatches = [];
+  let membershipIndex = { group_1: true };
+  let inboxIndex = { group_1: { chatType: "group" } };
   let groupVersion = 1;
 
   globalThis.fetch = async (input, options = {}) => {
@@ -64,13 +66,13 @@ test("account deletion removes owned E2EE data and rotates retained group member
 
     if (method === "GET") {
       if (path === "groupMemberships/alice") {
-        return jsonResponse({ group_1: true });
+        return jsonResponse(membershipIndex);
       }
       if (path === "groupReads/alice" || path === "privateUsers/alice/fcmToken") {
         return jsonResponse(null);
       }
       if (path === "userChats/alice") {
-        return jsonResponse({ group_1: { chatType: "group" } });
+        return jsonResponse(inboxIndex);
       }
       if (path === "groupNotificationDevices/group_1/alice") {
         return jsonResponse(null);
@@ -111,6 +113,18 @@ test("account deletion removes owned E2EE data and rotates retained group member
       const patch = JSON.parse(options.body);
       assertNoOverlappingPatchPaths(patch);
       rootPatches.push(patch);
+      if (Object.prototype.hasOwnProperty.call(patch, "groupMemberships/alice/group_1")) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "userChats/alice/group_1")) {
+        inboxIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "groupMemberships/alice")) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "userChats/alice")) {
+        inboxIndex = null;
+      }
       return jsonResponse(null);
     }
 
@@ -161,8 +175,18 @@ test("account deletion removes owned E2EE data and rotates retained group member
       createdBy: "bob",
     }]);
 
-    assert.equal(rootPatches.length, 2);
+    assert.equal(rootPatches.length, 3);
     const cleanupPatch = rootPatches[0];
+    for (const path of [
+      "groupMemberships/alice/group_1",
+      "groupReads/alice/group_1",
+      "userChats/alice/group_1",
+      "chatReadReceipts/group_1/alice",
+      "groupNotificationDevices/group_1/alice",
+    ]) {
+      assert.equal(cleanupPatch[path], null, "Expected deletion of " + path);
+    }
+    const finalCleanupPatch = rootPatches[2];
     for (const path of [
       "deviceKeys/alice",
       "deviceKeyClaims/alice",
@@ -174,9 +198,8 @@ test("account deletion removes owned E2EE data and rotates retained group member
       "groupMemberships/alice",
       "groupReads/alice",
       "userChats/alice",
-      "chatReadReceipts/group_1/alice",
     ]) {
-      assert.equal(cleanupPatch[path], null, "Expected deletion of " + path);
+      assert.equal(finalCleanupPatch[path], null, "Expected deletion of " + path);
     }
     assert.equal(
       Object.prototype.hasOwnProperty.call(
@@ -222,7 +245,9 @@ test("account deletion dissolves a two-member group without overlapping group-ro
       },
     },
   };
-  let cleanupPatch = null;
+  const rootPatches = [];
+  let membershipIndex = { group_2: true };
+  let inboxIndex = { group_2: { chatType: "group" } };
 
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input));
@@ -233,7 +258,7 @@ test("account deletion dissolves a two-member group without overlapping group-ro
 
     if (method === "GET") {
       if (path === "groupMemberships/alice") {
-        return jsonResponse({ group_2: true });
+        return jsonResponse(membershipIndex);
       }
       if (
         path === "groupReads/alice" ||
@@ -244,15 +269,28 @@ test("account deletion dissolves a two-member group without overlapping group-ro
         return jsonResponse(null);
       }
       if (path === "userChats/alice") {
-        return jsonResponse({ group_2: { chatType: "group" } });
+        return jsonResponse(inboxIndex);
       }
       if (path === "chats/group_2") return jsonResponse(group);
       throw new Error("Unexpected GET request: " + url.toString());
     }
 
     if (method === "PATCH" && path === "") {
-      cleanupPatch = JSON.parse(options.body);
-      assertNoOverlappingPatchPaths(cleanupPatch);
+      const patch = JSON.parse(options.body);
+      assertNoOverlappingPatchPaths(patch);
+      rootPatches.push(patch);
+      if (Object.prototype.hasOwnProperty.call(patch, "groupMemberships/alice/group_2")) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "userChats/alice/group_2")) {
+        inboxIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "groupMemberships/alice")) {
+        membershipIndex = null;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "userChats/alice")) {
+        inboxIndex = null;
+      }
       return jsonResponse(null);
     }
 
@@ -275,18 +313,21 @@ test("account deletion dissolves a two-member group without overlapping group-ro
       updatedGroups: 0,
       dissolvedGroups: 1,
     });
-    assert.equal(cleanupPatch["chats/group_2"], null);
-    assert.equal(cleanupPatch["attachments/group_2"], null);
-    assert.equal(cleanupPatch["groupMemberships/bob/group_2"], null);
-    assert.equal(cleanupPatch["groupReads/bob/group_2"], null);
-    assert.equal(cleanupPatch["userChats/bob/group_2"], null);
+    assert.equal(rootPatches.length, 2);
+    const dissolvePatch = rootPatches[0];
+    assert.equal(dissolvePatch["chats/group_2"], null);
+    assert.equal(dissolvePatch["attachments/group_2"], null);
+    assert.equal(dissolvePatch["groupMemberships/bob/group_2"], null);
+    assert.equal(dissolvePatch["groupReads/bob/group_2"], null);
+    assert.equal(dissolvePatch["userChats/bob/group_2"], null);
     assert.equal(
       Object.prototype.hasOwnProperty.call(
-        cleanupPatch,
+        dissolvePatch,
         "chats/group_2/groupReadCursors/alice",
       ),
       false,
     );
+    assert.equal(rootPatches[1]["deviceKeys/alice"], null);
   } finally {
     globalThis.fetch = previousFetch;
   }
