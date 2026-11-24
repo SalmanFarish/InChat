@@ -1794,7 +1794,10 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
       if (wasMember && remainingMembers.length < 2) {
         // A group that would have fewer than two members is dissolved. It is
-        // deleted as one root path, so do not add child paths beneath chats.
+        // deleted as one root path, so remove the account-specific child paths
+        // already staged above before adding whole-tree deletions.
+        delete updates["typing/" + chatId + "/" + uid];
+        delete updates["groupNotificationDevices/" + chatId + "/" + uid];
         updates["chats/" + chatId] = null;
         updates["attachments/" + chatId] = null;
         updates["typing/" + chatId] = null;
