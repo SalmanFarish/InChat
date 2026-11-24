@@ -20,7 +20,13 @@ internal class PartitionedOlmEnvelopeTransport(
             delivery.membershipEpoch == null &&
             delivery.conversationPeerUserId != null &&
             delivery.conversationId != null
-        return if (cloudflareDirectEnabled && isDirect) {
+        val isGroup = delivery.groupId != null &&
+            delivery.membershipEpoch != null &&
+            delivery.conversationId == delivery.groupId &&
+            delivery.conversationPeerUserId == null
+        val useCloudflare = (cloudflareDirectEnabled && isDirect) ||
+            (cloudflareGroupEnabled && isGroup)
+        return if (useCloudflare) {
             cloudflare.upload(delivery, senderDeviceId)
         } else {
             firebase.upload(delivery, senderDeviceId)
