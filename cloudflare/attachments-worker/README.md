@@ -69,6 +69,16 @@ a Free quota causes the affected operation to fail; this project does not
 enable a paid fallback. These limits are shared at account level and must be
 monitored before increasing traffic.
 
+## Deployment verification
+
+After a successful deployment, run the public readiness probe against the deployed Worker:
+
+```sh
+npm run smoke
+```
+
+To verify a different deployment URL, set `INCHAT_WORKER_URL` to its HTTPS origin before running the command. The probe calls only `GET /health`; it sends no credentials or message data. A successful response confirms that the Worker is running with the SQLite mailbox binding and a valid configured retention window. It does not prove end-to-end delivery; complete authenticated two-device mailbox tests before enabling Android routing. The health endpoint exposes no secrets or account data and returns HTTP 503 when mailbox configuration is incomplete.
+
 ## Worker setup
 
 1. No R2 bucket is required. Attachment bytes are stored in the existing Firebase Realtime Database.
