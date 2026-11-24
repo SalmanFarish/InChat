@@ -728,7 +728,7 @@ private fun DeviceVerificationAttemptCard(
                 null, SasVerificationPhase.CANCELLED, SasVerificationPhase.EXPIRED, SasVerificationPhase.FAILED -> {
                     Text(
                         if (trustedAtMillis != null) "Safety numbers matched on this phone"
-                        else state?.error ?: "Messaging is available. Compare safety numbers to confirm this device independently.",
+                        else state?.error ?: "Safety numbers have not been compared on this phone. Compare them to independently confirm the device identity.",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (trustedAtMillis != null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
