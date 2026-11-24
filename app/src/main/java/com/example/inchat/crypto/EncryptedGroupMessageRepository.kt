@@ -228,6 +228,39 @@ internal class EncryptedGroupMessageRepository(
         }
     }
 
+    /**
+     * Live, account-scoped view of pending outgoing intents for one group.
+     * Room contains only Keystore-encrypted text; plaintext is materialized
+     * on the IO dispatcher and re-authenticated before it is emitted.
+     */
+    fun observePendingOutgoingIntents(
+        ownerUserId: String,
+        groupId: String,
+    ): Flow<List<PendingGroupMessageIntent>> {
+        validateScope(ownerUserId, groupId)
+        requireAuthenticatedOwner(ownerUserId)
+        return dao.observePendingMessages(ownerUserId, groupId)
+            .map { records ->
+                requireAuthenticatedOwner(ownerUserId)
+                val intents = records.map { record ->
+                    require(
+                        record.ownerUserId == ownerUserId &&
+                            record.groupId == groupId
+                    ) { "Pending encrypted group intent escaped its requested scope" }
+                    PendingGroupMessageIntent(
+                        ownerUserId = record.ownerUserId,
+                        groupId = record.groupId,
+                        messageId = record.messageId,
+                        sentAtMillis = record.sentAtMillis,
+                        plaintext = pendingVault.decrypt(record),
+                    )
+                }
+                requireAuthenticatedOwner(ownerUserId)
+                intents
+            }
+            .flowOn(ioDispatcher)
+    }
+
 
     /**
      * Recover only sends whose complete Olm fan-out has a durable commit marker.
