@@ -167,6 +167,21 @@ internal class DeviceKeyDirectoryRepository(
             "Authenticated account changed while resolving the one-time prekey"
         }
 
+        // Create the claimant-owned reverse index first. The database rules
+        // require this marker before accepting the immutable one-time claim.
+        // If the app stops between these writes, account deletion can safely
+        // remove the dangling marker; it can never leave an unindexed claim.
+        val claimantIndexReference = database.reference
+            .child(CLAIMANT_INDEX_NODE)
+            .child(claimantUid)
+            .child(targetUid)
+            .child(deviceId)
+            .child(keyId)
+        val existingIndex = claimantIndexReference.get().await()
+        if (existingIndex.getValue(Boolean::class.java) != true) {
+            claimantIndexReference.setValue(true).await()
+        }
+
         val claimReference = database.reference
             .child(CLAIMS_NODE)
             .child(targetUid)
@@ -175,15 +190,19 @@ internal class DeviceKeyDirectoryRepository(
 
         return try {
             // A conditional RTDB write is evaluated atomically by the server.
-            // Unlike runTransaction(), it does not require a read of the claim
-            // record before creation, so claim metadata can remain private to
-            // the device owner and the successful claimant.
+            // The pre-created reverse index is mandatory in the claim rule.
             claimReference.setValue(claimRecord).await()
             true
         } catch (error: com.google.firebase.database.DatabaseException) {
             if (error.message?.contains("Permission denied", ignoreCase = true) == true) {
+                // Permission denial is definitive: this claim did not commit.
+                // Remove our unused marker; if cleanup itself fails, account
+                // deletion will find and remove it later.
+                runCatching { claimantIndexReference.removeValue().await() }
                 false
             } else {
+                // A transport failure may have happened after the server
+                // committed the claim, so retain the marker for safe cleanup.
                 throw error
             }
         }

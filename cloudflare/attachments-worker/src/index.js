@@ -1678,6 +1678,54 @@ async function clearPersonalNotificationTopic(
 }
 
 
+async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
+  const indexPath = "deviceKeyClaimsByClaimant/" + uid;
+  const index = await adminDatabaseRequest(env, adminToken, indexPath);
+  const targetUid = Object.keys(index || {}).sort()[0];
+  if (targetUid === undefined) return { complete: true };
+
+  const safeTargetUid = cleanSegment(targetUid, "targetUid");
+  const deviceIndex = index[targetUid];
+  const deviceId = Object.keys(deviceIndex || {}).sort()[0];
+  if (deviceId === undefined) {
+    await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid, "DELETE");
+    return { complete: false };
+  }
+
+  const safeDeviceId = cleanSegment(deviceId, "deviceId");
+  const keyIndex = deviceIndex[deviceId];
+  const keyId = Object.keys(keyIndex || {}).sort()[0];
+  if (keyId === undefined) {
+    await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid + "/" + safeDeviceId, "DELETE");
+    return { complete: false };
+  }
+
+  const safeKeyId = cleanSegment(keyId, "keyId");
+  const claimPath = "deviceKeyClaims/" + safeTargetUid + "/" + safeDeviceId + "/" + safeKeyId;
+  const claimUrl = new URL(
+    env.FIREBASE_DATABASE_URL.replace(/\\/$/, "") +
+      "/" + claimPath.split("/").map(encodeURIComponent).join("/") + ".json",
+  );
+  const read = await fetch(claimUrl.toString(), {
+    headers: { Authorization: "Bearer " + adminToken, "X-Firebase-ETag": "true" },
+  });
+  if (!read.ok) throw new Error("Could not read indexed one-time prekey claim (" + read.status + ").");
+  const claim = await read.json();
+  const etag = read.headers.get("ETag") || "null_etag";
+
+  if (claim && claim.claimantUid === uid) {
+    const removeClaim = await fetch(claimUrl.toString(), {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + adminToken, "If-Match": etag },
+    });
+    if (removeClaim.status === 412) return { complete: false, conflict: true };
+    if (!removeClaim.ok) throw new Error("Could not release indexed one-time prekey claim (" + removeClaim.status + ").");
+  }
+
+  await adminDatabaseRequest(env, adminToken, indexPath + "/" + safeTargetUid + "/" + safeDeviceId + "/" + safeKeyId, "DELETE");
+  return { complete: false, processed: true };
+}
+
 export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   const [membershipIndex, readIndex, inbox, registrationTokenValue] =
     await Promise.all([
@@ -1986,7 +2034,21 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     });
   }
 
+  // Release one claimant-owned prekey per invocation to keep cleanup bounded.
+  const preKeyCleanup = await cleanupOneClaimantPreKeyIndex(env, uid, adminAuth.token);
+  if (!preKeyCleanup.complete) {
+    return json({
+      success: true,
+      complete: false,
+      processedGroups: rawChatId === undefined ? 0 : 1,
+      processedPreKeyClaims: preKeyCleanup.processed ? 1 : 0,
+      updatedGroups: updatedGroups,
+      dissolvedGroups: dissolvedGroups,
+    });
+  }
+
   const finalUpdates = {
+    ["deviceKeyClaimsByClaimant/" + uid]: null,
     ["groupMemberships/" + uid]: null,
     ["groupReads/" + uid]: null,
     ["chatReadState/" + uid]: null,
