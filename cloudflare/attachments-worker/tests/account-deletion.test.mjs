@@ -65,6 +65,9 @@ test("account deletion removes owned E2EE data and rotates retained group member
     }
 
     if (method === "GET") {
+      if (path === "deviceKeyClaimsByClaimant/alice") {
+        return jsonResponse(null);
+      }
       if (path === "groupMemberships/alice") {
         return jsonResponse(membershipIndex);
       }
@@ -248,6 +251,9 @@ test("account deletion dissolves a two-member group without overlapping group-ro
     const method = options.method || "GET";
 
     if (method === "GET") {
+      if (path === "deviceKeyClaimsByClaimant/alice") {
+        return jsonResponse(null);
+      }
       if (path === "groupMemberships/alice") {
         return jsonResponse(membershipIndex);
       }
@@ -370,6 +376,9 @@ test("account deletion processes many groups one bounded batch at a time", async
     const method = options.method || "GET";
 
     if (method === "GET") {
+      if (path === "deviceKeyClaimsByClaimant/alice") {
+        return jsonResponse(null);
+      }
       if (path === "groupMemberships/alice") {
         return jsonResponse(membershipIndex);
       }
@@ -498,6 +507,9 @@ test("account deletion retries a preview after membership was already committed"
     const method = options.method || "GET";
 
     if (method === "GET") {
+      if (path === "deviceKeyClaimsByClaimant/alice") {
+        return jsonResponse(null);
+      }
       if (path === "groupMemberships/alice") return jsonResponse(membershipIndex);
       if (path === "groupReads/alice" || path === "privateUsers/alice/fcmToken") {
         return jsonResponse(null);
