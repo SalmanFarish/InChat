@@ -53,7 +53,7 @@ internal class FirebaseOlmInboxReceiver(
                     OlmInboundRegistration.CONFLICT -> conflicts++
                     OlmInboundRegistration.NEW -> {
                         transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item.deliveryId)
+                        transport.removeFromMyDeviceInbox(deviceId, item)
                         stored++
                     }
                     OlmInboundRegistration.PENDING_RETRY -> {
