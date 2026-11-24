@@ -559,6 +559,32 @@ test("owner can purge ciphertext and ACKs for a revoked device mailbox", async (
   assert.equal(recipientMailbox.object.ctx.storage.alarm, null);
 });
 
+test("revoked-device purge works without a retention value or Firebase admin token", async () => {
+  const state = workerFixture();
+  assert.equal(
+    (await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status,
+    200,
+  );
+  delete state.env.OLM_MAILBOX_RETENTION_MS;
+
+  const purged = await processOlmMailboxRequest({
+    request: req("/v1/olm/mailbox/device?deviceId=bob-device", "DELETE"),
+    env: state.env,
+    uid: "bob",
+    adminToken: null,
+    adminDatabaseRequest: async () => {
+      throw new Error("Purge must not access Firebase metadata.");
+    },
+  });
+  assert.equal(purged.status, 200);
+  assert.deepEqual(await json(purged), { purged: true });
+
+  const mailbox = state.namespace.objects.get("bob:bob-device");
+  assert.equal(mailbox.object.sql.exec(
+    "SELECT COUNT(*) AS total FROM deliveries",
+  ).toArray()[0].total, 0);
+});
+
 test("mailbox purge derives the account namespace from authentication", async () => {
   const state = workerFixture();
   assert.equal(
