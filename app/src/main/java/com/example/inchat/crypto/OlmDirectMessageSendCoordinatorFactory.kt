@@ -8,11 +8,11 @@ import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.google.firebase.auth.FirebaseAuth
 
 /**
- * Builds the production direct-text sender from the already-established identity,
- * signed directory, SAS trust store, Olm sessions, Room outbox, and local message vault.
+ * Builds the production direct-text sender using automatic device provisioning,
+ * first-use identity pins, Olm sessions, the Room outbox, and the local message vault.
  *
- * Device publication and SAS verification remain explicit user-driven setup steps.
- * This factory never publishes a device or silently creates a trust decision.
+ * SAS comparison remains optional; ordinary messaging never marks a device
+ * SAS-verified without the users explicitly comparing and confirming the code.
  */
 internal class OlmDirectMessageSendCoordinatorFactory(
     context: Context,
@@ -141,10 +141,10 @@ internal class OlmDirectMessageSendCoordinator(
             "Authenticated account changed while resolving encrypted recipient devices"
         }
         require(senderDevices.any { it.deviceId == senderDeviceId }) {
-            "This device is not present in the signed device directory. Publish it from Device Verification first."
+            "InChat couldn't finish setting up secure messaging on this phone. Please try again."
         }
         require(recipientDevices.isNotEmpty()) {
-            "The recipient has no published encrypted devices yet."
+            "This person needs to open InChat once before encrypted messages can be delivered."
         }
 
         return outbound.enqueueDirectTextMessage(

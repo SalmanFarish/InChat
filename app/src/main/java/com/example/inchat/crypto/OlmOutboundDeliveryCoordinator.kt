@@ -47,10 +47,10 @@ internal class OlmOutboundDeliveryCoordinator(
             "Conversation ID does not match the direct-message participants"
         }
         require(recipientDevices.isNotEmpty()) {
-            "The recipient has no published devices"
+            "The recipient needs to open InChat once to finish secure setup"
         }
         require(senderDevices.any { it.deviceId == senderDeviceId }) {
-            "The sending device is not present in the published device directory"
+            "InChat couldn't finish setting up secure messaging on this phone"
         }
 
         val targets = OlmFanOutPlanner.plan(
@@ -60,7 +60,7 @@ internal class OlmOutboundDeliveryCoordinator(
             senderDevices = senderDevices,
         )
         require(targets.any { it.userId == recipientUserId }) {
-            "No recipient-device delivery targets are available"
+            "This person's device isn't ready to receive encrypted messages yet"
         }
         // Each target is checked against this installation's encrypted identity pins.
         // First-use pins are automatic; only a changed key requires a new SAS check.
@@ -72,7 +72,7 @@ internal class OlmOutboundDeliveryCoordinator(
                     peerEd25519IdentityKey = target.device.ed25519IdentityKey,
                 )
             ) {
-                "Device ${target.userId}/${target.device.deviceId} has a changed identity; verify its safety number before messaging"
+                "This person's device identity changed. Compare safety numbers before sending"
             }
         }
 

@@ -60,6 +60,11 @@ internal object OlmGroupSessionKeyDistributionPlanner {
             require(devices.size <= MAX_DEVICES_PER_USER) {
                 "Group member has too many registered devices"
             }
+            if (devices.isEmpty()) {
+                throw OlmGroupKeyDistributionDeferredException(
+                    "A group member needs to open InChat once before encrypted group messages can be delivered",
+                )
+            }
             val trusted = devices.filter { device ->
                 trustVerifier.isTrustedForMessaging(
                     peerUserId = userId,
@@ -69,7 +74,7 @@ internal object OlmGroupSessionKeyDistributionPlanner {
             }
             if (trusted.isEmpty()) {
                 throw OlmGroupKeyDistributionDeferredException(
-                    "Every current group member needs at least one stable device identity before group key distribution",
+                    "A group member's device identity changed or was blocked. Compare safety numbers before continuing",
                 )
             }
             skippedUntrusted += devices.size - trusted.size
