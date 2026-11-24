@@ -61,8 +61,10 @@ The Durable Object binding and SQLite class migration are declared in
 The seven-day retention policy is explicit. Free quota exhaustion is a
 retryable failure; there is no paid fallback or automatic upgrade.
 
-Before deploying, run `npm ci`, `npm test`, and `npm run predeploy` from
-this directory. The deploy script runs the preflight automatically. The
+Before deploying, run `npm install --ignore-scripts --no-audit --no-fund`,
+`npm test`, and `npm run predeploy` from this directory. This repository does
+not include an npm lockfile, so use `npm install` rather than `npm ci`. The
+deploy script runs the preflight automatically. The
 preflight checks the expected Worker, SQLite binding and migration, explicit
 retention, and absence of KV, R2, D1, Queues, and Containers bindings. It
 cannot inspect the Cloudflare account's billing plan: confirm in the
@@ -86,10 +88,17 @@ monitored before increasing traffic.
 After a successful deployment, run the public readiness probe against the deployed Worker:
 
 ```sh
-npm run smoke
+npm run smoke:deployed
 ```
 
-To verify a different deployment URL, set `INCHAT_WORKER_URL` to its HTTPS origin before running the command. The probe calls only `GET /health`; it sends no credentials or message data. A successful response confirms that the Worker is running with the SQLite mailbox binding and a valid configured retention window. It does not prove end-to-end delivery; complete authenticated two-device mailbox tests before enabling Android routing. The health endpoint exposes no secrets or account data and returns HTTP 503 when mailbox configuration is incomplete.
+In PowerShell, to verify a different deployment URL, set `INCHAT_WORKER_URL` to its HTTPS origin first:
+
+```powershell
+$env:INCHAT_WORKER_URL = "https://your-worker.your-subdomain.workers.dev"
+npm run smoke:deployed
+```
+
+The separate `npm run smoke` command checks the local in-process Worker, not the deployed service. The probe calls only `GET /health`; it sends no credentials or message data. A successful response confirms that the Worker is running with the SQLite mailbox binding and a valid configured retention window. It does not prove end-to-end delivery; complete authenticated two-device mailbox tests before enabling Android routing. The health endpoint exposes no secrets or account data and returns HTTP 503 when mailbox configuration is incomplete.
 
 ## Worker setup
 
