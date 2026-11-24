@@ -585,6 +585,63 @@ test("revoked-device purge works without a retention value or Firebase admin tok
   ).toArray()[0].total, 0);
 });
 
+test("mailbox routes return a stable code when a device is no longer published", async () => {
+  const state = workerFixture();
+  const validEnqueue = await state.dispatch(
+    "/v1/olm/mailbox/enqueue",
+    "POST",
+    apiEnqueueBody(),
+  );
+  assert.equal(validEnqueue.status, 200);
+
+  state.database.delete("deviceKeys/bob/bob-device");
+  const cases = [
+    [
+      "/v1/olm/mailbox/inbox?deviceId=bob-device",
+      "GET",
+      undefined,
+      "bob",
+      "Recipient device is no longer published.",
+    ],
+    [
+      "/v1/olm/mailbox/acknowledge?deviceId=bob-device",
+      "POST",
+      { deliveryId },
+      "bob",
+      "Recipient device is no longer published.",
+    ],
+    [
+      "/v1/olm/mailbox/inbox/" + deliveryId + "?deviceId=bob-device",
+      "DELETE",
+      undefined,
+      "bob",
+      "Recipient device is no longer published.",
+    ],
+    [
+      "/v1/olm/mailbox/acks?deviceId=bob-device",
+      "GET",
+      undefined,
+      "bob",
+      "Sender device is no longer published.",
+    ],
+    [
+      "/v1/olm/mailbox/acks/" + deliveryId + "?deviceId=bob-device",
+      "DELETE",
+      undefined,
+      "bob",
+      "Sender device is no longer published.",
+    ],
+  ];
+
+  for (const [path, method, body, uid, expectedMessage] of cases) {
+    const response = await state.dispatch(path, method, body, uid);
+    assert.equal(response.status, 404, path);
+    const payload = await json(response);
+    assert.equal(payload.code, "device_not_published", path);
+    assert.equal(payload.error, expectedMessage, path);
+  }
+});
+
 test("mailbox purge derives the account namespace from authentication", async () => {
   const state = workerFixture();
   assert.equal(
