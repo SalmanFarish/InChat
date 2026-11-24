@@ -1753,6 +1753,16 @@ async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
 }
 
 export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
+  // Persist a server-owned tombstone before inspecting cleanup indexes. Rules
+  // reject both new reverse-index entries and new claims after this point,
+  // closing the race between the final empty-index read and Auth deletion.
+  await adminDatabaseRequest(
+    env,
+    adminAuth.token,
+    "accountDeletionLocks/" + uid,
+    "PUT",
+    true,
+  );
   const [membershipIndex, readIndex, inbox, registrationTokenValue] =
     await Promise.all([
       adminDatabaseRequest(env, adminAuth.token, "groupMemberships/" + uid),
