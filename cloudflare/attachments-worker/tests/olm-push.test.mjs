@@ -12,6 +12,18 @@ const baseRequest = {
   recipientDeviceId: "bob-device",
 };
 
+function metadataValue(database, path) {
+  const parts = path.split("/");
+  if (parts[0] === "chats" && parts.length === 3) {
+    const root = database.get("chats/" + parts[1]);
+    return root && typeof root === "object" ? root[parts[2]] ?? null : null;
+  }
+  if (parts[0] === "chats" && parts.length === 2) {
+    throw new Error("Whole chat root reads are forbidden in this fixture.");
+  }
+  return database.get(path) ?? null;
+}
+
 function fixture({
   chat = { type: "direct", participantA: "alice", participantB: "bob" },
   blocked = false,
@@ -76,7 +88,7 @@ function fixture({
 
   const adminDatabaseRequest = async (_env, accessToken, path) => {
     assert.equal(accessToken, "admin-access-token");
-    return structuredClone(database.get(path) ?? null);
+    return structuredClone(metadataValue(database, path));
   };
 
   const fetchImpl = async (url, options = {}) => {
@@ -88,7 +100,7 @@ function fixture({
     const currentVersion = versions.get(path) || 0;
 
     if (method === "GET") {
-      return new Response(JSON.stringify(database.get(path) ?? null), {
+      return new Response(JSON.stringify(metadataValue(database, path)), {
         status: 200,
         headers: { ETag: '"v' + currentVersion + '"' },
       });

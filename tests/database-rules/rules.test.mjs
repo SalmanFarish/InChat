@@ -520,27 +520,16 @@ test("group members cannot create plaintext messages in E2EE groups", async () =
   );
 });
 
-test("group admins can create only the fixed group-rename activity event", async () => {
+test("group system-event messages are no longer writable", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
 
-  await assertSucceeds(
+  await assertFails(
     set(ref(aliceDb, "chats/group/messages/group-rename-event"), {
       id: "group-rename-event",
       senderId: "alice",
       senderNickname: "SYSTEM",
       text: "Group renamed",
-      timestamp: 2000,
-      systemEvent: "group_renamed",
-    }),
-  );
-
-  await assertFails(
-    set(ref(aliceDb, "chats/group/messages/forged-plaintext-event"), {
-      id: "forged-plaintext-event",
-      senderId: "alice",
-      senderNickname: "SYSTEM",
-      text: "Plaintext smuggled through a system event",
       timestamp: 2000,
       systemEvent: "group_renamed",
     }),
@@ -772,12 +761,48 @@ test("a group member can write only their own mirrored group read cursor", async
   );
 });
 
-test("group members can read their group, non-members cannot", async () => {
+test("group members can read metadata fields but never the chat root or message history", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
   const malloryDb = testEnv.authenticatedContext("mallory").database();
 
-  await assertSucceeds(get(ref(bobDb, "chats/group")));
-  await assertFails(get(ref(malloryDb, "chats/group")));
+  await assertSucceeds(get(ref(bobDb, "chats/group/type")));
+  await assertSucceeds(get(ref(bobDb, "chats/group/name")));
+  await assertSucceeds(get(ref(bobDb, "chats/group/cryptoMembership")));
+  await assertSucceeds(get(ref(bobDb, "chats/group/members")));
+  await assertFails(get(ref(bobDb, "chats/group")));
+  await assertFails(get(ref(bobDb, "chats/group/messages")));
+  await assertFails(get(ref(malloryDb, "chats/group/name")));
+});
+
+test("a direct participant can read conversation metadata but not the chat root or messages", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+
+  await assertSucceeds(get(ref(aliceDb, "chats/dm/participantA")));
+  await assertSucceeds(get(ref(aliceDb, "chats/dm/type")));
+  await assertFails(get(ref(aliceDb, "chats/dm")));
+  await assertFails(get(ref(aliceDb, "chats/dm/messages/aliceMessage")));
+});
+
+test("E2EE group membership is authoritative over the legacy members mirror", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.database();
+    await set(ref(db, "chats/group/members"), {
+      alice: "admin",
+      bob: "member",
+    });
+    await set(ref(db, "chats/group/cryptoMembership"), {
+      epoch: 4,
+      members: { alice: "admin", carol: "member" },
+    });
+  });
+
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const carolDb = testEnv.authenticatedContext("carol").database();
+
+  await assertFails(get(ref(bobDb, "chats/group/name")));
+  await assertSucceeds(get(ref(carolDb, "chats/group/name")));
+  await assertSucceeds(get(ref(carolDb, "chats/group/cryptoMembership")));
+  await assertFails(get(ref(carolDb, "chats/group")));
 });
 
 
@@ -1788,4 +1813,20 @@ test("encrypted push dispatch receipts are server-only", async () => {
       deliveryId: "a".repeat(64),
     }));
   }
+});
+
+test("the retired Firebase messages subtree rejects every client write", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/new-message"), {
+      id: "new-message",
+      senderId: "alice",
+      senderNickname: "alice",
+      text: "This must remain on device and be encrypted",
+      timestamp: 3000,
+    }),
+  );
+  await assertFails(
+    set(ref(aliceDb, "chats/dm/messages/aliceMessage/reactions/alice"), "👍"),
+  );
 });

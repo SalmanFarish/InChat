@@ -183,35 +183,21 @@ class ChatRepository {
 
             val chatRef = database.getReference("chats").child(chatId)
 
-            fun matchesExistingParticipants(
-                snapshot: DataSnapshot
-            ): Boolean {
-                val existingA = snapshot.child("participantA")
-                    .getValue(String::class.java)
-                val existingB = snapshot.child("participantB")
-                    .getValue(String::class.java)
-                return snapshot.exists() &&
-                    existingA == participantA &&
-                    existingB == participantB
-            }
-
-            /*
-             * Read first so an existing chat (including its messages,
-             * appearance and receipt data) is never overwritten.
-             * A brand-new chat may deny this read because its participants
-             * are not yet recorded; in that case we proceed to creation.
-             */
-            val existingSnapshot = try {
-                chatRef.get().await()
+            // Verify only participant fields. A root read would download
+            // the legacy messages subtree as well.
+            val existingA = try {
+                chatRef.child("participantA").get().await().getValue(String::class.java)
             } catch (_: Exception) {
                 null
             }
-
-            if (existingSnapshot != null && existingSnapshot.exists()) {
-                if (!matchesExistingParticipants(existingSnapshot)) {
-                    throw IllegalStateException(
-                        "The existing chat record has different participants."
-                    )
+            val existingB = try {
+                chatRef.child("participantB").get().await().getValue(String::class.java)
+            } catch (_: Exception) {
+                null
+            }
+            if (existingA != null || existingB != null) {
+                if (existingA != participantA || existingB != participantB) {
+                    throw IllegalStateException("The existing chat record has different participants.")
                 }
                 knownChatIds.add(chatId)
                 return Result.success(chatId)
@@ -233,10 +219,11 @@ class ChatRepository {
             } catch (createError: Exception) {
                 // Two clients can open the same chat at the same time.
                 // If the other client created it first, verify the winner.
-                val racedSnapshot = chatRef.get().await()
-                if (!matchesExistingParticipants(racedSnapshot)) {
-                    throw createError
-                }
+                val racedA = chatRef.child("participantA").get().await()
+                    .getValue(String::class.java)
+                val racedB = chatRef.child("participantB").get().await()
+                    .getValue(String::class.java)
+                if (racedA != participantA || racedB != participantB) throw createError
             }
 
             knownChatIds.add(chatId)
@@ -451,11 +438,13 @@ class ChatRepository {
             // Direct-chat preview metadata is owned by this user. Group preview
             // fields are maintained by the group sync path, so only unreadCount
             // is updated there.
-            val chatSnapshot = database.getReference("chats")
+            val chatType = database.getReference("chats")
                 .child(chatId)
+                .child("type")
                 .get()
                 .await()
-            if (chatSnapshot.child("type").getValue(String::class.java) == "group") {
+                .getValue(String::class.java)
+            if (chatType == "group") {
                 // This cursor update is correctness-critical: let failures
                 // propagate instead of reporting a successful clear with no
                 // read cursor, which would allow delayed Worker events to
@@ -592,24 +581,12 @@ class ChatRepository {
      * Check whether a pending message reached Firebase. A malformed existing
      * record throws instead of being treated as missing and overwritten.
      */
+    /** Legacy API retained for compatibility; it looks only in local Room. */
     suspend fun getRemoteMessage(chatId: String, messageId: String): Message? {
-        require(chatId.isNotBlank() && messageId.isNotBlank()) {
-            "Invalid message lookup."
-        }
+        require(chatId.isNotBlank() && messageId.isNotBlank()) { "Invalid message lookup." }
         val ownerUserId = auth.currentUser?.uid.orEmpty()
         require(ownerUserId.isNotBlank()) { "You are not authenticated." }
-
-        val snapshot = database.getReference("chats")
-            .child(chatId)
-            .child("messages")
-            .child(messageId)
-            .get()
-            .await()
-
-        if (!snapshot.exists()) return null
-
-        return snapshot.getValue(Message::class.java)
-            ?: throw IllegalStateException("Remote message record could not be read.")
+        return localMessageDao.getMessage(ownerUserId, chatId, messageId)?.toMessage()
     }
 
     /**
@@ -617,231 +594,32 @@ class ChatRepository {
      * are marked sent, but missing records are retried only through the caller's
      * encrypted sender. The legacy plaintext send method is never used here.
      */
+    /**
+     * Legacy plaintext pending rows remain local. The encrypted Room outbox
+     * owns delivery retries; this compatibility method performs no RTDB reads.
+     */
+    @Deprecated("Legacy plaintext pending messages are not reconciled remotely.")
     suspend fun reconcilePendingOutgoingMessages(
         chatId: String,
         receiverId: String,
         receiverNickname: String,
         sendEncryptedMessage: suspend (Message) -> Result<Unit>,
     ) {
-        val ownerUserId = auth.currentUser?.uid.orEmpty()
-        if (
-            ownerUserId.isBlank() ||
-            chatId.isBlank() ||
-            receiverId.isBlank() ||
-            receiverNickname.isBlank()
-        ) return
-
-        val pending = localMessageDao.getPendingMessages(ownerUserId, chatId)
-        // Reconcile a small number at once: reconnects become faster without
-        // flooding Realtime Database when a chat has many queued messages.
-        val semaphore = Semaphore(4)
-        coroutineScope {
-            pending.map { localMessage ->
-                async {
-                    semaphore.withPermit {
-                        try {
-                            val messageRef = database.getReference("chats")
-                                .child(chatId)
-                                .child("messages")
-                                .child(localMessage.messageId)
-                            val snapshot = messageRef.get().await()
-                            val remoteMessage = snapshot.getValue(Message::class.java)
-
-                            when {
-                                remoteMessage != null &&
-                                    remoteMessage.id == localMessage.messageId &&
-                                    remoteMessage.senderId == ownerUserId -> {
-                                    localMessageDao.markMessageSent(
-                                        ownerUserId = ownerUserId,
-                                        chatId = chatId,
-                                        messageId = localMessage.messageId
-                                    )
-                                }
-
-                                !snapshot.exists() -> {
-                                    // Preserve unsupported legacy metadata rather than
-                                    // silently dropping it or sending it through RTDB.
-                                    val localMessageModel = localMessage.toMessage()
-                                    if (
-                                        localMessageModel.senderId != ownerUserId ||
-                                        localMessageModel.text.isBlank() ||
-                                        localMessageModel.replyTo != null ||
-                                        localMessageModel.attachment != null ||
-                                        localMessageModel.systemEvent.isNotBlank()
-                                    ) {
-                                        Log.w(
-                                            TAG,
-                                            "Legacy pending message needs a supported encrypted payload before it can be retried: ${localMessage.messageId}",
-                                        )
-                                    } else {
-                                        val retryResult = sendEncryptedMessage(localMessageModel)
-                                        retryResult.onSuccess {
-                                            // The encrypted Room copy and complete Olm
-                                            // fan-out have committed; remove the old local
-                                            // plaintext row instead of retaining two sources.
-                                            localMessageDao.deleteMessage(
-                                                ownerUserId = ownerUserId,
-                                                chatId = chatId,
-                                                messageId = localMessage.messageId,
-                                            )
-                                        }.onFailure { error ->
-                                            Log.w(
-                                                TAG,
-                                                "Encrypted pending-message retry remains local: ${localMessage.messageId}",
-                                                error
-                                            )
-                                        }
-                                    }
-                                }
-
-                                else -> {
-                                    Log.w(
-                                        TAG,
-                                        "Pending message ID exists remotely with unexpected sender/data: ${localMessage.messageId}"
-                                    )
-                                }
-                            }
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Exception) {
-                            Log.w(
-                                TAG,
-                                "Could not reconcile pending message ${localMessage.messageId}",
-                                error
-                            )
-                        }
-                    }
-                }
-            }.awaitAll()
-        }
+        // Preserve unsupported historical pending rows on this device.
     }
+
     /*
      * =========================================================
      * MESSAGE LISTENER
      * =========================================================
      */
     fun getMessagesFlow(chatId: String): Flow<List<Message>> =
-        combine(
-            getRawMessagesFlow(chatId),
-            observeMessageVisibility(chatId)
-        ) { messages, visibility ->
-            messages.filter(visibility::allows)
-        }
+        getLocalMessagesFlow(chatId)
 
-    private fun getRawMessagesFlow(chatId: String): Flow<List<Message>> =
-        callbackFlow {
-            val producerScope = this
-            val ownerUserId = auth.currentUser?.uid.orEmpty()
-            if (ownerUserId.isBlank() || chatId.isBlank()) {
-                trySend(emptyList())
-                close()
-                return@callbackFlow
-            }
-
-            val key = cacheKey(chatId, ownerUserId)
-
-            // Firebase can emit snapshots in quick succession. Persist them
-            // through one conflated worker so slow Room writes cannot finish
-            // out of order and overwrite a newer snapshot with stale data.
-            val snapshotPersistenceChannel =
-                Channel<List<Message>>(Channel.CONFLATED)
-            val snapshotPersistenceJob = launch(Dispatchers.IO) {
-                for (snapshotMessages in snapshotPersistenceChannel) {
-                    try {
-                        localMessageDao.replaceLatestSnapshot(
-                            ownerUserId = ownerUserId,
-                            chatId = chatId,
-                            messages = snapshotMessages.map {
-                                it.toCachedEntity(ownerUserId, chatId)
-                            }
-                        )
-
-                        // Update in-memory fast paths only after the Room
-                        // transaction has committed. The Room Flow below is
-                        // the only path that publishes these messages to UI.
-                        if (snapshotMessages.isNotEmpty()) {
-                            val firstLatestTimestamp = snapshotMessages.first().timestamp
-                            olderMessageCache.computeIfPresent(key) { _, cachedOlder ->
-                                cachedOlder.filter { it.timestamp < firstLatestTimestamp }
-                            }
-                            latestMessageCache[key] = snapshotMessages
-                        }
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        // Do not emit or acknowledge remote messages when their
-                        // local persistence failed. A later Firebase snapshot or
-                        // listener restart will offer the snapshot again.
-                        Log.e(TAG, "Could not cache Firebase messages for $chatId", error)
-                    }
-                }
-            }
-
-            // Room is the first source for the UI. It survives process death.
-            val localMessagesJob = launch(Dispatchers.IO) {
-                // Room can re-run this query after writes to other chats because
-                // all cached messages share one table. Skip identical results
-                // before converting entities and forwarding them to the UI.
-                localMessageDao.observeMessages(ownerUserId, chatId)
-                    .distinctUntilChanged()
-                    .collect { entities ->
-                    val localMessages = entities.map { it.toMessage() }
-                    messageCache[key] = localMessages
-                    trySend(localMessages)
-                }
-            }
-
-            // Keep the in-process copy as an additional fast path.
-            messageCache[key]?.let { trySend(it) }
-
-            val messagesRef = database.getReference("chats")
-                .child(chatId)
-                .child("messages")
-                .orderByChild("timestamp")
-                .limitToLast(200)
-
-            val listener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    // Firebase's orderByChild("timestamp") query already returns
-                    // children in timestamp order, so an additional local sort is
-                    // unnecessary here.
-                    val latestMessages = snapshot.children.mapNotNull { child ->
-                        child.getValue(Message::class.java)
-                            ?.takeIf { it.id.isNotBlank() }
-                    }
-
-                    val immutableLatestMessages = latestMessages.toList()
-
-                    // Queue only the newest pending snapshot for Room. The
-                    // conflated worker serializes writes and skips obsolete
-                    // intermediate snapshots when Firebase emits rapidly.
-                    //
-                    // Do not send this snapshot directly to the flow: delivery
-                    // and read receipts are derived from that flow, so exposing
-                    // it here would acknowledge a message before its Room write
-                    // has completed. The Room observer emits after commit.
-                    snapshotPersistenceChannel.trySend(immutableLatestMessages)
-                }
-
-                override fun onCancelled(error: DatabaseError) {
-                    // Keep Room's saved history visible if Firebase cannot refresh it.
-                    Log.e(
-                        TAG,
-                        "Realtime Database list listener cancelled for $chatId: ${error.message}"
-                    )
-                }
-            }
-
-            messagesRef.addValueEventListener(listener)
-
-            awaitClose {
-                localMessagesJob.cancel()
-                messagesRef.removeEventListener(listener)
-                snapshotPersistenceChannel.close()
-                snapshotPersistenceJob.cancel()
-            }
-        }
-
+    /**
+     * Older messages are available only when already cached on this device.
+     * The legacy Firebase history page is intentionally not fetched.
+     */
     suspend fun getOlderMessages(
         chatId: String,
         beforeTimestamp: Long,
@@ -850,48 +628,7 @@ class ChatRepository {
         if (chatId.isBlank() || beforeTimestamp <= 0L || pageSize !in 1..100) {
             return Result.failure(IllegalArgumentException("Invalid message history request."))
         }
-
-        return try {
-            val snapshot = database.getReference("chats").child(chatId)
-                .child("messages").orderByChild("timestamp")
-                .endAt((beforeTimestamp - 1L).toDouble())
-                .limitToLast(pageSize).get().await()
-
-            // orderByChild(timestamp) plus endAt/limitToLast already yields
-            // the page in chronological order.
-            val rawPage = snapshot.children
-                .mapNotNull { it.getValue(Message::class.java) }
-                .filter { it.id.isNotBlank() }
-
-            val ownerUserId = auth.currentUser?.uid.orEmpty()
-            if (ownerUserId.isBlank()) {
-                return Result.failure(IllegalStateException("You are not authenticated."))
-            }
-            val visibility = readMessageVisibility(chatId, ownerUserId)
-            val page = rawPage.filter(visibility::allows)
-
-            if (rawPage.isNotEmpty()) {
-                val key = cacheKey(chatId, ownerUserId)
-                // The requested page is strictly older than beforeTimestamp,
-                // so prepend it to the already chronological cached lists.
-                olderMessageCache.compute(key) { _, cached ->
-                    (rawPage + cached.orEmpty()).distinctBy { it.id }
-                }
-                messageCache.compute(key) { _, cached ->
-                    (rawPage + cached.orEmpty()).distinctBy { it.id }
-                }
-                localMessageDao.upsertMessages(
-                    rawPage.map { it.toCachedEntity(ownerUserId, chatId) }
-                )
-            }
-
-            Result.success(page)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.e(TAG, "Could not load older messages for $chatId", error)
-            Result.failure(error)
-        }
+        return Result.success(emptyList())
     }
 
     /*
@@ -929,75 +666,16 @@ class ChatRepository {
      * the user is on Home, so opening one is not a cold Firebase fetch.
      * Only the latest 30 messages from up to 8 chats are prefetched.
      */
+    /** Room history is already local; no Firebase message prefetch is needed. */
+    @Deprecated("Message history is sourced from local Room storage.")
     suspend fun preloadRecentMessages(
         ownerUserId: String,
         conversations: List<Conversation>,
         maxChats: Int = 8
     ) {
-        if (
-            ownerUserId.isBlank() ||
-            auth.currentUser?.uid != ownerUserId ||
-            maxChats !in 1..12
-        ) return
-
-        val candidates = conversations
-            .asSequence()
-            .sortedByDescending { it.lastTimestamp }
-            .take(maxChats)
-            .filter { it.chatId.isNotBlank() }
-            .distinctBy { it.chatId }
-            .toList()
-
-        // Warm a few chats at once instead of serially waiting for each
-        // Firebase round trip. Keep the limit small to avoid a request burst.
-        val semaphore = Semaphore(4)
-        coroutineScope {
-            candidates.map { conversation ->
-                async {
-                    val chatId = conversation.chatId
-                    val key = cacheKey(chatId, ownerUserId)
-                    if (!prefetchedChatIds.add(key)) return@async
-
-                    try {
-                        semaphore.withPermit {
-                            // If this chat is already cached locally, there is nothing to warm.
-                            if (localMessageDao.hasAnyMessages(ownerUserId, chatId)) {
-                                return@withPermit
-                            }
-
-                            val snapshot = database.getReference("chats")
-                                .child(chatId)
-                                .child("messages")
-                                .orderByChild("timestamp")
-                                .limitToLast(30)
-                                .get()
-                                .await()
-
-                            val latestMessages = snapshot.children.mapNotNull { child ->
-                                child.getValue(Message::class.java)
-                                    ?.takeIf { it.id.isNotBlank() }
-                            }
-
-                            if (latestMessages.isNotEmpty()) {
-                                localMessageDao.upsertMessages(
-                                    latestMessages.map { it.toCachedEntity(ownerUserId, chatId) }
-                                )
-                            }
-                        }
-                    } catch (error: CancellationException) {
-                        prefetchedChatIds.remove(key)
-                        throw error
-                    } catch (error: Exception) {
-                        prefetchedChatIds.remove(key)
-                        Log.d(
-                            TAG,
-                            "Background message warm-up skipped for $chatId: ${error.message}"
-                        )
-                    }
-                }
-            }.awaitAll()
-        }
+        // No-op by design.
     }
+
     /*
      * =========================================================
      * CONVERSATIONS
@@ -1141,22 +819,9 @@ class ChatRepository {
      * MESSAGE ID
      * =========================================================
      */
-    fun generateMessageId(
-        chatId: String
-    ): String? {
-
-        return database
-            .getReference(
-                "chats"
-            )
-            .child(
-                chatId
-            )
-            .child(
-                "messages"
-            )
-            .push()
-            .key
+    fun generateMessageId(chatId: String): String? {
+        if (chatId.isBlank()) return null
+        return java.util.UUID.randomUUID().toString().replace("-", "")
     }
 
     /*
@@ -1281,9 +946,6 @@ class ChatRepository {
             }
             database.getReference("chatReadReceipts")
                 .child(chatId).child(currentUserId).removeValue().await()
-            // Remove the legacy in-chat receipt value during migration.
-            database.getReference("chats").child(chatId)
-                .child("readBy").child(currentUserId).removeValue().await()
             Result.success(Unit)
         } catch (error: Exception) {
             Result.failure(error)
@@ -1347,10 +1009,6 @@ class ChatRepository {
                 } else {
                     null
                 }
-
-            // Remove any pre-migration receipt; new receipts live outside
-            // the broadly readable chat subtree so privacy rules can apply.
-            updates["chats/$chatId/readBy/$currentUserId"] = null
 
             // Store read state separately from the inbox entry. A brand-new
             // direct conversation may not have a complete userChats record yet.
@@ -1498,598 +1156,54 @@ class ChatRepository {
      *
      * remain untouched.
      */
+    /** Legacy Firebase message edits are disabled; encrypted edits need their own protocol. */
+    @Deprecated("Editing messages requires an encrypted edit protocol.")
     suspend fun editMessage(
         chatId: String,
         messageId: String,
         userId: String,
         newText: String
-    ): Result<Unit> {
+    ): Result<Unit> = Result.failure(
+        UnsupportedOperationException("Message editing is unavailable for encrypted messages.")
+    )
 
-        return try {
-
-            val cleanText =
-                newText.trim()
-
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank() ||
-                userId.isBlank() ||
-                cleanText.isBlank()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid edit data"
-                    )
-                )
-            }
-
-            if (
-                cleanText.length > 5000
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message is too long"
-                    )
-                )
-            }
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != userId
-            ) {
-
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match message owner."
-                    )
-                )
-            }
-
-            val messageRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .child(
-                        messageId
-                    )
-
-            /*
-             * Read the current message first.
-             */
-            val snapshot =
-                messageRef
-                    .get()
-                    .await()
-
-            if (
-                !snapshot.exists()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message does not exist."
-                    )
-                )
-            }
-
-            val senderId =
-                snapshot
-                    .child(
-                        "senderId"
-                    )
-                    .getValue(
-                        String::class.java
-                    )
-
-            if (senderId != userId) {
-                return Result.failure(
-                    IllegalStateException("You can only edit your own messages.")
-                )
-            }
-
-            val originalTimestamp =
-                snapshot.child("timestamp").getValue(Long::class.java) ?: 0L
-            val editAge = FirebaseServerClock.now() - originalTimestamp
-            if (originalTimestamp <= 0L || editAge < 0L ||
-                editAge > MESSAGE_EDIT_WINDOW_MS
-            ) {
-                return Result.failure(
-                    IllegalStateException("Messages can only be edited within 15 minutes of sending.")
-                )
-            }
-
-            messageRef
-                .updateChildren(
-                    mapOf<String, Any>(
-                        "text" to cleanText,
-                        "edited" to true
-                    )
-                )
-                .await()
-
-            updateCachedMessage(chatId) { cached ->
-                if (cached.id == messageId) cached.copy(text = cleanText, edited = true)
-                else cached
-            }
-            localMessageDao.updateMessageText(
-                ownerUserId = userId,
-                chatId = chatId,
-                messageId = messageId,
-                text = cleanText
-            )
-            refreshDirectConversationPreview(chatId)
-
-            Result.success(
-                Unit
-            )
-
-        } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
-
-    private suspend fun persistReaction(
-        chatId: String,
-        messageId: String,
-        userId: String,
-        reaction: String?
-    ) {
-        val cached = localMessageDao.getMessage(userId, chatId, messageId) ?: return
-        val updatedReactions = cached.toMessage().reactions.toMutableMap().apply {
-            if (reaction == null) remove(userId) else put(userId, reaction)
-        }
-        localMessageDao.upsertMessage(
-            cached.toMessage().copy(reactions = updatedReactions)
-                .toCachedEntity(userId, chatId)
-        )
-        updateCachedMessage(chatId) { message ->
-            message.copy(reactions = updatedReactions)
-        }
-    }
-
-    /*
-     * =========================================================
-     * SET REACTION
-     * =========================================================
-     */
+    /** Legacy Firebase reactions are disabled until an encrypted reaction protocol exists. */
+    @Deprecated("Message reactions require an encrypted reaction protocol.")
     suspend fun setReaction(
         chatId: String,
         messageId: String,
         userId: String,
         reaction: String
-    ): Result<Unit> {
+    ): Result<Unit> = Result.failure(
+        UnsupportedOperationException("Reactions are unavailable for encrypted messages.")
+    )
 
-        return try {
-
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank() ||
-                userId.isBlank() ||
-                reaction.isBlank()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid reaction data"
-                    )
-                )
-            }
-
-            if (
-                reaction !in
-                SUPPORTED_REACTIONS
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Unsupported reaction"
-                    )
-                )
-            }
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != userId
-            ) {
-
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match reaction user."
-                    )
-                )
-            }
-
-            val messageRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .child(
-                        messageId
-                    )
-
-            val messageSnapshot =
-                messageRef
-                    .get()
-                    .await()
-
-            if (
-                !messageSnapshot.exists()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message does not exist."
-                    )
-                )
-            }
-
-            messageRef
-                .child(
-                    "reactions"
-                )
-                .child(
-                    userId
-                )
-                .setValue(
-                    reaction
-                )
-                .await()
-
-            persistReaction(chatId, messageId, userId, reaction)
-            Result.success(
-                Unit
-            )
-
-        } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
-
-    /*
-     * =========================================================
-     * REMOVE REACTION
-     * =========================================================
-     */
+    @Deprecated("Message reactions require an encrypted reaction protocol.")
     suspend fun removeReaction(
         chatId: String,
         messageId: String,
         userId: String
-    ): Result<Unit> {
+    ): Result<Unit> = Result.failure(
+        UnsupportedOperationException("Reactions are unavailable for encrypted messages.")
+    )
 
-        return try {
-
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank() ||
-                userId.isBlank()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid reaction data"
-                    )
-                )
-            }
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != userId
-            ) {
-
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match reaction user."
-                    )
-                )
-            }
-
-            database
-                .getReference(
-                    "chats"
-                )
-                .child(
-                    chatId
-                )
-                .child(
-                    "messages"
-                )
-                .child(
-                    messageId
-                )
-                .child(
-                    "reactions"
-                )
-                .child(
-                    userId
-                )
-                .removeValue()
-                .await()
-
-            persistReaction(chatId, messageId, userId, null)
-            Result.success(
-                Unit
-            )
-
-        } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
-
-    /*
-     * =========================================================
-     * TOGGLE REACTION
-     * =========================================================
-     */
+    @Deprecated("Message reactions require an encrypted reaction protocol.")
     suspend fun toggleReaction(
         chatId: String,
         messageId: String,
         userId: String,
         reaction: String
-    ): Result<Boolean> {
+    ): Result<Boolean> = Result.failure(
+        UnsupportedOperationException("Reactions are unavailable for encrypted messages.")
+    )
 
-        return try {
-
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank() ||
-                userId.isBlank() ||
-                reaction.isBlank()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid reaction data"
-                    )
-                )
-            }
-
-            if (
-                reaction !in
-                SUPPORTED_REACTIONS
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Unsupported reaction"
-                    )
-                )
-            }
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null ||
-                firebaseUser.uid != userId
-            ) {
-
-                return Result.failure(
-                    IllegalStateException(
-                        "Authenticated user does not match reaction user."
-                    )
-                )
-            }
-
-            val messageRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .child(
-                        messageId
-                    )
-
-            val messageSnapshot =
-                messageRef
-                    .get()
-                    .await()
-
-            if (
-                !messageSnapshot.exists()
-            ) {
-
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message does not exist."
-                    )
-                )
-            }
-
-            val reactionRef =
-                messageRef
-                    .child(
-                        "reactions"
-                    )
-                    .child(
-                        userId
-                    )
-
-            val currentSnapshot =
-                reactionRef
-                    .get()
-                    .await()
-
-            val currentReaction =
-                currentSnapshot
-                    .getValue(
-                        String::class.java
-                    )
-
-            if (
-                currentReaction ==
-                reaction
-            ) {
-
-                reactionRef
-                    .removeValue()
-                    .await()
-                persistReaction(chatId, messageId, userId, null)
-
-                return Result.success(
-                    false
-                )
-            }
-
-            reactionRef
-                .setValue(
-                    reaction
-                )
-                .await()
-            persistReaction(chatId, messageId, userId, reaction)
-
-            Result.success(
-                true
-            )
-
-        } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
-
-    /*
-     * =========================================================
-     * DELETE MESSAGE
-     * =========================================================
-     */
+    /** Global deletion must not mutate the retired Firebase messages subtree. */
+    @Deprecated("Global deletion requires an encrypted deletion protocol.")
     suspend fun deleteMessage(
         chatId: String,
         messageId: String
-    ): Result<Unit> {
+    ): Result<Unit> = Result.failure(
+        UnsupportedOperationException("Deleting messages for everyone is unavailable in the encrypted timeline.")
+    )
 
-        return try {
-
-            if (
-                chatId.isBlank() ||
-                messageId.isBlank()
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Invalid message data"
-                    )
-                )
-            }
-
-            val firebaseUser =
-                auth.currentUser
-
-            if (
-                firebaseUser == null
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "You are not authenticated."
-                    )
-                )
-            }
-
-            val messageRef =
-                database
-                    .getReference(
-                        "chats"
-                    )
-                    .child(
-                        chatId
-                    )
-                    .child(
-                        "messages"
-                    )
-                    .child(
-                        messageId
-                    )
-
-            val messageSnapshot =
-                messageRef
-                    .get()
-                    .await()
-
-            if (
-                !messageSnapshot.exists()
-            ) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Message does not exist."
-                    )
-                )
-            }
-
-            if (
-                messageSnapshot
-                    .child(
-                        "senderId"
-                    )
-                    .getValue(
-                        String::class.java
-                    ) != firebaseUser.uid
-            ) {
-                return Result.failure(
-                    IllegalStateException(
-                        "You can only delete your own messages."
-                    )
-                )
-            }
-
-            messageRef.removeValue().await()
-
-            updateCachedMessage(chatId) { cached ->
-                if (cached.id == messageId) null else cached
-            }
-            localMessageDao.deleteMessage(
-                ownerUserId = firebaseUser.uid,
-                chatId = chatId,
-                messageId = messageId
-            )
-            refreshDirectConversationPreview(chatId)
-
-            Result.success(Unit)
-
-        } catch (e: Exception) {
-
-            Result.failure(
-                e
-            )
-        }
-    }
 }

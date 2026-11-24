@@ -578,34 +578,58 @@ class GroupChatRepository {
         groupId: String
     ): Flow<Map<String, String>> =
         callbackFlow {
-            val ref = database.getReference("chats")
+            val cryptoRef = database.getReference("chats")
+                .child(groupId)
+                .child("cryptoMembership")
+                .child("members")
+            val legacyRef = database.getReference("chats")
                 .child(groupId)
                 .child("members")
-            val listener = object : com.google.firebase.database.ValueEventListener {
+            var cryptoMembers: Map<String, String>? = null
+            var legacyMembers: Map<String, String> = emptyMap()
+
+            fun parseMembers(snapshot: DataSnapshot): Map<String, String> =
+                snapshot.children.mapNotNull { child ->
+                    val uid = child.key
+                    val role = child.getValue(String::class.java)
+                    if (uid.isNullOrBlank() || role !in setOf("admin", "member")) null
+                    else uid to role
+                }.toMap()
+
+            fun emitCurrentMembers() {
+                trySend(cryptoMembers ?: legacyMembers)
+            }
+
+            val cryptoListener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    val members = snapshot.children.mapNotNull { child ->
-                        val uid = child.key
-                        val role = child.getValue(String::class.java)
-                        if (uid.isNullOrBlank() || role.isNullOrBlank()) {
-                            null
-                        } else {
-                            uid to role
-                        }
-                    }.toMap()
-                    trySend(members)
+                    cryptoMembers = if (snapshot.exists()) parseMembers(snapshot) else null
+                    emitCurrentMembers()
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.e(
-                        "GroupChatRepository",
-                        "Group members listener cancelled for $groupId: ${error.message}"
-                    )
-                    trySend(emptyMap())
+                    Log.e("GroupChatRepository", "E2EE group members listener cancelled for $groupId: " + error.message)
+                    trySend(legacyMembers)
                     close()
                 }
             }
-            ref.addValueEventListener(listener)
-            awaitClose { ref.removeEventListener(listener) }
+            val legacyListener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    legacyMembers = parseMembers(snapshot)
+                    emitCurrentMembers()
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w("GroupChatRepository", "Legacy group members listener unavailable for $groupId: " + error.message)
+                    emitCurrentMembers()
+                }
+            }
+
+            cryptoRef.addValueEventListener(cryptoListener)
+            legacyRef.addValueEventListener(legacyListener)
+            awaitClose {
+                cryptoRef.removeEventListener(cryptoListener)
+                legacyRef.removeEventListener(legacyListener)
+            }
         }
 
     /**
@@ -692,20 +716,16 @@ class GroupChatRepository {
                 return Result.success(Unit)
             }
 
-            val updates = mutableMapOf<String, Any>(
-                "chats/$groupId/name" to cleanName
-            )
-            updates.putAll(
-                systemEventUpdates(
-                    groupId = groupId,
-                    actorId = currentUserId,
-                    eventType = "group_renamed",
-                    eventText = "Group renamed"
-                )
-            )
-
-            database.reference.updateChildren(updates).await()
-            dispatchGroupMessageEvents(groupId, updates)
+            database.getReference("chats")
+                .child(groupId)
+                .child("name")
+                .setValue(cleanName)
+                .await()
+            CloudflareNotificationRepository()
+                .syncConversationPreview(groupId)
+                .onFailure { previewError ->
+                    Log.w("GroupChatRepository", "Group name changed, but inbox preview sync failed.", previewError)
+                }
 
             Result.success(Unit)
 
@@ -964,29 +984,6 @@ class GroupChatRepository {
             ?: "member"
     }
 
-    private suspend fun systemEventUpdates(
-        groupId: String,
-        actorId: String,
-        eventType: String,
-        eventText: String
-    ): Map<String, Any> {
-        val messagesRef = database.getReference("chats")
-            .child(groupId)
-            .child("messages")
-        val messageId = messagesRef.push().key
-            ?: throw IllegalStateException("Could not create group activity message ID.")
-
-        val eventMessage = mapOf<String, Any>(
-            "id" to messageId,
-            "senderId" to actorId,
-            "senderNickname" to "SYSTEM",
-            "text" to eventText,
-            "timestamp" to ServerValue.TIMESTAMP,
-            "systemEvent" to eventType
-        )
-        return mapOf("chats/$groupId/messages/$messageId" to eventMessage)
-    }
-
     private suspend fun syncGroupTopicMembers(
         groupId: String,
         memberIds: List<String>
@@ -1015,66 +1012,16 @@ class GroupChatRepository {
 
     private suspend fun dispatchGroupMembershipActivity(
         groupId: String,
-        messageId: String?
+        @Suppress("UNUSED_PARAMETER") messageId: String?,
     ) {
-        val notifications = CloudflareNotificationRepository()
-        if (!messageId.isNullOrBlank()) {
-            notifications.notifyMessage(groupId, messageId)
-                .onFailure { error ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Group membership changed, but its activity preview could not be synchronized.",
-                        error
-                    )
-                    notifications.syncConversationPreview(groupId)
-                        .onFailure { previewError ->
-                            Log.w(
-                                "GroupChatRepository",
-                                "Fallback group preview sync failed.",
-                                previewError
-                            )
-                        }
-                }
-        } else {
-            notifications.syncConversationPreview(groupId)
-                .onFailure { error ->
-                    Log.w(
-                        "GroupChatRepository",
-                        "Group preview could not be synchronized after a membership retry.",
-                        error
-                    )
-                }
-        }
-    }
-
-    private suspend fun dispatchGroupMessageEvents(
-        groupId: String,
-        updates: Map<String, *>
-    ) {
-        val messagePrefix = "chats/$groupId/messages/"
-        val latestActivityId = updates.keys
-            .lastOrNull { it.startsWith(messagePrefix) }
-            ?.removePrefix(messagePrefix)
-            ?.takeIf { it.isNotBlank() }
-            ?: return
-
         CloudflareNotificationRepository()
-            .notifyMessage(groupId, latestActivityId)
+            .syncConversationPreview(groupId)
             .onFailure { error ->
                 Log.w(
                     "GroupChatRepository",
-                    "Group activity was saved, but preview sync failed.",
-                    error
+                    "Group metadata changed, but inbox preview synchronization failed.",
+                    error,
                 )
-                CloudflareNotificationRepository()
-                    .syncConversationPreview(groupId)
-                    .onFailure { previewError ->
-                        Log.w(
-                            "GroupChatRepository",
-                            "Fallback group preview sync failed.",
-                            previewError
-                        )
-                    }
             }
     }
 

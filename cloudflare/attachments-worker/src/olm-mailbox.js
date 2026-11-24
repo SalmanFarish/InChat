@@ -1,3 +1,4 @@
+import { loadChatMetadata } from "./chat-metadata.js";
 import { isPublishedDevice } from "./olm-push.js";
 import {
   PayloadTooLargeError,
@@ -192,29 +193,19 @@ function validateEnqueueBody(body, senderUid) {
 }
 
 function validGroupSnapshot(chat, expectedEpoch) {
-  if (
-    !isRecord(chat) ||
-    chat.type !== "group" ||
-    !isRecord(chat.members) ||
-    !isRecord(chat.cryptoMembership) ||
-    !isRecord(chat.cryptoMembership.members)
-  ) return false;
-
-  const memberIds = Object.keys(chat.members).sort();
-  const snapshotIds = Object.keys(chat.cryptoMembership.members).sort();
+  const snapshot = chat?.cryptoMembership;
+  const members = snapshot?.members;
+  if (chat?.type !== "group" || !isRecord(snapshot) || !isRecord(members)) return false;
+  const memberIds = Object.keys(members).sort();
   if (
     memberIds.length < 2 ||
     memberIds.length > 50 ||
-    memberIds.length !== snapshotIds.length ||
-    !Number.isSafeInteger(chat.cryptoMembership.epoch) ||
-    chat.cryptoMembership.epoch !== expectedEpoch ||
-    chat.cryptoMembership.epoch < 1
+    !Number.isSafeInteger(snapshot.epoch) ||
+    snapshot.epoch !== expectedEpoch ||
+    snapshot.epoch < 1
   ) return false;
-
-  return memberIds.every((memberId, index) =>
-    memberId === snapshotIds[index] &&
-    (chat.members[memberId] === "admin" || chat.members[memberId] === "member") &&
-    chat.members[memberId] === chat.cryptoMembership.members[memberId]);
+  return memberIds.every((memberId) =>
+    memberId && (members[memberId] === "admin" || members[memberId] === "member"));
 }
 
 async function parseRequestBody(request, maxBytes = MAX_REQUEST_BYTES) {
@@ -239,7 +230,7 @@ async function publishedDevice(adminDatabaseRequest, env, adminToken, uid, devic
 
 async function authorizeEnqueue({ input, env, adminToken, adminDatabaseRequest }) {
   const [chat, senderDevice, recipientDevice] = await Promise.all([
-    adminDatabaseRequest(env, adminToken, "chats/" + input.conversationId),
+    loadChatMetadata(adminDatabaseRequest, env, adminToken, input.conversationId),
     publishedDevice(adminDatabaseRequest, env, adminToken, input.senderUid, input.senderDeviceId),
     publishedDevice(adminDatabaseRequest, env, adminToken, input.recipientUid, input.recipientDeviceId),
   ]);

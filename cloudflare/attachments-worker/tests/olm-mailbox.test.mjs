@@ -111,6 +111,18 @@ function published(deviceId) {
   return { schemaVersion: 1, deviceId, ed25519IdentityKey: "public-identity-key" };
 }
 
+function metadataValue(database, path) {
+  const parts = path.split("/");
+  if (parts[0] === "chats" && parts.length === 3) {
+    const root = database.get("chats/" + parts[1]);
+    return root && typeof root === "object" ? root[parts[2]] ?? null : null;
+  }
+  if (parts[0] === "chats" && parts.length === 2) {
+    throw new Error("Whole chat root reads are forbidden in this fixture.");
+  }
+  return database.get(path) ?? null;
+}
+
 function workerFixture(overrides = {}) {
   const { env, namespace } = makeEnvironment();
   const database = new Map([
@@ -121,7 +133,7 @@ function workerFixture(overrides = {}) {
   for (const [key, value] of Object.entries(overrides)) database.set(key, value);
   const adminDatabaseRequest = async (_env, token, path) => {
     assert.equal(token, "admin-token");
-    return structuredClone(database.get(path) ?? null);
+    return structuredClone(metadataValue(database, path));
   };
   const dispatch = (path, method = "GET", body = undefined, uid = "alice", now = Date.now()) =>
     processOlmMailboxRequest({

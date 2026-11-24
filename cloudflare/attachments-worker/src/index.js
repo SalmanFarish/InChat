@@ -1,4 +1,5 @@
 import { hasReadThrough, shouldIncrementGroupUnread, membersReadThroughLatestMessage } from "./group-unread.js";
+import { loadChatMetadata } from "./chat-metadata.js";
 import {
   currentGroupCryptoMembershipEpoch,
   mutateGroupMembersWithEtag,
@@ -9,13 +10,6 @@ import { processOlmMailboxRequest, OlmDeviceMailboxDurableObject } from "./olm-m
 export { OlmDeviceMailboxDurableObject };
 import { syncEncryptedDirectPreview } from "./encrypted-direct-preview.js";
 import { syncEncryptedGroupPreview } from "./encrypted-group-preview.js";
-import {
-  buildAddressedMessagePushData,
-  buildGroupTopicMessagePushData,
-  buildRecipientAccountTags,
-  currentGroupNotificationRecipients,
-  hasCompleteGroupNotificationRegistry,
-} from "./message-notification.js";
 import { isCurrentGroupTopicSubscription } from "./group-topic-subscription.js";
 import { previousGroupNotificationToken } from "./group-topic-subscription.js";
 import { cleanupGroupNotificationTokens } from "./group-topic-subscription.js";
@@ -84,101 +78,6 @@ async function authenticate(token, env) {
   }
 
   return { uid: user.localId, token };
-}
-
-async function loadChat(chatId, token, env) {
-  const response = await firebaseUserDatabaseGet(
-    "chats/" + chatId,
-    token,
-    env,
-  );
-
-  if (!response.ok) {
-    throw new Response("Could not verify chat access", { status: 403 });
-  }
-
-  return response.json();
-}
-
-/**
- * Performs an authenticated Firebase RTDB GET without putting the user's
- * short-lived ID token in the URL, where request logs may record it.
- */
-export async function firebaseUserDatabaseGet(path, token, env, fetchImpl = fetch) {
-  if (typeof path !== "string" || path.trim() === "" ||
-      typeof token !== "string" || token.trim() === "") {
-    throw new TypeError("A Firebase database path and ID token are required.");
-  }
-  const base = env.FIREBASE_DATABASE_URL.replace(/\/$/, "");
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return fetchImpl(base + "/" + encodedPath + ".json", {
-    headers: {
-      Accept: "application/json",
-      Authorization: "Bearer " + token,
-    },
-  });
-}
-
-function isMember(chat, uid) {
-  if (!chat || typeof chat !== "object") return false;
-
-  if (chat.type === "group") {
-    return Boolean(
-      chat.members &&
-      Object.prototype.hasOwnProperty.call(chat.members, uid),
-    );
-  }
-
-  return chat.participantA === uid || chat.participantB === uid;
-}
-
-async function authorizeChat(chatId, uid, token, env) {
-  const chat = await loadChat(chatId, token, env);
-
-  if (!isMember(chat, uid)) {
-    throw new Response("Forbidden", { status: 403 });
-  }
-
-  return chat;
-}
-
-async function loadMessage(chatId, messageId, token, env) {
-  const response = await firebaseUserDatabaseGet(
-    "chats/" + chatId + "/messages/" + messageId,
-    token,
-    env,
-  );
-
-  if (!response.ok) {
-    throw new Response("Could not verify message access", { status: 403 });
-  }
-
-  const message = await response.json();
-  return message && typeof message === "object" ? message : null;
-}
-
-async function authorizeMessageSender(
-  chatId,
-  messageId,
-  uid,
-  token,
-  env,
-) {
-  const message = await loadMessage(chatId, messageId, token, env);
-
-  if (!message || message.senderId !== uid) {
-    throw new Response("Only the message sender can upload this attachment.", {
-      status: 403,
-    });
-  }
-
-  if (message.attachment?.storageKey !== attachmentKey(chatId, messageId)) {
-    throw new Response("Message does not reference this attachment.", {
-      status: 409,
-    });
-  }
-
-  return message;
 }
 
 let cachedAdminToken = "";
@@ -389,344 +288,6 @@ async function adminDatabaseRequest(
   const responseText = await response.text();
   return responseText ? JSON.parse(responseText) : null;
 }
-async function claimMessageEvent(
-  env,
-  adminToken,
-  chatId,
-  messageId,
-  senderId,
-) {
-  const receiptPath =
-    "/chats/" +
-    encodeURIComponent(chatId) +
-    "/messages/" +
-    encodeURIComponent(messageId) +
-    "/workerProcessed.json";
-  const receiptUrl =
-    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
-
-  const readResponse = await fetch(receiptUrl, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-    },
-  });
-
-  if (!readResponse.ok) {
-    throw new Error(
-      "Could not check notification event receipt (" +
-      readResponse.status +
-      ").",
-    );
-  }
-
-  const existing = await readResponse.json();
-  const etag = readResponse.headers.get("ETag") || "null_etag";
-  const now = Date.now();
-
-  // Old receipts were written before retryable states existed. Treat them as
-  // completed to avoid re-sending notifications for historical messages.
-  if (existing !== null && typeof existing === "object") {
-    if (!existing.status || existing.status === "sent") return null;
-    if (
-      existing.status === "processing" &&
-      Number(existing.leaseUntil || 0) > now
-    ) {
-      return { busy: true };
-    }
-
-    if (existing.status !== "failed" && existing.status !== "processing") {
-      return null;
-    }
-  } else if (existing !== null) {
-    return null;
-  }
-
-  const claimId = crypto.randomUUID();
-  const attempt = Math.max(0, Number(existing?.attempt || 0)) + 1;
-  const writeResponse = await fetch(receiptUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify({
-      ...(existing && typeof existing === "object" ? existing : {}),
-      senderId: senderId,
-      status: "processing",
-      claimId: claimId,
-      attempt: attempt,
-      leaseUntil: now + 30000,
-      updatedAt: { ".sv": "timestamp" },
-    }),
-  });
-
-  if (writeResponse.status === 412) return null;
-  if (!writeResponse.ok) {
-    throw new Error(
-      "Could not claim notification event (" +
-      writeResponse.status +
-      ").",
-    );
-  }
-
-  return {
-    claimId: claimId,
-    notificationSent: existing?.notificationSent === true,
-    notificationSentTo:
-      existing?.notificationSentTo &&
-      typeof existing.notificationSentTo === "object" &&
-      !Array.isArray(existing.notificationSentTo) ?
-        existing.notificationSentTo :
-        {},
-  };
-}
-
-async function updateMessageEventReceipt(
-  env,
-  adminToken,
-  chatId,
-  messageId,
-  claimId,
-  status,
-  errorMessage = "",
-) {
-  const receiptPath =
-    "/chats/" +
-    encodeURIComponent(chatId) +
-    "/messages/" +
-    encodeURIComponent(messageId) +
-    "/workerProcessed.json";
-  const receiptUrl =
-    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
-
-  const readResponse = await fetch(receiptUrl, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-    },
-  });
-
-  if (!readResponse.ok) {
-    throw new Error(
-      "Could not read notification receipt state (" +
-      readResponse.status +
-      ").",
-    );
-  }
-
-  const current = await readResponse.json();
-  if (!current || current.claimId !== claimId) return false;
-
-  const etag = readResponse.headers.get("ETag");
-  if (!etag) throw new Error("Firebase did not return a receipt ETag.");
-
-  const nextState = {
-    ...current,
-    status: status,
-    leaseUntil: 0,
-    updatedAt: { ".sv": "timestamp" },
-  };
-
-  if (status === "failed") {
-    nextState.lastError = notificationText(errorMessage).slice(0, 300);
-  } else {
-    delete nextState.lastError;
-    nextState.processedAt = { ".sv": "timestamp" };
-  }
-
-  const writeResponse = await fetch(receiptUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify(nextState),
-  });
-
-  if (writeResponse.status === 412) return false;
-  if (!writeResponse.ok) {
-    throw new Error(
-      "Could not update notification receipt (" +
-      writeResponse.status +
-      ").",
-    );
-  }
-
-  return true;
-}
-
-async function markMessageNotificationSent(
-  env,
-  adminToken,
-  chatId,
-  messageId,
-  claimId,
-) {
-  const receiptPath =
-    "/chats/" +
-    encodeURIComponent(chatId) +
-    "/messages/" +
-    encodeURIComponent(messageId) +
-    "/workerProcessed.json";
-  const receiptUrl =
-    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
-
-  const readResponse = await fetch(receiptUrl, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-    },
-  });
-
-  if (!readResponse.ok) {
-    throw new Error(
-      "Could not read notification receipt after FCM accepted the push (" +
-      readResponse.status + ").",
-    );
-  }
-
-  const current = await readResponse.json();
-  if (!current || current.claimId !== claimId) return false;
-
-  const etag = readResponse.headers.get("ETag");
-  if (!etag) throw new Error("Firebase did not return a notification receipt ETag.");
-
-  const nextState = {
-    ...current,
-    notificationSent: true,
-    notificationSentAt: { ".sv": "timestamp" },
-    updatedAt: { ".sv": "timestamp" },
-  };
-
-  const writeResponse = await fetch(receiptUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify(nextState),
-  });
-
-  if (writeResponse.status === 412) return false;
-  if (!writeResponse.ok) {
-    throw new Error(
-      "Could not record accepted FCM notification (" +
-      writeResponse.status + ").",
-    );
-  }
-
-  return true;
-}
-
-async function markGroupNotificationRecipientsSent(
-  env,
-  adminToken,
-  chatId,
-  messageId,
-  claimId,
-  recipientIds,
-) {
-  const uniqueRecipientIds = [...new Set(recipientIds)].filter(
-    (recipientId) => typeof recipientId === "string" && recipientId !== "",
-  );
-  if (uniqueRecipientIds.length === 0) return true;
-
-  const receiptPath =
-    "/chats/" +
-    encodeURIComponent(chatId) +
-    "/messages/" +
-    encodeURIComponent(messageId) +
-    "/workerProcessed.json";
-  const receiptUrl =
-    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") + receiptPath;
-
-  const readResponse = await fetch(receiptUrl, {
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "X-Firebase-ETag": "true",
-    },
-  });
-
-  if (!readResponse.ok) {
-    throw new Error(
-      "Could not read group notification delivery state (" +
-      readResponse.status + ").",
-    );
-  }
-
-  const current = await readResponse.json();
-  if (!current || current.claimId !== claimId) return false;
-
-  const etag = readResponse.headers.get("ETag");
-  if (!etag) throw new Error("Firebase did not return a group delivery receipt ETag.");
-
-  const notificationSentTo =
-    current.notificationSentTo &&
-    typeof current.notificationSentTo === "object" &&
-    !Array.isArray(current.notificationSentTo) ?
-      { ...current.notificationSentTo } :
-      {};
-
-  for (const recipientId of uniqueRecipientIds) {
-    notificationSentTo[recipientId] = true;
-  }
-
-  const writeResponse = await fetch(receiptUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify({
-      ...current,
-      notificationSentTo: notificationSentTo,
-      updatedAt: { ".sv": "timestamp" },
-    }),
-  });
-
-  if (writeResponse.status === 412) return false;
-  if (!writeResponse.ok) {
-    throw new Error(
-      "Could not save group notification delivery state (" +
-      writeResponse.status + ").",
-    );
-  }
-
-  return true;
-}
-
-async function completeClaimedMessageEvent(
-  env,
-  adminToken,
-  chatId,
-  messageId,
-  claimId,
-  responseBody,
-) {
-  const completed = await updateMessageEventReceipt(
-    env,
-    adminToken,
-    chatId,
-    messageId,
-    claimId,
-    "sent",
-  );
-
-  if (!completed) {
-    throw new Error("Notification receipt claim expired before completion.");
-  }
-
-  return json(responseBody);
-}
-
-const GROUP_DIRECT_NOTIFICATION_MAX_RECIPIENTS = 19;
-const GROUP_FCM_SEND_CONCURRENCY = 4;
-
 async function mapWithConcurrencyLimit(items, concurrency, mapper) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -912,17 +473,6 @@ async function groupUsername(env, adminToken, uid) {
     "member";
 }
 
-function groupActivityMessage(uid, eventType, text, messageId) {
-  return {
-    id: messageId,
-    senderId: uid,
-    senderNickname: "SYSTEM",
-    text: text,
-    timestamp: { ".sv": "timestamp" },
-    systemEvent: eventType,
-  };
-}
-
 async function manageGroupMembership(request, env, uid, adminAuth) {
   let body;
   try {
@@ -975,17 +525,14 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       return json({ error: "One or more selected accounts could not be found." }, 404);
     }
 
-    const existing = await adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "chats/" + chatId,
-    );
-    if (existing) {
-      return json({ error: "This group ID is already in use." }, 409);
+    const [existingType, existingParticipantA, existingParticipantB] = await Promise.all([
+      adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId + "/type"),
+      adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId + "/participantA"),
+      adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId + "/participantB"),
+    ]);
+    if (existingType || existingParticipantA || existingParticipantB) {
+      return json({ error: "This conversation ID is already in use." }, 409);
     }
-
-    const messageId = crypto.randomUUID().replace(/-/g, "");
-    const creatorName = await groupUsername(env, adminAuth.token, uid);
     const members = {};
     for (const memberId of memberIds) {
       members[memberId] = memberId === uid ? "admin" : "member";
@@ -1002,14 +549,6 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
         cryptoMembership: {
           epoch: 1,
           members: members,
-        },
-        messages: {
-          [messageId]: groupActivityMessage(
-            uid,
-            "group_created",
-            "@" + creatorName + " created the group",
-            messageId,
-          ),
         },
       },
     };
@@ -1032,17 +571,13 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       success: true,
       action: action,
       chatId: chatId,
-      messageId: messageId,
+      messageId: "",
       memberIds: memberIds,
       cryptoMembershipEpoch: 1,
     });
   }
 
-  const chat = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "chats/" + chatId,
-  );
+  const chat = await loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId);
   if (!chat || chat.type !== "group") {
     return json({ error: "Group not found." }, 404);
   }
@@ -1057,11 +592,10 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
   }
 
   const updates = {};
-  let activityMessageId = "";
   let removedUidForNotificationCleanup = "";
   let previewMembers = chat.members || {};
   let cryptoMembershipEpoch = currentGroupCryptoMembershipEpoch(
-    chat.cryptoMembershipEpoch,
+    chat.cryptoMembership?.epoch,
   );
 
   if (action === "add") {
@@ -1099,7 +633,6 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       return json({ error: "One or more selected accounts could not be found." }, 404);
     }
 
-    const actorName = await groupUsername(env, adminAuth.token, uid);
     const mutation = await mutateGroupMembersWithEtag(
       env,
       adminAuth.token,
@@ -1141,21 +674,6 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       updates["chats/" + chatId + "/groupReadCursors/" + memberId] = null;
     }
 
-    if (newMemberIds.length > 0) {
-      const memberNames = await Promise.all(newMemberIds.map((memberId) =>
-        groupUsername(env, adminAuth.token, memberId),
-      ));
-      const messageId = crypto.randomUUID().replace(/-/g, "");
-      const addedNames = memberNames.map((name) => "@" + name).join(", ");
-      updates["chats/" + chatId + "/messages/" + messageId] =
-        groupActivityMessage(
-          uid,
-          "member_added",
-          "@" + actorName + " added " + addedNames + " to the group",
-          messageId,
-        );
-      activityMessageId = messageId;
-    }
   } else {
     let targetUid = uid;
     let desiredRole = "";
@@ -1254,22 +772,6 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     previewMembers = mutation.members;
     cryptoMembershipEpoch = mutation.cryptoMembershipEpoch;
 
-    if (action === "set_role" && mutation.changed) {
-      const targetName = await groupUsername(env, adminAuth.token, targetUid);
-      const promoted = desiredRole === "admin";
-      const messageId = crypto.randomUUID().replace(/-/g, "");
-      updates["chats/" + chatId + "/messages/" + messageId] =
-        groupActivityMessage(
-          uid,
-          promoted ? "admin_promoted" : "admin_demoted",
-          promoted ?
-            "@" + actorName + " promoted @" + targetName + " to admin" :
-            "@" + actorName + " removed @" + targetName + " as admin",
-          messageId,
-        );
-      activityMessageId = messageId;
-    }
-
     if (action === "remove" || action === "leave") {
       const removedUid = action === "leave" ? uid : targetUid;
       removedUidForNotificationCleanup = removedUid;
@@ -1278,22 +780,6 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       updates["chats/" + chatId + "/groupReadCursors/" + removedUid] = null;
       updates["userChats/" + removedUid + "/" + chatId] = null;
 
-      if (mutation.changed) {
-        const targetName = action === "leave" ?
-          actorName :
-          await groupUsername(env, adminAuth.token, removedUid);
-        const messageId = crypto.randomUUID().replace(/-/g, "");
-        updates["chats/" + chatId + "/messages/" + messageId] =
-          groupActivityMessage(
-            uid,
-            action === "leave" ? "member_left" : "member_removed",
-            action === "leave" ?
-              "@" + targetName + " left the group" :
-              "@" + actorName + " removed @" + targetName + " from the group",
-            messageId,
-          );
-        activityMessageId = messageId;
-      }
     }
   }
 
@@ -1306,7 +792,14 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
       env,
       adminAuth.token,
       chatId,
-      { ...chat, members: previewMembers },
+      {
+        ...chat,
+        members: previewMembers,
+        cryptoMembership: {
+          epoch: cryptoMembershipEpoch,
+          members: previewMembers,
+        },
+      },
     );
   } catch (previewError) {
     console.warn("Could not rebuild group inbox previews after membership change", previewError);
@@ -1359,7 +852,7 @@ async function manageGroupMembership(request, env, uid, adminAuth) {
     success: true,
     action: action,
     chatId: chatId,
-    messageId: activityMessageId,
+    messageId: "",
     cryptoMembershipEpoch: cryptoMembershipEpoch,
     ...(notificationCleanupPending ? { notificationCleanupPending: true } : {}),
   });
@@ -1421,11 +914,7 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
     return json({ error: "subscribe must be a boolean." }, 400);
   }
 
-  const chat = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "chats/" + chatId,
-  );
+  const chat = await loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId);
 
   if (!chat || chat.type !== "group") {
     return json({ error: "Group not found." }, 404);
@@ -1593,7 +1082,7 @@ async function updateGroupTopic(request, env, uid, adminAuth) {
   // during the asynchronous FCM operations above. Re-read authoritative state
   // before confirming registration so a removed member cannot stay subscribed.
   const [latestChat, latestToken] = await Promise.all([
-    adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
+    loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId),
     adminDatabaseRequest(env, adminAuth.token, "privateUsers/" + targetUid + "/fcmToken"),
   ]);
   if (!isCurrentGroupTopicSubscription({
@@ -1817,7 +1306,7 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   if (rawChatId !== undefined) {
     const chatId = cleanSegment(rawChatId, "chatId");
     const [chat, mirroredRegistrationToken] = await Promise.all([
-      adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
+      loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId),
       adminDatabaseRequest(
         env,
         adminAuth.token,
@@ -1986,11 +1475,7 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
           // A previous attempt may have committed the ETag membership update
           // but failed before rebuilding the inbox preview. Re-read the
           // authoritative group so this retry can finish that pending work.
-          const latestChat = await adminDatabaseRequest(
-            env,
-            adminAuth.token,
-            "chats/" + chatId,
-          );
+          const latestChat = await loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId);
           if (
             latestChat &&
             latestChat.type === "group" &&
@@ -2126,276 +1611,58 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
   });
 }
 
-async function syncGroupConversationPreview(
-  env,
-  adminToken,
-  chatId,
-  chat,
-  message,
-  messageId,
-) {
-  const members = Object.keys(chat.members || {});
-  if (members.length < 2) return;
-
-  // The inbox changes and this marker are written in one RTDB multi-location
-  // PATCH. A retry after an FCM failure therefore cannot increment unread
-  // counts a second time.
-  const inboxAlreadySynced = await adminDatabaseRequest(
-    env,
-    adminToken,
-    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
-  );
-
-  const latestMessages = await adminDatabaseRequest(
-    env,
-    adminToken,
-    "chats/" + chatId + "/messages",
-    "GET",
-    undefined,
-    "orderBy=%22timestamp%22&limitToLast=1",
-  );
-
-  let latestId = "";
-  let latestMessage = null;
-  for (const entryId of Object.keys(latestMessages || {})) {
-    const entry = latestMessages[entryId];
-    if (
-      entry &&
-      typeof entry.timestamp === "number" &&
-      (!latestMessage || entry.timestamp > latestMessage.timestamp)
-    ) {
-      latestId = entryId;
-      latestMessage = entry;
-    }
-  }
-
-  const updates = {};
-  if (latestId === messageId && latestMessage) {
-    const isSystemEvent =
-      typeof latestMessage.systemEvent === "string" &&
-      latestMessage.systemEvent.trim() !== "";
-    const groupName = typeof chat.name === "string" ?
-      chat.name.trim() :
-      "";
-
-    for (const memberId of members) {
-      const base = "userChats/" + memberId + "/" + chatId + "/";
-      updates[base + "chatId"] = chatId;
-      updates[base + "chatType"] = "group";
-      updates[base + "groupName"] = groupName;
-      updates[base + "memberCount"] = members.length;
-      updates[base + "otherUserId"] = "";
-      updates[base + "otherUsername"] = "";
-      updates[base + "lastMessage"] =
-        isSystemEvent ? "Group updated" : "Encrypted message";
-      updates[base + "lastTimestamp"] = latestMessage.timestamp;
-      updates[base + "lastSenderId"] =
-        isSystemEvent ? "" : (latestMessage.senderId || "");
-      updates[base + "lastSenderNickname"] =
-        isSystemEvent ? "" : (latestMessage.senderNickname || "");
-    }
-  }
-
-  const isSystemEvent =
-    typeof message.systemEvent === "string" &&
-    message.systemEvent.trim() !== "";
-  const readCursors =
-    chat.groupReadCursors &&
-    typeof chat.groupReadCursors === "object" &&
-    !Array.isArray(chat.groupReadCursors) ?
-      chat.groupReadCursors :
-      {};
-
-  const recipientsToReconcile = [];
-
-  if (!isSystemEvent && !inboxAlreadySynced) {
-    // Read cursors are mirrored into the group record by the app's atomic
-    // mark-read update. The Worker already loaded this record to validate the
-    // sender, so no per-member Firebase requests are needed on the Free plan.
-    for (const memberId of members) {
-      if (memberId === message.senderId) continue;
-      if (!shouldIncrementGroupUnread(message.timestamp, readCursors[memberId])) {
-        continue;
-      }
-
-      updates[
-        "userChats/" + memberId + "/" + chatId + "/unreadCount"
-      ] = { ".sv": { increment: 1 } };
-      recipientsToReconcile.push(memberId);
-    }
-  } else if (!isSystemEvent && inboxAlreadySynced) {
-    // Retry after a previously committed preview marker: recheck current read
-    // state without applying another unread increment.
-    recipientsToReconcile.push(
-      ...members.filter((memberId) => memberId !== message.senderId),
-    );
-  }
-
-  updates[
-    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
-  ] = true;
-
-  if (Object.keys(updates).length > 0) {
-    await adminDatabaseRequest(
-      env,
-      adminToken,
-      "",
-      "PATCH",
-      updates,
-    );
-  }
-
-  // One group-level read of the mirror catches members who marked the group
-  // read after the initial chat snapshot. One latest-message query ensures we
-  // never clear unread for a newer message that arrived during this event.
-  // This is a fixed number of requests, not a request per group member.
-  if (recipientsToReconcile.length > 0) {
-    try {
-      const [freshReadCursors, freshLatestMessages] = await Promise.all([
-        adminDatabaseRequest(
-          env,
-          adminToken,
-          "chats/" + chatId + "/groupReadCursors",
-        ),
-        adminDatabaseRequest(
-          env,
-          adminToken,
-          "chats/" + chatId + "/messages",
-          "GET",
-          undefined,
-          "orderBy=%22timestamp%22&limitToLast=1",
-        ),
-      ]);
-
-      let newestTimestamp = 0;
-      for (const latestId of Object.keys(freshLatestMessages || {})) {
-        const latest = freshLatestMessages[latestId];
-        if (
-          latest &&
-          typeof latest.timestamp === "number" &&
-          Number.isFinite(latest.timestamp) &&
-          latest.timestamp > newestTimestamp
-        ) {
-          newestTimestamp = latest.timestamp;
-        }
-      }
-
-      const readMembers = membersReadThroughLatestMessage(
-        recipientsToReconcile,
-        freshReadCursors,
-        newestTimestamp,
-      );
-
-      if (readMembers.length > 0) {
-        const readUpdates = {};
-        for (const memberId of readMembers) {
-          readUpdates[
-            "userChats/" + memberId + "/" + chatId + "/unreadCount"
-          ] = 0;
-        }
-        await adminDatabaseRequest(
-          env,
-          adminToken,
-          "",
-          "PATCH",
-          readUpdates,
-        );
-      }
-    } catch (reconciliationError) {
-      // Unread reconciliation must not block an otherwise valid FCM delivery.
-      console.warn(
-        "Could not reconcile group unread counts after the read-cursor update",
-        reconciliationError,
-      );
-    }
-  }
-}
-
 async function rebuildConversationPreview(
   env,
   adminToken,
   chatId,
   chat,
 ) {
-  const messages = await adminDatabaseRequest(
-    env,
-    adminToken,
-    "chats/" + chatId + "/messages",
-    "GET",
-    undefined,
-    "orderBy=%22timestamp%22&limitToLast=1",
-  );
-
-  let latest = null;
-  for (const messageId of Object.keys(messages || {})) {
-    const message = messages[messageId];
-    if (
-      message &&
-      typeof message.timestamp === "number" &&
-      (!latest || message.timestamp > latest.timestamp)
-    ) {
-      latest = message;
-    }
+  if (!chat || typeof chat !== "object") {
+    throw new Error("Conversation metadata is unavailable.");
   }
 
   const updates = {};
   if (chat.type === "group") {
     const members = Object.keys(chat.members || {});
-    const isSystemEvent = !!(
-      latest &&
-      typeof latest.systemEvent === "string" &&
-      latest.systemEvent.trim() !== ""
-    );
-
-    for (const memberId of members) {
+    if (members.length < 2 || members.length > 50) {
+      throw new Error("Group membership metadata is invalid.");
+    }
+    const entries = await Promise.all(members.map(async (memberId) => ({
+      memberId,
+      inbox: await adminDatabaseRequest(env, adminToken, "userChats/" + memberId + "/" + chatId),
+    })));
+    for (const { memberId, inbox } of entries) {
       const base = "userChats/" + memberId + "/" + chatId + "/";
       updates[base + "chatId"] = chatId;
       updates[base + "chatType"] = "group";
-      updates[base + "groupName"] =
-        typeof chat.name === "string" ? chat.name.trim() : "";
+      updates[base + "groupName"] = typeof chat.name === "string" ? chat.name.trim() : "";
       updates[base + "memberCount"] = members.length;
       updates[base + "otherUserId"] = "";
       updates[base + "otherUsername"] = "";
-      updates[base + "lastMessage"] = latest ?
-        (isSystemEvent ? "Group updated" : "Encrypted message") :
-        "No messages yet";
-      updates[base + "lastTimestamp"] = latest?.timestamp || 0;
-      updates[base + "lastSenderId"] =
-        !isSystemEvent && latest?.senderId ? latest.senderId : "";
-      updates[base + "lastSenderNickname"] =
-        !isSystemEvent && latest?.senderNickname ?
-          latest.senderNickname :
-          "";
+      if (!inbox || typeof inbox.lastMessage !== "string") {
+        updates[base + "lastMessage"] = "No messages yet";
+      }
+      if (!inbox || typeof inbox.lastTimestamp !== "number") {
+        updates[base + "lastTimestamp"] = 0;
+      }
+      if (!inbox || typeof inbox.unreadCount !== "number") {
+        updates[base + "unreadCount"] = 0;
+      }
+      if (!inbox || typeof inbox.lastSenderId !== "string") {
+        updates[base + "lastSenderId"] = "";
+      }
+      if (!inbox || typeof inbox.lastSenderNickname !== "string") {
+        updates[base + "lastSenderNickname"] = "";
+      }
     }
   } else {
-    const participantA = chat.participantA;
-    const participantB = chat.participantB;
-    if (
-      typeof participantA !== "string" ||
-      typeof participantB !== "string" ||
-      participantA === "" ||
-      participantB === "" ||
-      participantA === participantB
-    ) {
+    // Direct previews are synchronized only after a verified encrypted
+    // mailbox delivery. A generic metadata refresh must not infer message
+    // history by reading chats/{id}/messages.
+    const participants = [chat.participantA, chat.participantB];
+    if (participants.some((value) => typeof value !== "string" || !value) ||
+        participants[0] === participants[1]) {
       throw new Error("Cannot rebuild preview for invalid direct chat.");
-    }
-
-    const lastMessage = latest ? "Encrypted message" : "No messages yet";
-    const lastTimestamp = latest?.timestamp || 0;
-    const lastSenderId = latest?.senderId || participantA;
-
-    for (const memberId of [participantA, participantB]) {
-      const existing = await adminDatabaseRequest(
-        env,
-        adminToken,
-        "userChats/" + memberId + "/" + chatId,
-      );
-      if (!existing) continue;
-
-      const base = "userChats/" + memberId + "/" + chatId + "/";
-      updates[base + "lastMessage"] = lastMessage;
-      updates[base + "lastTimestamp"] = lastTimestamp;
-      updates[base + "lastSenderId"] = lastSenderId;
     }
   }
 
@@ -2409,211 +1676,6 @@ async function rebuildConversationPreview(
  * Create/update both direct-chat inbox entries from the trusted Worker.
  * A client must never be allowed to write another user's inbox metadata.
  */
-async function clearDirectUnreadIfAlreadyRead(
-  env,
-  adminToken,
-  recipientId,
-  chatId,
-) {
-  const path = "userChats/" + recipientId + "/" + chatId;
-  const url = env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
-    "/" + path.split("/").map(encodeURIComponent).join("/") + ".json";
-
-  const [readResponse, readTimestampValue] = await Promise.all([
-    fetch(url, {
-      headers: {
-        Authorization: "Bearer " + adminToken,
-        "X-Firebase-ETag": "true",
-      },
-    }),
-    adminDatabaseRequest(
-      env,
-      adminToken,
-      "chatReadState/" + recipientId + "/" + chatId,
-    ),
-  ]);
-
-  if (readResponse.status === 404) return false;
-  if (!readResponse.ok) {
-    throw new Error(
-      "Could not check the recipient's inbox (" +
-      readResponse.status + ").",
-    );
-  }
-
-  const inbox = await readResponse.json();
-  const etag = readResponse.headers.get("ETag");
-  if (!inbox || !etag) return false;
-
-  const lastReadTimestamp = Number(readTimestampValue || 0);
-  const latestMessageTimestamp = Number(inbox.lastTimestamp || 0);
-  const unreadCount = Number(inbox.unreadCount || 0);
-
-  if (
-    !Number.isFinite(lastReadTimestamp) ||
-    !Number.isFinite(latestMessageTimestamp) ||
-    lastReadTimestamp <= 0 ||
-    lastReadTimestamp < latestMessageTimestamp ||
-    unreadCount <= 0
-  ) {
-    return false;
-  }
-
-  const nextInbox = { ...inbox, unreadCount: 0 };
-  const writeResponse = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: "Bearer " + adminToken,
-      "Content-Type": "application/json",
-      "If-Match": etag,
-    },
-    body: JSON.stringify(nextInbox),
-  });
-
-  if (writeResponse.status === 412) return false;
-  if (!writeResponse.ok) {
-    const details = await writeResponse.text();
-    throw new Error(
-      "Could not reconcile a read conversation (" +
-      writeResponse.status + "): " + details.slice(0, 240),
-    );
-  }
-
-  return true;
-}
-
-
-async function syncDirectInboxForNewMessage(
-  env,
-  adminToken,
-  chatId,
-  chat,
-  message,
-  messageId,
-) {
-  const participantA = chat.participantA;
-  const participantB = chat.participantB;
-  const senderId = message.senderId;
-
-  if (
-    typeof participantA !== "string" ||
-    typeof participantB !== "string" ||
-    participantA === "" ||
-    participantB === "" ||
-    participantA === participantB ||
-    (senderId !== participantA && senderId !== participantB)
-  ) {
-    throw new Error("Cannot update inbox for an invalid direct chat.");
-  }
-
-  const recipientId = senderId === participantA ? participantB : participantA;
-  const inboxAlreadySynced = await adminDatabaseRequest(
-    env,
-    adminToken,
-    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced",
-  );
-  const [
-    senderProfile,
-    recipientProfile,
-    senderInbox,
-    recipientInbox,
-    recipientReadTimestamp,
-  ] = await Promise.all([
-    adminDatabaseRequest(env, adminToken, "users/" + senderId),
-    adminDatabaseRequest(env, adminToken, "users/" + recipientId),
-    adminDatabaseRequest(env, adminToken, "userChats/" + senderId + "/" + chatId),
-    adminDatabaseRequest(env, adminToken, "userChats/" + recipientId + "/" + chatId),
-    adminDatabaseRequest(
-      env,
-      adminToken,
-      "chatReadState/" + recipientId + "/" + chatId,
-    ),
-  ]);
-
-  const senderNickname =
-    typeof senderProfile?.username === "string" &&
-    senderProfile.username.trim() !== "" ?
-      senderProfile.username.trim().slice(0, 20) :
-      (typeof message.senderNickname === "string" ?
-        message.senderNickname.trim().slice(0, 20) :
-        "User");
-
-  const recipientNickname =
-    typeof recipientProfile?.username === "string" &&
-    recipientProfile.username.trim() !== "" ?
-      recipientProfile.username.trim().slice(0, 20) :
-      "User";
-
-  const lastMessage = "Encrypted message";
-  const lastTimestamp =
-    typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ?
-      message.timestamp :
-      Date.now();
-
-  const updates = {};
-  const senderBase = "userChats/" + senderId + "/" + chatId + "/";
-  const recipientBase = "userChats/" + recipientId + "/" + chatId + "/";
-
-  for (const [base, otherUserId, otherUsername, existingInbox] of [
-    [senderBase, recipientId, recipientNickname, senderInbox],
-    [recipientBase, senderId, senderNickname, recipientInbox],
-  ]) {
-    updates[base + "chatId"] = chatId;
-    updates[base + "otherUserId"] = otherUserId;
-    updates[base + "otherUsername"] = otherUsername || "User";
-
-    // A delayed retry for an older message must not roll back a newer preview.
-    if (
-      !existingInbox ||
-      lastTimestamp >= Number(existingInbox.lastTimestamp || 0)
-    ) {
-      updates[base + "lastMessage"] = lastMessage;
-      updates[base + "lastTimestamp"] = lastTimestamp;
-      updates[base + "lastSenderId"] = senderId;
-    }
-  }
-
-  // Preserve an existing sender unread count; create new senders' entries at zero.
-  if (!senderInbox || typeof senderInbox.unreadCount !== "number") {
-    updates[senderBase + "unreadCount"] = 0;
-  }
-
-  // The private read cursor is separate from both the inbox row and public
-  // read receipts, so a first-message read and hidden receipts work correctly.
-  const recipientLastReadTimestamp = Number(recipientReadTimestamp || 0);
-  const recipientAlreadyReadMessage =
-    Number.isFinite(recipientLastReadTimestamp) &&
-    recipientLastReadTimestamp >= lastTimestamp;
-
-  // The marker is included in the same atomic PATCH as the unread update.
-  // If FCM later fails, a retry will refresh previews without incrementing again.
-  if (!inboxAlreadySynced && !recipientAlreadyReadMessage) {
-    if (recipientInbox && typeof recipientInbox.unreadCount === "number") {
-      updates[recipientBase + "unreadCount"] = { ".sv": { increment: 1 } };
-    } else {
-      updates[recipientBase + "unreadCount"] = 1;
-    }
-  } else if (!recipientInbox || typeof recipientInbox.unreadCount !== "number") {
-    updates[recipientBase + "unreadCount"] = 0;
-  }
-
-  updates[
-    "chats/" + chatId + "/messages/" + messageId + "/workerInboxSynced"
-  ] = true;
-
-  await adminDatabaseRequest(env, adminToken, "", "PATCH", updates);
-
-  // Close the narrow race where the chat is marked read after the initial
-  // inbox snapshot but before this message's increment is committed. ETag
-  // prevents this repair from clearing a newer message that arrived later.
-  await clearDirectUnreadIfAlreadyRead(
-    env,
-    adminToken,
-    recipientId,
-    chatId,
-  );
-}
-
 async function processPreviewEvent(request, env, uid, adminAuth) {
   let body;
   try {
@@ -2623,11 +1685,7 @@ async function processPreviewEvent(request, env, uid, adminAuth) {
   }
 
   const chatId = cleanSegment(body.chatId, "chatId");
-  const chat = await adminDatabaseRequest(
-    env,
-    adminAuth.token,
-    "chats/" + chatId,
-  );
+  const chat = await loadChatMetadata(adminDatabaseRequest, env, adminAuth.token, chatId);
 
   if (!chat) return json({ error: "Chat not found." }, 404);
 
@@ -2655,474 +1713,6 @@ async function processPreviewEvent(request, env, uid, adminAuth) {
   });
 }
 
-async function processMessageEvent(request, env, uid, adminAuth) {
-  let body;
-  try {
-    body = await request.json();
-  } catch (_) {
-    return json({ error: "Invalid JSON body." }, 400);
-  }
-
-  const chatId = cleanSegment(body.chatId, "chatId");
-  const messageId = cleanSegment(body.messageId, "messageId");
-
-  const [chat, message] = await Promise.all([
-    adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
-    adminDatabaseRequest(
-      env,
-      adminAuth.token,
-      "chats/" + chatId + "/messages/" + messageId,
-    ),
-  ]);
-
-  if (!chat) {
-    return json({ error: "Chat not found for this sender." }, 404);
-  }
-
-  // The Android client queues durable WorkManager work as soon as the RTDB
-  // write enters its local offline queue. That event can arrive here before
-  // Firebase has committed the message, so ask WorkManager to retry instead
-  // of permanently rejecting an event that is still waiting to sync.
-  if (!message) {
-    return json({
-      error: "Message has not reached Realtime Database yet.",
-      retryable: true,
-    }, 503);
-  }
-
-  if (message.senderId !== uid) {
-    return json({ error: "Message was not created by this sender." }, 403);
-  }
-
-  const isGroup = chat.type === "group";
-  const systemEvent = typeof message.systemEvent === "string" ?
-    message.systemEvent.trim() :
-    "";
-
-  if (isGroup) {
-    const isMember = Boolean(chat.members && chat.members[uid]);
-    if (!isMember && systemEvent !== "member_left") {
-      return json({ error: "Sender is not a current group member." }, 403);
-    }
-    if (systemEvent && !isMember && systemEvent !== "member_left") {
-      return json({ error: "Invalid group activity sender." }, 403);
-    }
-  } else {
-    const participantA = chat.participantA;
-    const participantB = chat.participantB;
-    if (participantA !== uid && participantB !== uid) {
-      return json({ error: "Sender is not a chat participant." }, 403);
-    }
-  }
-
-  const claim = await claimMessageEvent(
-    env,
-    adminAuth.token,
-    chatId,
-    messageId,
-    uid,
-  );
-
-  if (claim === null) {
-    return json({
-      success: true,
-      alreadyProcessed: true,
-      notificationSent: false,
-    });
-  }
-
-  if (claim.busy === true || typeof claim.claimId !== "string") {
-    return json({
-      success: false,
-      retryable: true,
-      error: "This message notification is already being processed.",
-    }, 503);
-  }
-
-  const claimId = claim.claimId;
-  const notificationAlreadySent = claim.notificationSent === true;
-
-  try {
-    let notificationSent = notificationAlreadySent;
-    let notificationReason = "";
-
-    if (isGroup) {
-      // Keep inbox/unread synchronization independent from the push path.
-      // A slow preview update must not hold up an FCM delivery.
-      const previewSync = syncGroupConversationPreview(
-        env,
-        adminAuth.token,
-        chatId,
-        chat,
-        message,
-        messageId,
-      );
-
-      if (systemEvent) {
-        await previewSync;
-        return await completeClaimedMessageEvent(
-          env,
-          adminAuth.token,
-          chatId,
-          messageId,
-          claimId,
-          {
-            success: true,
-            notificationSent: false,
-            reason: "Group activity messages are not push-notified.",
-          },
-        );
-      }
-
-      const push = (async () => {
-        if (notificationAlreadySent) return true;
-
-        // Membership can change while this message event waits in the
-        // notification queue. Re-read the authoritative group immediately
-        // before choosing recipients so removed members are not included in
-        // either addressed fan-out or the topic membership-tag snapshot.
-        const currentChat = await adminDatabaseRequest(
-          env,
-          adminAuth.token,
-          "chats/" + chatId,
-        );
-        const memberIds = currentGroupNotificationRecipients(currentChat, uid);
-        if (memberIds === null) {
-          notificationReason =
-            "Group notification suppressed because the sender is no longer a current member.";
-          return false;
-        }
-
-        const groupName =
-          typeof currentChat.name === "string" && currentChat.name.trim() !== "" ?
-            currentChat.name.trim() :
-            "Group";
-        const deviceRegistry = await adminDatabaseRequest(
-          env,
-          adminAuth.token,
-          "groupNotificationDevices/" + chatId,
-        );
-
-        const registryIsComplete = hasCompleteGroupNotificationRegistry(
-          memberIds,
-          deviceRegistry,
-        );
-        const canUseDirectDelivery =
-          memberIds.length <= GROUP_DIRECT_NOTIFICATION_MAX_RECIPIENTS &&
-          registryIsComplete;
-
-        if (canUseDirectDelivery) {
-          const previouslySent = claim.notificationSentTo || {};
-          const pendingRecipients = memberIds
-            .filter((memberId) => !previouslySent[memberId])
-            .map((memberId) => ({
-              memberId: memberId,
-              token: typeof deviceRegistry[memberId] === "string" ?
-                deviceRegistry[memberId].trim() :
-                "",
-            }))
-            .filter((recipient) => recipient.token !== "");
-
-          const deliveryResults = await mapWithConcurrencyLimit(
-            pendingRecipients,
-            GROUP_FCM_SEND_CONCURRENCY,
-            async (recipient) => {
-              try {
-                const result = await fcmRequest(
-                  adminAuth.token,
-                  "https://fcm.googleapis.com/v1/projects/" +
-                    encodeURIComponent(adminAuth.projectId) +
-                    "/messages:send",
-                  "POST",
-                  {
-                    message: {
-                      token: recipient.token,
-                      data: buildAddressedMessagePushData({
-                        type: "group_message",
-                        chatId,
-                        messageId,
-                        senderId: uid,
-                        recipientUserId: recipient.memberId,
-                      }),
-                      android: {
-                        priority: "high",
-                      },
-                    },
-                  },
-                  [404],
-                );
-
-                const unregistered =
-                  result.status === 404 ||
-                  JSON.stringify(result.body).includes("UNREGISTERED");
-
-                return {
-                  memberId: recipient.memberId,
-                  completed: result.ok || unregistered,
-                  unregistered: unregistered,
-                };
-              } catch (error) {
-                return {
-                  memberId: recipient.memberId,
-                  completed: false,
-                  error: error,
-                };
-              }
-            },
-          );
-
-          const completedRecipientIds = deliveryResults
-            .filter((result) => result.completed)
-            .map((result) => result.memberId);
-          const staleRecipientIds = deliveryResults
-            .filter((result) => result.unregistered)
-            .map((result) => result.memberId);
-
-          const recipientsRecorded = await markGroupNotificationRecipientsSent(
-            env,
-            adminAuth.token,
-            chatId,
-            messageId,
-            claimId,
-            completedRecipientIds,
-          );
-          if (!recipientsRecorded) {
-            throw new Error("Group notification claim expired before recipient delivery could be recorded.");
-          }
-
-          if (staleRecipientIds.length > 0) {
-            const staleUpdates = {};
-            for (const memberId of staleRecipientIds) {
-              staleUpdates[
-                "groupNotificationDevices/" + chatId + "/" + memberId
-              ] = "";
-            }
-            await adminDatabaseRequest(
-              env,
-              adminAuth.token,
-              "",
-              "PATCH",
-              staleUpdates,
-            );
-          }
-
-          const failedDelivery = deliveryResults.find(
-            (result) => !result.completed,
-          );
-          if (failedDelivery) {
-            throw failedDelivery.error ||
-              new Error("A group member's FCM notification could not be sent.");
-          }
-        } else {
-          // Topics remain the safe fallback while a group is syncing devices
-          // or when a group is too large for the free Worker's subrequest cap.
-          // Include one-way tags for the current recipient set so a stale topic
-          // subscription from a previous account cannot display this message.
-          const recipientAccountTags = await buildRecipientAccountTags(memberIds);
-          await fcmRequest(
-            adminAuth.token,
-            "https://fcm.googleapis.com/v1/projects/" +
-              encodeURIComponent(adminAuth.projectId) +
-              "/messages:send",
-            "POST",
-            {
-              message: {
-                condition:
-                  "'" + await groupTopicName(env, chatId) +
-                  "' in topics && !('" +
-                  await userTopicName(env, uid) + "' in topics)",
-                data: buildGroupTopicMessagePushData({
-                  chatId,
-                  messageId,
-                  senderId: uid,
-                  recipientAccountTags,
-                }),
-                android: {
-                  priority: "high",
-                },
-              },
-            },
-          );
-        }
-
-        const recorded = await markMessageNotificationSent(
-          env,
-          adminAuth.token,
-          chatId,
-          messageId,
-          claimId,
-        );
-        if (!recorded) {
-          throw new Error("Notification claim expired before the FCM delivery could be recorded.");
-        }
-        return true;
-      })();
-
-      const pushResults = await Promise.all([previewSync, push]);
-      notificationSent = pushResults[1];
-    } else {
-      const participantA = chat.participantA;
-      const participantB = chat.participantB;
-      const receiverId = participantA === uid ? participantB : participantA;
-
-      // Start inbox maintenance and push preparation together. The inbox path
-      // performs several RTDB operations; it should not serialize notification
-      // delivery behind those operations.
-      const inboxSync = syncDirectInboxForNewMessage(
-        env,
-        adminAuth.token,
-        chatId,
-        chat,
-        message,
-        messageId,
-      );
-
-      const push = (async () => {
-        if (notificationAlreadySent) return true;
-
-        const [
-          senderBlockedReceiver,
-          receiverBlockedSender,
-          receiverToken,
-        ] = await Promise.all([
-          adminDatabaseRequest(
-            env,
-            adminAuth.token,
-            "blockedUsers/" + uid + "/" + receiverId,
-          ),
-          adminDatabaseRequest(
-            env,
-            adminAuth.token,
-            "blockedUsers/" + receiverId + "/" + uid,
-          ),
-          adminDatabaseRequest(
-            env,
-            adminAuth.token,
-            "privateUsers/" + receiverId + "/fcmToken",
-          ),
-        ]);
-
-        if (senderBlockedReceiver || receiverBlockedSender) {
-          notificationReason = "Notification suppressed because the conversation is blocked.";
-          return false;
-        }
-
-        if (
-          typeof receiverToken !== "string" ||
-          receiverToken.trim() === ""
-        ) {
-          notificationReason = "Recipient has no registered FCM token.";
-          console.warn("Direct message push skipped because the recipient has no FCM token.", {
-            chatId: chatId,
-            messageId: messageId,
-          });
-          return false;
-        }
-
-        const result = await fcmRequest(
-          adminAuth.token,
-          "https://fcm.googleapis.com/v1/projects/" +
-            encodeURIComponent(adminAuth.projectId) +
-            "/messages:send",
-          "POST",
-          {
-            message: {
-              token: receiverToken,
-              data: buildAddressedMessagePushData({
-                type: "chat_message",
-                chatId,
-                messageId,
-                senderId: uid,
-                recipientUserId: receiverId,
-              }),
-              android: {
-                priority: "high",
-              },
-            },
-          },
-          [404],
-        );
-
-        if (
-          result.status === 404 ||
-          JSON.stringify(result.body).includes("UNREGISTERED")
-        ) {
-          await adminDatabaseRequest(
-            env,
-            adminAuth.token,
-            "privateUsers/" + receiverId + "/fcmToken",
-            "DELETE",
-          );
-          notificationReason = "Recipient FCM token is no longer registered.";
-          console.warn("Direct message push skipped because FCM rejected the recipient token.", {
-            chatId: chatId,
-            messageId: messageId,
-          });
-          return false;
-        }
-
-        const recorded = await markMessageNotificationSent(
-          env,
-          adminAuth.token,
-          chatId,
-          messageId,
-          claimId,
-        );
-        if (!recorded) {
-          throw new Error("Notification claim expired before the FCM delivery could be recorded.");
-        }
-        return result.ok;
-      })();
-
-      const pushResults = await Promise.all([inboxSync, push]);
-      notificationSent = pushResults[1];
-    }
-
-    return await completeClaimedMessageEvent(
-      env,
-      adminAuth.token,
-      chatId,
-      messageId,
-      claimId,
-      {
-        success: true,
-        notificationSent: notificationSent,
-        reason: notificationReason || undefined,
-        chatId: chatId,
-        messageId: messageId,
-      },
-    );
-  } catch (eventError) {
-    try {
-      await updateMessageEventReceipt(
-        env,
-        adminAuth.token,
-        chatId,
-        messageId,
-        claimId,
-        "failed",
-        String(eventError),
-      );
-    } catch (receiptError) {
-      console.error("Could not release failed notification claim", {
-        chatId: chatId,
-        messageId: messageId,
-        error: String(receiptError),
-      });
-    }
-    throw eventError;
-  }
-}
-
-/*
- * =========================================================
- * PASSWORD RECOVERY (legacy InChat recovery-code flow)
- * =========================================================
- *
- * This endpoint intentionally does not require a signed-in Firebase user.
- * A one-time recovery code is consumed with an ETag-guarded whole-record PUT
- * so two concurrent requests cannot both use the same code.
- */
 function normalizeRecoveryCode(code) {
   return code.trim().toUpperCase().replace(/-/g, "").replace(/^INCH/, "");
 }
@@ -3773,8 +2363,9 @@ export default {
         request.method === "POST" &&
         url.pathname === "/v1/events/message"
       ) {
-        const adminAuth = await getFirebaseAdminToken(env);
-        return processMessageEvent(request, env, user.uid, adminAuth);
+        return json({
+          error: "Legacy Firebase message events are disabled; encrypted delivery notifications use the mailbox.",
+        }, 410);
       }
 
       if (
@@ -3896,7 +2487,6 @@ export default {
       const chatId = cleanSegment(match[1], "chatId");
       const messageId = cleanSegment(match[2], "messageId");
 
-      await authorizeChat(chatId, user.uid, user.token, env);
 
       if (request.method === "PUT") {
         // Do not accept source media bytes until the app has an authenticated
@@ -3906,30 +2496,10 @@ export default {
         }, 501);
       }
 
-      if (request.method === "GET") {
-        const message = await loadMessage(
-          chatId,
-          messageId,
-          user.token,
-          env,
-        );
-
-        if (
-          !message ||
-          message.attachment?.storageKey !== attachmentKey(chatId, messageId)
-        ) {
-          return new Response("Attachment is not linked to an existing message.", {
-            status: 404,
-          });
-        }
-
-        const adminAuth = await getFirebaseAdminToken(env);
-        return download(env, chatId, messageId, user.uid, adminAuth.token, message);
-      }
-
-      if (request.method === "DELETE") {
-        const adminAuth = await getFirebaseAdminToken(env);
-        return remove(env, chatId, messageId, user.uid, adminAuth.token);
+      if (request.method === "GET" || request.method === "DELETE") {
+        return json({
+          error: "Legacy message-linked attachments are unavailable in the encrypted message path.",
+        }, 410);
       }
 
       return json({ error: "Method not allowed" }, 405);

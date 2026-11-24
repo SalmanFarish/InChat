@@ -1,3 +1,4 @@
+import { loadChatMetadata } from "./chat-metadata.js";
 import {
   isValidOlmMailboxDeliveryMetadata,
   readOlmMailboxDeliveryMetadata,
@@ -252,11 +253,7 @@ export async function syncEncryptedDirectPreview({
     return result(503, { error: "Firebase Admin access is unavailable.", retryable: true });
   }
 
-  const chat = await adminDatabaseRequest(
-    env,
-    adminToken,
-    "chats/" + body.chatId,
-  );
+  const chat = await loadChatMetadata(adminDatabaseRequest, env, adminToken, body.chatId);
   if (!isRecord(chat) || chat.type !== "direct") {
     return result(404, { error: "Direct conversation not found." });
   }

@@ -1,3 +1,4 @@
+import { loadChatMetadata } from "./chat-metadata.js";
 import {
   isValidOlmMailboxDeliveryMetadata,
   readOlmMailboxDeliveryMetadata,
@@ -373,37 +374,26 @@ export async function processEncryptedOlmPush({
     return result(503, { error: "Firebase Admin credentials are unavailable." });
   }
 
-  const chat = await adminDatabaseRequest(
+  const chat = await loadChatMetadata(
+    adminDatabaseRequest,
     env,
     adminAccessToken,
-    "chats/" + input.chatId,
+    input.chatId,
   );
   let conversationPeerUserId = null;
   if (input.groupId) {
-    if (!isRecord(chat) || chat.type !== "group" ||
-        !isRecord(chat.members) || !isRecord(chat.cryptoMembership)) {
-      return result(404, { error: "Group conversation not found." });
-    }
-    const snapshot = chat.cryptoMembership;
-    const memberIds = Object.keys(chat.members).sort();
-    const snapshotIds = isRecord(snapshot.members) ? Object.keys(snapshot.members).sort() : [];
-    // Mirror the Android snapshot parser: malformed roles or an impossible
-    // member count must never become an authorization snapshot, even when the
-    // legacy and crypto maps happen to contain the same malformed values.
-    const validMembershipShape = memberIds.length >= 2 && memberIds.length <= 50 &&
-      memberIds.every((memberId) =>
-        chat.members[memberId] === "admin" || chat.members[memberId] === "member");
-    const sameMembership = validMembershipShape &&
-      memberIds.length === snapshotIds.length &&
-      memberIds.every((memberId, index) =>
-        memberId === snapshotIds[index] &&
-        chat.members[memberId] === snapshot.members[memberId]);
-    if (!sameMembership || snapshot.epoch !== input.membershipEpoch ||
-        !Number.isSafeInteger(snapshot.epoch) || snapshot.epoch < 1) {
+    const members = chat?.cryptoMembership?.members;
+    const memberIds = isRecord(members) ? Object.keys(members) : [];
+    if (!isRecord(chat) || chat.type !== "group" || !isRecord(chat.cryptoMembership) ||
+        !isRecord(members) || memberIds.length < 2 || memberIds.length > 50 ||
+        !Number.isSafeInteger(chat.cryptoMembership.epoch) ||
+        chat.cryptoMembership.epoch !== input.membershipEpoch ||
+        memberIds.some((memberId) =>
+          members[memberId] !== "admin" && members[memberId] !== "member")) {
       return result(409, { error: "Group membership epoch is stale." });
     }
-    if (!Object.prototype.hasOwnProperty.call(chat.members, uid) ||
-        !Object.prototype.hasOwnProperty.call(chat.members, input.recipientUid)) {
+    if (!Object.prototype.hasOwnProperty.call(members, uid) ||
+        !Object.prototype.hasOwnProperty.call(members, input.recipientUid)) {
       return result(403, { error: "Sender or recipient is not a current group member." });
     }
   } else {

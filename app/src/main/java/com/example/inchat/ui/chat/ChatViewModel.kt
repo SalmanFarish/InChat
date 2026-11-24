@@ -276,9 +276,6 @@ class ChatViewModel : ViewModel() {
     private var pendingMessagesJob:
             Job? = null
 
-    private var pendingReconciliationJob:
-            Job? = null
-
     private var readListenerJob:
             Job? = null
 
@@ -441,7 +438,6 @@ class ChatViewModel : ViewModel() {
         _encryptedDeliveryStatuses.value = emptyMap()
         localMessagesJob?.cancel()
         pendingMessagesJob?.cancel()
-        pendingReconciliationJob?.cancel()
         deliveryListenerJob?.cancel()
         readListenerJob?.cancel()
         readReceiptPreferenceJob?.cancel()
@@ -485,7 +481,7 @@ class ChatViewModel : ViewModel() {
         val cachedMessages = chatRepository.getCachedMessages(chatId)
         _messages.value = cachedMessages ?: emptyList()
         _messagesLoaded.value = cachedMessages != null
-        _hasOlderMessages.value = (cachedMessages?.size ?: 0) >= 200
+        _hasOlderMessages.value = false
 
         // Read Room immediately, independently of the Firebase chat verification.
         localMessagesJob = viewModelScope.launch {
@@ -495,7 +491,7 @@ class ChatViewModel : ViewModel() {
                         _messages.value = localMessages
                         _messagesLoaded.value = true
                         if (!hasRequestedOlderMessages) {
-                            _hasOlderMessages.value = localMessages.size >= 200
+                            _hasOlderMessages.value = false
                         }
                     }
                 }
@@ -562,57 +558,8 @@ class ChatViewModel : ViewModel() {
                         otherUserNickname = otherUserNickname
                     )
 
-                    // Reconcile old cached pending messages against Firebase.
-                    // If no legacy record exists, retry only through the current
-                    // authenticated Olm sender; never resume the old plaintext path.
-                    pendingReconciliationJob = viewModelScope.launch {
-                        isConnected.collect { connected ->
-                            if (
-                                connected &&
-                                currentChatId == chatId &&
-                                initializedChatId == chatId
-                            ) {
-                                chatRepository.reconcilePendingOutgoingMessages(
-                                    chatId = chatId,
-                                    receiverId = otherUserId,
-                                    receiverNickname = otherUserNickname.ifBlank { "User" },
-                                    sendEncryptedMessage = { pendingMessage ->
-                                        if (
-                                            pendingMessage.replyTo != null ||
-                                            pendingMessage.attachment != null ||
-                                            pendingMessage.systemEvent.isNotBlank()
-                                        ) {
-                                            Result.failure(
-                                                IllegalStateException(
-                                                    "This older pending message contains unsupported reply or attachment data. It remains saved locally.",
-                                                ),
-                                            )
-                                        } else {
-                                            try {
-                                                withContext(Dispatchers.IO) {
-                                                    encryptedDirectMessageSender.sendTextMessage(
-                                                        senderUserId = currentUserId,
-                                                        recipientUserId = otherUserId,
-                                                        conversationId = chatId,
-                                                        messageId = pendingMessage.id,
-                                                        sentAtMillis = pendingMessage.timestamp,
-                                                        text = pendingMessage.text,
-                                                    )
-                                                }
-                                                Result.success(Unit)
-                                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                                throw cancelled
-                                            } catch (error: Exception) {
-                                                Result.failure(error)
-                                            }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    startDeliveryListener(
+                    // Encrypted Room outbox workers own delivery recovery.
+                    startDeliveryListener(                    startDeliveryListener(
                         chatId = chatId,
                         otherUserId = otherUserId
                     )
@@ -890,7 +837,7 @@ class ChatViewModel : ViewModel() {
                             _messagesLoaded.value = true
 
                             if (!hasRequestedOlderMessages) {
-                                _hasOlderMessages.value = messageList.size >= 200
+                                _hasOlderMessages.value = false
                             }
 
                             // One pass finds the newest incoming message for both
@@ -2586,8 +2533,7 @@ class ChatViewModel : ViewModel() {
                             // The Firebase page ends strictly before the
                             // oldest loaded timestamp, so these IDs cannot overlap.
                             olderMessages + _messages.value
-                        _hasOlderMessages.value =
-                            olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
+                        _hasOlderMessages.value = false
                     }
                 }.onFailure { error ->
                     Log.e("ChatViewModel", "Could not load earlier messages", error)

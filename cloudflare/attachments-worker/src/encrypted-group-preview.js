@@ -1,3 +1,4 @@
+import { loadChatMetadata } from "./chat-metadata.js";
 import {
   isValidOlmMailboxDeliveryMetadata,
   readOlmMailboxDeliveryMetadata,
@@ -193,7 +194,7 @@ export async function syncEncryptedGroupPreview({
   }
 
   const groupId = body.groupId;
-  const chat = await adminDatabaseRequest(env, adminToken, "chats/" + groupId);
+  const chat = await loadChatMetadata(adminDatabaseRequest, env, adminToken, groupId);
   const membership = getCurrentMembership(chat, groupId, body.membershipEpoch);
   if (!membership) {
     return result(409, { error: "Group membership epoch is stale or invalid." });
@@ -286,7 +287,7 @@ export async function syncEncryptedGroupPreview({
 
   // Do not continue using an obsolete roster if membership changed while
   // member inbox entries were being updated.
-  const latestChat = await adminDatabaseRequest(env, adminToken, "chats/" + groupId);
+  const latestChat = await loadChatMetadata(adminDatabaseRequest, env, adminToken, groupId);
   if (!getCurrentMembership(latestChat, groupId, body.membershipEpoch)) {
     return result(409, { error: "Group membership changed during preview synchronization." });
   }

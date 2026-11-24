@@ -31,6 +31,18 @@ function relayRecord(messageId = "group-message-1") {
   };
 }
 
+function metadataValue(database, path) {
+  const parts = path.split("/");
+  if (parts[0] === "chats" && parts.length === 3) {
+    const root = database.get("chats/" + parts[1]);
+    return root && typeof root === "object" ? root[parts[2]] ?? null : null;
+  }
+  if (parts[0] === "chats" && parts.length === 2) {
+    throw new Error("Whole chat root reads are forbidden in this fixture.");
+  }
+  return database.get(path) ?? null;
+}
+
 function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true } = {}) {
   const testEnv = { ...env };
   const database = new Map([
@@ -72,7 +84,7 @@ function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true 
 
   const adminDatabaseRequest = async (_env, token, path) => {
     assert.equal(token, "admin-token");
-    const value = database.get(path);
+    const value = metadataValue(database, path);
     return value === undefined ? null : structuredClone(value);
   };
 

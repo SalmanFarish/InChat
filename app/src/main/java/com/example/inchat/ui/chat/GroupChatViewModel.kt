@@ -109,7 +109,6 @@ class GroupChatViewModel : ViewModel() {
 
     private var connectionListenerJob: Job? = null
     private var pendingMessagesJob: Job? = null
-    private var pendingReconciliationJob: Job? = null
     private var pendingIntentRetryJob: Job? = null
     private var trustChangeRetryJob: Job? = null
     private val pendingOutgoingIntentMutex = MegolmPendingGroupIntentRetryLock.mutex
@@ -178,11 +177,9 @@ class GroupChatViewModel : ViewModel() {
         encryptedMessagesJob?.cancel()
         _encryptedMessages.value = emptyList()
         pendingMessagesJob?.cancel()
-        pendingReconciliationJob?.cancel()
         pendingIntentRetryJob?.cancel()
         trustChangeRetryJob?.cancel()
         pendingMessagesJob = null
-        pendingReconciliationJob = null
         pendingIntentRetryJob = null
         _pendingMessageIds.value = emptySet()
         groupReadJobs.values.forEach { it.cancel() }
@@ -201,7 +198,7 @@ class GroupChatViewModel : ViewModel() {
         val cachedMessages = chatRepository.getCachedMessages(groupId)
         _messages.value = cachedMessages ?: emptyList()
         _messagesLoaded.value = cachedMessages != null
-        _hasOlderMessages.value = (cachedMessages?.size ?: 0) >= 200
+        _hasOlderMessages.value = false
 
         groupJob = viewModelScope.launch {
             try {
@@ -417,7 +414,7 @@ class GroupChatViewModel : ViewModel() {
                         _messages.value = messageList
                         _messagesLoaded.value = true
                         if (!hasRequestedOlderMessages) {
-                            _hasOlderMessages.value = messageList.size >= 200
+                            _hasOlderMessages.value = false
                         }
 
                         val editingId =
@@ -995,38 +992,9 @@ class GroupChatViewModel : ViewModel() {
         }
     }
 
+    /** Legacy Firebase history pages are disabled; the timeline is Room-only. */
     fun loadOlderMessages() {
-        val groupId = listeningGroupId
-        if (groupId.isBlank() || !_hasOlderMessages.value ||
-            _isLoadingOlderMessages.value
-        ) return
-
-        val oldestTimestamp = _messages.value
-            .firstOrNull { it.timestamp > 0L }?.timestamp ?: return
-
-        hasRequestedOlderMessages = true
-        _isLoadingOlderMessages.value = true
-        viewModelScope.launch {
-            try {
-                chatRepository.getOlderMessages(
-                    chatId = groupId,
-                    beforeTimestamp = oldestTimestamp
-                ).onSuccess { olderMessages ->
-                    if (listeningGroupId == groupId) {
-                        _messages.value =
-                            // The Firebase page ends strictly before the
-                            // oldest loaded timestamp, so these IDs cannot overlap.
-                            olderMessages + _messages.value
-                        _hasOlderMessages.value =
-                            olderMessages.size >= ChatRepository.OLDER_MESSAGE_PAGE_SIZE
-                    }
-                }.onFailure { error ->
-                    Log.e("GroupChatViewModel", "Could not load earlier group messages", error)
-                }
-            } finally {
-                _isLoadingOlderMessages.value = false
-            }
-        }
+        _hasOlderMessages.value = false
     }
 
     fun toggleReaction(

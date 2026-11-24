@@ -69,6 +69,19 @@ test("account deletion removes owned E2EE data and rotates retained group member
     }
 
     if (method === "GET") {
+
+      const metadataPath = path.split("/");
+      if (metadataPath.length === 3 && metadataPath[0] === "chats" &&
+          metadataPath[1] === "group_1" &&
+          ["type", "name", "createdBy", "cryptoMembership", "members"].includes(metadataPath[2])) {
+        const field = metadataPath[2];
+        const value = group[field] ?? null;
+        return field === "cryptoMembership" ?
+          jsonResponse(value, { ETag: '"group-v' + groupVersion + '"' }) :
+          jsonResponse(value);
+      }
+      if (metadataPath.length === 3 && metadataPath[0] === "userChats" &&
+          metadataPath[2] === "group_1") return jsonResponse(null);
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
       }
@@ -84,35 +97,20 @@ test("account deletion removes owned E2EE data and rotates retained group member
       if (path === "groupNotificationDevices/group_1/alice") {
         return jsonResponse(null);
       }
-      if (path === "chats/group_1") {
-        const headers = options.headers || {};
-        if (headers["X-Firebase-ETag"] === "true") {
-          return jsonResponse(group, { ETag: '"group-v' + groupVersion + '"' });
-        }
-        return jsonResponse(group);
-      }
-      if (path === "chats/group_1/messages") {
-        return jsonResponse({
-          message_1: {
-            timestamp: 100,
-            senderId: "bob",
-            senderNickname: "Bob",
-            systemEvent: "member_removed",
-          },
-        });
-      }
       throw new Error("Unexpected GET request: " + url.toString());
     }
 
-    if (method === "PATCH" && path === "chats/group_1") {
-      assert.equal(
-        options.headers?.["If-Match"],
-        '"group-v' + groupVersion + '"',
-      );
-      const patch = JSON.parse(options.body);
-      groupPatches.push(patch);
-      Object.assign(group, patch);
+
+    if (method === "PUT" && path === "chats/group_1/cryptoMembership") {
+      assert.equal(options.headers?.["If-Match"], '"group-v' + groupVersion + '"');
+      group.cryptoMembership = JSON.parse(options.body);
+      groupPatches.push({ cryptoMembership: group.cryptoMembership });
       groupVersion += 1;
+      return jsonResponse(null);
+    }
+    if (method === "PUT" && path === "chats/group_1/createdBy") {
+      group.createdBy = JSON.parse(options.body);
+      groupPatches.push({ createdBy: group.createdBy });
       return jsonResponse(null);
     }
 
@@ -158,6 +156,7 @@ test("account deletion removes owned E2EE data and rotates retained group member
     });
 
     assert.deepEqual(group.members, {
+      alice: "admin",
       bob: "admin",
       carol: "member",
     });
@@ -169,20 +168,10 @@ test("account deletion removes owned E2EE data and rotates retained group member
       },
     });
     assert.equal(group.createdBy, "bob");
-    assert.deepEqual(groupPatches, [{
-      members: {
-        bob: "admin",
-        carol: "member",
-      },
-      cryptoMembership: {
-        epoch: 5,
-        members: {
-          bob: "admin",
-          carol: "member",
-        },
-      },
-      createdBy: "bob",
-    }]);
+    assert.deepEqual(groupPatches, [
+      { cryptoMembership: group.cryptoMembership },
+      { createdBy: "bob" },
+    ]);
 
     assert.equal(rootPatches.length, 3);
     const previewPatch = rootPatches[0];
@@ -259,6 +248,13 @@ test("account deletion dissolves a two-member group without overlapping group-ro
     }
 
     if (method === "GET") {
+
+      const metadataPath = path.split("/");
+      if (metadataPath.length === 3 && metadataPath[0] === "chats" &&
+          metadataPath[1] === "group_2" &&
+          ["type", "name", "createdBy", "cryptoMembership", "members"].includes(metadataPath[2])) {
+        return jsonResponse(group[metadataPath[2]] ?? null);
+      }
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
       }
@@ -276,7 +272,6 @@ test("account deletion dissolves a two-member group without overlapping group-ro
       if (path === "userChats/alice") {
         return jsonResponse(inboxIndex);
       }
-      if (path === "chats/group_2") return jsonResponse(group);
       throw new Error("Unexpected GET request: " + url.toString());
     }
 
@@ -388,6 +383,20 @@ test("account deletion processes many groups one bounded batch at a time", async
     }
 
     if (method === "GET") {
+
+      const metadataPath = path.split("/");
+      if (metadataPath.length === 3 && metadataPath[0] === "chats" &&
+          ["group_a", "group_b"].includes(metadataPath[1]) &&
+          ["type", "name", "createdBy", "cryptoMembership", "members"].includes(metadataPath[2])) {
+        const chatId = metadataPath[1];
+        const field = metadataPath[2];
+        const value = groups[chatId][field] ?? null;
+        return field === "cryptoMembership" ?
+          jsonResponse(value, { ETag: '"group-v' + versions[chatId] + '"' }) :
+          jsonResponse(value);
+      }
+      if (metadataPath.length === 3 && metadataPath[0] === "userChats" &&
+          ["group_a", "group_b"].includes(metadataPath[2])) return jsonResponse(null);
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
       }
@@ -403,29 +412,23 @@ test("account deletion processes many groups one bounded batch at a time", async
       const deviceMatch = path.match(/^groupNotificationDevices\/(group_[ab])\/alice$/);
       if (deviceMatch) return jsonResponse(null);
 
-      const chatMatch = path.match(/^chats\/(group_[ab])$/);
-      if (chatMatch) {
-        const chatId = chatMatch[1];
-        if (options.headers?.["X-Firebase-ETag"] === "true") {
-          return jsonResponse(groups[chatId], {
-            ETag: '"group-v' + versions[chatId] + '"',
-          });
-        }
-        return jsonResponse(groups[chatId]);
-      }
-      if (/^chats\/group_[ab]\/messages$/.test(path)) {
-        return jsonResponse({});
+      if (/^chats\/group_[ab]$/.test(path)) {
+        throw new Error("Whole group chat root reads are forbidden in this fixture.");
       }
       throw new Error("Unexpected GET request: " + url.toString());
     }
 
-    if (method === "PATCH" && /^chats\/group_[ab]$/.test(path)) {
+    if (method === "PUT" && /^chats\/group_[ab]\/cryptoMembership$/.test(path)) {
       const chatId = path.split("/")[1];
       assert.equal(options.headers?.["If-Match"], '"group-v' + versions[chatId] + '"');
-      const patch = JSON.parse(options.body);
-      groupPatches.push({ chatId, patch });
-      Object.assign(groups[chatId], patch);
+      groups[chatId].cryptoMembership = JSON.parse(options.body);
+      groupPatches.push({ chatId, patch: groups[chatId].cryptoMembership });
       versions[chatId] += 1;
+      return jsonResponse(null);
+    }
+    if (method === "PUT" && /^chats\/group_[ab]\/createdBy$/.test(path)) {
+      const chatId = path.split("/")[1];
+      groups[chatId].createdBy = JSON.parse(options.body);
       return jsonResponse(null);
     }
 
@@ -481,8 +484,18 @@ test("account deletion processes many groups one bounded batch at a time", async
     });
     assert.deepEqual(Object.keys(membershipIndex), []);
     assert.equal(groupPatches.length, 2);
-    assert.deepEqual(groups.group_a.cryptoMembership.members, groups.group_a.members);
-    assert.deepEqual(groups.group_b.cryptoMembership.members, groups.group_b.members);
+    assert.deepEqual(groups.group_a.members, {
+      alice: "admin", bob: "admin", carol: "member",
+    });
+    assert.deepEqual(groups.group_a.cryptoMembership.members, {
+      bob: "admin", carol: "member",
+    });
+    assert.deepEqual(groups.group_b.members, {
+      alice: "admin", dan: "admin", erin: "member",
+    });
+    assert.deepEqual(groups.group_b.cryptoMembership.members, {
+      dan: "admin", erin: "member",
+    });
     assert.equal(rootPatches.some((patch) =>
       Object.prototype.hasOwnProperty.call(patch, "deviceKeys/alice")
     ), true);
@@ -518,11 +531,40 @@ test("account deletion retries a preview after membership was already committed"
     );
     const method = options.method || "GET";
 
+    if (method === "PUT" && path === "chats/group_retry/cryptoMembership") {
+      assert.equal(options.headers?.["If-Match"], '"group-v' + groupVersion + '"');
+      group.cryptoMembership = JSON.parse(options.body);
+      groupVersion += 1;
+      return jsonResponse(null);
+    }
+    if (method === "PUT" && path === "chats/group_retry/createdBy") {
+      group.createdBy = JSON.parse(options.body);
+      return jsonResponse(null);
+    }
+
     if (method === "PUT" && path === "accountDeletionLocks/alice") {
       return jsonResponse(true);
     }
 
     if (method === "GET") {
+
+      const metadataPath = path.split("/");
+      if (metadataPath.length === 3 && metadataPath[0] === "chats" &&
+          metadataPath[1] === "group_retry" &&
+          ["type", "name", "createdBy", "cryptoMembership", "members"].includes(metadataPath[2])) {
+        const field = metadataPath[2];
+        const value = group[field] ?? null;
+        return field === "cryptoMembership" ?
+          jsonResponse(value, { ETag: '"group-v' + groupVersion + '"' }) :
+          jsonResponse(value);
+      }
+      if (metadataPath.length === 3 && metadataPath[0] === "userChats") {
+        if (failFirstPreviewRead) {
+          failFirstPreviewRead = false;
+          throw new Error("Simulated transient preview read failure.");
+        }
+        return jsonResponse(null);
+      }
       if (path === "deviceKeyClaimsByClaimant/alice") {
         return jsonResponse(null);
       }
@@ -534,29 +576,9 @@ test("account deletion retries a preview after membership was already committed"
       if (path === "groupNotificationDevices/group_retry/alice") {
         return jsonResponse(null);
       }
-      if (path === "chats/group_retry") {
-        if (options.headers?.["X-Firebase-ETag"] === "true") {
-          return jsonResponse(group, { ETag: '"group-v' + groupVersion + '"' });
-        }
-        return jsonResponse(group);
-      }
-      if (path === "chats/group_retry/messages") {
-        if (failFirstPreviewRead) {
-          failFirstPreviewRead = false;
-          throw new Error("Simulated transient preview read failure.");
-        }
-        return jsonResponse({});
-      }
       throw new Error("Unexpected GET request: " + url.toString());
     }
 
-    if (method === "PATCH" && path === "chats/group_retry") {
-      assert.equal(options.headers?.["If-Match"], '"group-v' + groupVersion + '"');
-      const patch = JSON.parse(options.body);
-      Object.assign(group, patch);
-      groupVersion += 1;
-      return jsonResponse(null);
-    }
 
     if (method === "PATCH" && path === "") {
       const patch = JSON.parse(options.body);
@@ -597,7 +619,7 @@ test("account deletion retries a preview after membership was already committed"
       cleanupAccountGroupsForDeletion(env, "alice", adminAuth),
       /Simulated transient preview read failure/,
     );
-    assert.deepEqual(group.members, { bob: "admin", carol: "member" });
+    assert.deepEqual(group.cryptoMembership.members, { bob: "admin", carol: "member" });
     assert.deepEqual(membershipIndex, { group_retry: true });
     assert.equal(rootPatches.length, 0);
 

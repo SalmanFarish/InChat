@@ -9,63 +9,100 @@ import {
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "../src/group-crypto-membership.js";
 
+const environment = {
+  FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com/",
+};
+
 function groupFixture(group, { onConditionalWrite } = {}) {
   let version = 1;
   let reads = 0;
   let writes = 0;
-  const patches = [];
-  const fetchImpl = async (_url, options = {}) => {
+  const readPaths = [];
+  const writePaths = [];
+
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const path = decodeURIComponent(
+      url.pathname.replace(/^\/+/, "").replace(/\.json$/, ""),
+    );
     const method = options.method || "GET";
+    const child = path.startsWith("chats/group-1/") ?
+      path.slice("chats/group-1/".length) :
+      "";
+
     if (method === "GET") {
       reads += 1;
-      return new Response(JSON.stringify(structuredClone(group)), {
+      readPaths.push(path);
+      if (path === "chats/group-1") {
+        throw new Error("Whole chat root reads are forbidden.");
+      }
+
+      let value;
+      if (child === "type") value = group.type ?? null;
+      else if (child === "createdBy") value = group.createdBy ?? null;
+      else if (child === "members") value = group.members ?? null;
+      else if (child === "cryptoMembership") value = group.cryptoMembership ?? null;
+      else throw new Error("Unexpected membership metadata read: " + path);
+
+      return new Response(JSON.stringify(value), {
         status: 200,
-        headers: { ETag: '"v' + version + '"' },
+        headers: child === "cryptoMembership" ? { ETag: '"v' + version + '"' } : {},
       });
     }
-    assert.equal(method, "PATCH");
-    writes += 1;
-    const expected = '"v' + version + '"';
-    if (options.headers["If-Match"] !== expected) {
-      return new Response("precondition failed", { status: 412 });
-    }
-    if (onConditionalWrite) {
-      const shouldReject = await onConditionalWrite({
-        group,
-        version,
-        writeNumber: writes,
-      });
-      if (shouldReject) {
-        version += 1;
+
+    assert.equal(method, "PUT", "Only metadata child PUTs are expected.");
+    writePaths.push(path);
+    const body = JSON.parse(options.body);
+
+    if (child === "cryptoMembership") {
+      writes += 1;
+      if (options.headers?.["If-Match"] !== '"v' + version + '"') {
         return new Response("precondition failed", { status: 412 });
       }
+      if (onConditionalWrite) {
+        const reject = await onConditionalWrite({
+          group,
+          version,
+          writeNumber: writes,
+        });
+        if (reject) {
+          version += 1;
+          return new Response("precondition failed", { status: 412 });
+        }
+      }
+      group.cryptoMembership = body;
+      version += 1;
+      return new Response("null", { status: 200 });
     }
-    const patch = JSON.parse(options.body);
-    patches.push(patch);
-    Object.assign(group, patch);
-    version += 1;
-    return new Response("null", { status: 200 });
+
+    if (child === "createdBy") {
+      group.createdBy = body;
+      return new Response("null", { status: 200 });
+    }
+
+    throw new Error("Unexpected membership metadata write: " + path);
   };
+
   return {
     group,
-    patches,
+    readPaths,
+    writePaths,
     fetchImpl,
     get reads() { return reads; },
     get writes() { return writes; },
   };
 }
 
-const environment = { FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com/" };
-
-test("new group membership starts at crypto epoch one", () => {
+test("new groups start at crypto membership epoch one", () => {
   assert.equal(INITIAL_GROUP_CRYPTO_MEMBERSHIP_EPOCH, 1);
   assert.equal(currentGroupCryptoMembershipEpoch(null), 1);
   assert.equal(currentGroupCryptoMembershipEpoch(undefined), 1);
 });
 
-test("legacy group advances from implicit baseline one on first real membership change", () => {
+test("a legacy group uses epoch one as its baseline", () => {
   assert.equal(nextGroupCryptoMembershipEpoch(undefined), 2);
   assert.equal(membershipEpochUpdate(null, true), 2);
+  assert.equal(membershipEpochUpdate(null, false), null);
 });
 
 test("member additions and removals advance the epoch monotonically", () => {
@@ -74,7 +111,7 @@ test("member additions and removals advance the epoch monotonically", () => {
   assert.equal(membershipEpochUpdate(4, true), 5);
 });
 
-test("role changes and no-op membership requests do not rotate the epoch", () => {
+test("role-only changes do not rotate the membership epoch", () => {
   assert.equal(membershipEpochUpdate(7, false), null);
   assert.equal(membershipEpochUpdate(undefined, false), null);
 });
@@ -89,13 +126,15 @@ test("rejects invalid, fractional, negative and exhausted epochs", () => {
   );
 });
 
-test("commits member map and next epoch together under one root ETag", async () => {
+test("membership and epoch update atomically on the cryptoMembership child only", async () => {
+  const legacyMembers = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
-    cryptoMembership: { epoch: 4, members: { alice: "admin", bob: "member" } },
-    name: "test",
+    createdBy: "alice",
+    members: { ...legacyMembers },
+    cryptoMembership: { epoch: 4, members: { ...legacyMembers } },
   });
+
   const result = await mutateGroupMembersWithEtag(
     environment,
     "admin-token",
@@ -109,7 +148,7 @@ test("commits member map and next epoch together under one root ETag", async () 
   );
 
   assert.equal(result.cryptoMembershipEpoch, 5);
-  assert.deepEqual(fixture.group.members, {
+  assert.deepEqual(result.members, {
     alice: "admin",
     bob: "member",
     carol: "member",
@@ -122,32 +161,22 @@ test("commits member map and next epoch together under one root ETag", async () 
       carol: "member",
     },
   });
-  assert.deepEqual(fixture.patches, [{
-    members: {
-      alice: "admin",
-      bob: "member",
-      carol: "member",
-    },
-    cryptoMembership: {
-      epoch: 5,
-      members: {
-        alice: "admin",
-        bob: "member",
-        carol: "member",
-      },
-    },
-  }]);
+  assert.deepEqual(fixture.group.members, legacyMembers);
+  assert.deepEqual(fixture.writePaths, ["chats/group-1/cryptoMembership"]);
+  assert.ok(fixture.readPaths.every((path) => path !== "chats/group-1"));
 });
 
-test("membership changes can transfer group creator in the same ETag-protected root patch", async () => {
+test("creator metadata updates separately after a canonical roster CAS", async () => {
+  const legacyMembers = {
+    alice: "admin",
+    bob: "admin",
+    carol: "member",
+  };
   const fixture = groupFixture({
     type: "group",
     createdBy: "alice",
-    members: { alice: "admin", bob: "admin", carol: "member" },
-    cryptoMembership: {
-      epoch: 3,
-      members: { alice: "admin", bob: "admin", carol: "member" },
-    },
+    members: { ...legacyMembers },
+    cryptoMembership: { epoch: 3, members: { ...legacyMembers } },
   });
 
   const result = await mutateGroupMembersWithEtag(
@@ -156,10 +185,10 @@ test("membership changes can transfer group creator in the same ETag-protected r
     "group-1",
     (members, currentChat) => {
       assert.equal(currentChat.createdBy, "alice");
-      const nextMembers = { ...members };
-      delete nextMembers.alice;
+      const next = { ...members };
+      delete next.alice;
       return {
-        members: nextMembers,
+        members: next,
         cryptoMembershipChanged: true,
         createdBy: "bob",
       };
@@ -169,45 +198,31 @@ test("membership changes can transfer group creator in the same ETag-protected r
 
   assert.equal(result.cryptoMembershipEpoch, 4);
   assert.equal(fixture.group.createdBy, "bob");
-  assert.deepEqual(fixture.group.members, {
-    bob: "admin",
-    carol: "member",
-  });
   assert.deepEqual(fixture.group.cryptoMembership, {
     epoch: 4,
-    members: {
-      bob: "admin",
-      carol: "member",
-    },
+    members: { bob: "admin", carol: "member" },
   });
-  assert.deepEqual(fixture.patches, [{
-    members: {
-      bob: "admin",
-      carol: "member",
-    },
-    cryptoMembership: {
-      epoch: 4,
-      members: {
-        bob: "admin",
-        carol: "member",
-      },
-    },
-    createdBy: "bob",
-  }]);
+  assert.deepEqual(fixture.group.members, legacyMembers);
+  assert.deepEqual(fixture.writePaths, [
+    "chats/group-1/cryptoMembership",
+    "chats/group-1/createdBy",
+  ]);
 });
 
-test("role-only update patches members without advancing or inventing an epoch", async () => {
+test("role-only update writes the roster without advancing the epoch", async () => {
+  const members = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
-    cryptoMembership: { epoch: 6, members: { alice: "admin", bob: "member" } },
+    members: { ...members },
+    cryptoMembership: { epoch: 6, members: { ...members } },
   });
+
   const result = await mutateGroupMembersWithEtag(
     environment,
     "admin-token",
     "group-1",
-    (members) => ({
-      members: { ...members, bob: "admin" },
+    (current) => ({
+      members: { ...current, bob: "admin" },
       cryptoMembershipChanged: false,
     }),
     fixture.fetchImpl,
@@ -218,20 +233,17 @@ test("role-only update patches members without advancing or inventing an epoch",
     epoch: 6,
     members: { alice: "admin", bob: "admin" },
   });
-  assert.deepEqual(fixture.patches, [{
-    members: { alice: "admin", bob: "admin" },
-    cryptoMembership: {
-      epoch: 6,
-      members: { alice: "admin", bob: "admin" },
-    },
-  }]);
+  assert.deepEqual(fixture.group.members, members);
+  assert.deepEqual(fixture.writePaths, ["chats/group-1/cryptoMembership"]);
 });
 
-test("no-op membership request makes no write and keeps the effective legacy epoch", async () => {
+test("no-op membership requests do not write", async () => {
+  const members = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
+    members,
   });
+
   const result = await mutateGroupMembersWithEtag(
     environment,
     "admin-token",
@@ -243,31 +255,27 @@ test("no-op membership request makes no write and keeps the effective legacy epo
   assert.equal(result.changed, false);
   assert.equal(result.cryptoMembershipEpoch, 1);
   assert.equal(fixture.writes, 0);
-  assert.equal(fixture.reads, 1);
-  assert.equal(fixture.group.cryptoMembershipEpoch, undefined);
+  assert.deepEqual(fixture.group.members, members);
+  assert.equal(fixture.group.cryptoMembership, undefined);
+  assert.ok(fixture.readPaths.includes("chats/group-1/members"));
 });
 
-test("retries a stale ETag against the latest membership and epoch without reusing an epoch", async () => {
+test("a stale ETag retries from the latest canonical membership snapshot", async () => {
   let changedElsewhere = false;
+  const legacyMembers = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
-    cryptoMembership: {
-      epoch: 2,
-      members: { alice: "admin", bob: "member" },
-    },
+    members: { ...legacyMembers },
+    cryptoMembership: { epoch: 2, members: { ...legacyMembers } },
   }, {
     onConditionalWrite: ({ group, writeNumber }) => {
-      if (writeNumber === 1 && !changedElsewhere) {
-        changedElsewhere = true;
-        group.members = { ...group.members, carol: "member" };
-        group.cryptoMembership = {
-          epoch: 3,
-          members: group.members,
-        };
-        return true;
-      }
-      return false;
+      if (writeNumber !== 1 || changedElsewhere) return false;
+      changedElsewhere = true;
+      group.cryptoMembership = {
+        epoch: 3,
+        members: { ...group.cryptoMembership.members, carol: "member" },
+      };
+      return true;
     },
   });
 
@@ -282,22 +290,25 @@ test("retries a stale ETag against the latest membership and epoch without reusi
     fixture.fetchImpl,
   );
 
-  assert.equal(fixture.reads, 2);
-  assert.equal(fixture.writes, 2);
   assert.equal(result.cryptoMembershipEpoch, 4);
-  assert.equal(fixture.group.cryptoMembership.epoch, 4);
-  assert.deepEqual(fixture.group.members, {
-    alice: "admin",
-    bob: "member",
-    carol: "member",
-    dave: "member",
+  assert.deepEqual(fixture.group.cryptoMembership, {
+    epoch: 4,
+    members: {
+      alice: "admin",
+      bob: "member",
+      carol: "member",
+      dave: "member",
+    },
   });
-  assert.equal(fixture.patches.length, 1);
-  assert.equal(fixture.patches[0].cryptoMembership.epoch, 4);
-  assert.deepEqual(fixture.patches[0].cryptoMembership.members, fixture.group.members);
+  assert.deepEqual(fixture.group.members, legacyMembers);
+  assert.equal(fixture.writes, 2);
+  assert.deepEqual(fixture.writePaths, [
+    "chats/group-1/cryptoMembership",
+    "chats/group-1/cryptoMembership",
+  ]);
 });
 
-test("fails closed after repeated membership ETag conflicts", async () => {
+test("repeated membership ETag conflicts fail closed", async () => {
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
@@ -323,10 +334,9 @@ test("fails closed after repeated membership ETag conflicts", async () => {
     (error) => error instanceof Response && error.status === 409,
   );
   assert.equal(fixture.writes, 5);
-  assert.equal(fixture.patches.length, 0);
 });
 
-test("rejects malformed group state and invalid persisted epoch without writing", async () => {
+test("malformed groups and invalid persisted epochs fail without writing", async () => {
   const malformed = groupFixture({
     type: "direct",
     members: { alice: "admin", bob: "member" },
@@ -344,7 +354,6 @@ test("rejects malformed group state and invalid persisted epoch without writing"
 
   const invalidEpoch = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
     cryptoMembership: {
       epoch: 2.5,
       members: { alice: "admin", bob: "member" },
@@ -366,11 +375,13 @@ test("rejects malformed group state and invalid persisted epoch without writing"
   assert.equal(invalidEpoch.writes, 0);
 });
 
-test("authorized current member initializes a legacy snapshot at epoch one", async () => {
+test("an authorized legacy member initializes the canonical snapshot at epoch one", async () => {
+  const legacyMembers = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
+    members: { ...legacyMembers },
   });
+
   const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
     environment,
     "admin-token",
@@ -383,23 +394,26 @@ test("authorized current member initializes a legacy snapshot at epoch one", asy
   assert.equal(result.changed, true);
   assert.deepEqual(fixture.group.cryptoMembership, {
     epoch: 1,
-    members: { alice: "admin", bob: "member" },
+    members: legacyMembers,
   });
-  assert.deepEqual(fixture.patches, [{
-    cryptoMembership: {
-      epoch: 1,
-      members: { alice: "admin", bob: "member" },
-    },
-  }]);
+  assert.deepEqual(fixture.group.members, legacyMembers);
+  assert.deepEqual(fixture.writePaths, ["chats/group-1/cryptoMembership"]);
 });
 
-test("matching initialized snapshot is returned without another write", async () => {
-  const members = { alice: "admin", bob: "member" };
+test("an existing crypto snapshot is authoritative over a stale legacy roster", async () => {
   const fixture = groupFixture({
     type: "group",
-    members,
-    cryptoMembership: { epoch: 9, members },
+    members: {
+      alice: "admin",
+      bob: "member",
+      carol: "member",
+    },
+    cryptoMembership: {
+      epoch: 5,
+      members: { alice: "admin", bob: "member" },
+    },
   });
+
   const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
     environment,
     "admin-token",
@@ -407,42 +421,28 @@ test("matching initialized snapshot is returned without another write", async ()
     "alice",
     fixture.fetchImpl,
   );
-
-  assert.equal(result.epoch, 9);
+  assert.equal(result.epoch, 5);
   assert.equal(result.changed, false);
-  assert.equal(fixture.writes, 0);
-  assert.equal(fixture.reads, 1);
-});
-
-test("membership drift repairs snapshot only after advancing the epoch", async () => {
-  const fixture = groupFixture({
-    type: "group",
-    members: { alice: "admin", bob: "member", carol: "member" },
-    cryptoMembership: {
-      epoch: 5,
-      members: { alice: "admin", bob: "member" },
-    },
-  });
-  const result = await ensureGroupCryptoMembershipSnapshotWithEtag(
-    environment,
-    "admin-token",
-    "group-1",
-    "carol",
-    fixture.fetchImpl,
+  assert.deepEqual(result.members, { alice: "admin", bob: "member" });
+  await assert.rejects(
+    ensureGroupCryptoMembershipSnapshotWithEtag(
+      environment,
+      "admin-token",
+      "group-1",
+      "carol",
+      fixture.fetchImpl,
+    ),
+    (error) => error instanceof Response && error.status === 403,
   );
-
-  assert.equal(result.epoch, 6);
-  assert.deepEqual(fixture.group.cryptoMembership, {
-    epoch: 6,
-    members: { alice: "admin", bob: "member", carol: "member" },
-  });
+  assert.equal(fixture.writes, 0);
 });
 
-test("removed or non-member accounts cannot initialize a group snapshot", async () => {
+test("removed or non-members cannot initialize a legacy snapshot", async () => {
   const fixture = groupFixture({
     type: "group",
     members: { alice: "admin", bob: "member" },
   });
+
   await assert.rejects(
     ensureGroupCryptoMembershipSnapshotWithEtag(
       environment,
@@ -456,24 +456,19 @@ test("removed or non-member accounts cannot initialize a group snapshot", async 
   assert.equal(fixture.writes, 0);
 });
 
-test("initialization retries against a concurrent member change and uses its epoch", async () => {
+test("initialization retries after a concurrent canonical membership change", async () => {
+  const legacyMembers = { alice: "admin", bob: "member" };
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
+    members: { ...legacyMembers },
   }, {
     onConditionalWrite: ({ group, writeNumber }) => {
-      if (writeNumber === 1) {
-        group.members = {
-          ...group.members,
-          carol: "member",
-        };
-        group.cryptoMembership = {
-          epoch: 2,
-          members: group.members,
-        };
-        return true;
-      }
-      return false;
+      if (writeNumber !== 1) return false;
+      group.cryptoMembership = {
+        epoch: 2,
+        members: { ...legacyMembers, carol: "member" },
+      };
+      return true;
     },
   });
 
@@ -484,21 +479,26 @@ test("initialization retries against a concurrent member change and uses its epo
     "alice",
     fixture.fetchImpl,
   );
+
   assert.equal(result.epoch, 2);
   assert.equal(result.changed, false);
-  assert.equal(fixture.reads, 2);
+  assert.deepEqual(result.members, {
+    alice: "admin",
+    bob: "member",
+    carol: "member",
+  });
   assert.equal(fixture.writes, 1);
 });
 
-test("malformed existing snapshot epoch fails closed", async () => {
+test("malformed canonical snapshot epochs fail closed", async () => {
   const fixture = groupFixture({
     type: "group",
-    members: { alice: "admin", bob: "member" },
     cryptoMembership: {
       epoch: 1.25,
       members: { alice: "admin", bob: "member" },
     },
   });
+
   await assert.rejects(
     ensureGroupCryptoMembershipSnapshotWithEtag(
       environment,
@@ -512,3 +512,29 @@ test("malformed existing snapshot epoch fails closed", async () => {
   assert.equal(fixture.writes, 0);
 });
 
+test("group membership operations never request the chat root or messages subtree", async () => {
+  const legacyMembers = { alice: "admin", bob: "member" };
+  const fixture = groupFixture({
+    type: "group",
+    createdBy: "alice",
+    members: { ...legacyMembers },
+    cryptoMembership: { epoch: 4, members: { ...legacyMembers } },
+    messages: { "legacy-1": { text: "must not be fetched" } },
+  });
+
+  const result = await mutateGroupMembersWithEtag(
+    environment,
+    "admin-token",
+    "group-1",
+    (members) => ({
+      members: { ...members, carol: "member" },
+      cryptoMembershipChanged: true,
+    }),
+    fixture.fetchImpl,
+  );
+
+  assert.equal(result.cryptoMembershipEpoch, 5);
+  assert.ok(fixture.readPaths.every((path) => !path.endsWith("/messages") && path !== "chats/group-1"));
+  assert.deepEqual(fixture.writePaths, ["chats/group-1/cryptoMembership"]);
+  assert.deepEqual(fixture.group.members, legacyMembers);
+});
