@@ -1159,6 +1159,88 @@ class OlmDeliveryWorkerRunnerTest {
         assertFalse(transportEvents.any { it.startsWith("upload:") })
     }
 
+    @Test
+    fun expiredMailboxDeliveryIsQuarantinedInsteadOfRetriedWithAnExpiredId() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "expired-delivery",
+            listOf(prepared("sender-device", "phone")),
+        )
+        val events = mutableListOf<String>()
+        val attemptedIds = mutableListOf<String>()
+        val transport = FakeTransport(
+            events = events,
+            acknowledgements = mutableListOf(),
+            uploadedDeliveryIds = attemptedIds,
+            uploadFailure = OlmMailboxHttpException(
+                statusCode = 410,
+                retryable = false,
+                message = "delivery expired",
+            ),
+        )
+        val runner = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+        )
+
+        val first = runner.run()
+        val failed = store.rows.values.single()
+        assertEquals(0, first.uploaded)
+        assertFalse(first.retryRequired)
+        assertEquals(OlmDeliveryStatus.FAILED, failed.status)
+        assertEquals("relay_delivery_expired", failed.lastError)
+        assertEquals(1, failed.attemptCount)
+
+        val next = runner.run()
+        assertFalse(next.retryRequired)
+        assertEquals(listOf(failed.deliveryId), attemptedIds)
+        assertEquals(1, events.count { it.startsWith("upload:") })
+    }
+
+    @Test
+    fun retryableMailboxFailureKeepsExponentialBackoffRecovery() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "temporary-mailbox-failure",
+            listOf(prepared("sender-device", "phone")),
+        )
+        val transport = FakeTransport(
+            events = mutableListOf(),
+            acknowledgements = mutableListOf(),
+            uploadFailure = OlmMailboxHttpException(
+                statusCode = 503,
+                retryable = true,
+                message = "mailbox unavailable",
+            ),
+        )
+
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+        ).run()
+
+        val queued = store.rows.values.single()
+        assertEquals(0, result.uploaded)
+        assertTrue(result.retryRequired)
+        assertEquals(OlmDeliveryStatus.QUEUED, queued.status)
+        assertEquals("relay_upload_failed", queued.lastError)
+        assertEquals(12_000L, queued.nextAttemptAtMillis)
+    }
+
     private fun prepared(
         senderDeviceId: String,
         recipientDeviceId: String,
@@ -1290,6 +1372,7 @@ class OlmDeliveryWorkerRunnerTest {
         private val uploadedDeliveryIds: MutableList<String> = mutableListOf(),
         var failAcknowledgementRemoval: Boolean = false,
         var failAcknowledgementRead: Boolean = false,
+        private val uploadFailure: Exception? = null,
     ) : OlmOutgoingDeliveryTransport {
         override suspend fun upload(
             delivery: QueuedOlmDeviceDelivery,
@@ -1298,6 +1381,7 @@ class OlmDeliveryWorkerRunnerTest {
             events += "upload:" + delivery.messageId
             uploadedDeliveryIds += delivery.deliveryId
             check(delivery.senderDeviceId == senderDeviceId)
+            uploadFailure?.let { throw it }
             if (failUploads) throw IllegalStateException("temporary relay failure")
             return FirebaseOlmUploadResult.STORED
         }

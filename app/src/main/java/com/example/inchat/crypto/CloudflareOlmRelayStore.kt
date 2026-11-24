@@ -108,7 +108,7 @@ internal class UrlConnectionOlmMailboxHttpClient(
                 }.getOrNull() ?: "Encrypted mailbox request failed."
                 throw OlmMailboxHttpException(
                     statusCode = status,
-                    retryable = status == 408 || status == 429 || status >= 500,
+                    retryable = OlmDeliveryRelayFailurePolicy.isRetryableHttpStatus(status),
                     message = "Encrypted mailbox request failed ($status): " + message.take(240),
                 )
             }

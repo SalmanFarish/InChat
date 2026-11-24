@@ -92,6 +92,33 @@ internal class OlmDeliveryWorkerRunner(
                 transport.upload(delivery, senderDeviceId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (failure: OlmMailboxHttpException) {
+                val transitioned = withContext(ioDispatcher) {
+                    val now = clock().coerceAtLeast(0L)
+                    if (failure.retryable) {
+                        queue.retry(
+                            delivery = delivery,
+                            nowMillis = now,
+                            errorCode = RELAY_UPLOAD_ERROR,
+                        )
+                    } else {
+                        queue.failPermanently(
+                            delivery = delivery,
+                            nowMillis = now,
+                            errorCode = OlmDeliveryRelayFailurePolicy.permanentErrorCode(
+                                failure.statusCode,
+                            ),
+                        )
+                    }
+                }
+                return OlmDeliveryWorkerRunResult(
+                    uploaded = uploaded,
+                    acknowledged = acknowledgements.removed,
+                    unmatchedAcknowledgements = acknowledgements.unmatched,
+                    // A permanent rejection is settled only when this claim was
+                    // successfully quarantined. A stale lease still needs recovery.
+                    retryRequired = failure.retryable || !transitioned,
+                )
             } catch (_: Exception) {
                 withContext(ioDispatcher) {
                     queue.retry(
