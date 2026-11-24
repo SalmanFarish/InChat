@@ -265,7 +265,10 @@ async function authorizeEnqueue({ input, env, adminToken, adminDatabaseRequest }
   }
 
   if (input.conversationType === "direct") {
-    if (!isRecord(chat) || chat.type !== "direct") {
+    // Direct chats are stored as participantA/participantB records and
+    // intentionally have no "type" field. Only explicit group records are
+    // excluded from this direct-conversation authorization path.
+    if (!isRecord(chat) || chat.type === "group") {
       return failure(404, "Direct conversation not found.");
     }
     const participantA = chat.participantA;
@@ -603,9 +606,6 @@ export class OlmDeviceMailboxDurableObject {
       const message = error && typeof error.message === "string" ? error.message : "";
       if (message.includes("SQLITE_FULL") || message.includes("quota")) {
         return failure(503, "Free mailbox storage capacity is temporarily exhausted.", true);
-      }
-      if (this.env.OLM_MAILBOX_DEBUG_ERRORS === true) {
-        return failure(500, "Mailbox test diagnostic: " + (message || "unknown error"));
       }
       return failure(503, "Mailbox storage is temporarily unavailable.", true);
     }

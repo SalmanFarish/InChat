@@ -100,10 +100,7 @@ function req(path, method = "GET", body = undefined) {
 async function json(response) { return response.json(); }
 
 function makeEnvironment() {
-  const env = {
-    OLM_MAILBOX_RETENTION_MS: String(RETENTION),
-    OLM_MAILBOX_DEBUG_ERRORS: true,
-  };
+  const env = { OLM_MAILBOX_RETENTION_MS: String(RETENTION) };
   const namespace = new TestMailboxNamespace(env);
   env.OLM_MAILBOX = namespace;
   return { env, namespace };
@@ -116,7 +113,7 @@ function published(deviceId) {
 function workerFixture(overrides = {}) {
   const { env, namespace } = makeEnvironment();
   const database = new Map([
-    ["chats/alice_bob", { type: "direct", participantA: "alice", participantB: "bob" }],
+    ["chats/alice_bob", { participantA: "alice", participantB: "bob" }],
     ["deviceKeys/alice/alice-device", published("alice-device")],
     ["deviceKeys/bob/bob-device", published("bob-device")],
   ]);
@@ -155,7 +152,7 @@ function apiEnqueueBody(overrides = {}) {
 test("authenticated direct enqueue stores ciphertext in the recipient-device mailbox", async () => {
   const state = workerFixture();
   const response = await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody());
-  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(response.status, 200);
   assert.equal((await json(response)).accepted, true);
 
   const inbox = await state.dispatch("/v1/olm/mailbox/inbox?deviceId=bob-device", "GET", undefined, "bob");
