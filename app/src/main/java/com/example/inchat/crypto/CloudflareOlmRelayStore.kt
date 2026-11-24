@@ -57,6 +57,7 @@ internal class OlmMailboxHttpException(
     val statusCode: Int,
     val retryable: Boolean,
     message: String,
+    val errorCode: String? = null,
 ) : IOException(message)
 
 /**
@@ -103,13 +104,21 @@ internal class UrlConnectionOlmMailboxHttpClient(
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val responseText = stream?.use { it.readUtf8Limited(MAX_RESPONSE_BYTES) }.orEmpty()
             if (status !in 200..299) {
-                val message = runCatching {
-                    JSONObject(responseText).optString("error").takeIf(String::isNotBlank)
-                }.getOrNull() ?: "Encrypted mailbox request failed."
+                val errorPayload = runCatching {
+                    JSONObject(responseText)
+                }.getOrNull()
+                val message = errorPayload
+                    ?.optString("error")
+                    ?.takeIf(String::isNotBlank)
+                    ?: "Encrypted mailbox request failed."
+                val errorCode = errorPayload
+                    ?.optString("code")
+                    ?.takeIf(String::isNotBlank)
                 throw OlmMailboxHttpException(
                     statusCode = status,
                     retryable = OlmDeliveryRelayFailurePolicy.isRetryableHttpStatus(status),
                     message = "Encrypted mailbox request failed ($status): " + message.take(240),
+                    errorCode = errorCode,
                 )
             }
             if (responseText.isBlank()) JSONObject() else JSONObject(responseText)
@@ -318,10 +327,7 @@ internal class CloudflareOlmRelayStore(
             )
         } catch (error: OlmMailboxHttpException) {
             val revokedDevice = error.statusCode == 404 &&
-                error.message.orEmpty().contains(
-                    "device is no longer published.",
-                    ignoreCase = true,
-                )
+                error.errorCode == DEVICE_NOT_PUBLISHED_ERROR_CODE
             if (!revokedDevice) throw error
 
             // A revoked device can no longer read its normal inbox/ACK pages.
@@ -406,6 +412,7 @@ internal class CloudflareOlmRelayStore(
             }
 
     private companion object {
+        const val DEVICE_NOT_PUBLISHED_ERROR_CODE = "device_not_published"
         const val PAGE_SIZE = 50
         const val MAX_INBOX_PAGES = 5
         const val MAX_ACKNOWLEDGEMENT_PAGES = 11
