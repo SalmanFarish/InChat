@@ -913,12 +913,28 @@ function groupPreKeyClaim(claimantUid, groupId = "group", membershipEpoch = 3) {
   };
 }
 
+test("a prekey claim requires a claimant-owned reverse index and users cannot edit another claimant index", async () => {
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+  const indexPath = "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1";
+
+  await assertFails(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
+  await assertSucceeds(set(ref(bobDb, indexPath), true));
+  await assertSucceeds(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
+  await assertSucceeds(get(ref(bobDb, "deviceKeyClaimsByClaimant/bob")));
+  await assertFails(get(ref(aliceDb, "deviceKeyClaimsByClaimant/bob")));
+  await assertFails(set(ref(aliceDb, indexPath), true));
+  await assertFails(set(ref(bobDb, indexPath), false));
+});
+
 test("prekey claim metadata is visible only to its owner and claimant", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
   const malloryDb = testEnv.authenticatedContext("mallory").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
   await assertSucceeds(get(ref(aliceDb, path)));
   await assertSucceeds(get(ref(bobDb, path)));
@@ -929,6 +945,9 @@ test("authenticated clients can claim a one-time prekey exactly once", async () 
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
+
+  await assertSucceeds(set(ref(aliceDb, "deviceKeyClaimsByClaimant/alice/alice/device-alice-1/one-time-1"), true));
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
 
   const [aliceResult, bobResult] = await Promise.allSettled([
     set(ref(aliceDb, path), directPreKeyClaim("alice", "bob")),
@@ -953,6 +972,7 @@ test("a one-time prekey cannot be claimed after its device is revoked", async ()
   const bobDb = testEnv.authenticatedContext("bob").database();
   const claimPath = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(
     set(ref(aliceDb, "deviceKeys/alice/device-alice-1"), null),
   );
@@ -972,6 +992,7 @@ test("unauthenticated clients cannot claim a one-time prekey", async () => {
 test("an unrelated authenticated account cannot exhaust a direct chat prekey", async () => {
   const malloryDb = testEnv.authenticatedContext("mallory").database();
 
+  await assertSucceeds(set(ref(malloryDb, "deviceKeyClaimsByClaimant/mallory/alice/device-alice-1/one-time-1"), true));
   await assertFails(set(
     ref(malloryDb, "deviceKeyClaims/alice/device-alice-1/one-time-1"),
     directPreKeyClaim("mallory", "alice"),
@@ -992,6 +1013,7 @@ test("group prekey claims require both accounts in the current server-authored e
   const malloryDb = testEnv.authenticatedContext("mallory").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(set(ref(bobDb, path), groupPreKeyClaim("bob")));
   await assertFails(set(ref(malloryDb, path), groupPreKeyClaim("mallory")));
 });
@@ -1000,6 +1022,7 @@ test("group prekey claims reject stale epochs and removed members", async () => 
   const bobDb = testEnv.authenticatedContext("bob").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertFails(set(ref(bobDb, path), groupPreKeyClaim("bob", "group", 2)));
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await update(ref(context.database(), "chats/group"), {
@@ -1015,6 +1038,7 @@ test("a claimed one-time prekey cannot be overwritten or deleted", async () => {
   const bobDb = testEnv.authenticatedContext("bob").database();
   const path = "deviceKeyClaims/alice/device-alice-1/one-time-1";
 
+  await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
   await assertFails(set(ref(aliceDb, path), false));
   await assertFails(set(ref(bobDb, path), null));
