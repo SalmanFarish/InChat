@@ -699,8 +699,9 @@ test("account deletion releases claimant-owned prekey claims one ETag-protected 
     assert.equal(second.status, 200);
     assert.deepEqual(await second.json(), {
       success: true,
-      complete: true,
+      complete: false,
       processedGroups: 0,
+      processedPreKeyClaims: 1,
       updatedGroups: 0,
       dissolvedGroups: 0,
     });
@@ -712,6 +713,16 @@ test("account deletion releases claimant-owned prekey claims one ETag-protected 
       "target_a/device_a/key_a",
       "target_b/device_b/key_b",
     ]);
+
+    const final = await cleanupAccountGroupsForDeletion(env, "alice", auth);
+    assert.equal(final.status, 200);
+    assert.deepEqual(await final.json(), {
+      success: true,
+      complete: true,
+      processedGroups: 0,
+      updatedGroups: 0,
+      dissolvedGroups: 0,
+    });
     assert.equal(rootPatches.length, 1);
     assert.equal(rootPatches[0]["deviceKeyClaimsByClaimant/alice"], null);
   } finally {
