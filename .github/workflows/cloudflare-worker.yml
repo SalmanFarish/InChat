@@ -35,6 +35,9 @@ jobs:
       - name: Run local Worker smoke check
         working-directory: cloudflare/attachments-worker
         run: npm run smoke
+      - name: Check deployed Worker smoke script syntax
+        working-directory: cloudflare/attachments-worker
+        run: node --check scripts/smoke-deployed-worker.mjs
       - name: Run Worker deployment preflight
         working-directory: cloudflare/attachments-worker
         run: npm run predeploy
