@@ -66,7 +66,7 @@ internal class PartitionedOlmEnvelopeTransport(
 
     override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
         firebase.removeFromMyDeviceInbox(deviceId, deliveryId)
-        if (cloudflareDirectEnabled) cloudflare.removeFromMyDeviceInbox(deviceId, deliveryId)
+        if (cloudflareDirectEnabled || cloudflareGroupEnabled) cloudflare.removeFromMyDeviceInbox(deviceId, deliveryId)
     }
 
     override suspend fun removeFromMyDeviceInbox(deviceId: String, item: FirebaseOlmInboxItem) {
