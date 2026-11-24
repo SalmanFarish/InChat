@@ -728,6 +728,26 @@ test("retired sender mailbox rejects late acknowledgement records", async () => 
   assert.equal((await json(acknowledgements)).items.length, 0);
 });
 
+test("public ACK route returns the terminal code when the sender mailbox is retired", async () => {
+  const state = workerFixture();
+  assert.equal(
+    (await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status,
+    200,
+  );
+
+  const senderMailbox = state.namespace.get(state.namespace.idFromName("alice:alice-device"));
+  assert.equal((await senderMailbox.fetch(req("/purge", "DELETE"))).status, 200);
+
+  const acknowledgement = await state.dispatch(
+    "/v1/olm/mailbox/acknowledge?deviceId=bob-device",
+    "POST",
+    { deliveryId },
+    "bob",
+  );
+  assert.equal(acknowledgement.status, 410);
+  assert.equal((await json(acknowledgement)).code, "device_mailbox_retired");
+});
+
 test("mailbox purge rejects missing, duplicate, and malformed device IDs", async () => {
   const state = workerFixture();
   for (const path of [
