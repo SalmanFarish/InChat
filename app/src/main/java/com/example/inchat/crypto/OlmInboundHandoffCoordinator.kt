@@ -110,16 +110,15 @@ internal class OlmInboundHandoffCoordinator(
                 "Inbound receipt has an unsupported status"
             }
             // Do not advance an Olm receive ratchet, consume a one-time prekey,
-            // or stage plaintext for a directory identity that has not been
-            // explicitly SAS-verified on this installation.
+            // or stage plaintext for a directory identity whose first-seen pin has changed.
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
                     peerDeviceId = remoteDevice.deviceId,
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
             ) {
-                "Remote device has not been verified on this installation"
+                "Remote device identity changed. Compare safety numbers before accepting messages"
             }
 
             val envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
@@ -154,16 +153,16 @@ internal class OlmInboundHandoffCoordinator(
             // Native staging can suspend while trust is revoked elsewhere in the app.
             // Recheck before routing or committing either direct or group payloads.
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
                     peerDeviceId = remoteDevice.deviceId,
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
             ) {
-                "Remote device trust was revoked during native decryption"
+                "Remote device identity changed during native decryption"
             }
 
-            // The outer Olm envelope and SAS-trusted sender device are already
+            // The outer Olm envelope and pinned sender device identity are already
             // authenticated. Route the typed group payload only after this point,
             // before attempting the strict direct-message schema decoder.
             if (isGroupSessionKeyPayload(staged.plaintext)) {
@@ -265,13 +264,13 @@ internal class OlmInboundHandoffCoordinator(
                 "Authenticated account changed before inbound message commit"
             }
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
                     peerDeviceId = remoteDevice.deviceId,
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
             ) {
-                "Remote device trust was revoked before inbound message commit"
+                "Remote device identity changed before inbound message commit"
             }
 
             check(committer.commit(receiptId, message, clock().coerceAtLeast(0L))) {

@@ -52,12 +52,12 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
             remoteDevice.deviceId == receipt.senderDeviceId
         ) { "Verified sender device does not match the durable Olm receipt" }
         check(
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = remoteDeviceUserId,
                 peerDeviceId = remoteDevice.deviceId,
                 peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
             )
-        ) { "Group key sender device is not SAS-trusted on this installation" }
+        ) { "Group key sender identity has changed. Compare safety numbers before accepting this key" }
 
         val groupId = try {
             val json = JSONObject(authenticatedOlmPlaintext)
@@ -114,14 +114,14 @@ internal class DefaultOlmInboundGroupSessionKeyHandoff(
             // against sign-out/account replacement just like the message commit.
             requireUnchangedGroupRecipient(localUserId, authenticatedLocalUserId())
             // Membership lookup suspends and can take long enough for local SAS
-            // trust to be revoked. Recheck immediately before importing the key.
+            // trust to be revoked. Recheck the pinned sender identity immediately before importing the key.
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
                     peerDeviceId = remoteDevice.deviceId,
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
-            ) { "Group key sender trust was revoked before native import" }
+            ) { "Group key sender identity changed before native import" }
             // This import persists the signed session and its sender/epoch binding
             // in the same Keystore-protected native device-state envelope.
             keyImporter.importInboundSessionKey(

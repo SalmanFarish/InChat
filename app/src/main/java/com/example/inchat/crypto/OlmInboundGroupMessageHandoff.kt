@@ -93,12 +93,12 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             remoteDevice.deviceId == receipt.senderDeviceId
         ) { "Verified sender device does not match the durable Olm receipt" }
         check(
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = remoteDeviceUserId,
                 peerDeviceId = remoteDevice.deviceId,
                 peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
             )
-        ) { "Group sender device is not SAS-trusted on this installation" }
+        ) { "Group sender identity has changed. Compare safety numbers before accepting messages" }
 
         val groupId = extractOlmGroupMessageRouteGroupId(authenticatedOlmPlaintext)
 
@@ -128,15 +128,15 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             expected = membership,
             latest = membershipForGroup(groupId),
         )
-        // Membership reads suspend. Recheck local SAS trust immediately before
+        // Membership reads suspend. Recheck the pinned sender identity immediately before
         // advancing the native Megolm receive ratchet.
         check(
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = remoteDeviceUserId,
                 peerDeviceId = remoteDevice.deviceId,
                 peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
             )
-        ) { "Group sender trust was revoked before native decryption" }
+        ) { "Group sender identity changed before native decryption" }
 
         val staged = sessionRepository.prepareInboundMessage(
             membership = currentMembership,
@@ -156,15 +156,15 @@ internal class DefaultOlmInboundGroupMessageHandoff(
             // or account switch must fence the final ciphertext/replay commit.
             requireUnchangedGroupRecipient(localUserId, authenticatedLocalUserId())
             // Decryption and membership refresh can both take time. Do not
-            // commit the decrypted group message if the sender was untrusted
+            // commit the decrypted group message if the sender identity changed
             // or revoked while native staging was in progress.
             check(
-                trustVerifier.isVerified(
+                trustVerifier.isTrustedForMessaging(
                     peerUserId = remoteDeviceUserId,
                     peerDeviceId = remoteDevice.deviceId,
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
-            ) { "Group sender trust was revoked before message commit" }
+            ) { "Group sender identity changed before message commit" }
             val ciphertextDigest = MessageDigest.getInstance("SHA-256")
                 .digest(staged.ciphertext)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
