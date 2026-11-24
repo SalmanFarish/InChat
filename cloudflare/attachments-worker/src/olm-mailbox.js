@@ -655,7 +655,13 @@ export class OlmDeviceMailboxDurableObject {
       "membershipEpoch", "messageId", "recipientDeviceId", "recipientUid",
       "retentionMillis", "senderDeviceId", "senderUid",
     ];
-    if (!exactKeys(body, allowed)) return failure(400, "Mailbox delivery has missing or unexpected fields.");
+    const isGroup = body.conversationType === "group";
+    const expectedFields = isGroup ?
+      allowed.filter((key) => key !== "conversationPeerUserId") :
+      allowed.filter((key) => key !== "groupId" && key !== "membershipEpoch");
+    if (!exactKeys(body, expectedFields)) {
+      return failure(400, "Mailbox delivery has missing or unexpected fields.");
+    }
     const { uid, deviceId } = this.identity;
     const retention = parseRetentionMillis(body.retentionMillis);
     if (
@@ -671,7 +677,6 @@ export class OlmDeviceMailboxDurableObject {
       !validateEnvelope(body.envelope, body.senderDeviceId, deviceId)
     ) return failure(400, "Mailbox delivery identity or envelope is invalid.");
 
-    const isGroup = body.conversationType === "group";
     if (isGroup) {
       if (!exactKeys(body, allowed.filter((key) => key !== "conversationPeerUserId")) ||
           !GROUP_PATTERN.test(body.groupId || "") ||
