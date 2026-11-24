@@ -604,3 +604,103 @@ test("account deletion retries a preview after membership was already committed"
     globalThis.fetch = previousFetch;
   }
 });
+
+test("account deletion releases claimant-owned prekey claims one ETag-protected batch at a time", async () => {
+  const previousFetch = globalThis.fetch;
+  const index = {
+    target_a: { device_a: { key_a: true } },
+    target_b: { device_b: { key_b: true } },
+  };
+  const claims = {
+    "target_a/device_a/key_a": { claimantUid: "alice", conversationType: "direct" },
+    "target_b/device_b/key_b": { claimantUid: "alice", conversationType: "group" },
+  };
+  const claimDeletes = [];
+  const indexDeletes = [];
+  const rootPatches = [];
+
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const path = decodeURIComponent(url.pathname.replace(/\.json$/, "").replace(/^\/+/, ""));
+    const method = options.method || "GET";
+
+    if (method === "GET") {
+      if (path === "groupMemberships/alice" || path === "groupReads/alice" ||
+          path === "userChats/alice" || path === "privateUsers/alice/fcmToken") {
+        return jsonResponse(null);
+      }
+      if (path === "deviceKeyClaimsByClaimant/alice") return jsonResponse(index);
+      if (path.startsWith("deviceKeyClaims/")) {
+        const key = path.slice("deviceKeyClaims/".length);
+        return jsonResponse(claims[key], { ETag: '"claim-' + key + '"' });
+      }
+      throw new Error("Unexpected GET request: " + url.toString());
+    }
+
+    if (method === "DELETE" && path.startsWith("deviceKeyClaims/")) {
+      const key = path.slice("deviceKeyClaims/".length);
+      assert.equal(options.headers?.["If-Match"], '"claim-' + key + '"');
+      claimDeletes.push(key);
+      delete claims[key];
+      return jsonResponse(null);
+    }
+
+    if (method === "DELETE" && path.startsWith("deviceKeyClaimsByClaimant/alice/")) {
+      const parts = path.split("/");
+      indexDeletes.push(parts.slice(1).join("/"));
+      delete index[parts[1]]?.[parts[2]]?.[parts[3]];
+      if (Object.keys(index[parts[1]]?.[parts[2]] || {}).length === 0) delete index[parts[1]][parts[2]];
+      if (Object.keys(index[parts[1]] || {}).length === 0) delete index[parts[1]];
+      return jsonResponse(null);
+    }
+
+    if (method === "PATCH" && path === "") {
+      const patch = JSON.parse(options.body);
+      rootPatches.push(patch);
+      return jsonResponse(null);
+    }
+
+    throw new Error("Unexpected request: " + method + " " + url.toString());
+  };
+
+  try {
+    const env = { FIREBASE_DATABASE_URL: "https://demo-inchat.firebaseio.com" };
+    const auth = { token: "admin-token", projectId: "demo-inchat" };
+    const first = await cleanupAccountGroupsForDeletion(env, "alice", auth);
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), {
+      success: true,
+      complete: false,
+      processedGroups: 0,
+      processedPreKeyClaims: 1,
+      updatedGroups: 0,
+      dissolvedGroups: 0,
+    });
+    assert.deepEqual(claimDeletes, ["target_a/device_a/key_a"]);
+    assert.deepEqual(indexDeletes, ["target_a/device_a/key_a"]);
+    assert.equal(rootPatches.length, 0);
+
+    const second = await cleanupAccountGroupsForDeletion(env, "alice", auth);
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), {
+      success: true,
+      complete: true,
+      processedGroups: 0,
+      updatedGroups: 0,
+      dissolvedGroups: 0,
+    });
+    assert.deepEqual(claimDeletes, [
+      "target_a/device_a/key_a",
+      "target_b/device_b/key_b",
+    ]);
+    assert.deepEqual(indexDeletes, [
+      "target_a/device_a/key_a",
+      "target_b/device_b/key_b",
+    ]);
+    assert.equal(rootPatches.length, 1);
+    assert.equal(rootPatches[0]["deviceKeyClaimsByClaimant/alice"], null);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
