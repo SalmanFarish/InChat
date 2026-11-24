@@ -43,14 +43,16 @@ internal data class PendingDeviceIdentityTransfer(
 )
 
 /**
- * Owns the installation-scoped identifier and the matching native Olm account.
+ * Owns the installation-scoped identifier and matching native Olm account.
  *
  * The identifier and encrypted native account live in noBackupFilesDir. A normal
  * process restart keeps the same device identity; uninstall/reinstall creates a
  * new installation identity instead of attempting to reuse an unavailable
  * Android Keystore key.
  *
- * This repository is not connected to login, Firebase, or live conversations yet.
+ * App startup and message send coordinators use this repository to prepare the
+ * local identity. Only its public key bundle is published; private Olm state stays
+ * local, and SAS trust decisions are stored separately.
  */
 internal class DeviceIdentityRepository(context: Context) : SasVerificationLocalIdentity {
     private val appContext = context.applicationContext

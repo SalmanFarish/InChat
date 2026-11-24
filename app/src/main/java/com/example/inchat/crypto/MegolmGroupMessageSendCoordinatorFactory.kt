@@ -9,10 +9,9 @@ import com.google.firebase.auth.FirebaseAuth
 /**
  * Builds the production Android adapters for the isolated Megolm group sender.
  *
- * Device publication and SAS verification remain explicit setup operations in
- * Device Verification. This factory never silently creates trust or publishes
- * a peer identity; send preflight fails closed until every current member has a
- * usable, SAS-trusted device.
+ * Local device publication is ensured automatically before a send. Peer device
+ * identities are pinned on first use; explicit SAS verification remains optional
+ * and is never silently marked complete by ordinary messaging.
  */
 internal class MegolmGroupMessageSendCoordinatorFactory(
     context: Context,
