@@ -69,6 +69,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
             identityKeyFingerprint = keyFingerprint,
             firstSeenAtMillis = previous?.firstSeenAtMillis ?: verifiedAtMillis,
             verifiedAtMillis = verifiedAtMillis,
+            revokedAtMillis = null,
         )
         writeRecords(updated)
         TRUST_CHANGES.tryEmit(Unit)
@@ -103,12 +104,13 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
                         identityKeyFingerprint = expectedFingerprint,
                         firstSeenAtMillis = System.currentTimeMillis().coerceAtLeast(0L),
                         verifiedAtMillis = null,
+                        revokedAtMillis = null,
                     )
                 )
                 TRUST_CHANGES.tryEmit(Unit)
                 true
             }
-            existing.identityKeyFingerprint == expectedFingerprint -> true
+            existing.identityKeyFingerprint == expectedFingerprint && existing.revokedAtMillis == null -> true
             else -> false
         }
     }
@@ -128,7 +130,8 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         readRecords().firstOrNull {
             it.peerUserId == peerUserId &&
                 it.peerDeviceId == peerDeviceId &&
-                it.identityKeyFingerprint == expectedFingerprint
+                it.identityKeyFingerprint == expectedFingerprint &&
+                it.revokedAtMillis == null
         }?.verifiedAtMillis
     }
 
@@ -139,17 +142,24 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         peerEd25519IdentityKey: String,
     ): Boolean = verifiedAtMillis(peerUserId, peerDeviceId, peerEd25519IdentityKey) != null
 
-    /** Revocation is local to this installation and removes the stored identity pin. */
+    /** Revocation is a persistent local block; messaging cannot silently TOFU-pin it again. */
     fun revoke(peerUserId: String, peerDeviceId: String): Boolean = synchronized(LOCK) {
         validateIdentifiers(peerUserId, peerDeviceId)
         val records = readRecords()
-        val remaining = records.filterNot {
+        val existing = records.firstOrNull {
             it.peerUserId == peerUserId && it.peerDeviceId == peerDeviceId
         }
-        if (remaining.size == records.size) {
+        if (existing == null || existing.revokedAtMillis != null) {
             false
         } else {
-            writeRecords(remaining)
+            val revokedAt = System.currentTimeMillis().coerceAtLeast(0L)
+            writeRecords(records.map { record ->
+                if (record.peerUserId == peerUserId && record.peerDeviceId == peerDeviceId) {
+                    record.copy(verifiedAtMillis = null, revokedAtMillis = revokedAt)
+                } else {
+                    record
+                }
+            })
             TRUST_CHANGES.tryEmit(Unit)
             true
         }
@@ -160,7 +170,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         return try {
             val root = JSONObject(String(plaintext, Charsets.UTF_8))
             val version = root.getInt("schemaVersion")
-            require(version == LEGACY_SCHEMA_VERSION || version == SCHEMA_VERSION) {
+            require(version in LEGACY_SCHEMA_VERSION..SCHEMA_VERSION) {
                 "Unsupported trusted-device store version"
             }
             val array = root.getJSONArray("devices")
@@ -175,6 +185,9 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
                     } else {
                         null
                     }
+                    val revokedAt = if (
+                        version >= SCHEMA_VERSION && item.has("revokedAtMillis") && !item.isNull("revokedAtMillis")
+                    ) item.getLong("revokedAtMillis") else null
                     val record = TrustedDeviceRecord(
                         peerUserId = item.getString("peerUserId"),
                         peerDeviceId = item.getString("peerDeviceId"),
@@ -185,11 +198,13 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
                             item.getLong("firstSeenAtMillis")
                         },
                         verifiedAtMillis = verifiedAt,
+                        revokedAtMillis = revokedAt,
                     )
                     validateIdentifiers(record.peerUserId, record.peerDeviceId)
                     require(FINGERPRINT_REGEX.matches(record.identityKeyFingerprint))
                     require(record.firstSeenAtMillis >= 0L)
                     require(record.verifiedAtMillis == null || record.verifiedAtMillis >= 0L)
+                    require(record.revokedAtMillis == null || record.revokedAtMillis >= 0L)
                     add(record)
                 }
             }
@@ -207,6 +222,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
                 .put("identityKeyFingerprint", record.identityKeyFingerprint)
                 .put("firstSeenAtMillis", record.firstSeenAtMillis)
             record.verifiedAtMillis?.let { item.put("verifiedAtMillis", it) }
+            record.revokedAtMillis?.let { item.put("revokedAtMillis", it) }
             array.put(item)
         }
         val plaintext = JSONObject()
@@ -237,12 +253,13 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         val identityKeyFingerprint: String,
         val firstSeenAtMillis: Long,
         val verifiedAtMillis: Long?,
+        val revokedAtMillis: Long?,
     )
 
     private companion object {
         const val STATE_ID = "trusted-devices-v1"
         const val LEGACY_SCHEMA_VERSION = 1
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
         val USER_ID_REGEX = Regex("[A-Za-z0-9_-]{1,128}")
         val DEVICE_ID_REGEX = Regex("[A-Za-z0-9_-]{1,64}")
         val FINGERPRINT_REGEX = Regex("[a-f0-9]{64}")

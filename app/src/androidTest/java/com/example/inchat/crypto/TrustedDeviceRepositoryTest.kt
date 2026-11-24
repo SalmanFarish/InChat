@@ -73,6 +73,8 @@ class TrustedDeviceRepositoryTest {
         assertTrue(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
         assertFalse(reopened.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
         assertTrue(reopened.revoke(userId, deviceId))
+        assertFalse(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
+        assertFalse(reopened.isTrustedForMessaging(userId, deviceId, "new-key-$suffix"))
     }
 
     @Test
