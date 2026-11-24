@@ -259,6 +259,7 @@ export async function runMailboxRoundTrip(config, fetchImpl = fetch) {
   };
 
   let wasEnqueued = false;
+  let completed = false;
   try {
     const firstUpload = await workerRequest(
       baseUrl, sender, "POST", "/v1/olm/mailbox/enqueue", enqueueBody, fetchImpl,
@@ -394,6 +395,7 @@ export async function runMailboxRoundTrip(config, fetchImpl = fetch) {
     assert(!remainingAcks.some((item) => item?.deliveryId === deliveryId),
       "Test acknowledgement remained in the sender mailbox after cleanup.");
 
+    completed = true;
     return {
       deliveryId,
       senderUid: sender.uid,
@@ -411,10 +413,12 @@ export async function runMailboxRoundTrip(config, fetchImpl = fetch) {
       ],
     };
   } finally {
-    await bestEffortCleanup(
-      baseUrl, sender, recipient, senderDeviceId, recipientDeviceId,
-      deliveryId, wasEnqueued, fetchImpl,
-    );
+    if (!completed) {
+      await bestEffortCleanup(
+        baseUrl, sender, recipient, senderDeviceId, recipientDeviceId,
+        deliveryId, wasEnqueued, fetchImpl,
+      );
+    }
   }
 }
 
