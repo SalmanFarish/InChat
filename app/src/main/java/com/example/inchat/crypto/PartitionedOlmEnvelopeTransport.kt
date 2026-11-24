@@ -2,8 +2,8 @@ package com.example.inchat.crypto
 
 /**
  * Phased encrypted relay migration: direct messages may use Cloudflare while
- * group deliveries stay on Firebase. Both inboxes are polled during the
- * transition so old Firebase deliveries are drained from their original relay.
+ * group deliveries can be migrated independently. Both inboxes are polled during
+ * the transition so old Firebase deliveries are drained from their original relay.
  */
 internal class PartitionedOlmEnvelopeTransport(
     private val firebase: OlmEnvelopeRelayTransport,
