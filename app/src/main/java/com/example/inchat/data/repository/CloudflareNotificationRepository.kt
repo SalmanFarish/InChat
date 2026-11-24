@@ -494,10 +494,42 @@ class CloudflareNotificationRepository {
             )
         }
 
-        return post(
-            path = "/account/group-cleanup",
-            body = JSONObject()
-        ).map { Unit }
+        // The Worker intentionally processes one group per invocation so
+        // every request stays within Cloudflare Workers Free subrequest limits.
+        // Keep the Firebase Auth identity alive until the server confirms that
+        // every group and account-owned E2EE record has been cleaned.
+        var completed = false
+        var batches = 0
+
+        while (!completed && batches < 10_000) {
+            val response = post(
+                path = "/account/group-cleanup",
+                body = JSONObject()
+            ).getOrElse { error ->
+                return Result.failure(error)
+            }
+
+            if (!response.has("complete")) {
+                return Result.failure(
+                    IllegalStateException(
+                        "The account cleanup service returned an incomplete response."
+                    )
+                )
+            }
+
+            completed = response.optBoolean("complete", false)
+            batches += 1
+        }
+
+        return if (completed) {
+            Result.success(Unit)
+        } else {
+            Result.failure(
+                IllegalStateException(
+                    "Account cleanup exceeded the safe batch limit. Please retry."
+                )
+            )
+        }
     }
 
     suspend fun syncConversationPreview(
