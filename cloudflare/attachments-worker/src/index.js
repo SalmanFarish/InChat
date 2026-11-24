@@ -2296,7 +2296,7 @@ export default {
       // it never exposes bindings, secrets, account data, or quota details.
       if (request.method === "GET" && url.pathname === "/health") {
         const retention = typeof env.OLM_MAILBOX_RETENTION_MS === "string" &&
-          /^\\d+$/.test(env.OLM_MAILBOX_RETENTION_MS) ?
+          /^\d+$/.test(env.OLM_MAILBOX_RETENTION_MS) ?
           Number(env.OLM_MAILBOX_RETENTION_MS) : NaN;
         const mailboxReady = Boolean(env.OLM_MAILBOX) &&
           Number.isSafeInteger(retention) &&
