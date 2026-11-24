@@ -913,6 +913,22 @@ function groupPreKeyClaim(claimantUid, groupId = "group", membershipEpoch = 3) {
   };
 }
 
+test("account deletion lock prevents new prekey claims and reverse-index entries", async () => {
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true);
+    await set(ref(context.database(), "accountDeletionLocks/bob"), true);
+  });
+  await assertFails(set(
+    ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-2"),
+    true,
+  ));
+  await assertFails(set(
+    ref(bobDb, "deviceKeyClaims/alice/device-alice-1/one-time-1"),
+    directPreKeyClaim("bob", "alice"),
+  ));
+});
+
 test("a prekey claim requires a claimant-owned reverse index and users cannot edit another claimant index", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const bobDb = testEnv.authenticatedContext("bob").database();
@@ -936,6 +952,7 @@ test("prekey claim metadata is visible only to its owner and claimant", async ()
 
   await assertSucceeds(set(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"), true));
   await assertSucceeds(set(ref(bobDb, path), directPreKeyClaim("bob", "alice")));
+  await assertFails(remove(ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1")));
   await assertSucceeds(get(ref(aliceDb, path)));
   await assertSucceeds(get(ref(bobDb, path)));
   await assertFails(get(ref(malloryDb, path)));
