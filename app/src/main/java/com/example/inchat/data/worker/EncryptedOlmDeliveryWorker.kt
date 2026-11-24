@@ -32,8 +32,11 @@ import com.example.inchat.crypto.RoomOlmGroupKeyDistributionRecoveryStateStore
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
 import com.example.inchat.data.repository.CloudflareNotificationRepository
+import com.example.inchat.data.repository.CloudflareWorkerConfig
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
+import com.example.inchat.crypto.CloudflareOlmEnvelopeTransport
+import com.example.inchat.crypto.OlmOutgoingDeliveryTransport
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDeliveryWorkerRunner
 import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
@@ -259,10 +262,18 @@ class EncryptedOlmDeliveryWorker(
                 Log.w(TAG, "Staged encrypted group-message recovery failed; retrying.", error)
             }
 
-            val transport = FirebaseOlmEnvelopeTransport(
-                trustVerifier = TrustedDeviceRepository(applicationContext),
-                expectedAuthenticatedUserId = ownerUserId,
-            )
+            val transport: OlmOutgoingDeliveryTransport =
+                if (CloudflareWorkerConfig.ENCRYPTED_OLM_MAILBOX_ENABLED) {
+                    CloudflareOlmEnvelopeTransport(
+                        trustVerifier = TrustedDeviceRepository(applicationContext),
+                        expectedAuthenticatedUserId = ownerUserId,
+                    )
+                } else {
+                    FirebaseOlmEnvelopeTransport(
+                        trustVerifier = TrustedDeviceRepository(applicationContext),
+                        expectedAuthenticatedUserId = ownerUserId,
+                    )
+                }
             val groupRepository = GroupChatRepository()
             val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(

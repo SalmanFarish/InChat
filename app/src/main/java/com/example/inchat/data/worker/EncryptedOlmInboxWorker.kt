@@ -26,11 +26,14 @@ import com.example.inchat.crypto.OlmInboundReceiptHandoff
 import com.example.inchat.crypto.OlmPendingReceiptProcessor
 import com.example.inchat.crypto.OlmSessionRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
+import com.example.inchat.crypto.CloudflareOlmEnvelopeTransport
+import com.example.inchat.crypto.OlmInboxTransport
 import com.example.inchat.crypto.FirebaseOlmInboxReceiver
 import com.example.inchat.crypto.OlmInboundDeliveryLedger
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
+import com.example.inchat.data.repository.CloudflareWorkerConfig
 import com.example.inchat.notification.EncryptedMessageNotificationPublisher
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
@@ -107,11 +110,20 @@ class EncryptedOlmInboxWorker(
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
             val trustRepository = TrustedDeviceRepository(applicationContext)
+            val inboxTransport: OlmInboxTransport =
+                if (CloudflareWorkerConfig.ENCRYPTED_OLM_MAILBOX_ENABLED) {
+                    CloudflareOlmEnvelopeTransport(
+                        trustVerifier = trustRepository,
+                        expectedAuthenticatedUserId = ownerUserId,
+                    )
+                } else {
+                    FirebaseOlmEnvelopeTransport(
+                        trustVerifier = trustRepository,
+                        expectedAuthenticatedUserId = ownerUserId,
+                    )
+                }
             val receiver = FirebaseOlmInboxReceiver(
-                transport = FirebaseOlmEnvelopeTransport(
-                    trustVerifier = trustRepository,
-                    expectedAuthenticatedUserId = ownerUserId,
-                ),
+                transport = inboxTransport,
                 ledger = OlmInboundDeliveryLedger(
                     dao = database.olmInboundReceiptDao(),
                     recipientUserId = ownerUserId,
