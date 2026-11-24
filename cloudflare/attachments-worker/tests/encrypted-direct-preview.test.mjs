@@ -31,6 +31,7 @@ function fixture({
   blocked = false,
   relayAvailable = true,
 } = {}) {
+  const testEnv = { ...env };
   const database = new Map([
     ["chats/alice_bob", {
       type: "direct",
@@ -100,7 +101,7 @@ function fixture({
   };
 
   const request = (body) => syncEncryptedDirectPreview({
-    env,
+    env: testEnv,
     uid: "alice",
     body,
     adminToken: "admin-token",
@@ -129,7 +130,7 @@ function fixture({
     });
   };
 
-  return { database, send, request, env };
+  return { database, send, request, env: testEnv };
 }
 
 test("syncs encrypted preview from Worker mailbox metadata without Firebase olmInbox", async () => {

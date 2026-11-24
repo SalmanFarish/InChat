@@ -32,6 +32,7 @@ function relayRecord(messageId = "group-message-1") {
 }
 
 function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true } = {}) {
+  const testEnv = { ...env };
   const database = new Map([
     ["chats/" + groupId, {
       type: "group",
@@ -107,7 +108,7 @@ function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true 
   };
 
   const request = (body) => syncEncryptedGroupPreview({
-    env,
+    env: testEnv,
     uid: "alice",
     body,
     adminToken: "admin-token",
@@ -135,7 +136,7 @@ function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true 
     });
   };
 
-  return { database, send, request, env };
+  return { database, send, request, env: testEnv };
 }
 
 test("syncs encrypted group preview from Worker mailbox metadata without Firebase olmInbox", async () => {
