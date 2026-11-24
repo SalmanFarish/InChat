@@ -34,7 +34,7 @@ internal class OlmDeliveryAckProcessor(
             // receipt before deleting the ciphertext outbox row. If the process
             // stops after receipt persistence, the retained row is safe to retry:
             // the recipient's durable receipt ledger will acknowledge it again.
-            transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement.deliveryId)
+            transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
             recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
             if (queue.removeAcknowledgedDelivery(acknowledgement)) {
                 removed++
