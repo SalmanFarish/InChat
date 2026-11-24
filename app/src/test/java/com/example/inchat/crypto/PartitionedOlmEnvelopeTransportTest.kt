@@ -20,6 +20,72 @@ class PartitionedOlmEnvelopeTransportTest {
     }
 
     @Test
+    fun groupUploadsUseCloudflareOnlyWhenTheGroupRouteIsEnabled() = runBlocking {
+        val firebase = RecordingRelay()
+        val cloudflare = RecordingRelay()
+        val transport = PartitionedOlmEnvelopeTransport(
+            firebase = firebase,
+            cloudflare = cloudflare,
+            cloudflareDirectEnabled = false,
+            cloudflareGroupEnabled = true,
+        )
+
+        transport.upload(directDelivery(), "sender-device")
+        transport.upload(groupDelivery(), "sender-device")
+
+        assertEquals(listOf("direct-message"), firebase.uploads.map { it.messageId })
+        assertEquals(listOf("group-message"), cloudflare.uploads.map { it.messageId })
+    }
+
+    @Test
+    fun groupInboxUsesCloudflareAndKeepsLegacyFirebaseItemsOnTheirOriginalRelay() = runBlocking {
+        val firebase = RecordingRelay(inbox = listOf(groupInbox("legacy-group"), directInbox("legacy-direct")))
+        val cloudflare = RecordingRelay(
+            inbox = listOf(groupInbox("migrated-group")),
+            acks = listOf(deliveryAck("group-ack")),
+        )
+        val transport = PartitionedOlmEnvelopeTransport(
+            firebase = firebase,
+            cloudflare = cloudflare,
+            cloudflareDirectEnabled = false,
+            cloudflareGroupEnabled = true,
+        )
+
+        val items = transport.readMyDeviceInbox("recipient-device")
+        assertEquals(
+            listOf("legacy-direct", "legacy-group", "migrated-group"),
+            items.map { it.deliveryId },
+        )
+        val migrated = items.single { it.deliveryId == "migrated-group" }
+        assertEquals(OlmRelayOrigin.CLOUDFLARE, migrated.relayOrigin)
+        transport.acknowledgeStoredDelivery("recipient-device", migrated)
+        transport.removeFromMyDeviceInbox("recipient-device", migrated)
+
+        val acks = transport.readMyDeliveryAcknowledgements("sender-device")
+        assertEquals(OlmRelayOrigin.CLOUDFLARE, acks.single().relayOrigin)
+        transport.removeMyDeliveryAcknowledgement("sender-device", acks.single())
+
+        assertEquals(listOf("migrated-group"), cloudflare.acknowledgementsCreated)
+        assertEquals(listOf("migrated-group"), cloudflare.inboxDeletes)
+        assertEquals(listOf("group-ack"), cloudflare.ackDeletes)
+        assertTrue(firebase.acknowledgementsCreated.isEmpty())
+        assertTrue(firebase.inboxDeletes.isEmpty())
+    }
+
+    @Test
+    fun cloudflareGroupMailboxRejectsUnexpectedDirectDelivery() = runBlocking {
+        val transport = PartitionedOlmEnvelopeTransport(
+            firebase = RecordingRelay(),
+            cloudflare = RecordingRelay(inbox = listOf(directInbox("unexpected-direct"))),
+            cloudflareDirectEnabled = false,
+            cloudflareGroupEnabled = true,
+        )
+
+        val failure = runCatching { transport.readMyDeviceInbox("recipient-device") }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
     fun disabledDirectRouteKeepsEveryDeliveryOnFirebase() = runBlocking {
         val firebase = RecordingRelay()
         val cloudflare = RecordingRelay()
