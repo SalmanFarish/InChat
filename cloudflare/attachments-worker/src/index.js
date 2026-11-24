@@ -1700,50 +1700,12 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       .map(([chatId]) => chatId),
   ]);
 
-  const updates = {
-    ["groupMemberships/" + uid]: null,
-    ["groupReads/" + uid]: null,
-    ["chatReadState/" + uid]: null,
-    ["userChats/" + uid]: null,
-    ["userMessageVisibility/" + uid]: null,
-    ["conversationPreferences/" + uid]: null,
-
-    // Revoke the deleted account's published E2EE identities and clear its
-    // account-owned inbound relay/control queues. These paths are managed by
-    // the Worker so cleanup remains possible after the account profile is
-    // removed and never depends on client-side writes to trusted indexes.
-    ["deviceKeys/" + uid]: null,
-    ["deviceKeyClaims/" + uid]: null,
-    ["olmInbox/" + uid]: null,
-    ["olmDeliveryAcks/" + uid]: null,
-    ["olmPushDispatch/" + uid]: null,
-    ["sasVerificationInbox/" + uid]: null,
-    ["deviceTransferInbox/" + uid]: null,
-  };
-
-  // Read receipts live under chat IDs, including direct chats that are
-  // intentionally retained for the other participant after account deletion.
-  for (const chatId of Object.keys(inbox || {})) {
-    try {
-      const validChatId = cleanSegment(chatId, "chatId");
-      updates["chatReadReceipts/" + validChatId + "/" + uid] = null;
-    } catch (_) {
-      // Ignore malformed legacy inbox keys rather than constructing a path.
-    }
-  }
-
-  // Typing indicators are ephemeral, but remove any stale direct-chat value
-  // owned by the account as part of deletion.
-  for (const [chatId, entry] of Object.entries(inbox || {})) {
-    if (entry && entry.chatType !== "group" && !groupIds.has(chatId)) {
-      updates["typing/" + chatId + "/" + uid] = null;
-    }
-  }
-
   const hasRegistrationToken =
     typeof registrationToken === "string" &&
     registrationToken.trim() !== "";
 
+  // This operation is idempotent, so retrying it on later batches also
+  // repairs a transient FCM unsubscribe failure without storing token state.
   if (hasRegistrationToken) {
     await unsubscribeTopicForAccountCleanup(
       adminAuth.token,
@@ -1755,27 +1717,18 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
 
   let updatedGroups = 0;
   let dissolvedGroups = 0;
-  const stalePersonalTopicTokens = new Set();
-  const groupPreviewsToRebuild = [];
+  let previewToRebuild = null;
 
-  for (const rawChatId of groupIds) {
-    let chatId;
-    try {
-      chatId = cleanSegment(rawChatId, "chatId");
-    } catch (_) {
-      continue;
-    }
+  // Process one group per invocation. The per-group index entries are removed
+  // only after all work for that group succeeds. The Android caller repeats
+  // this endpoint until complete=true, keeping every invocation comfortably
+  // below the Workers Free external-subrequest ceiling even for large groups.
+  const rawChatId = [...groupIds].sort()[0];
 
-    // Read receipts are stored below conversation IDs rather than beneath
-    // the account root, so remove only this account's own cursor per inbox row.
-    updates["chatReadReceipts/" + chatId + "/" + uid] = null;
-
+  if (rawChatId !== undefined) {
+    const chatId = cleanSegment(rawChatId, "chatId");
     const [chat, mirroredRegistrationToken] = await Promise.all([
-      adminDatabaseRequest(
-        env,
-        adminAuth.token,
-        "chats/" + chatId,
-      ),
+      adminDatabaseRequest(env, adminAuth.token, "chats/" + chatId),
       adminDatabaseRequest(
         env,
         adminAuth.token,
@@ -1783,9 +1736,6 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       ),
     ]);
 
-    // Account deletion must also clean tokens left behind by a failed token
-    // rotation. The per-group mirror is the durable reference to those tokens.
-    // Keep all deletion writes uncommitted if any unsubscribe is retryable.
     const groupTopic = await groupTopicName(env, chatId);
     const groupTokenCleanup = await cleanupGroupNotificationTokens({
       previousToken: mirroredRegistrationToken,
@@ -1802,194 +1752,238 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
         "Could not remove all registered group notification tokens for account deletion.",
       );
     }
+
     for (const token of groupTokenCleanup.tokens) {
-      if (token !== registrationToken) stalePersonalTopicTokens.add(token);
+      if (token !== registrationToken) {
+        await unsubscribeTopicForAccountCleanup(
+          adminAuth.token,
+          adminAuth.projectId,
+          await userTopicName(env, uid),
+          token,
+        );
+      }
     }
+
+    const updates = {
+      ["groupMemberships/" + uid + "/" + chatId]: null,
+      ["groupReads/" + uid + "/" + chatId]: null,
+      ["userChats/" + uid + "/" + chatId]: null,
+      ["chatReadReceipts/" + chatId + "/" + uid]: null,
+      ["typing/" + chatId + "/" + uid]: null,
+      ["groupNotificationDevices/" + chatId + "/" + uid]: null,
+    };
 
     if (!chat || chat.type !== "group") {
-      updates["typing/" + chatId + "/" + uid] = null;
-      updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
-      continue;
-    }
+      // Stale membership/read/inbox indexes are still removed, but a direct
+      // conversation itself remains available to the other participant.
+    } else {
+      const memberEntries = Object.entries(chat.members || {})
+        .filter(([memberId, role]) =>
+          typeof memberId === "string" &&
+          memberId.length > 0 &&
+          typeof role === "string" &&
+          role.length > 0
+        );
+      const wasMember = memberEntries.some(([memberId]) => memberId === uid);
+      const remainingMembers = memberEntries
+        .filter(([memberId]) => memberId !== uid)
+        .sort(([left], [right]) => left.localeCompare(right));
 
-    const memberEntries = Object.entries(chat.members || {})
-      .filter(([memberId, role]) =>
-        typeof memberId === "string" &&
-        memberId.length > 0 &&
-        typeof role === "string" &&
-        role.length > 0
-      );
+      if (wasMember && remainingMembers.length < 2) {
+        // A group that would have fewer than two members is dissolved. It is
+        // deleted as one root path, so do not add child paths beneath chats.
+        updates["chats/" + chatId] = null;
+        updates["attachments/" + chatId] = null;
+        updates["typing/" + chatId] = null;
+        updates["groupNotificationDevices/" + chatId] = null;
 
-    const wasMember = memberEntries.some(([memberId]) => memberId === uid);
-    const remainingMembers = memberEntries
-      .filter(([memberId]) => memberId !== uid)
-      .sort(([left], [right]) => left.localeCompare(right));
+        for (const [memberId] of remainingMembers) {
+          updates["groupMemberships/" + memberId + "/" + chatId] = null;
+          updates["groupReads/" + memberId + "/" + chatId] = null;
+          updates["userChats/" + memberId + "/" + chatId] = null;
+          updates["userMessageVisibility/" + memberId + "/" + chatId] = null;
+          updates["conversationPreferences/" + memberId + "/" + chatId] = null;
 
-    if (!wasMember) {
-      updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
-      updates["typing/" + chatId + "/" + uid] = null;
-      updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
-      continue;
-    }
-
-    if (remainingMembers.length < 2) {
-      // The app requires at least two group members. Dissolve a group that
-      // would otherwise leave one person in an unusable group conversation.
-      // The group and its related inbox records are removed together below.
-      updates["chats/" + chatId] = null;
-      updates["attachments/" + chatId] = null;
-      updates["typing/" + chatId] = null;
-      updates["groupNotificationDevices/" + chatId] = null;
-
-      for (const [memberId] of remainingMembers) {
-        updates["groupMemberships/" + memberId + "/" + chatId] = null;
-        updates["groupReads/" + memberId + "/" + chatId] = null;
-        updates["userChats/" + memberId + "/" + chatId] = null;
-        updates["userMessageVisibility/" + memberId + "/" + chatId] = null;
-        updates["conversationPreferences/" + memberId + "/" + chatId] = null;
-
-        const memberToken = await adminDatabaseRequest(
+          const memberToken = await adminDatabaseRequest(
+            env,
+            adminAuth.token,
+            "privateUsers/" + memberId + "/fcmToken",
+          );
+          if (typeof memberToken === "string" && memberToken.trim() !== "") {
+            await unsubscribeTopicForAccountCleanup(
+              adminAuth.token,
+              adminAuth.projectId,
+              groupTopic,
+              memberToken,
+            );
+          }
+        }
+        dissolvedGroups += 1;
+      } else if (wasMember) {
+        // The ETag-protected helper updates members and the crypto snapshot
+        // together. Creator transfer follows the remaining admin roster.
+        const mutation = await mutateGroupMembersWithEtag(
           env,
           adminAuth.token,
-          "privateUsers/" + memberId + "/fcmToken",
+          chatId,
+          (currentMembers, currentChat) => {
+            const currentEntries = Object.entries(currentMembers || {})
+              .filter(([memberId, role]) =>
+                typeof memberId === "string" &&
+                memberId.length > 0 &&
+                typeof role === "string" &&
+                role.length > 0
+              );
+            if (!currentEntries.some(([memberId]) => memberId === uid)) {
+              return {
+                noChange: true,
+                result: { wasMember: false },
+              };
+            }
+
+            const nextEntries = currentEntries
+              .filter(([memberId]) => memberId !== uid)
+              .sort(([left], [right]) => left.localeCompare(right));
+            if (nextEntries.length < 2) {
+              return {
+                noChange: true,
+                result: { wasMember: true, requiresDissolution: true },
+              };
+            }
+
+            const nextMembers = Object.fromEntries(nextEntries);
+            const remainingAdmins = nextEntries.filter(([, role]) => role === "admin");
+            let nextCreator = currentChat.createdBy;
+            if (nextCreator === uid || remainingAdmins.length === 0) {
+              nextCreator = remainingAdmins.length > 0 ?
+                remainingAdmins[0][0] :
+                nextEntries[0][0];
+            }
+
+            return {
+              members: nextMembers,
+              cryptoMembershipChanged: true,
+              ...(nextCreator && nextCreator !== currentChat.createdBy ?
+                { createdBy: nextCreator } :
+                {}),
+              result: {
+                wasMember: true,
+                remainingMembers: nextEntries,
+              },
+            };
+          },
         );
 
-        if (typeof memberToken === "string" && memberToken.trim() !== "") {
-          await unsubscribeTopicForAccountCleanup(
-            adminAuth.token,
-            adminAuth.projectId,
-            await groupTopicName(env, chatId),
-            memberToken,
+        if (mutation.result?.requiresDissolution) {
+          throw new Error(
+            "Group membership changed during account cleanup. Retry account deletion.",
           );
         }
+
+        if (mutation.result?.wasMember) {
+          updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
+          previewToRebuild = {
+            chatId: chatId,
+            chat: {
+              ...chat,
+              members: Object.fromEntries(mutation.result.remainingMembers),
+            },
+          };
+          updatedGroups += 1;
+        }
+      } else {
+        updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
       }
-
-      dissolvedGroups += 1;
-      continue;
     }
 
-    // Use the same ETag-protected membership path as normal admin removals.
-    // This writes chats/{id}/members and cryptoMembership (new epoch + exact
-    // roster) together, so account deletion cannot leave a stale E2EE roster.
-    const mutation = await mutateGroupMembersWithEtag(
-      env,
-      adminAuth.token,
-      chatId,
-      (currentMembers, currentChat) => {
-        const currentEntries = Object.entries(currentMembers || {})
-          .filter(([memberId, role]) =>
-            typeof memberId === "string" &&
-            memberId.length > 0 &&
-            typeof role === "string" &&
-            role.length > 0
-          );
+    // Commit this group's cleanup before returning its batch result. If the
+    // request is interrupted earlier, its indexes remain and the next call
+    // retries the same group; every preceding side effect is idempotent.
+    await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
 
-        if (!currentEntries.some(([memberId]) => memberId === uid)) {
-          return {
-            noChange: true,
-            result: { wasMember: false },
-          };
-        }
-
-        const nextEntries = currentEntries
-          .filter(([memberId]) => memberId !== uid)
-          .sort(([left], [right]) => left.localeCompare(right));
-
-        // Another membership mutation may have reduced the group while this
-        // cleanup was preparing. Abort without writing; a retry will take the
-        // existing full group-dissolution path using the current roster.
-        if (nextEntries.length < 2) {
-          return {
-            noChange: true,
-            result: { wasMember: true, requiresDissolution: true },
-          };
-        }
-
-        const nextMembers = Object.fromEntries(nextEntries);
-        const remainingAdmins = nextEntries
-          .filter(([, role]) => role === "admin");
-        let nextCreator = currentChat.createdBy;
-
-        if (nextCreator === uid || remainingAdmins.length === 0) {
-          nextCreator = remainingAdmins.length > 0 ?
-            remainingAdmins[0][0] :
-            nextEntries[0][0];
-        }
-
-        return {
-          members: nextMembers,
-          cryptoMembershipChanged: true,
-          ...(nextCreator && nextCreator !== currentChat.createdBy ?
-            { createdBy: nextCreator } :
-            {}),
-          result: {
-            wasMember: true,
-            remainingMembers: nextEntries,
-          },
-        };
-      },
-    );
-
-    if (mutation.result?.requiresDissolution) {
-      throw new Error(
-        "Group membership changed during account cleanup. Retry account deletion.",
-      );
-    }
-
-    updates["chats/" + chatId + "/groupReadCursors/" + uid] = null;
-    updates["typing/" + chatId + "/" + uid] = null;
-    updates["groupNotificationDevices/" + chatId + "/" + uid] = null;
-    if (!mutation.result?.wasMember) {
-      continue;
-    }
-
-    const currentRemainingMembers = mutation.result.remainingMembers;
-
-    // Rebuild complete inbox rows through the same trusted path used by normal
-    // group membership changes. This avoids one database read per remaining
-    // member and never creates a partial userChats row.
-    groupPreviewsToRebuild.push({
-      chatId: chatId,
-      chat: {
-        ...chat,
-        members: Object.fromEntries(currentRemainingMembers),
-      },
-    });
-
-    updatedGroups += 1;
-  }
-
-  // Old tokens can remain on the personal topic after a rotation failed.
-  // Remove those subscriptions too before deleting their last durable mirrors.
-  for (const staleToken of stalePersonalTopicTokens) {
-    await unsubscribeTopicForAccountCleanup(
-      adminAuth.token,
-      adminAuth.projectId,
-      await userTopicName(env, uid),
-      staleToken,
-    );
-  }
-
-  await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
-
-  for (const preview of groupPreviewsToRebuild) {
-    try {
+    if (previewToRebuild) {
+      // Do not swallow this failure: retaining the index makes the next batch
+      // retry preview synchronization instead of permanently losing it.
       await rebuildConversationPreview(
         env,
         adminAuth.token,
-        preview.chatId,
-        preview.chat,
+        previewToRebuild.chatId,
+        previewToRebuild.chat,
       );
-    } catch (previewError) {
-      console.warn(
-        "Could not rebuild group inbox previews during account deletion",
-        previewError,
-      );
+    }
+
+    if (groupIds.size > 1) {
+      return json({
+        success: true,
+        complete: false,
+        processedGroups: 1,
+        updatedGroups: updatedGroups,
+        dissolvedGroups: dissolvedGroups,
+      });
     }
   }
 
+  // A final fresh index read closes the race where another group was added
+  // while the last known group was being processed.
+  const [remainingMemberships, remainingReads, remainingInbox] =
+    await Promise.all([
+      adminDatabaseRequest(env, adminAuth.token, "groupMemberships/" + uid),
+      adminDatabaseRequest(env, adminAuth.token, "groupReads/" + uid),
+      adminDatabaseRequest(env, adminAuth.token, "userChats/" + uid),
+    ]);
+  const remainingGroupIds = new Set([
+    ...Object.keys(remainingMemberships || {}),
+    ...Object.keys(remainingReads || {}),
+    ...Object.entries(remainingInbox || {})
+      .filter(([, entry]) => entry && entry.chatType === "group")
+      .map(([chatId]) => chatId),
+  ]);
+
+  if (remainingGroupIds.size > 0) {
+    return json({
+      success: true,
+      complete: false,
+      processedGroups: rawChatId === undefined ? 0 : 1,
+      updatedGroups: updatedGroups,
+      dissolvedGroups: dissolvedGroups,
+    });
+  }
+
+  const finalUpdates = {
+    ["groupMemberships/" + uid]: null,
+    ["groupReads/" + uid]: null,
+    ["chatReadState/" + uid]: null,
+    ["userChats/" + uid]: null,
+    ["userMessageVisibility/" + uid]: null,
+    ["conversationPreferences/" + uid]: null,
+
+    // Revoke the deleted account's published E2EE identities and clear its
+    // account-owned inbound relay/control queues.
+    ["deviceKeys/" + uid]: null,
+    ["deviceKeyClaims/" + uid]: null,
+    ["olmInbox/" + uid]: null,
+    ["olmDeliveryAcks/" + uid]: null,
+    ["olmPushDispatch/" + uid]: null,
+    ["sasVerificationInbox/" + uid]: null,
+    ["deviceTransferInbox/" + uid]: null,
+  };
+
+  for (const chatId of Object.keys(remainingInbox || {})) {
+    try {
+      const validChatId = cleanSegment(chatId, "chatId");
+      finalUpdates["chatReadReceipts/" + validChatId + "/" + uid] = null;
+      finalUpdates["typing/" + validChatId + "/" + uid] = null;
+    } catch (_) {
+      // Ignore malformed legacy inbox keys rather than constructing a path.
+    }
+  }
+
+  await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", finalUpdates);
+
   return json({
     success: true,
+    complete: true,
+    processedGroups: rawChatId === undefined ? 0 : 1,
     updatedGroups: updatedGroups,
     dissolvedGroups: dissolvedGroups,
   });
