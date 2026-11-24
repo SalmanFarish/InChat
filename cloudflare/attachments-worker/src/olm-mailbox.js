@@ -1,7 +1,4 @@
-import {
-  isPublishedDevice,
-  isValidEnvelopeRecord,
-} from "./olm-push.js";
+import { isPublishedDevice } from "./olm-push.js";
 import {
   PayloadTooLargeError,
   readRequestTextLimited,
@@ -154,10 +151,6 @@ function validateEnqueueBody(body, senderUid) {
     return { error: failure(400, "Encrypted mailbox request contains an invalid identifier.") };
   }
 
-  if (!validateEnvelope(body.envelope, senderDeviceId, recipientDeviceId)) {
-    return { error: failure(400, "Encrypted envelope is malformed or exceeds the supported size.") };
-  }
-
   if (isGroup) {
     if (
       !GROUP_PATTERN.test(body.groupId || "") ||
@@ -175,37 +168,6 @@ function validateEnqueueBody(body, senderUid) {
     body.conversationId !== [senderUid, body.conversationPeerUserId].sort().join("_")
   ) {
     return { error: failure(400, "Encrypted direct delivery scope is invalid.") };
-  }
-
-  const relayRecord = {
-    senderUid,
-    senderDeviceId,
-    messageId,
-    conversationType: body.conversationType,
-    conversationId: body.conversationId,
-    envelope: body.envelope,
-    ...(isGroup ? {
-      groupId: body.groupId,
-      membershipEpoch: body.membershipEpoch,
-    } : {
-      conversationPeerUserId: body.conversationPeerUserId,
-    }),
-  };
-  const expected = {
-    senderUid,
-    senderDeviceId,
-    recipientDeviceId,
-    messageId,
-    chatId: body.conversationId,
-    ...(isGroup ? {
-      groupId: body.groupId,
-      membershipEpoch: body.membershipEpoch,
-    } : {
-      conversationPeerUserId: body.conversationPeerUserId,
-    }),
-  };
-  if (!isValidEnvelopeRecord(relayRecord, expected)) {
-    return { error: failure(400, "Encrypted envelope metadata does not match its delivery scope.") };
   }
 
   return {
