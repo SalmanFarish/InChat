@@ -382,6 +382,28 @@ export async function processOlmMailboxRequest({
       );
     }
 
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/v1/olm/mailbox/device"
+    ) {
+      const deviceIds = url.searchParams.getAll("deviceId");
+      if (
+        deviceIds.length !== 1 ||
+        [...url.searchParams.keys()].some((key) => key !== "deviceId") ||
+        !DEVICE_PATTERN.test(deviceIds[0])
+      ) {
+        return failure(400, "Mailbox device ID is invalid.");
+      }
+
+      // The UID is derived from the verified token. A revoked device may
+      // still purge its own mailbox, but cannot select another account's DO.
+      return proxyMailbox(
+        mailboxStub(env, uid, deviceIds[0]),
+        "/purge",
+        "DELETE",
+      );
+    }
+
     if (request.method === "GET" && url.pathname === "/v1/olm/mailbox/inbox") {
       const deviceId = url.searchParams.get("deviceId") || "";
       if (!await publishedDevice(adminDatabaseRequest, env, adminAccessToken, uid, deviceId)) {
