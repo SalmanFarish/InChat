@@ -3748,11 +3748,15 @@ export default {
         return processUserReportRequest(request, env, user.uid, adminAuth);
       }
 
-      const user = await authenticate(getBearer(request), env);
-
-      if (url.pathname.startsWith("/v1/olm/mailbox/")) {
+      const isOlmMailboxRequest = url.pathname.startsWith("/v1/olm/mailbox/");
+      if (isOlmMailboxRequest) {
         const ipLimitResponse = await enforceEncryptedOlmPushIpRateLimit(request, env);
         if (ipLimitResponse) return ipLimitResponse;
+      }
+
+      const user = await authenticate(getBearer(request), env);
+
+      if (isOlmMailboxRequest) {
         const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(env, user.uid);
         if (accountLimitResponse) return accountLimitResponse;
         const adminAuth = await getFirebaseAdminToken(env);

@@ -707,7 +707,7 @@ export class OlmDeviceMailboxDurableObject {
 
       const usage = this.sql.exec(
         "SELECT COUNT(*) AS pending_count, COALESCE(SUM(byte_size), 0) AS pending_bytes " +
-        "FROM deliveries WHERE status = 'pending'",
+        "FROM deliveries WHERE status IN ('pending','acknowledged')",
       ).toArray()[0];
       if (
         Number(usage.pending_count) >= MAX_PENDING_DELIVERIES ||

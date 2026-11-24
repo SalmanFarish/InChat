@@ -317,6 +317,18 @@ test("per-device queue cap rejects new ciphertext without evicting existing deli
   const rejected = await mailbox.fetch(req("/enqueue", "POST", overflow));
   assert.equal(rejected.status, 503);
   assert.equal((await json(rejected)).retryable, true);
+
+  // ACK does not free storage until the recipient's separate DELETE commits.
+  mailbox.object.ctx.storage.sql.exec(
+    "UPDATE deliveries SET status = 'acknowledged' WHERE status = 'pending'",
+  );
+  const acknowledgedOverflow = directDelivery({
+    deliveryId: "e".repeat(64),
+    messageId: "acknowledged-overflow-message",
+  });
+  const stillFull = await mailbox.fetch(req("/enqueue", "POST", acknowledgedOverflow));
+  assert.equal(stillFull.status, 503);
+  assert.equal((await json(stillFull)).retryable, true);
   assert.equal((await json(await mailbox.fetch(req("/inbox?limit=50")))).items.length, 50);
 });
 
