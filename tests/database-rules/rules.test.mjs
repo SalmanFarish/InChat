@@ -576,10 +576,10 @@ test("a recipient cannot delete another user's message", async () => {
   );
 });
 
-test("a sender can delete their own direct message", async () => {
+test("senders cannot delete their own legacy Firebase direct messages", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
 
-  await assertSucceeds(
+  await assertFails(
     set(ref(aliceDb, "chats/dm/messages/aliceMessage"), null),
   );
 });
@@ -1266,7 +1266,7 @@ test("group relay writes require the current server-authored membership epoch an
   await assertFails(set(ref(aliceDb, path), groupRecord));
 });
 
-test("group relay writes fail closed when legacy membership diverges from the crypto snapshot", async () => {
+test("group relay authorization follows cryptoMembership, not the legacy members mirror", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
   const { conversationPeerUserId, ...groupBase } = encryptedInboxRecord();
   const groupRecord = {
@@ -1277,21 +1277,22 @@ test("group relay writes fail closed when legacy membership diverges from the cr
     membershipEpoch: 3,
   };
 
-  // A removed sender must not be authorized by a stale crypto snapshot.
+  // Stale legacy mirror fields do not override a current canonical snapshot.
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await set(ref(context.database(), "chats/group/members"), {
       bob: "member",
     });
   });
-  await assertFails(set(
+  await assertSucceeds(set(
     ref(aliceDb, "olmInbox/bob/device-bob-1/" + "c".repeat(64)),
     groupRecord,
   ));
 
-  // A removed recipient must not receive a relay via the stale snapshot.
+  // Removing the sender from the canonical snapshot denies the relay.
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await set(ref(context.database(), "chats/group/members"), {
-      alice: "admin",
+    await set(ref(context.database(), "chats/group/cryptoMembership"), {
+      epoch: 3,
+      members: { bob: "member" },
     });
   });
   await assertFails(set(
@@ -1299,10 +1300,14 @@ test("group relay writes fail closed when legacy membership diverges from the cr
     groupRecord,
   ));
 
-  // Matching identities with a changed role are also an inconsistent snapshot.
+  // A legacy map cannot restore a recipient removed from the canonical snapshot.
   await testEnv.withSecurityRulesDisabled(async (context) => {
+    await set(ref(context.database(), "chats/group/cryptoMembership"), {
+      epoch: 3,
+      members: { alice: "admin" },
+    });
     await set(ref(context.database(), "chats/group/members"), {
-      alice: "member",
+      alice: "admin",
       bob: "member",
     });
   });
