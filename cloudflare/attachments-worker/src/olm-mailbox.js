@@ -569,6 +569,9 @@ export class OlmDeviceMailboxDurableObject {
     if (!this.identity) return failure(500, "Mailbox identity is invalid.");
     const url = new URL(request.url);
     try {
+      if (request.method === "DELETE" && url.pathname === "/purge") {
+        return await this.purge();
+      }
       if (request.method === "POST" && url.pathname === "/enqueue") {
         return await this.enqueue(request);
       }
@@ -604,6 +607,18 @@ export class OlmDeviceMailboxDurableObject {
       }
       return failure(503, "Mailbox storage is temporarily unavailable.", true);
     }
+  }
+
+  async purge() {
+    // The outer Worker derives this object's account/device identity from the
+    // authenticated owner token. Purge both ciphertext and sender ACK state,
+    // including tombstones, when a device is retired or revoked.
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM deliveries");
+      this.sql.exec("DELETE FROM acknowledgements");
+    });
+    await this.ctx.storage.deleteAlarm();
+    return jsonResponse({ purged: true });
   }
 
   async enqueue(request) {
