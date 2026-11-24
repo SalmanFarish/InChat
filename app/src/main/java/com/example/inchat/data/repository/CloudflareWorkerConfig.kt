@@ -19,6 +19,12 @@ object CloudflareWorkerConfig {
      */
     const val ENCRYPTED_OLM_MAILBOX_ENABLED = false
 
+    /** Step 5 direct-message route switch; remains off until rollout is approved. */
+    const val ENCRYPTED_OLM_DIRECT_MAILBOX_ENABLED = false
+
+    val isDirectOlmMailboxEnabled: Boolean
+        get() = ENCRYPTED_OLM_MAILBOX_ENABLED && ENCRYPTED_OLM_DIRECT_MAILBOX_ENABLED
+
     val isConfigured: Boolean
         get() = !BASE_URL.contains("REPLACE_WITH_")
 }
