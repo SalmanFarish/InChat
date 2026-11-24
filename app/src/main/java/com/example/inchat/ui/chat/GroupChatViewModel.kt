@@ -9,6 +9,7 @@ import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
 import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
 import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
+import com.example.inchat.crypto.PendingGroupMessageIntent
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Group
@@ -76,6 +77,13 @@ class GroupChatViewModel : ViewModel() {
     private val _encryptedMessages = MutableStateFlow<List<DecryptedGroupMessage>>(emptyList())
     internal val encryptedMessages: StateFlow<List<DecryptedGroupMessage>> =
         _encryptedMessages.asStateFlow()
+
+    // Outgoing group intents remain encrypted-at-rest until every trusted
+    // member device acknowledges the exact Megolm session key.
+    private val _pendingEncryptedMessages =
+        MutableStateFlow<List<PendingGroupMessageIntent>>(emptyList())
+    internal val pendingEncryptedMessages: StateFlow<List<PendingGroupMessageIntent>> =
+        _pendingEncryptedMessages.asStateFlow()
 
     private val _messagesLoaded = MutableStateFlow(false)
     val messagesLoaded: StateFlow<Boolean> =
@@ -181,6 +189,7 @@ class GroupChatViewModel : ViewModel() {
         trustChangeRetryJob?.cancel()
         pendingMessagesJob = null
         pendingIntentRetryJob = null
+        _pendingEncryptedMessages.value = emptyList()
         _pendingMessageIds.value = emptySet()
         groupReadJobs.values.forEach { it.cancel() }
         groupReadJobs.clear()
@@ -333,6 +342,44 @@ class GroupChatViewModel : ViewModel() {
                     "GroupChatViewModel",
                     "Encrypted group message timeline could not be observed",
                     e,
+                )
+            }
+        }
+
+        // Surface the encrypted outgoing intent immediately, including while
+        // the Megolm key-distribution gate is waiting for trusted-device ACKs.
+        // This flow decrypts only on IO and never writes to the legacy chat cache.
+        pendingMessagesJob = viewModelScope.launch {
+            try {
+                if (FirebaseAuth.getInstance().currentUser?.uid != currentUserId) {
+                    _pendingEncryptedMessages.value = emptyList()
+                    _pendingMessageIds.value = emptySet()
+                    return@launch
+                }
+                encryptedGroupMessageRepository
+                    .observePendingOutgoingIntents(currentUserId, groupId)
+                    .collect { pending ->
+                        if (
+                            listeningGroupId == groupId &&
+                            FirebaseAuth.getInstance().currentUser?.uid == currentUserId
+                        ) {
+                            _pendingEncryptedMessages.value = pending
+                            _pendingMessageIds.value = pending.mapTo(mutableSetOf()) {
+                                it.messageId
+                            }
+                        }
+                    }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (listeningGroupId == groupId) {
+                    _pendingEncryptedMessages.value = emptyList()
+                    _pendingMessageIds.value = emptySet()
+                }
+                Log.e(
+                    "GroupChatViewModel",
+                    "Encrypted pending group messages could not be observed",
+                    error,
                 )
             }
         }
@@ -513,7 +560,10 @@ class GroupChatViewModel : ViewModel() {
     }
 
     private fun isEncryptedGroupMessage(messageId: String): Boolean =
-        messageId.isNotBlank() && _encryptedMessages.value.any { it.messageId == messageId }
+        messageId.isNotBlank() && (
+            _encryptedMessages.value.any { it.messageId == messageId } ||
+                _pendingEncryptedMessages.value.any { it.messageId == messageId }
+            )
 
     fun setReplyingTo(message: Message) {
         if (
@@ -843,6 +893,11 @@ class GroupChatViewModel : ViewModel() {
             return
         }
 
+        val pendingIdsForChat = _pendingEncryptedMessages.value.mapTo(mutableSetOf()) { it.messageId }
+        if (messageIds.any { it in pendingIdsForChat }) {
+            onResult(false, "This encrypted group message is still waiting for secure delivery and cannot be deleted yet.")
+            return
+        }
         val encryptedIdsForChat = _encryptedMessages.value.mapTo(mutableSetOf()) { it.messageId }
         viewModelScope.launch {
             for (messageId in messageIds) {
@@ -879,8 +934,7 @@ class GroupChatViewModel : ViewModel() {
             onResult(false, "No messages selected.")
             return
         }
-        val encryptedIdsForChat = _encryptedMessages.value.mapTo(mutableSetOf()) { it.messageId }
-        if (messageIds.any { it in encryptedIdsForChat }) {
+        if (messageIds.any { isEncryptedGroupMessage(it) }) {
             onResult(false, "Encrypted group messages cannot be deleted for everyone yet.")
             return
         }
