@@ -85,13 +85,41 @@ internal class DeviceKeyDirectoryRepository(
     }
 
     /**
-     * Ensure this installation has a current public bundle in the signed directory.
+     * Make this installation ready for messaging without rotating its published
+     * one-time prekeys on every app launch or message send.
      *
-     * This operation is safe to call during sign-in and immediately before a send:
-     * it creates the local identity if needed, publishes only when the public bundle
-     * is missing or changed, refreshes activity/token registration otherwise, and
-     * marks native prekeys published only after the directory operation succeeds.
-     * Repeated calls are idempotent and never create a SAS trust decision.
+     * Existing, locally recoverable devices are reused and only have their activity
+     * and device-scoped push token refreshed. A missing directory entry or local
+     * encrypted identity triggers first-time publication. Replenishment is kept as
+     * a separate operation so ordinary sends remain idempotent.
+     */
+    suspend fun ensureMyDevicePublished(
+        identityRepository: DeviceIdentityRepository,
+    ): PublicDeviceKeyBundle {
+        val ownerUserId = authenticatedUserId
+        val deviceId = identityRepository.currentDeviceId()
+        require(auth.currentUser?.uid == ownerUserId) {
+            "Authenticated account changed while preparing this device identity"
+        }
+
+        val existing = getUserDevices(ownerUserId)
+            .firstOrNull { it.deviceId == deviceId }
+        if (existing != null && identityRepository.hasLocalIdentityState()) {
+            touchMyDevice(deviceId)
+            registerDeviceScopedFcmToken(ownerUserId, deviceId)
+            require(auth.currentUser?.uid == ownerUserId) {
+                "Authenticated account changed while refreshing this device"
+            }
+            return existing
+        }
+
+        return replenishAndPublishMyDevice(identityRepository)
+    }
+
+    /**
+     * Publish the current unpublished prekey batch, then mark it as published
+     * locally. Call only for first-time registration or an intentional refresh,
+     * never as a routine per-message readiness check.
      */
     suspend fun replenishAndPublishMyDevice(
         identityRepository: DeviceIdentityRepository,
@@ -101,16 +129,7 @@ internal class DeviceKeyDirectoryRepository(
         require(auth.currentUser?.uid == ownerUserId) {
             "Authenticated account changed while preparing this device identity"
         }
-
-        val publishedBundle = getUserDevices(ownerUserId)
-            .firstOrNull { it.deviceId == bundle.deviceId }
-        if (publishedBundle?.copy(lastSeenAtMillis = null) == bundle) {
-            touchMyDevice(bundle.deviceId)
-            registerDeviceScopedFcmToken(ownerUserId, bundle.deviceId)
-        } else {
-            publishMyDevice(bundle)
-        }
-
+        publishMyDevice(bundle)
         require(auth.currentUser?.uid == ownerUserId) {
             "Authenticated account changed while publishing this device identity"
         }

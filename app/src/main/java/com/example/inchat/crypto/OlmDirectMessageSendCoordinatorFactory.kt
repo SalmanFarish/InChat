@@ -121,7 +121,7 @@ internal class OlmDirectMessageSendCoordinator(
         // First-use setup is automatic. This is also a race-safe fallback when
         // the user sends before the application startup provisioning finishes.
         val senderBundle = try {
-            directory.replenishAndPublishMyDevice(identity)
+            directory.ensureMyDevicePublished(identity)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (setupError: Exception) {

@@ -112,7 +112,7 @@ class InChatApplication : Application() {
                     if (firebaseAuth.currentUser?.isEmailVerified == true) {
                         try {
                             DeviceKeyDirectoryRepository(auth = firebaseAuth)
-                                .replenishAndPublishMyDevice(
+                                .ensureMyDevicePublished(
                                     DeviceIdentityRepository(applicationContext),
                                 )
                         } catch (cancelled: CancellationException) {
