@@ -33,10 +33,12 @@ class EncryptedGroupMessageRepositoryTest {
         com.example.inchat.data.local.LocalChatDatabase::class.java,
     ).allowMainThreadQueries().build()
     private val keyAlias = EncryptedGroupMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
+    private val pendingKeyAlias = EncryptedGroupPendingMessageVault.DEFAULT_KEY_ALIAS + "-" + UUID.randomUUID()
     private var activeAccount = "alice"
     private val repository = EncryptedGroupMessageRepository(
         dao = database.encryptedGroupMessageDao(),
         vault = EncryptedGroupMessageVault(keyAlias),
+        pendingVault = EncryptedGroupPendingMessageVault(pendingKeyAlias),
         authenticatedUserId = { activeAccount },
     )
 
@@ -545,6 +547,67 @@ class EncryptedGroupMessageRepositoryTest {
     }
 
     @Test
+    fun pendingOutgoingIntentFlowShowsEncryptedIntentUntilAtomicTimelineCommit() = runBlocking {
+        val outgoing = outgoingMessage("pending-live-timeline")
+        val pendingFlow = repository.observePendingOutgoingIntents("alice", "group-123")
+
+        assertTrue(pendingFlow.first().isEmpty())
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId,
+            outgoing.groupId,
+            outgoing.messageId,
+            outgoing.sentAtMillis,
+            outgoing.text,
+        ))
+        assertEquals(
+            listOf(
+                PendingGroupMessageIntent(
+                    ownerUserId = outgoing.ownerUserId,
+                    groupId = outgoing.groupId,
+                    messageId = outgoing.messageId,
+                    sentAtMillis = outgoing.sentAtMillis,
+                    plaintext = outgoing.text,
+                ),
+            ),
+            pendingFlow.first(),
+        )
+
+        // Acknowledged key distribution is represented by the durable commit
+        // marker. Publishing the encrypted timeline echo removes the pending
+        // intent in the same Room transaction, and the live flow follows it.
+        assertEquals(
+            1L,
+            database.olmDeliveryQueueDao()
+                .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)),
+        )
+        assertTrue(repository.saveOutgoingMessageAndClearPendingIntent(outgoing))
+
+        assertTrue(pendingFlow.first().isEmpty())
+        assertEquals(
+            outgoing,
+            repository.getMessage("alice", "group-123", outgoing.messageId),
+        )
+    }
+
+    @Test
+    fun pendingOutgoingIntentFlowRejectsAccountSwitchAndDoesNotLeakOtherGroupRows() = runBlocking {
+        val outgoing = outgoingMessage("pending-account-scope")
+        assertTrue(repository.savePendingOutgoingIntent(
+            outgoing.ownerUserId,
+            outgoing.groupId,
+            outgoing.messageId,
+            outgoing.sentAtMillis,
+            outgoing.text,
+        ))
+
+        assertTrue(repository.observePendingOutgoingIntents("alice", "another-group").first().isEmpty())
+        activeAccount = "mallory"
+        assertRejected {
+            repository.observePendingOutgoingIntents("alice", "group-123").first()
+        }
+    }
+
+    @Test
     fun pendingIntentWithoutCommitMarkerIsNeverRecoveredOrDeleted() = runBlocking {
         val outgoing = outgoingMessage("recover-uncommitted")
         assertTrue(repository.savePendingOutgoingIntent(
@@ -783,5 +846,6 @@ class EncryptedGroupMessageRepositoryTest {
         val store = java.security.KeyStore.getInstance("AndroidKeyStore")
         store.load(null)
         if (store.containsAlias(keyAlias)) store.deleteEntry(keyAlias)
+        if (store.containsAlias(pendingKeyAlias)) store.deleteEntry(pendingKeyAlias)
     }
 }
