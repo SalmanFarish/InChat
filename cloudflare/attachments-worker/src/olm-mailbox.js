@@ -622,7 +622,7 @@ export class OlmDeviceMailboxDurableObject {
       if (request.method === "POST" && url.pathname === "/acknowledge") {
         return await this.acknowledge(request);
       }
-      const deleteDelivery = url.pathname.match(/^\\/inbox\\/([A-Fa-f0-9]{64})$/);
+      const deleteDelivery = url.pathname.match(/^\/inbox\/([A-Fa-f0-9]{64})$/);
       if (request.method === "DELETE" && deleteDelivery) {
         return await this.removeDelivery(deleteDelivery[1].toLowerCase(), request);
       }
