@@ -276,6 +276,7 @@ class EncryptedOlmDeliveryWorker(
                 firebase = firebaseTransport,
                 cloudflare = cloudflareTransport,
                 cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
+                cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
             )
             val groupRepository = GroupChatRepository()
             val notifications = CloudflareNotificationRepository()
