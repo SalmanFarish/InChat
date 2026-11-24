@@ -1896,14 +1896,9 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
       }
     }
 
-    // Commit this group's cleanup before returning its batch result. If the
-    // request is interrupted earlier, its indexes remain and the next call
-    // retries the same group; every preceding side effect is idempotent.
-    await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
-
+    // Rebuild before deleting this group's indexes. If preview synchronization
+    // fails, the index remains so the next invocation retries this group.
     if (previewToRebuild) {
-      // Do not swallow this failure: retaining the index makes the next batch
-      // retry preview synchronization instead of permanently losing it.
       await rebuildConversationPreview(
         env,
         adminAuth.token,
@@ -1911,6 +1906,11 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
         previewToRebuild.chat,
       );
     }
+
+    // Commit this group's cleanup before returning its batch result. If the
+    // request is interrupted earlier, its indexes remain and the next call
+    // retries the same group; every preceding side effect is idempotent.
+    await adminDatabaseRequest(env, adminAuth.token, "", "PATCH", updates);
 
     if (groupIds.size > 1) {
       return json({
