@@ -148,7 +148,7 @@ function fixture({
       now,
     });
 
-  return { database, dispatch, sentMessages };
+  return { database, dispatch, sentMessages, env };
 }
 
 const groupChat = {
@@ -185,6 +185,43 @@ const groupRelayRecord = {
     ciphertext: "AQID",
   }),
 };
+
+test("validates and notifies a Cloudflare-mailbox delivery without Firebase olmInbox", async () => {
+  const state = fixture();
+  state.database.delete("olmInbox/bob/bob-device/" + deliveryId);
+  state.env.OLM_MAILBOX = {
+    idFromName: (name) => ({ name }),
+    get: (id) => ({
+      fetch: async (request) => {
+        assert.equal(id.name, "bob:bob-device");
+        assert.equal(new URL(request.url).pathname, "/delivery/" + deliveryId);
+        return new Response(JSON.stringify({
+          delivery: {
+            deliveryId,
+            messageId: "message-123",
+            senderUid: "alice",
+            senderDeviceId: "alice-device",
+            recipientUid: "bob",
+            recipientDeviceId: "bob-device",
+            conversationType: "direct",
+            conversationId: "alice_bob",
+            conversationPeerUserId: "bob",
+            groupId: null,
+            membershipEpoch: null,
+            envelopeSha256: "b".repeat(64),
+            expiresAt: 2_000_000,
+            status: "pending",
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    }),
+  };
+
+  const response = await state.dispatch();
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
+});
 
 test("sends a group Olm wake-up only for the current membership epoch", async () => {
   const state = fixture({ chat: groupChat, relayRecord: groupRelayRecord });

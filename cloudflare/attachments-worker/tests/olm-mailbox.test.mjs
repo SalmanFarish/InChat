@@ -296,6 +296,22 @@ test("group enqueue requires an exact current membership snapshot and epoch", as
   })).status, 409);
 });
 
+test("internal delivery lookup returns routing metadata without ciphertext", async () => {
+  const state = workerFixture();
+  assert.equal((await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status, 200);
+  const mailbox = state.namespace.get(state.namespace.idFromName("bob:bob-device"));
+  const response = await mailbox.fetch(req("/delivery/" + deliveryId));
+  assert.equal(response.status, 200);
+  const payload = await json(response);
+  assert.equal(payload.delivery.deliveryId, deliveryId);
+  assert.equal(payload.delivery.senderUid, "alice");
+  assert.equal(payload.delivery.recipientUid, "bob");
+  assert.equal(payload.delivery.conversationType, "direct");
+  assert.equal(payload.delivery.status, "pending");
+  assert.match(payload.delivery.envelopeSha256, /^[a-f0-9]{64}$/);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.delivery, "envelope"), false);
+});
+
 test("ACK is stored in the sender mailbox before recipient ciphertext is removed", async () => {
   const state = workerFixture();
   assert.equal((await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status, 200);

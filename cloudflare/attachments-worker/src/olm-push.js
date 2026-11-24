@@ -1,3 +1,8 @@
+import {
+  isValidOlmMailboxDeliveryMetadata,
+  readOlmMailboxDeliveryMetadata,
+} from "./olm-mailbox-access.js";
+
 const UID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const DEVICE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MESSAGE_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -452,27 +457,61 @@ export async function processEncryptedOlmPush({
     return result(404, { error: "Sender or recipient device is no longer published." });
   }
 
-  const relayPath =
-    "olmInbox/" + recipientUid + "/" + input.recipientDeviceId + "/" + input.deliveryId;
-  const relayRecord = await adminDatabaseRequest(env, adminAccessToken, relayPath);
-  if (!relayRecord) {
-    return result(503, {
-      error: "Encrypted delivery has not reached the relay yet.",
-      retryable: true,
-    });
-  }
-
-  if (!isValidEnvelopeRecord(relayRecord, {
+  const expectedDelivery = {
     senderUid: uid,
     senderDeviceId: input.senderDeviceId,
+    recipientUid,
     recipientDeviceId: input.recipientDeviceId,
+    deliveryId: input.deliveryId,
     messageId: input.messageId,
     chatId: input.chatId,
     conversationPeerUserId,
     groupId: input.groupId,
     membershipEpoch: input.membershipEpoch,
-  })) {
-    return result(409, { error: "Encrypted relay record does not match the authenticated request." });
+  };
+  const mailboxDelivery = await readOlmMailboxDeliveryMetadata(
+    env,
+    recipientUid,
+    input.recipientDeviceId,
+    input.deliveryId,
+  );
+  if (mailboxDelivery) {
+    if (!isValidOlmMailboxDeliveryMetadata(mailboxDelivery, expectedDelivery, now)) {
+      return result(409, { error: "Encrypted mailbox delivery does not match the authenticated request." });
+    }
+    // A durable recipient ACK means the inbox already staged this ciphertext;
+    // FCM is only a wake-up and must not be sent after that point.
+    if (mailboxDelivery.status !== "pending") {
+      return result(200, {
+        success: true,
+        notificationSent: false,
+        reason: "delivery_already_acknowledged",
+      });
+    }
+  } else {
+    // Migration fallback: wake-ups for already queued Firebase deliveries
+    // continue until the legacy inbox has been drained.
+    const relayPath =
+      "olmInbox/" + recipientUid + "/" + input.recipientDeviceId + "/" + input.deliveryId;
+    const relayRecord = await adminDatabaseRequest(env, adminAccessToken, relayPath);
+    if (!relayRecord) {
+      return result(503, {
+        error: "Encrypted delivery has not reached either relay yet.",
+        retryable: true,
+      });
+    }
+    if (!isValidEnvelopeRecord(relayRecord, {
+      senderUid: uid,
+      senderDeviceId: input.senderDeviceId,
+      recipientDeviceId: input.recipientDeviceId,
+      messageId: input.messageId,
+      chatId: input.chatId,
+      conversationPeerUserId,
+      groupId: input.groupId,
+      membershipEpoch: input.membershipEpoch,
+    })) {
+      return result(409, { error: "Encrypted relay record does not match the authenticated request." });
+    }
   }
 
   const tokenValue = await adminDatabaseRequest(

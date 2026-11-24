@@ -129,8 +129,49 @@ function fixture({
     });
   };
 
-  return { database, send, request };
+  return { database, send, request, env };
 }
+
+test("syncs encrypted preview from Worker mailbox metadata without Firebase olmInbox", async () => {
+  const state = fixture();
+  state.database.delete("olmInbox/bob/bob-device/" + defaultDeliveryId);
+  state.env.OLM_MAILBOX = {
+    idFromName: (name) => ({ name }),
+    get: (id) => ({
+      fetch: async () => {
+        assert.equal(id.name, "bob:bob-device");
+        return new Response(JSON.stringify({
+          delivery: {
+            deliveryId: defaultDeliveryId,
+            messageId: "message-1",
+            senderUid: "alice",
+            senderDeviceId: "alice-device",
+            recipientUid: "bob",
+            recipientDeviceId: "bob-device",
+            conversationType: "direct",
+            conversationId: "alice_bob",
+            conversationPeerUserId: "bob",
+            groupId: null,
+            membershipEpoch: null,
+            envelopeSha256: "c".repeat(64),
+            expiresAt: 10_000,
+            status: "pending",
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    }),
+  };
+  const response = await state.request({
+    chatId: "alice_bob",
+    messageId: "message-1",
+    deliveryId: defaultDeliveryId,
+    senderDeviceId: "alice-device",
+    recipientDeviceId: "bob-device",
+    sentAtMillis: 1_000,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(state.database.get("userChats/bob/alice_bob").lastMessage, "Encrypted message");
+});
 
 test("syncs only a generic encrypted preview to both direct inboxes", async () => {
   const state = fixture();

@@ -135,8 +135,51 @@ function fixture({ epoch = 5, recipientReadTimestamp = 0, relayAvailable = true 
     });
   };
 
-  return { database, send, request };
+  return { database, send, request, env };
 }
+
+test("syncs encrypted group preview from Worker mailbox metadata without Firebase olmInbox", async () => {
+  const state = fixture();
+  state.database.delete("olmInbox/bob/bob-device/" + deliveryId);
+  state.env.OLM_MAILBOX = {
+    idFromName: (name) => ({ name }),
+    get: (id) => ({
+      fetch: async () => {
+        assert.equal(id.name, "bob:bob-device");
+        return new Response(JSON.stringify({
+          delivery: {
+            deliveryId,
+            messageId: "group-message-1",
+            senderUid: "alice",
+            senderDeviceId: "alice-device",
+            recipientUid: "bob",
+            recipientDeviceId: "bob-device",
+            conversationType: "group",
+            conversationId: groupId,
+            conversationPeerUserId: null,
+            groupId,
+            membershipEpoch: 5,
+            envelopeSha256: "d".repeat(64),
+            expiresAt: 10_000,
+            status: "pending",
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    }),
+  };
+  const response = await state.request({
+    groupId,
+    messageId: "group-message-1",
+    sentAtMillis: 1_000,
+    membershipEpoch: 5,
+    deliveryId,
+    recipientUserId: "bob",
+    senderDeviceId: "alice-device",
+    recipientDeviceId: "bob-device",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(state.database.get("userChats/bob/" + groupId).lastMessage, "Encrypted message");
+});
 
 test("updates all current group member inboxes using only a generic encrypted preview", async () => {
   const state = fixture({ recipientReadTimestamp: 1_000 });

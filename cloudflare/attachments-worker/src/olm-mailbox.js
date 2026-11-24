@@ -584,6 +584,10 @@ export class OlmDeviceMailboxDurableObject {
       if (request.method === "GET" && url.pathname === "/inbox") {
         return await this.readInbox(url);
       }
+      const deliveryLookup = url.pathname.match(/^\/delivery\/([A-Fa-f0-9]{64})$/);
+      if (request.method === "GET" && deliveryLookup) {
+        return await this.readDeliveryMetadata(deliveryLookup[1].toLowerCase());
+      }
       if (request.method === "POST" && url.pathname === "/acknowledge") {
         return await this.acknowledge(request);
       }
@@ -821,6 +825,38 @@ export class OlmDeviceMailboxDurableObject {
         }),
       })),
       nextCursor: hasMore && page.length ? String(page[page.length - 1].seq) : null,
+    });
+  }
+
+  async readDeliveryMetadata(deliveryId) {
+    const row = this.sql.exec(
+      "SELECT delivery_id,message_id,sender_uid,sender_device_id,recipient_uid,recipient_device_id," +
+        "conversation_type,conversation_id,conversation_peer_user_id,group_id,membership_epoch," +
+        "envelope_sha256,expires_at,status FROM deliveries WHERE delivery_id = ?",
+      deliveryId,
+    ).toArray()[0];
+    if (!row || row.status === "expired" || row.expires_at <= Date.now()) {
+      return failure(404, "Mailbox delivery was not found.");
+    }
+    // The Worker needs proof that a particular ciphertext was accepted, not
+    // the ciphertext itself. Do not expose envelope bytes through this lookup.
+    return jsonResponse({
+      delivery: {
+        deliveryId: row.delivery_id,
+        messageId: row.message_id,
+        senderUid: row.sender_uid,
+        senderDeviceId: row.sender_device_id,
+        recipientUid: row.recipient_uid,
+        recipientDeviceId: row.recipient_device_id,
+        conversationType: row.conversation_type,
+        conversationId: row.conversation_id,
+        conversationPeerUserId: row.conversation_peer_user_id,
+        groupId: row.group_id,
+        membershipEpoch: row.membership_epoch,
+        envelopeSha256: row.envelope_sha256,
+        expiresAt: row.expires_at,
+        status: row.status,
+      },
     });
   }
 

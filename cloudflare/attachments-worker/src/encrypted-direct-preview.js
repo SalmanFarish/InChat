@@ -1,3 +1,7 @@
+import {
+  isValidOlmMailboxDeliveryMetadata,
+  readOlmMailboxDeliveryMetadata,
+} from "./olm-mailbox-access.js";
 import { isPublishedDevice, isValidEnvelopeRecord } from "./olm-push.js";
 
 const UID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -278,31 +282,53 @@ export async function syncEncryptedDirectPreview({
   // A caller may update previews only after its exact encrypted delivery has
   // reached the recipient's relay path. The server never trusts a client-only
   // message ID/timestamp as proof that a ciphertext send actually occurred.
-  const [senderDevice, recipientDevice, relayRecord] = await Promise.all([
+  const [senderDevice, recipientDevice] = await Promise.all([
     adminDatabaseRequest(env, adminToken, "deviceKeys/" + uid + "/" + body.senderDeviceId),
     adminDatabaseRequest(env, adminToken, "deviceKeys/" + peerUid + "/" + body.recipientDeviceId),
-    adminDatabaseRequest(
-      env,
-      adminToken,
-      "olmInbox/" + peerUid + "/" + body.recipientDeviceId + "/" + body.deliveryId.toLowerCase(),
-    ),
   ]);
   if (!isPublishedDevice(senderDevice, body.senderDeviceId) ||
       !isPublishedDevice(recipientDevice, body.recipientDeviceId)) {
     return result(404, { error: "Sender or recipient device is no longer published." });
   }
-  if (!isRecord(relayRecord)) {
-    return result(503, { error: "Encrypted relay record is missing.", retryable: true });
-  }
-  if (!isValidEnvelopeRecord(relayRecord, {
+  const expectedDelivery = {
     senderUid: uid,
     senderDeviceId: body.senderDeviceId,
+    recipientUid: peerUid,
     recipientDeviceId: body.recipientDeviceId,
+    deliveryId: body.deliveryId,
     messageId: body.messageId,
     chatId: body.chatId,
     conversationPeerUserId: peerUid,
-  })) {
-    return result(409, { error: "Encrypted relay record does not match the authenticated preview request." });
+  };
+  const mailboxDelivery = await readOlmMailboxDeliveryMetadata(
+    env,
+    peerUid,
+    body.recipientDeviceId,
+    body.deliveryId,
+  );
+  if (mailboxDelivery) {
+    if (!isValidOlmMailboxDeliveryMetadata(mailboxDelivery, expectedDelivery, now)) {
+      return result(409, { error: "Encrypted mailbox delivery does not match the authenticated preview request." });
+    }
+  } else {
+    const relayRecord = await adminDatabaseRequest(
+      env,
+      adminToken,
+      "olmInbox/" + peerUid + "/" + body.recipientDeviceId + "/" + body.deliveryId.toLowerCase(),
+    );
+    if (!isRecord(relayRecord)) {
+      return result(503, { error: "Encrypted relay record is missing.", retryable: true });
+    }
+    if (!isValidEnvelopeRecord(relayRecord, {
+      senderUid: uid,
+      senderDeviceId: body.senderDeviceId,
+      recipientDeviceId: body.recipientDeviceId,
+      messageId: body.messageId,
+      chatId: body.chatId,
+      conversationPeerUserId: peerUid,
+    })) {
+      return result(409, { error: "Encrypted relay record does not match the authenticated preview request." });
+    }
   }
 
   const [senderProfile, recipientProfile] = await Promise.all([
