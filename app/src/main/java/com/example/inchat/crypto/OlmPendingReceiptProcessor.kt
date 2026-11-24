@@ -173,7 +173,7 @@ internal class OlmPendingReceiptProcessor(
                             return
                         }
 
-                        val isTrusted = trustVerifier.isVerified(
+                        val isTrusted = trustVerifier.isTrustedForMessaging(
                             peerUserId = receipt.senderUserId,
                             peerDeviceId = remoteDevice.deviceId,
                             peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
