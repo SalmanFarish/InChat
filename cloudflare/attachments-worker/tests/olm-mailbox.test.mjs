@@ -490,6 +490,83 @@ test("expiry removes ciphertext, keeps a temporary idempotency tombstone, then c
   }
 });
 
+test("owner can purge ciphertext and ACKs for a revoked device mailbox", async () => {
+  const state = workerFixture();
+  assert.equal(
+    (await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status,
+    200,
+  );
+  assert.equal(
+    (await state.dispatch(
+      "/v1/olm/mailbox/acknowledge?deviceId=bob-device",
+      "POST",
+      { deliveryId },
+      "bob",
+    )).status,
+    200,
+  );
+
+  // Purging remains available after another device has revoked this device's
+  // public key. Authentication still binds the operation to bob.
+  state.database.delete("deviceKeys/bob/bob-device");
+  const purged = await state.dispatch(
+    "/v1/olm/mailbox/device?deviceId=bob-device",
+    "DELETE",
+    undefined,
+    "bob",
+  );
+  assert.equal(purged.status, 200);
+  assert.deepEqual(await json(purged), { purged: true });
+
+  const recipientMailbox = state.namespace.objects.get("bob:bob-device");
+  assert.equal(recipientMailbox.object.sql.exec(
+    "SELECT COUNT(*) AS total FROM deliveries",
+  ).toArray()[0].total, 0);
+  assert.equal(recipientMailbox.object.sql.exec(
+    "SELECT COUNT(*) AS total FROM acknowledgements",
+  ).toArray()[0].total, 0);
+  assert.equal(recipientMailbox.object.ctx.storage.alarm, null);
+});
+
+test("mailbox purge derives the account namespace from authentication", async () => {
+  const state = workerFixture();
+  assert.equal(
+    (await state.dispatch("/v1/olm/mailbox/enqueue", "POST", apiEnqueueBody())).status,
+    200,
+  );
+
+  // Alice can only purge alice:bob-device, never Bob's bob:bob-device.
+  const purged = await state.dispatch(
+    "/v1/olm/mailbox/device?deviceId=bob-device",
+    "DELETE",
+    undefined,
+    "alice",
+  );
+  assert.equal(purged.status, 200);
+
+  const inbox = await state.dispatch(
+    "/v1/olm/mailbox/inbox?deviceId=bob-device",
+    "GET",
+    undefined,
+    "bob",
+  );
+  assert.equal(inbox.status, 200);
+  assert.equal((await json(inbox)).items.length, 1);
+});
+
+test("mailbox purge rejects missing, duplicate, and malformed device IDs", async () => {
+  const state = workerFixture();
+  for (const path of [
+    "/v1/olm/mailbox/device",
+    "/v1/olm/mailbox/device?deviceId=bob-device&deviceId=other",
+    "/v1/olm/mailbox/device?deviceId=bad%2Fdevice",
+    "/v1/olm/mailbox/device?deviceId=bob-device&accountUid=alice",
+  ]) {
+    const response = await state.dispatch(path, "DELETE", undefined, "bob");
+    assert.equal(response.status, 400, path);
+  }
+});
+
 test("Worker mailbox routes apply IP throttling before requiring Firebase authentication", async () => {
   let ipCalls = 0;
   const throttled = await worker.fetch(
