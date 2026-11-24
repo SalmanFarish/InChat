@@ -1703,7 +1703,7 @@ async function cleanupOneClaimantPreKeyIndex(env, uid, adminToken) {
   const safeKeyId = cleanSegment(keyId, "keyId");
   const claimPath = "deviceKeyClaims/" + safeTargetUid + "/" + safeDeviceId + "/" + safeKeyId;
   const claimUrl = new URL(
-    env.FIREBASE_DATABASE_URL.replace(/\\/$/, "") +
+    env.FIREBASE_DATABASE_URL.replace(/\/$/, "") +
       "/" + claimPath.split("/").map(encodeURIComponent).join("/") + ".json",
   );
   const read = await fetch(claimUrl.toString(), {
