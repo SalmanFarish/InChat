@@ -680,6 +680,54 @@ test("mailbox purge refuses to erase a currently published device", async () => 
   assert.equal((await json(response)).code, "device_still_published");
 });
 
+test("retired mailbox rejects a late authorized enqueue after purge", async () => {
+  const state = workerFixture();
+  const mailbox = state.namespace.get(state.namespace.idFromName("bob:bob-device"));
+
+  const purged = await mailbox.fetch(req("/purge", "DELETE"));
+  assert.equal(purged.status, 200);
+  assert.equal((await json(purged)).purged, true);
+
+  // Simulate an enqueue that passed outer metadata authorization before
+  // revocation, but only reaches the Durable Object after its purge completed.
+  const lateDelivery = {
+    ...apiEnqueueBody(),
+    senderUid: "alice",
+    retentionMillis: RETENTION,
+    acceptedAt: Date.now(),
+  };
+  const lateEnqueue = await mailbox.fetch(req("/enqueue", "POST", lateDelivery));
+  assert.equal(lateEnqueue.status, 410);
+  assert.equal((await json(lateEnqueue)).code, "device_mailbox_retired");
+
+  const inbox = await mailbox.fetch(req("/inbox"));
+  assert.equal((await json(inbox)).items.length, 0);
+});
+
+test("retired sender mailbox rejects late acknowledgement records", async () => {
+  const state = workerFixture();
+  const mailbox = state.namespace.get(state.namespace.idFromName("alice:alice-device"));
+
+  const purged = await mailbox.fetch(req("/purge", "DELETE"));
+  assert.equal(purged.status, 200);
+
+  const lateAcknowledgement = await mailbox.fetch(req("/ack-record", "POST", {
+    acknowledgedAt: Date.now(),
+    deliveryId,
+    messageId: "message-1",
+    recipientDeviceId: "bob-device",
+    recipientUid: "bob",
+    retentionMillis: RETENTION,
+    senderDeviceId: "alice-device",
+    senderUid: "alice",
+  }));
+  assert.equal(lateAcknowledgement.status, 410);
+  assert.equal((await json(lateAcknowledgement)).code, "device_mailbox_retired");
+
+  const acknowledgements = await mailbox.fetch(req("/acks"));
+  assert.equal((await json(acknowledgements)).items.length, 0);
+});
+
 test("mailbox purge rejects missing, duplicate, and malformed device IDs", async () => {
   const state = workerFixture();
   for (const path of [
