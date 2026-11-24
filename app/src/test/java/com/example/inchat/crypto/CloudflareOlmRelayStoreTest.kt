@@ -424,6 +424,38 @@ class CloudflareOlmRelayStoreTest {
         oneTimeKeys = emptyList(),
     )
 
+    @Test
+    fun revokedDeviceCleanupConflictIsPropagatedInsteadOfReportedAsCleaned() = runBlocking {
+        val requests = RecordingHttpClient { request ->
+            when (request.method) {
+                "GET" -> throw OlmMailboxHttpException(
+                    404,
+                    retryable = false,
+                    message = "Device is no longer published.",
+                    errorCode = "device_not_published",
+                )
+                "DELETE" -> throw OlmMailboxHttpException(
+                    409,
+                    retryable = false,
+                    message = "Published devices cannot purge their active mailbox.",
+                    errorCode = "device_still_published",
+                )
+                else -> error("Unexpected mailbox request: " + request.method)
+            }
+        }
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = RecordingTokenProvider(),
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        val failure = runCatching { store.readInbox("bob", "device") }.exceptionOrNull()
+
+        assertTrue(failure is OlmMailboxHttpException)
+        assertEquals(409, (failure as OlmMailboxHttpException).statusCode)
+        assertEquals(listOf("GET", "DELETE"), requests.requests.map { it.method })
+    }
+
     private fun directInboxJson() = JSONObject()
         .put("deliveryId", "a".repeat(64))
         .put("senderUid", "alice")
