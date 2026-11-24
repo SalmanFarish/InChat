@@ -235,6 +235,7 @@ class CloudflareOlmRelayStoreTest {
                     404,
                     retryable = false,
                     message = "Encrypted mailbox request failed (404): Recipient device is no longer published.",
+                    errorCode = "device_not_published",
                 )
                 "DELETE" -> JSONObject().put("purged", true)
                 else -> error("Unexpected mailbox request: " + request.method)
@@ -264,6 +265,7 @@ class CloudflareOlmRelayStoreTest {
                     404,
                     retryable = false,
                     message = "Encrypted mailbox request failed (404): Sender device is no longer published.",
+                    errorCode = "device_not_published",
                 )
                 "DELETE" -> JSONObject().put("purged", true)
                 else -> error("Unexpected mailbox request: " + request.method)
@@ -283,6 +285,30 @@ class CloudflareOlmRelayStoreTest {
             requests.requests[1].url,
         )
         assertEquals(listOf("alice", "alice"), tokens.accountIds)
+    }
+
+    @Test
+    fun revokedDeviceCodeIsRecognizedEvenWhenHumanReadableMessageChanges() = runBlocking {
+        val requests = RecordingHttpClient { request ->
+            when (request.method) {
+                "GET" -> throw OlmMailboxHttpException(
+                    statusCode = 404,
+                    retryable = false,
+                    message = "Encrypted mailbox request failed (404): Device entry unavailable.",
+                    errorCode = "device_not_published",
+                )
+                "DELETE" -> JSONObject().put("purged", true)
+                else -> error("Unexpected mailbox request: " + request.method)
+            }
+        }
+        val store = CloudflareOlmRelayStore(
+            tokenProvider = RecordingTokenProvider(),
+            httpClient = requests,
+            apiBaseUrl = "https://worker.example/v1",
+        )
+
+        assertTrue(store.readInbox("bob", "retired-device").isEmpty())
+        assertEquals(listOf("GET", "DELETE"), requests.requests.map { it.method })
     }
 
     @Test
