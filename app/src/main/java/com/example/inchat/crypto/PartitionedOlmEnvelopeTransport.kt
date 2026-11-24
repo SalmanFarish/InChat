@@ -85,7 +85,7 @@ internal class PartitionedOlmEnvelopeTransport(
     ): List<OlmDeliveryAcknowledgement> {
         val firebaseAcks = firebase.readMyDeliveryAcknowledgements(senderDeviceId)
             .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
-        if (!cloudflareDirectEnabled) return firebaseAcks
+        if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) return firebaseAcks
         val cloudflareAcks = cloudflare.readMyDeliveryAcknowledgements(senderDeviceId)
             .map { it.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE) }
         return mergeAcknowledgements(firebaseAcks, cloudflareAcks)
