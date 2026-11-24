@@ -81,6 +81,7 @@ internal data class OlmDeliveryAcknowledgement(
     val messageId: String,
     val senderUserId: String,
     val senderDeviceId: String,
+    val relayOrigin: OlmRelayOrigin = OlmRelayOrigin.FIREBASE,
 )
 
 /**
