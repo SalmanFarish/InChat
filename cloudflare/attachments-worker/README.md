@@ -28,6 +28,7 @@ authenticated HTTP routes:
 - `DELETE /v1/olm/mailbox/inbox/{deliveryId}?deviceId=...`
 - `GET /v1/olm/mailbox/acks?deviceId=...`
 - `DELETE /v1/olm/mailbox/acks/{deliveryId}?deviceId=...`
+- `DELETE /v1/olm/mailbox/device?deviceId=...` (purge the authenticated account's device mailbox)
 
 The Worker verifies Firebase authentication, published sender/recipient
 devices, conversation participation or the exact current group membership
@@ -37,6 +38,12 @@ ciphertext and routing/delivery metadata. It provides immutable idempotency,
 per-device caps (200 pending deliveries / 20 MiB and 500 acknowledgements),
 and alarm-driven expiry cleanup. Expired and acknowledged ciphertext is cleared
 before its small idempotency tombstone is eventually removed.
+
+A retired or revoked device can explicitly purge its own mailbox, including
+pending ciphertext, acknowledgement records, and tombstones. The Worker
+accepts this cleanup even after the device key is unpublished, but derives the
+account namespace from the verified caller token; a caller cannot select
+another account's mailbox by supplying its device ID.
 
 The mailbox uses an explicit seven-day ciphertext retention policy
 (`OLM_MAILBOX_RETENTION_MS=604800000`). The Worker rejects invalid values;
