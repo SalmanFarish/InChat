@@ -1698,7 +1698,10 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     ...Object.entries(inbox || {})
       .filter(([, entry]) => entry && entry.chatType === "group")
       .map(([chatId]) => chatId),
-  ]);
+  ].filter((chatId) =>
+    typeof chatId === "string" &&
+    /^[A-Za-z0-9_-]{1,120}$/.test(chatId)
+  ));
 
   const hasRegistrationToken =
     typeof registrationToken === "string" &&
@@ -1937,7 +1940,10 @@ export async function cleanupAccountGroupsForDeletion(env, uid, adminAuth) {
     ...Object.entries(remainingInbox || {})
       .filter(([, entry]) => entry && entry.chatType === "group")
       .map(([chatId]) => chatId),
-  ]);
+  ].filter((chatId) =>
+    typeof chatId === "string" &&
+    /^[A-Za-z0-9_-]{1,120}$/.test(chatId)
+  ));
 
   if (remainingGroupIds.size > 0) {
     return json({
