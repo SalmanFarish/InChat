@@ -604,6 +604,9 @@ export class OlmDeviceMailboxDurableObject {
       if (message.includes("SQLITE_FULL") || message.includes("quota")) {
         return failure(503, "Free mailbox storage capacity is temporarily exhausted.", true);
       }
+      if (this.env.OLM_MAILBOX_DEBUG_ERRORS === true) {
+        return failure(500, "Mailbox test diagnostic: " + (message || "unknown error"));
+      }
       return failure(503, "Mailbox storage is temporarily unavailable.", true);
     }
   }
