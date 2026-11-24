@@ -668,6 +668,18 @@ test("mailbox purge derives the account namespace from authentication", async ()
   assert.equal((await json(inbox)).items.length, 1);
 });
 
+test("mailbox purge refuses to erase a currently published device", async () => {
+  const state = workerFixture();
+  const response = await state.dispatch(
+    "/v1/olm/mailbox/device?deviceId=alice-device",
+    "DELETE",
+    undefined,
+    "alice",
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await json(response)).code, "device_still_published");
+});
+
 test("mailbox purge rejects missing, duplicate, and malformed device IDs", async () => {
   const state = workerFixture();
   for (const path of [
