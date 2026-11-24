@@ -27,6 +27,7 @@ import com.example.inchat.crypto.OlmPendingReceiptProcessor
 import com.example.inchat.crypto.OlmSessionRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.CloudflareOlmEnvelopeTransport
+import com.example.inchat.crypto.PartitionedOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmInboxTransport
 import com.example.inchat.crypto.FirebaseOlmInboxReceiver
 import com.example.inchat.crypto.OlmInboundDeliveryLedger
@@ -110,18 +111,19 @@ class EncryptedOlmInboxWorker(
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
             val trustRepository = TrustedDeviceRepository(applicationContext)
-            val inboxTransport: OlmInboxTransport =
-                if (CloudflareWorkerConfig.ENCRYPTED_OLM_MAILBOX_ENABLED) {
-                    CloudflareOlmEnvelopeTransport(
-                        trustVerifier = trustRepository,
-                        expectedAuthenticatedUserId = ownerUserId,
-                    )
-                } else {
-                    FirebaseOlmEnvelopeTransport(
-                        trustVerifier = trustRepository,
-                        expectedAuthenticatedUserId = ownerUserId,
-                    )
-                }
+            val firebaseTransport = FirebaseOlmEnvelopeTransport(
+                trustVerifier = trustRepository,
+                expectedAuthenticatedUserId = ownerUserId,
+            )
+            val cloudflareTransport = CloudflareOlmEnvelopeTransport(
+                trustVerifier = trustRepository,
+                expectedAuthenticatedUserId = ownerUserId,
+            )
+            val inboxTransport: OlmInboxTransport = PartitionedOlmEnvelopeTransport(
+                firebase = firebaseTransport,
+                cloudflare = cloudflareTransport,
+                cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
+            )
             val receiver = FirebaseOlmInboxReceiver(
                 transport = inboxTransport,
                 ledger = OlmInboundDeliveryLedger(
