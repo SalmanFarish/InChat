@@ -350,7 +350,12 @@ fun ChatComposer(
 
                     modifier =
                         Modifier
-                            .weight(1f),
+                            .weight(1f)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(24.dp)
+                            ),
 
                     shape =
                         RoundedCornerShape(
