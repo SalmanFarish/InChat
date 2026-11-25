@@ -125,7 +125,7 @@ internal class OlmDirectMessageSendCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (setupError: Exception) {
-            Log.w(TAG, "Automatic secure-device setup failed before direct send.", setupError)
+            Log.w("OlmDirectMessageSender", "Automatic secure-device setup failed before direct send.", setupError)
             throw IllegalStateException(
                 "Secure messaging is still being set up. Check your connection and try again.",
                 setupError,
