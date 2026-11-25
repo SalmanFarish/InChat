@@ -783,7 +783,7 @@ fun ChatMessageList(
                 }
 
                 AnimatedVisibility(
-                    visible = showScrollToLatest,
+                    visible = showScrollToLatest && initialMessagesPositioned,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
