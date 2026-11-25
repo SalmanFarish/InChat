@@ -11,15 +11,15 @@ import androidx.compose.ui.unit.sp
 /*
  * InChat Typography
  *
- * Designed for a compact, terminal-inspired messaging interface:
+ * Designed for a clear, modern messaging interface:
  *
- * - Monospaced headings and message text
+ * - Rounded geometric sans-serif typography
  * - Compact titles
  * - Readable body text
  * - Small, restrained metadata
  * - Controlled letter spacing
  */
-val JetBrainsMono = FontFamily(
+val GoogleSansFlex = FontFamily(
     Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
     Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
     Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
@@ -37,7 +37,7 @@ val Typography =
         displayLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -55,7 +55,7 @@ val Typography =
         displayMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -73,7 +73,7 @@ val Typography =
         displaySmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -96,7 +96,7 @@ val Typography =
         headlineLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -114,7 +114,7 @@ val Typography =
         headlineMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -132,7 +132,7 @@ val Typography =
         headlineSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -155,7 +155,7 @@ val Typography =
         titleLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Bold,
@@ -173,7 +173,7 @@ val Typography =
         titleMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -191,7 +191,7 @@ val Typography =
         titleSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -214,7 +214,7 @@ val Typography =
         bodyLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -232,7 +232,7 @@ val Typography =
         bodyMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -250,7 +250,7 @@ val Typography =
         bodySmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -273,7 +273,7 @@ val Typography =
         labelLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.SemiBold,
@@ -291,7 +291,7 @@ val Typography =
         labelMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Medium,
@@ -309,7 +309,7 @@ val Typography =
         labelSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Medium,
