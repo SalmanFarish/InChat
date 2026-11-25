@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.ui.theme.Black
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -310,7 +310,7 @@ fun GroupChatScreen(
                         Column {
                             Text(
                                 text = group?.name?.ifBlank { "Group" } ?: "Group",
-                                fontFamily = JetBrainsMono,
+                                fontFamily = GoogleSansFlex,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.primary
