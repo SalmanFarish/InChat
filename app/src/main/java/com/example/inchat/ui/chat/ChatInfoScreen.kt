@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
@@ -64,16 +65,19 @@ fun ChatInfoScreen(
     otherUserId: String,
     otherUserNickname: String,
     chatViewModel: ChatViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onVerifyIdentityClick: (String) -> Unit = {}
 ) {
     val userRepository = remember { UserRepository() }
     var otherUserProfilePhoto by remember(otherUserId) { mutableStateOf("") }
+    var otherUserUsername by remember(otherUserId) { mutableStateOf("") }
     LaunchedEffect(otherUserId) {
         val user = userRepository.getUserByIdFast(otherUserId)
         otherUserProfilePhoto = user
             ?.profilePhotoData
             ?.ifBlank { user.profilePhotoUrl }
             .orEmpty()
+        otherUserUsername = user?.username.orEmpty()
     }
 
     val blockState by chatViewModel.blockState.collectAsState()
@@ -367,6 +371,24 @@ fun ChatInfoScreen(
             item {
                 ChatInfoSectionLabel("SAFETY")
                 ChatInfoCard {
+                    ChatInfoActionRow(
+                        icon = Icons.Outlined.Lock,
+                        title = "Verify identity",
+                        subtitle = if (otherUserUsername.isNotBlank()) {
+                            "Compare safety numbers with @${otherUserUsername}"
+                        } else {
+                            "This person's username is not available right now"
+                        },
+                        accent = MaterialTheme.colorScheme.primary,
+                        enabled = otherUserUsername.isNotBlank(),
+                        onClick = { onVerifyIdentityClick(otherUserUsername) }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
                     val blockTitle = when (blockState) {
                         BlockState.NONE -> "Block user"
                         BlockState.I_BLOCKED_THEM -> "Unblock user"
