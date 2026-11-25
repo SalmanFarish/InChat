@@ -3,7 +3,9 @@ package com.example.inchat.ui.theme
 import androidx.compose.material3.Typography
 import com.example.inchat.R
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -19,11 +21,29 @@ import androidx.compose.ui.unit.sp
  * - Small, restrained metadata
  * - Controlled letter spacing
  */
+private val googleSansFlexFont = GoogleFont("Google Sans Flex")
+
 val GoogleSansFlex = FontFamily(
-    Font(R.font.google_sans_flex_regular, FontWeight.Normal),
-    Font(R.font.google_sans_flex_medium, FontWeight.Medium),
-    Font(R.font.google_sans_flex_semibold, FontWeight.SemiBold),
-    Font(R.font.google_sans_flex_bold, FontWeight.Bold)
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.weight(400f))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(500f))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600f))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(700f))
+    )
 )
 
 val Typography =
