@@ -446,32 +446,24 @@ class EncryptedOlmDeliveryWorker(
                     }
                 },
                 notifyEncryptedRecipient = { delivery ->
-                    if (delivery.groupId == null) {
-                        notifications.notifyEncryptedDelivery(
-                            senderUserId = ownerUserId,
-                            chatId = requireNotNull(delivery.conversationId) {
-                                "Encrypted delivery is missing its authenticated conversation scope"
-                            },
-                            recipientUserId = delivery.recipientUserId,
-                            deliveryId = delivery.deliveryId,
-                            messageId = delivery.messageId,
-                            senderDeviceId = senderDeviceId,
-                            recipientDeviceId = delivery.recipientDeviceId,
-                        ).getOrThrow()
-                    } else {
-                        notifications.notifyEncryptedGroupDelivery(
-                            senderUserId = ownerUserId,
-                            groupId = delivery.groupId,
-                            membershipEpoch = requireNotNull(delivery.membershipEpoch) {
-                                "Encrypted group delivery is missing its membership epoch"
-                            },
-                            recipientUserId = delivery.recipientUserId,
-                            deliveryId = delivery.deliveryId,
-                            messageId = delivery.messageId,
-                            senderDeviceId = senderDeviceId,
-                            recipientDeviceId = delivery.recipientDeviceId,
-                        ).getOrThrow()
-                    }
+                    // FCM is a wake-up hint, not part of ciphertext acceptance.
+                    // Persist its dispatch separately so transient Worker/FCM errors
+                    // retry without re-uploading or delaying the encrypted outbox.
+                    EncryptedOlmMessageWakeWorker.schedule(
+                        context = applicationContext,
+                        ownerUserId = ownerUserId,
+                        senderDeviceId = senderDeviceId,
+                        recipientUserId = delivery.recipientUserId,
+                        recipientDeviceId = delivery.recipientDeviceId,
+                        deliveryId = delivery.deliveryId,
+                        messageId = delivery.messageId,
+                        conversationId = requireNotNull(delivery.conversationId) {
+                            "Encrypted delivery is missing its authenticated conversation scope"
+                        },
+                        groupId = delivery.groupId,
+                        membershipEpoch = delivery.membershipEpoch,
+                        conversationPeerUserId = delivery.conversationPeerUserId,
+                    )
                 },
             ).run()
 
