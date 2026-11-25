@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,6 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.example.inchat.data.repository.FirebaseServerClock
+import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.DeviceKeyDirectoryRepository
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.inchat.data.repository.PresenceRepository
 import com.example.inchat.notification.InChatFirebaseMessagingService
 import com.example.inchat.notification.ActiveConversationTracker
@@ -222,6 +230,44 @@ class MainActivity :
         val currentNotificationTarget by
         notificationTarget
             .collectAsState()
+
+        val appContext = LocalContext.current.applicationContext
+        val loggedInUid = (uiState as? AuthUiState.LoggedIn)?.uid
+
+        // Device identity publication and encrypted inbox work are app-managed.
+        // They must not depend on opening a verification/settings screen.
+        LaunchedEffect(loggedInUid) {
+            val uid = loggedInUid ?: return@LaunchedEffect
+            try {
+                withContext(Dispatchers.IO) {
+                    val auth = FirebaseAuth.getInstance()
+                    check(auth.currentUser?.uid == uid) {
+                        "Signed-in account changed before automatic device setup"
+                    }
+                    val identity = DeviceIdentityRepository(appContext)
+                    val directory = DeviceKeyDirectoryRepository(auth = auth)
+                    val bundle = directory.ensureMyDevicePublished(identity)
+                    check(auth.currentUser?.uid == uid) {
+                        "Signed-in account changed during automatic device setup"
+                    }
+                    EncryptedOlmDeviceWorkScheduler.schedule(
+                        context = appContext,
+                        ownerUserId = uid,
+                        deviceId = bundle.deviceId,
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // The direct/group send coordinators retry provisioning before
+                // sending; the next app start retries this background setup.
+                Log.w(
+                    "InChatDeviceSetup",
+                    "Automatic encrypted-device setup could not finish; messaging will retry provisioning.",
+                    failure,
+                )
+            }
+        }
 
         var shouldRequestNotificationPermission by
         androidx.compose.runtime.remember {
