@@ -68,7 +68,11 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
+fun DeviceVerificationScreen(
+    uid: String,
+    initialPeerUsername: String? = null,
+    onBackClick: () -> Unit
+) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val identityRepository = remember(context) { DeviceIdentityRepository(context) }
@@ -77,7 +81,9 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
     var trustedAtByDevice by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
     var localDeviceId by remember { mutableStateOf<String?>(null) }
     var devices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
-    var peerUsernameQuery by remember { mutableStateOf("") }
+    var peerUsernameQuery by remember(initialPeerUsername) {
+        mutableStateOf(initialPeerUsername.orEmpty().removePrefix("@"))
+    }
     var peerAccountUserId by remember { mutableStateOf<String?>(null) }
     var peerAccountUsername by remember { mutableStateOf<String?>(null) }
     var peerDevices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
@@ -281,6 +287,19 @@ fun DeviceVerificationScreen(uid: String, onBackClick: () -> Unit) {
             } finally {
                 isLoadingPeerDevices = false
             }
+        }
+    }
+
+    // A chat deep-link already identifies the peer. Load their published devices
+    // as soon as this account's local verification state has been restored.
+    LaunchedEffect(initialPeerUsername, initializationReady) {
+        val targetUsername = initialPeerUsername
+            ?.trim()
+            ?.removePrefix("@")
+            .orEmpty()
+        if (initializationReady && targetUsername.isNotBlank()) {
+            peerUsernameQuery = targetUsername
+            loadPeerDevices()
         }
     }
 
