@@ -115,6 +115,30 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         }
     }
 
+    /**
+     * Read trust status without creating a first-use pin. This is safe for UI
+     * display: opening Chat Info must never itself alter the messaging trust store.
+     */
+    fun messagingTrustStatus(
+        peerUserId: String,
+        peerDeviceId: String,
+        peerEd25519IdentityKey: String,
+    ): DeviceTrustStatus = synchronized(LOCK) {
+        validateIdentifiers(peerUserId, peerDeviceId)
+        require(peerEd25519IdentityKey.isNotBlank()) { "Peer identity key is missing" }
+        val expectedFingerprint = fingerprint(peerEd25519IdentityKey)
+        val existing = readRecords().firstOrNull {
+            it.peerUserId == peerUserId && it.peerDeviceId == peerDeviceId
+        }
+        when {
+            existing == null -> DeviceTrustStatus.NOT_SEEN
+            existing.identityKeyFingerprint != expectedFingerprint ||
+                existing.revokedAtMillis != null -> DeviceTrustStatus.BLOCKED_OR_CHANGED
+            existing.verifiedAtMillis != null -> DeviceTrustStatus.SAS_VERIFIED
+            else -> DeviceTrustStatus.FIRST_USE_PINNED
+        }
+    }
+
     /** Observe local pin/verification/revocation changes without exposing key material. */
     fun observeTrustChanges(): Flow<Unit> = TRUST_CHANGES
 
