@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.Black
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -116,7 +116,7 @@ fun ChatTopBar(
                             otherUserNickname,
 
                         fontFamily =
-                            JetBrainsMono,
+                            GoogleSansFlex,
 
                         fontSize =
                             16.sp,
