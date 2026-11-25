@@ -50,7 +50,12 @@ class EncryptedOlmAcknowledgementWakeWorker(
             return Result.failure()
         }
 
-        if (FirebaseAuth.getInstance().currentUser?.uid != acknowledgedByUserId) {
+        val authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid
+        if (authenticatedUserId.isNullOrBlank()) {
+            Log.i(TAG, "Deferring encrypted acknowledgement wake-up until Firebase auth is restored.")
+            return Result.retry()
+        }
+        if (authenticatedUserId != acknowledgedByUserId) {
             Log.i(TAG, "Retiring encrypted acknowledgement wake-up after the signed-in account changed.")
             return Result.success()
         }
