@@ -77,7 +77,7 @@ fun ChatInfoScreen(
             .orEmpty()
     }
 
-    val blockState by chatViewModel.blockState.collectAsState()    val blockState by chatViewModel.blockState.collectAsState()
+    val blockState by chatViewModel.blockState.collectAsState()
     val otherUserPresence by chatViewModel.otherUserPresence.collectAsState()
 
     LaunchedEffect(currentUserId, otherUserId) {
