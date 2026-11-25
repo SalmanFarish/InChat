@@ -9,6 +9,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -750,6 +751,7 @@ class EncryptedOlmDeliveryWorker(
                 .build()
 
             val immediate = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(data)
                 .addTag(WORK_TAG)
                 .setConstraints(constraints)
@@ -806,6 +808,7 @@ class EncryptedOlmDeliveryWorker(
             require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
             require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
             val request = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(
                     workDataOf(
                         KEY_OWNER_USER_ID to ownerUserId,
