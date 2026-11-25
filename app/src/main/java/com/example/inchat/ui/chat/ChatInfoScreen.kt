@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -300,7 +300,7 @@ fun ChatInfoScreen(
                     Text(
                         text = "INCHAT / CONVERSATION",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 1.1.sp
                         ),
@@ -508,7 +508,7 @@ private fun ChatInfoSectionLabel(text: String) {
             .fillMaxWidth()
             .padding(start = 4.dp, bottom = 7.dp),
         style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
+            fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
             fontWeight = FontWeight.SemiBold
@@ -677,7 +677,7 @@ private fun ChatInfoPlaceholderRow(
                 text = "SOON",
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 8.sp,
                     letterSpacing = 0.45.sp
                 ),
