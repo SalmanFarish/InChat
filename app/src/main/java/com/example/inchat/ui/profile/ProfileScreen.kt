@@ -162,92 +162,107 @@ fun ProfileScreen(
                 }
             }
 
-            Spacer(Modifier.height(30.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(132.dp)
-                    .border(
-                        width = 1.2.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
-                        shape = CircleShape
-                    )
-                    .padding(5.dp)
-            ) {
-                InChatProfileAvatar(
-                    profilePhotoUrl = profilePhotoData,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = null,
-                            indication = null,
-                            onClick = onProfilePhotoClick
-                        ),
-                    iconSize = 58.dp,
-                    contentDescription = "Edit profile picture"
-                )
-            }
-
-            Spacer(Modifier.height(7.dp))
-
-            TextButton(onClick = onProfilePhotoClick) {
-                Text(
-                    text = if (profilePhotoData.isBlank()) "Add profile photo" else "Change photo"
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = displayName,
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontSize = 25.sp,
-                    lineHeight = 31.sp
-                ),
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(24.dp))
 
             Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(50),
                 border = BorderStroke(
-                    0.7.dp,
-                    MaterialTheme.colorScheme.outlineVariant
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant
                 )
             ) {
-                Text(
-                    text = "@$username",
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontFamily = GoogleSansFlex,
-                        fontSize = 11.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .border(
+                                width = 1.2.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                                shape = CircleShape
+                            )
+                            .padding(5.dp)
+                    ) {
+                        InChatProfileAvatar(
+                            profilePhotoUrl = profilePhotoData,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClick = onProfilePhotoClick
+                                ),
+                            iconSize = 54.dp,
+                            contentDescription = "Edit profile picture"
+                        )
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
+                    TextButton(onClick = onProfilePhotoClick) {
+                        Text(
+                            text = if (profilePhotoData.isBlank()) "Add profile photo" else "Change photo"
+                        )
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontSize = 25.sp,
+                            lineHeight = 31.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(
+                            0.7.dp,
+                            MaterialTheme.colorScheme.outlineVariant
+                        )
+                    ) {
+                        Text(
+                            text = "@$username",
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontFamily = GoogleSansFlex,
+                                fontSize = 11.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        text = bio.ifBlank { "Add a short bio so people know a little about you." },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (bio.isBlank()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
-
-            Spacer(Modifier.height(17.dp))
-
-            Text(
-                text = bio.ifBlank { "Add a short bio so people know a little about you." },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (bio.isBlank()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                textAlign = TextAlign.Center
-            )
 
             Spacer(Modifier.height(26.dp))
 
