@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.DeviceTrustOverview
-import com.example.inchat.crypto.DeviceTrustStatus
 import com.example.inchat.crypto.PublicDeviceKeyBundle
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.repository.UserRepository
