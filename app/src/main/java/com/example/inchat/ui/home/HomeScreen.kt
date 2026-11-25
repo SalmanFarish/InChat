@@ -6,6 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -699,9 +702,21 @@ private fun HomeSearchBar(
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
+        },
+        label = "home_search_border"
+    )
+
     TextField(
         value = query,
         onValueChange = onQueryChange,
+        interactionSource = interactionSource,
         modifier = Modifier
             .fillMaxWidth()
             .padding(
@@ -710,8 +725,8 @@ private fun HomeSearchBar(
                 bottom = 16.dp
             )
             .border(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
+                width = if (isFocused) 1.25.dp else 0.8.dp,
+                color = borderColor,
                 shape = RoundedCornerShape(17.dp)
             ),
         singleLine = true,
