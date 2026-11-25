@@ -18,6 +18,7 @@ on:
     paths:
       - "app/**"
       - "rust/inchat-crypto-core/**"
+      - "cloudflare/attachments-worker/**"
       - "gradle/**"
       - "build.gradle.kts"
       - "settings.gradle.kts"
