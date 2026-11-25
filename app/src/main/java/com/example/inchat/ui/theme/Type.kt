@@ -49,7 +49,7 @@ val Typography =
                     44.sp,
 
                 letterSpacing =
-                    (-0.1).sp
+                    (-0.5).sp
             ),
 
         displayMedium =
@@ -67,7 +67,7 @@ val Typography =
                     39.sp,
 
                 letterSpacing =
-                    (-0.1).sp
+                    (-0.4).sp
             ),
 
         displaySmall =
@@ -108,7 +108,7 @@ val Typography =
                     33.sp,
 
                 letterSpacing =
-                    (-0.5).sp
+                    (-0.25).sp
             ),
 
         headlineMedium =
@@ -126,7 +126,7 @@ val Typography =
                     29.sp,
 
                 letterSpacing =
-                    (-0.4).sp
+                    (-0.2).sp
             ),
 
         headlineSmall =
@@ -144,7 +144,7 @@ val Typography =
                     26.sp,
 
                 letterSpacing =
-                    (-0.25).sp
+                    (-0.1).sp
             ),
 
         /*
@@ -167,7 +167,7 @@ val Typography =
                     24.sp,
 
                 letterSpacing =
-                    (-0.2).sp
+                    (-0.1).sp
             ),
 
         titleMedium =
@@ -185,7 +185,7 @@ val Typography =
                     22.sp,
 
                 letterSpacing =
-                    (-0.1).sp
+                    0.sp
             ),
 
         titleSmall =
