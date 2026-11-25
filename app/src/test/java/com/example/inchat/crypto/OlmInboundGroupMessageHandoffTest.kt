@@ -220,7 +220,7 @@ class OlmInboundGroupMessageHandoffTest {
         try {
             handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
         } catch (expected: IllegalStateException) {
-            rejected = expected.message.orEmpty().contains("trust was revoked")
+            rejected = expected.message.orEmpty().contains("identity changed before message commit")
         }
         assertTrue("Sender trust revocation after staging must fail closed", rejected)
         assertEquals(3, trustChecks)
@@ -256,7 +256,7 @@ class OlmInboundGroupMessageHandoffTest {
         try {
             handoff.process(receipt(), remoteDevice(), "alice", "bob", payload())
         } catch (expected: IllegalStateException) {
-            rejected = expected.message.orEmpty().contains("trust was revoked before native decryption")
+            rejected = expected.message.orEmpty().contains("identity changed before native decryption")
         }
         assertTrue("Trust revoked during membership lookup must block Megolm staging", rejected)
         assertEquals(2, trustChecks)
