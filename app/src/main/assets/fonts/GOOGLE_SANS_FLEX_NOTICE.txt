@@ -1,0 +1,10 @@
+Google Sans Flex font attribution
+
+Google Sans Flex is requested from Google's downloadable-font provider at runtime and is not bundled as a font binary in this application.
+
+Copyright 2015 The Google Sans Flex Authors.
+Source: https://github.com/googlefonts/googlesans-flex
+License: SIL Open Font License 1.1
+License text: https://github.com/google/fonts/blob/main/ofl/googlesansflex/OFL.txt
+
+The font is used unmodified. Google Sans and Google Sans Flex are trademarks of Google LLC; this project is not affiliated with or endorsed by Google LLC.
