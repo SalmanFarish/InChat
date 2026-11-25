@@ -55,7 +55,7 @@ import androidx.compose.ui.zIndex
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -195,7 +195,7 @@ fun SwipeableMessageBubble(
     ) {
         /* Keep message bubbles comfortably sized on normal screens. */
         val maxBubbleWidth =
-            (maxWidth * 0.84f)
+            (maxWidth * 0.80f)
                 .coerceAtLeast(68.dp)
                 .coerceAtMost(340.dp)
 
@@ -239,10 +239,10 @@ fun SwipeableMessageBubble(
             ) {
                 val bubbleShape =
                     RoundedCornerShape(
-                        topStart = if (!isMe && !isFirstInGroup) 6.dp else 18.dp,
-                        topEnd = if (isMe && !isFirstInGroup) 6.dp else 18.dp,
-                        bottomStart = if (!isMe && isLastInGroup) 5.dp else 18.dp,
-                        bottomEnd = if (isMe && isLastInGroup) 5.dp else 18.dp
+                        topStart = if (!isMe && !isFirstInGroup) 8.dp else 20.dp,
+                        topEnd = if (isMe && !isFirstInGroup) 8.dp else 20.dp,
+                        bottomStart = if (!isMe && isLastInGroup) 7.dp else 20.dp,
+                        bottomEnd = if (isMe && isLastInGroup) 7.dp else 20.dp
                     )
 
                 Column(
@@ -292,10 +292,10 @@ fun SwipeableMessageBubble(
                         Text(
                             text = message.senderNickname,
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = JetBrainsMono,
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp,
-                                letterSpacing = 0.25.sp
+                                fontFamily = GoogleSansFlex,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                letterSpacing = 0.05.sp
                             ),
                             fontWeight = FontWeight.SemiBold,
                             color = chatTheme.statusAccentColor,
@@ -336,10 +336,10 @@ fun SwipeableMessageBubble(
                                 .typography
                                 .bodyLarge
                                 .copy(
-                                    fontFamily = JetBrainsMono,
-                                    fontSize = 14.sp,
-                                    lineHeight = 21.sp,
-                                    letterSpacing = (-0.2).sp
+                                    fontFamily = GoogleSansFlex,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp,
+                                    letterSpacing = 0.sp
                                 ),
                         color =
                             if (isMe) {
@@ -351,10 +351,10 @@ fun SwipeableMessageBubble(
 
                     val metadataStyle =
                         MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 9.sp,
-                            lineHeight = 12.sp,
-                            letterSpacing = 0.35.sp
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                            letterSpacing = 0.1.sp
                         )
 
                     Row(
