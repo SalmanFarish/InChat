@@ -932,7 +932,7 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
-    fun directPreviewFailureRetriesDurableDeliveryBeforeDispatchingPush() = runBlocking {
+    fun directPreviewFailureDoesNotDelayRecipientWakeup() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
         queue.enqueue(
@@ -969,7 +969,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(0, firstPass.uploaded)
         assertTrue(firstPass.retryRequired)
         assertEquals(1, previewAttempts)
-        assertEquals(0, pushAttempts)
+        assertEquals(1, pushAttempts)
         assertEquals(OlmDeliveryStatus.QUEUED, queued.status)
         assertEquals("direct_preview_sync_failed", queued.lastError)
         assertEquals(12_000L, queued.nextAttemptAtMillis)
@@ -989,7 +989,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(1, recoveredPass.uploaded)
         assertFalse(recoveredPass.retryRequired)
         assertEquals(2, previewAttempts)
-        assertEquals(1, pushAttempts)
+        assertEquals(2, pushAttempts)
         assertEquals(2, uploadedIds.size)
         assertEquals(uploadedIds[0], uploadedIds[1])
         assertEquals(OlmDeliveryStatus.UPLOADED, delivered.status)
@@ -997,7 +997,7 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
-    fun groupPreviewFailureRetriesOnlyCommittedGroupMessagesBeforeDispatchingPush() = runBlocking {
+    fun groupPreviewFailureDoesNotDelayRecipientWakeup() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
         queue.enqueue(
@@ -1037,7 +1037,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(0, firstPass.uploaded)
         assertTrue(firstPass.retryRequired)
         assertEquals(1, previewAttempts)
-        assertEquals(0, pushAttempts)
+        assertEquals(1, pushAttempts)
         assertEquals(OlmDeliveryStatus.QUEUED, queued.status)
         assertEquals("group_preview_sync_failed", queued.lastError)
         assertEquals(12_000L, queued.nextAttemptAtMillis)
@@ -1057,7 +1057,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(1, recoveredPass.uploaded)
         assertFalse(recoveredPass.retryRequired)
         assertEquals(2, previewAttempts)
-        assertEquals(1, pushAttempts)
+        assertEquals(2, pushAttempts)
         assertEquals(2, uploadedIds.size)
         assertEquals(uploadedIds[0], uploadedIds[1])
         assertEquals(OlmDeliveryStatus.UPLOADED, delivered.status)
