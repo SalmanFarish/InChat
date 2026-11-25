@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.google.firebase.auth.FirebaseAuth
 
 /**
@@ -77,6 +78,17 @@ internal class OlmDirectMessageSendCoordinatorFactory(
             directory = directory,
             outbound = outbound,
             auth = auth,
+            onDeviceReady = { ownerUserId, deviceId ->
+                runCatching {
+                    EncryptedOlmDeviceWorkScheduler.schedule(
+                        context = appContext,
+                        ownerUserId = ownerUserId,
+                        deviceId = deviceId,
+                    )
+                }.onFailure { error ->
+                    Log.w(TAG, "Encrypted inbox and push registration could not be scheduled yet.", error)
+                }
+            },
         )
     }
 
@@ -91,6 +103,7 @@ internal class OlmDirectMessageSendCoordinator(
     private val directory: DeviceKeyDirectoryRepository,
     private val outbound: OlmOutboundDeliveryCoordinator,
     private val auth: FirebaseAuth,
+    private val onDeviceReady: (String, String) -> Unit = { _, _ -> },
 ) {
     suspend fun sendTextMessage(
         senderUserId: String,
@@ -132,6 +145,9 @@ internal class OlmDirectMessageSendCoordinator(
             )
         }
         val senderDeviceId = senderBundle.deviceId
+        // A newly provisioned device needs both its outbound queue and inbox
+        // poller. Keep this best-effort: the message queue owns send success.
+        onDeviceReady(senderUserId, senderDeviceId)
         require(auth.currentUser?.uid == senderUserId) {
             "Authenticated account changed while preparing secure messaging"
         }
