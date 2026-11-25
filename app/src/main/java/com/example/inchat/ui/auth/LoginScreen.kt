@@ -51,7 +51,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
 
 private enum class AuthMode {
@@ -395,7 +395,7 @@ fun LoginScreen(
                         text = "OR",
                         modifier = Modifier.padding(horizontal = 14.dp),
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             letterSpacing = 1.sp
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -490,7 +490,7 @@ fun LoginScreen(
             Text(
                 text = "PRIVATE CONVERSATIONS. MINIMAL IDENTITY.",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 8.sp,
                     letterSpacing = 0.65.sp
                 ),
@@ -555,7 +555,7 @@ private fun AuthBrandHeader() {
         Text(
             text = "INCHAT",
             style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.2.sp
             ),
@@ -567,7 +567,7 @@ private fun AuthBrandHeader() {
         Text(
             text = "SECURE ACCESS",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 1.1.sp
             ),
@@ -583,7 +583,7 @@ private fun AuthFieldLabel(
     Text(
         text = label,
         style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
+            fontFamily = GoogleSansFlex,
             fontSize = 9.sp,
             letterSpacing = 0.85.sp,
             fontWeight = FontWeight.SemiBold
