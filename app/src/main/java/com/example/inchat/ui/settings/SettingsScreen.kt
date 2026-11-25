@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.auth.GoogleSignInHelper
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -144,7 +144,7 @@ fun SettingsScreen(
                     Text(
                         text = "INCHAT / PREFERENCES",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 1.1.sp
                         ),
@@ -477,7 +477,7 @@ fun SettingsScreen(
                     Text(
                         text = "INCHAT",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             letterSpacing = 1.2.sp
                         ),
                         color = MaterialTheme.colorScheme.primary
@@ -915,7 +915,7 @@ private fun SettingsStatusPill(
             text = label,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 8.sp,
                 letterSpacing = 0.45.sp
             ),
@@ -938,7 +938,7 @@ private fun SettingsSectionLabel(
             .fillMaxWidth()
             .padding(start = 4.dp, bottom = 8.dp),
         style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
+            fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
             fontWeight = FontWeight.SemiBold
