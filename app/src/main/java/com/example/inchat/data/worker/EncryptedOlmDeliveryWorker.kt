@@ -761,9 +761,11 @@ class EncryptedOlmDeliveryWorker(
                 .build()
 
             val workManager = WorkManager.getInstance(appContext)
+            // A new outbox row may commit while a delivery pass is already running.
+            // Queue a follow-up pass so its final empty snapshot cannot lose this wake-up.
             workManager.enqueueUniqueWork(
                 immediateWorkName(ownerUserId, senderDeviceId),
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 immediate,
             )
             workManager.enqueueUniquePeriodicWork(

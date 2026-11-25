@@ -74,7 +74,8 @@ class EncryptedOlmAcknowledgementWakeWorker(
         }
 
         return try {
-            val dispatch = CloudflareNotificationRepository().notifyEncryptedAcknowledgement(
+            val notifications = CloudflareNotificationRepository()
+            val dispatch = notifications.notifyEncryptedAcknowledgement(
                 senderUserId = senderUserId,
                 senderDeviceId = senderDeviceId,
                 recipientDeviceId = acknowledgingDeviceId,
