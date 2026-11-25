@@ -755,25 +755,25 @@ fun DeviceVerificationScreen(
                                     try {
                                         withContext(Dispatchers.IO) {
                                             val currentPublishedDevice = directoryRepository
-                                            .getUserDevices(targetUserId)
-                                            .firstOrNull { it.deviceId == device.deviceId }
-                                            ?: throw IllegalStateException(
-                                                "This device is no longer published. Refresh the device list."
-                                            )
-                                        val scannedFingerprint = preferredPeerIdentityFingerprint
-                                        if (scannedFingerprint != null) {
-                                            require(
-                                                DeviceVerificationQrCodec.fingerprint(
-                                                    currentPublishedDevice.ed25519IdentityKey
-                                                ) == scannedFingerprint
-                                            ) {
-                                                "This device's identity changed after its QR was scanned. Ask them to share a fresh code."
+                                                .getUserDevices(targetUserId)
+                                                .firstOrNull { it.deviceId == device.deviceId }
+                                                ?: throw IllegalStateException(
+                                                    "This device is no longer published. Refresh the device list."
+                                                )
+                                            val scannedFingerprint = preferredPeerIdentityFingerprint
+                                            if (scannedFingerprint != null) {
+                                                require(
+                                                    DeviceVerificationQrCodec.fingerprint(
+                                                        currentPublishedDevice.ed25519IdentityKey
+                                                    ) == scannedFingerprint
+                                                ) {
+                                                    "This device's identity changed after its QR was scanned. Ask them to share a fresh code."
+                                                }
                                             }
-                                        }
-                                        check(directoryRepository.authenticatedUserId == uid) {
-                                            "The signed-in account changed before verification started."
-                                        }
-                                        requireNotNull(coordinator).startVerification(targetUserId, device.deviceId)
+                                            check(directoryRepository.authenticatedUserId == uid) {
+                                                "The signed-in account changed before verification started."
+                                            }
+                                            requireNotNull(coordinator).startVerification(targetUserId, device.deviceId)
                                         }
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
