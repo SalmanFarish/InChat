@@ -118,7 +118,7 @@ internal class OlmInboundHandoffCoordinator(
                     peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
                 )
             ) {
-                "Remote device identity changed. Compare safety numbers before accepting messages"
+                "Remote device identity changed. This encrypted message was blocked for safety"
             }
 
             val envelope = EncryptedOlmEnvelopeCodec.decode(receipt.envelope)
