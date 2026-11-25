@@ -20,10 +20,10 @@ import androidx.compose.ui.unit.sp
  * - Controlled letter spacing
  */
 val GoogleSansFlex = FontFamily(
-    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
-    Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
-    Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
-    Font(R.font.jetbrains_mono_bold, FontWeight.Bold)
+    Font(R.font.google_sans_flex_regular, FontWeight.Normal),
+    Font(R.font.google_sans_flex_medium, FontWeight.Medium),
+    Font(R.font.google_sans_flex_semibold, FontWeight.SemiBold),
+    Font(R.font.google_sans_flex_bold, FontWeight.Bold)
 )
 
 val Typography =
@@ -49,7 +49,7 @@ val Typography =
                     44.sp,
 
                 letterSpacing =
-                    (-1.0).sp
+                    (-0.1).sp
             ),
 
         displayMedium =
@@ -67,7 +67,7 @@ val Typography =
                     39.sp,
 
                 letterSpacing =
-                    (-0.8).sp
+                    (-0.1).sp
             ),
 
         displaySmall =
@@ -85,7 +85,7 @@ val Typography =
                     35.sp,
 
                 letterSpacing =
-                    (-0.6).sp
+                    (-0.3).sp
             ),
 
         /*
@@ -321,6 +321,6 @@ val Typography =
                     14.sp,
 
                 letterSpacing =
-                    0.25.sp
+                    0.1.sp
             )
     )
