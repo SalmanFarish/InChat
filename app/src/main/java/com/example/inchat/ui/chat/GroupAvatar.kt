@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @Composable
 fun GroupAvatar(
@@ -34,7 +34,7 @@ fun GroupAvatar(
             Text(
                 text = initial,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontWeight = FontWeight.Bold,
                 fontSize = fontSize,
                 maxLines = 1
