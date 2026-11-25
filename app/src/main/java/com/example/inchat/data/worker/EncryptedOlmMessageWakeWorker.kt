@@ -126,11 +126,17 @@ class EncryptedOlmMessageWakeWorker(
                     recipientDeviceId = recipientDeviceId,
                 )
             }
-            if (dispatch.isSuccess) {
-                Result.success()
-            } else {
-                Log.w(TAG, "Encrypted message wake-up will be retried.", dispatch.exceptionOrNull())
-                Result.retry()
+            val failure = dispatch.exceptionOrNull()
+            when {
+                failure == null -> Result.success()
+                notifications.isRetryableNotificationFailure(failure) -> {
+                    Log.w(TAG, "Encrypted message wake-up will be retried.", failure)
+                    Result.retry()
+                }
+                else -> {
+                    Log.e(TAG, "Encrypted message wake-up was rejected permanently.", failure)
+                    Result.failure()
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
