@@ -7,6 +7,7 @@ on:
     paths:
       - "app/**"
       - "rust/inchat-crypto-core/**"
+      - "cloudflare/attachments-worker/**"
       - "gradle/**"
       - "build.gradle.kts"
       - "settings.gradle.kts"
@@ -94,3 +95,24 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+  cloudflare-worker:
+    name: Cloudflare encrypted relay and acknowledgement tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run Cloudflare Worker test suite
+        working-directory: cloudflare/attachments-worker
+        run: npm test
+
+      - name: Validate free-tier-safe Worker configuration
+        working-directory: cloudflare/attachments-worker
+        run: npm run predeploy
