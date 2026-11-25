@@ -97,7 +97,7 @@ internal class EncryptedDirectPendingMessageVault(
             nonce.fill(0)
             encrypted.fill(0)
         }
-        try {
+        return try {
             require(plain.size <= MAX_TEXT_BYTES) {
                 "Pending direct-message text exceeds the size limit"
             }
