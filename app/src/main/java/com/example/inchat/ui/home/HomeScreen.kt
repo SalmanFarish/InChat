@@ -1214,7 +1214,7 @@ private fun ConversationActionsPopup(
     ) {
         Surface(
             modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 4.dp,
@@ -1378,7 +1378,7 @@ private fun HiddenChatsToggle(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         border = BorderStroke(
-            width = 0.75.dp,
+            width = 0.7.dp,
             color = MaterialTheme.colorScheme.outlineVariant
         )
     ) {
@@ -1499,7 +1499,7 @@ private fun ConversationItem(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .padding(horizontal = 16.dp, vertical = 3.dp)
                 .combinedClickable(
                     interactionSource = null,
                     indication = null,
@@ -1508,14 +1508,14 @@ private fun ConversationItem(
                 ),
             shape = RoundedCornerShape(18.dp),
             color = if (hasUnread) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
             } else {
                 MaterialTheme.colorScheme.surface
             },
             border = BorderStroke(
                 width = 0.75.dp,
                 color = if (hasUnread) {
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.78f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                 } else {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
                 }
@@ -1524,12 +1524,12 @@ private fun ConversationItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(48.dp)
                         .border(
                             width = 1.dp,
                             color = avatarBorderColor,
@@ -1599,8 +1599,8 @@ private fun ConversationItem(
                     Text(
                         text = "$messagePrefix$previewText",
                         style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
                         ),
                         fontWeight = if (hasUnread) {
                             FontWeight.Medium
@@ -1627,7 +1627,7 @@ private fun ConversationItem(
                         text = formatConversationTime(conversation.lastTimestamp),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontFamily = GoogleSansFlex,
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             letterSpacing = 0.1.sp
                         ),
                         fontWeight = if (hasUnread) {
