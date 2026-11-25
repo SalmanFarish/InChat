@@ -2,7 +2,10 @@ package com.example.inchat.crypto
 
 import android.util.Base64
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -97,6 +100,54 @@ class OlmDeliveryAckProcessorTest {
             listOf(firstClaim.deliveryId, firstClaim.deliveryId),
             transport.removedDeliveryIds,
         )
+    }
+
+    @Test
+    fun overlappingProcessorInstancesSerializeAckCommitAndDoNotDoubleRecord() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "concurrent-ack", listOf(prepared()))
+        val row = store.rows.values.single()
+        val transport = FakeAckTransport(listOf(row.toAcknowledgement()))
+        val receiptWriteEntered = CompletableDeferred<Unit>()
+        val allowReceiptWrite = CompletableDeferred<Unit>()
+        var receiptWrites = 0
+
+        val first = async {
+            OlmDeliveryAckProcessor(
+                queue, transport, "alice", "sender-device",
+                recordAcknowledgement = { _, _ ->
+                    receiptWrites++
+                    receiptWriteEntered.complete(Unit)
+                    allowReceiptWrite.await()
+                },
+            ).processPending()
+        }
+
+        receiptWriteEntered.await()
+        val secondStarted = CompletableDeferred<Unit>()
+        val second = async {
+            secondStarted.complete(Unit)
+            OlmDeliveryAckProcessor(
+                queue, transport, "alice", "sender-device",
+                recordAcknowledgement = { _, _ -> receiptWrites++ },
+            ).processPending()
+        }
+        secondStarted.await()
+        yield()
+
+        // The second worker must wait before even reading the same relay ack.
+        assertEquals(1, transport.readCalls)
+        allowReceiptWrite.complete(Unit)
+
+        val firstResult = first.await()
+        val secondResult = second.await()
+        assertEquals(1, firstResult.removed)
+        assertEquals(0, secondResult.removed)
+        assertEquals(0, secondResult.unmatched)
+        assertEquals(1, receiptWrites)
+        assertTrue(store.rows.isEmpty())
+        assertEquals(listOf(row.deliveryId), transport.removedDeliveryIds)
     }
 
     @Test
@@ -296,6 +347,8 @@ class OlmDeliveryAckProcessorTest {
     ) : OlmDeliveryAckTransport {
         private val acknowledgements = acknowledgements.toMutableList()
         val removedDeliveryIds = mutableListOf<String>()
+        var readCalls = 0
+            private set
         private var interruptionSent = false
 
         fun addAcknowledgement(acknowledgement: OlmDeliveryAcknowledgement) {
@@ -306,7 +359,10 @@ class OlmDeliveryAckProcessorTest {
 
         override suspend fun readMyDeliveryAcknowledgements(
             senderDeviceId: String,
-        ): List<OlmDeliveryAcknowledgement> = acknowledgements.toList()
+        ): List<OlmDeliveryAcknowledgement> {
+            readCalls++
+            return acknowledgements.toList()
+        }
 
         override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
             if (failRemoval) throw IllegalStateException("temporary ack deletion failure")

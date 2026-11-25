@@ -1,5 +1,8 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * Applies sender-side relay acknowledgements only after matching the exact
  * immutable recipient-device delivery identity in the durable local outbox.
@@ -16,7 +19,7 @@ internal class OlmDeliveryAckProcessor(
     private val recordAcknowledgement: suspend (OlmDeliveryAcknowledgement, Long) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun processPending(): OlmDeliveryAckProcessingResult {
+    suspend fun processPending(): OlmDeliveryAckProcessingResult = PROCESSOR_MUTEX.withLock {
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
         var removed = 0
         var unmatched = 0
@@ -44,7 +47,13 @@ internal class OlmDeliveryAckProcessor(
             }
         }
 
-        return OlmDeliveryAckProcessingResult(removed = removed, unmatched = unmatched)
+        OlmDeliveryAckProcessingResult(removed = removed, unmatched = unmatched)
+    }
+
+    private companion object {
+        // WorkManager can overlap workers in one process. Serialize the remote-ack
+        // delete -> durable receipt -> local outbox delete sequence across instances.
+        val PROCESSOR_MUTEX = Mutex()
     }
 }
 
