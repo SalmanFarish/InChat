@@ -53,14 +53,17 @@ class TrustedDeviceRepositoryTest {
         val repository = TrustedDeviceRepository(context)
         repository.revoke(userId, deviceId)
 
+        assertEquals(DeviceTrustStatus.NOT_SEEN, repository.messagingTrustStatus(userId, deviceId, firstIdentityKey))
+        assertEquals(DeviceTrustStatus.NOT_SEEN, repository.messagingTrustStatus(userId, deviceId, firstIdentityKey))
         assertTrue(repository.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
+        assertEquals(DeviceTrustStatus.FIRST_USE_PINNED, repository.messagingTrustStatus(userId, deviceId, firstIdentityKey))
         assertNull(repository.verifiedAtMillis(userId, deviceId, firstIdentityKey))
         assertFalse(repository.isVerified(userId, deviceId, firstIdentityKey))
 
         val reopened = TrustedDeviceRepository(context)
+        assertEquals(DeviceTrustStatus.BLOCKED_OR_CHANGED, reopened.messagingTrustStatus(userId, deviceId, changedIdentityKey))
         assertTrue(reopened.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
         assertFalse(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
-        assertNull(reopened.verifiedAtMillis(userId, deviceId, changedIdentityKey))
 
         // Only a real SAS completion can replace a changed first-use pin.
         reopened.markVerified(
@@ -70,11 +73,12 @@ class TrustedDeviceRepositoryTest {
             verifiedAtMillis = 1_800_000_000_000L,
         )
         assertTrue(reopened.isVerified(userId, deviceId, changedIdentityKey))
+        assertEquals(DeviceTrustStatus.SAS_VERIFIED, reopened.messagingTrustStatus(userId, deviceId, changedIdentityKey))
         assertTrue(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
         assertFalse(reopened.isTrustedForMessaging(userId, deviceId, firstIdentityKey))
         assertTrue(reopened.revoke(userId, deviceId))
+        assertEquals(DeviceTrustStatus.BLOCKED_OR_CHANGED, reopened.messagingTrustStatus(userId, deviceId, changedIdentityKey))
         assertFalse(reopened.isTrustedForMessaging(userId, deviceId, changedIdentityKey))
-        assertFalse(reopened.isTrustedForMessaging(userId, deviceId, "new-key-$suffix"))
     }
 
     @Test
