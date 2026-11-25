@@ -85,7 +85,7 @@ import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
 
 data class NotificationChatTarget(
@@ -1395,7 +1395,7 @@ private fun BottomNavigationItem(
                 Text(
                     text = item.label,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = JetBrainsMono,
+                        fontFamily = GoogleSansFlex,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.1.sp
