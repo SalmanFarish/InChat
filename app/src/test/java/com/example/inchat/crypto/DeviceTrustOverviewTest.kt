@@ -21,8 +21,9 @@ class DeviceTrustOverviewTest {
             listOf(DeviceTrustStatus.FIRST_USE_PINNED, DeviceTrustStatus.SAS_VERIFIED),
         )
 
-        assertEquals("First-use identity pinned", overview.title)
-        assertTrue(overview.description.contains("Safety numbers have not been compared"))
+        assertEquals("Device identity pinned", overview.title)
+        assertTrue(overview.description.contains("saved on this phone"))
+        assertTrue(overview.description.contains("continue automatically"))
         assertFalse(overview.requiresReview)
     }
 
@@ -38,7 +39,8 @@ class DeviceTrustOverviewTest {
 
         assertEquals("Identity needs review", overview.title)
         assertTrue(overview.requiresReview)
-        assertTrue(overview.description.contains("changed or was blocked"))
+        assertTrue(overview.description.contains("changed or was revoked"))
+        assertTrue(overview.description.contains("remain blocked"))
     }
 
     @Test
@@ -47,7 +49,8 @@ class DeviceTrustOverviewTest {
             listOf(DeviceTrustStatus.SAS_VERIFIED, DeviceTrustStatus.NOT_SEEN),
         )
 
-        assertEquals("Not yet checked on this phone", overview.title)
+        assertEquals("New device identity", overview.title)
+        assertTrue(overview.description.contains("automatically"))
         assertFalse(overview.requiresReview)
     }
 
@@ -57,8 +60,8 @@ class DeviceTrustOverviewTest {
             listOf(DeviceTrustStatus.SAS_VERIFIED, DeviceTrustStatus.SAS_VERIFIED),
         )
 
-        assertEquals("All devices SAS-verified", overview.title)
-        assertTrue(overview.description.contains("compared and confirmed"))
+        assertEquals("All device identities pinned", overview.title)
+        assertTrue(overview.description.contains("saved on this phone"))
         assertFalse(overview.requiresReview)
     }
 }
