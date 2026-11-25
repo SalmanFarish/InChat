@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.auth.AuthViewModel
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @Composable
 fun ProfileScreen(
@@ -123,7 +123,7 @@ fun ProfileScreen(
                     Text(
                         text = "INCHAT / ACCOUNT",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 1.25.sp
                         ),
@@ -226,7 +226,7 @@ fun ProfileScreen(
                     text = "@$username",
                     modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontFamily = JetBrainsMono,
+                        fontFamily = GoogleSansFlex,
                         fontSize = 11.sp
                     ),
                     color = MaterialTheme.colorScheme.primary
@@ -373,7 +373,7 @@ private fun ProfileSectionLabel(
             .fillMaxWidth()
             .padding(start = 4.dp, bottom = 8.dp),
         style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
+            fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
             fontWeight = FontWeight.SemiBold
