@@ -175,6 +175,9 @@ dependencies {
         "com.google.firebase:firebase-messaging"
     )
 
+    // On-device QR display and camera scanning for optional SAS identity matching.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
     // Image loading
     implementation(
         "io.coil-kt:coil-compose:2.7.0"
