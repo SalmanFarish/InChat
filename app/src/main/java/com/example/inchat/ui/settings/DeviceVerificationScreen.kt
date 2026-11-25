@@ -100,6 +100,7 @@ fun DeviceVerificationScreen(
     var peerAccountUsername by remember { mutableStateOf<String?>(null) }
     var peerDevices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
     var preferredPeerDeviceId by remember(uid) { mutableStateOf<String?>(null) }
+    var preferredPeerIdentityFingerprint by remember(uid) { mutableStateOf<String?>(null) }
     var showOwnDeviceQr by remember(uid) { mutableStateOf(false) }
     var isLoadingPeerDevices by remember { mutableStateOf(false) }
     var coordinator by remember { mutableStateOf<SasVerificationCoordinator?>(null) }
@@ -165,6 +166,7 @@ fun DeviceVerificationScreen(
                         peerUsernameQuery = result.second
                         peerDevices = result.first
                         preferredPeerDeviceId = payload.deviceId
+                        preferredPeerIdentityFingerprint = payload.identityKeyFingerprint
                         notice = "QR matched the published identity for device ${payload.deviceId.take(12)}. Start verification and compare the safety numbers on both phones."
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -173,6 +175,7 @@ fun DeviceVerificationScreen(
                         peerAccountUsername = null
                         peerDevices = emptyList()
                         preferredPeerDeviceId = null
+                        preferredPeerIdentityFingerprint = null
                         error = failure.message ?: "Could not load the scanned device."
                     } finally {
                         isLoadingPeerDevices = false
@@ -335,6 +338,7 @@ fun DeviceVerificationScreen(
         peerAccountUsername = null
         peerDevices = emptyList()
         preferredPeerDeviceId = null
+        preferredPeerIdentityFingerprint = null
         scope.launch {
             isLoadingPeerDevices = true
             error = null
@@ -656,6 +660,7 @@ fun DeviceVerificationScreen(
                         peerAccountUsername = null
                         peerDevices = emptyList()
                         preferredPeerDeviceId = null
+                        preferredPeerIdentityFingerprint = null
                         error = null
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -749,7 +754,26 @@ fun DeviceVerificationScreen(
                                     error = null
                                     try {
                                         withContext(Dispatchers.IO) {
-                                            requireNotNull(coordinator).startVerification(targetUserId, device.deviceId)
+                                            val currentPublishedDevice = directoryRepository
+                                            .getUserDevices(targetUserId)
+                                            .firstOrNull { it.deviceId == device.deviceId }
+                                            ?: throw IllegalStateException(
+                                                "This device is no longer published. Refresh the device list."
+                                            )
+                                        val scannedFingerprint = preferredPeerIdentityFingerprint
+                                        if (scannedFingerprint != null) {
+                                            require(
+                                                DeviceVerificationQrCodec.fingerprint(
+                                                    currentPublishedDevice.ed25519IdentityKey
+                                                ) == scannedFingerprint
+                                            ) {
+                                                "This device's identity changed after its QR was scanned. Ask them to share a fresh code."
+                                            }
+                                        }
+                                        check(directoryRepository.authenticatedUserId == uid) {
+                                            "The signed-in account changed before verification started."
+                                        }
+                                        requireNotNull(coordinator).startVerification(targetUserId, device.deviceId)
                                         }
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
