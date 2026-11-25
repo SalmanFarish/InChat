@@ -627,6 +627,10 @@ fun ChatComposer(
                                         onActionMessage(
                                             error ?: "Message could not be sent."
                                         )
+                                    } else if (!error.isNullOrBlank()) {
+                                        // A locally encrypted message is accepted even
+                                        // when the background worker must retry delivery.
+                                        onActionMessage(error)
                                     }
                                 }
                             )

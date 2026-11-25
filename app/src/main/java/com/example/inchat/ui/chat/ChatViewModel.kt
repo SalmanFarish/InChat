@@ -10,6 +10,7 @@ import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatusRepository
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.crypto.EncryptedDirectPendingMessageRepository
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
 import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
@@ -66,18 +67,15 @@ class ChatViewModel : ViewModel() {
         EncryptedOlmMessageRepository(localChatDatabase.encryptedOlmMessageDao())
     }
 
+    private val encryptedDirectPendingMessageRepository by lazy {
+        EncryptedDirectPendingMessageRepository(localChatDatabase.encryptedDirectPendingMessageDao())
+    }
+
     private val encryptedMessageDeliveryStatusRepository by lazy {
         EncryptedMessageDeliveryStatusRepository(
             queueDao = localChatDatabase.olmDeliveryQueueDao(),
             receiptDao = localChatDatabase.olmDeliveryReceiptDao(),
         )
-    }
-
-    private val encryptedDirectMessageSender by lazy {
-        OlmDirectMessageSendCoordinatorFactory(
-            context = InChatApplication.instance,
-            database = localChatDatabase,
-        ).create()
     }
 
     private val moderationRepository =
@@ -110,7 +108,10 @@ class ChatViewModel : ViewModel() {
         _encryptedDeliveryStatuses.asStateFlow()
 
     fun isEncryptedMessageForActions(messageId: String): Boolean =
-        messageId.isNotBlank() && messageId in _encryptedMessageIds.value
+        messageId.isNotBlank() && (
+            messageId in _encryptedMessageIds.value ||
+                messageId in _pendingDirectMessageIds.value
+            )
 
     private val _messagesLoaded =
         MutableStateFlow(false)
@@ -217,14 +218,11 @@ class ChatViewModel : ViewModel() {
             StateFlow<Boolean> =
         _isConnected.asStateFlow()
 
-    private val _pendingMessageIds =
-        MutableStateFlow<Set<String>>(
-            emptySet()
-        )
+    private val _legacyPendingMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _pendingDirectMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _pendingMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val pendingMessageIds:
-            StateFlow<Set<String>> =
-        _pendingMessageIds.asStateFlow()
+    val pendingMessageIds: StateFlow<Set<String>> = _pendingMessageIds.asStateFlow()
 
     private var connectionListenerJob:
             Job? = null
@@ -450,14 +448,17 @@ class ChatViewModel : ViewModel() {
         currentChatId = chatId
         _encryptedMessageIds.value = emptySet()
         _encryptedDeliveryStatuses.value = emptyMap()
+        _legacyPendingMessageIds.value = emptySet()
+        _pendingDirectMessageIds.value = emptySet()
         _pendingMessageIds.value = emptySet()
 
-        // Restore the per-chat pending indicators from Room immediately.
+        // Restore the per-chat pending indicators from the legacy and encrypted local outboxes.
         pendingMessagesJob = viewModelScope.launch {
             try {
                 chatRepository.observePendingMessageIds(chatId).collect { pendingIds ->
                     if (currentChatId == chatId) {
-                        _pendingMessageIds.value = pendingIds
+                        _legacyPendingMessageIds.value = pendingIds
+                        _pendingMessageIds.value = pendingIds + _pendingDirectMessageIds.value
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -809,23 +810,49 @@ class ChatViewModel : ViewModel() {
                         encryptedOlmMessageRepository.observeMessages(
                             ownerUserId = currentUserId,
                             conversationId = chatId
-                        )
-                    ) { legacyMessages, encryptedMessages ->
+                        ),
+                        encryptedDirectPendingMessageRepository.observePendingOutgoingIntents(
+                            ownerUserId = currentUserId,
+                            conversationId = chatId,
+                            peerUserId = otherUserId,
+                        ),
+                    ) { legacyMessages, encryptedMessages, pendingDirectMessages ->
                         val encryptedIds = encryptedMessages.mapTo(mutableSetOf()) {
                             it.messageId
                         }
+                        val pendingIds = pendingDirectMessages.mapTo(mutableSetOf()) {
+                            it.messageId
+                        }
                         _encryptedMessageIds.value = encryptedIds
+                        _pendingDirectMessageIds.value = pendingIds
+                        _pendingMessageIds.value = _legacyPendingMessageIds.value + pendingIds
+
                         val encryptedTimelineMessages = encryptedMessages.map { encrypted ->
                             encrypted.toTimelineMessage(
                                 currentUserId = currentUserId,
                                 otherUserNickname = otherUserNickname
                             )
                         }
-                        // Prefer the authenticated/decrypted record if a legacy
-                        // record with the same ID exists. Never let stale plaintext
-                        // win over the encrypted local copy.
-                        (legacyMessages.filterNot { it.id in encryptedIds } +
-                            encryptedTimelineMessages)
+                        // A committed sender copy takes precedence over the pending
+                        // echo during the small transaction window between outbox
+                        // commit and pending-intent deletion.
+                        val pendingTimelineMessages = pendingDirectMessages
+                            .filterNot { it.messageId in encryptedIds }
+                            .map { pending ->
+                                Message(
+                                    id = pending.messageId,
+                                    senderId = currentUserId,
+                                    senderNickname = "You",
+                                    text = pending.plaintext,
+                                    timestamp = pending.sentAtMillis,
+                                )
+                            }
+                        val hiddenLegacyIds = encryptedIds + pendingIds
+                        // Never let a stale plaintext cache row replace an
+                        // authenticated encrypted message or a local encrypted intent.
+                        (legacyMessages.filterNot { it.id in hiddenLegacyIds } +
+                            encryptedTimelineMessages +
+                            pendingTimelineMessages)
                             .sortedWith(compareBy<Message> { it.timestamp }.thenBy { it.id })
                     }
                         .distinctUntilChanged()
@@ -2228,38 +2255,92 @@ class ChatViewModel : ViewModel() {
         }
 
         val sentAtMillis = System.currentTimeMillis()
-        _pendingMessageIds.value = _pendingMessageIds.value + messageId
 
         viewModelScope.launch {
+            var locallySaved = false
             try {
-                // This single operation encrypts the sender's local timeline copy
-                // and commits it atomically with every per-device Olm envelope.
-                // There is deliberately no plaintext cache/Firebase fallback.
+                // Persist only AES-GCM ciphertext before touching Firebase. This
+                // makes sending local-first: slow key lookup, prekey claims, or
+                // temporary network failures cannot hold the composer hostage.
                 withContext(Dispatchers.IO) {
-                    encryptedDirectMessageSender.sendTextMessage(
-                        senderUserId = currentUserId,
-                        recipientUserId = otherUserId,
+                    encryptedDirectPendingMessageRepository.savePendingOutgoingIntent(
+                        ownerUserId = currentUserId,
                         conversationId = chatId,
+                        peerUserId = otherUserId,
                         messageId = messageId,
                         sentAtMillis = sentAtMillis,
-                        text = cleanText,
+                        plaintext = cleanText,
                     )
                 }
+                locallySaved = true
 
-                _pendingMessageIds.value = _pendingMessageIds.value - messageId
+                if (currentChatId == chatId) {
+                    _pendingDirectMessageIds.value = _pendingDirectMessageIds.value + messageId
+                    _pendingMessageIds.value = _legacyPendingMessageIds.value + _pendingDirectMessageIds.value
+                }
+
+                // The local encrypted outbox is the send-acceptance boundary.
+                // Release the composer before any optional device provisioning.
                 onQueued()
-                Log.d("ChatViewModel", "Encrypted direct message committed to the durable outbox: $messageId")
                 onResult(true, null)
+
+                // WorkManager is the single network sender for pending direct
+                // intents. Its connected-network constraint and retry policy keep
+                // this coroutine and the compose input independent of Firebase.
+                try {
+                    val senderDeviceId = withContext(Dispatchers.IO) {
+                        val identity = DeviceIdentityRepository(InChatApplication.instance)
+                        identity.existingDeviceIdForDelivery() ?: try {
+                            DeviceKeyDirectoryRepository().ensureMyDevicePublished(identity).deviceId
+                        } catch (provisioningError: Exception) {
+                            // A failed Firebase publication can happen after the
+                            // local Keystore identity was created. Schedule the worker
+                            // with that stable identity so it can retry publication.
+                            identity.existingDeviceIdForDelivery() ?: throw provisioningError
+                        }
+                    }
+                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                        context = InChatApplication.instance,
+                        ownerUserId = currentUserId,
+                        senderDeviceId = senderDeviceId,
+                    )
+                    Log.d(
+                        "ChatViewModel",
+                        "Encrypted direct message saved locally and background delivery scheduled: $messageId",
+                    )
+                } catch (scheduleError: Exception) {
+                    // The intent remains encrypted and durable. Authentication
+                    // startup and the periodic delivery worker remain recovery paths.
+                    Log.w(
+                        "ChatViewModel",
+                        "Encrypted direct message is saved locally; immediate worker scheduling will be retried: $messageId",
+                        scheduleError,
+                    )
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // The Room transaction, once committed, outlives this ViewModel.
+                // The encrypted pending intent survives ViewModel/process teardown;
+                // the auth-scoped worker resumes it when the app becomes active.
                 throw e
             } catch (e: Exception) {
-                _pendingMessageIds.value = _pendingMessageIds.value - messageId
-                Log.e("ChatViewModel", "Encrypted direct message was not queued: $messageId", e)
-                onResult(
-                    false,
-                    e.localizedMessage ?: "Encrypted message could not be queued. Check device verification and try again.",
-                )
+                if (!locallySaved) {
+                    Log.e("ChatViewModel", "Encrypted direct message could not be saved locally: $messageId", e)
+                    onResult(
+                        false,
+                        e.localizedMessage ?: "Message could not be saved securely on this device.",
+                    )
+                } else {
+                    // The message is accepted locally. Keep its encrypted pending
+                    // row and retry on the next auth/startup or network recovery pass.
+                    Log.w(
+                        "ChatViewModel",
+                        "Encrypted direct message is saved locally but delivery scheduling needs recovery: $messageId",
+                        e,
+                    )
+                    onResult(
+                        true,
+                        "Message saved securely on this phone. Delivery will retry when the connection is ready.",
+                    )
+                }
             }
         }
     }
@@ -2276,6 +2357,11 @@ class ChatViewModel : ViewModel() {
         val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         if (ownerUserId.isBlank()) {
             onResult(false, "You are not authenticated.")
+            return
+        }
+
+        if (messageIds.any { it in _pendingDirectMessageIds.value }) {
+            onResult(false, "A message is still waiting for encrypted delivery. Try again after it is sent.")
             return
         }
 
@@ -2314,7 +2400,7 @@ class ChatViewModel : ViewModel() {
             onResult(false, "No messages selected.")
             return
         }
-        if (messageIds.any { it in _encryptedMessageIds.value }) {
+        if (messageIds.any { it in _encryptedMessageIds.value || it in _pendingDirectMessageIds.value }) {
             onResult(false, "Encrypted messages cannot be deleted for everyone yet.")
             return
         }
@@ -2364,6 +2450,14 @@ class ChatViewModel : ViewModel() {
                     ownerUserId = ownerUserId,
                     conversationId = chatId,
                 )
+                encryptedDirectPendingMessageRepository.deleteConversationForMe(
+                    ownerUserId = ownerUserId,
+                    conversationId = chatId,
+                )
+                if (currentChatId == chatId) {
+                    _pendingDirectMessageIds.value = emptySet()
+                    _pendingMessageIds.value = _legacyPendingMessageIds.value
+                }
                 onResult(true, null)
             } catch (error: Exception) {
                 onResult(
@@ -2406,7 +2500,7 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        if (messageId in _encryptedMessageIds.value) {
+        if (messageId in _encryptedMessageIds.value || messageId in _pendingDirectMessageIds.value) {
             Log.w("ChatViewModel", "Delete-for-everyone is unavailable for an encrypted direct message.")
             return
         }

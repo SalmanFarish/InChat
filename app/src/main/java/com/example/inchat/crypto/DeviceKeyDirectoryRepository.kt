@@ -95,6 +95,7 @@ internal class DeviceKeyDirectoryRepository(
      */
     suspend fun ensureMyDevicePublished(
         identityRepository: DeviceIdentityRepository,
+        refreshActivity: Boolean = true,
     ): PublicDeviceKeyBundle {
         val ownerUserId = authenticatedUserId
         val deviceId = identityRepository.currentDeviceId()
@@ -105,8 +106,13 @@ internal class DeviceKeyDirectoryRepository(
         val existing = getUserDevices(ownerUserId)
             .firstOrNull { it.deviceId == deviceId }
         if (existing != null && identityRepository.hasLocalIdentityState()) {
-            touchMyDevice(deviceId)
-            registerDeviceScopedFcmToken(ownerUserId, deviceId)
+            // Regular sends only need the existing signed bundle. Startup/device
+            // management refreshes activity and the FCM token; doing both RTDB
+            // operations for every message adds latency without improving delivery.
+            if (refreshActivity) {
+                touchMyDevice(deviceId)
+                registerDeviceScopedFcmToken(ownerUserId, deviceId)
+            }
             require(auth.currentUser?.uid == ownerUserId) {
                 "Authenticated account changed while refreshing this device"
             }

@@ -325,8 +325,9 @@ internal class OlmDeliveryQueue(
         }
 
     /**
-     * Release a failed attempt with bounded exponential backoff.
-     * Once maxAttempts is reached the row becomes terminal FAILED.
+     * Release a failed attempt with capped exponential backoff.
+     * Production retries transient failures indefinitely; callers may still
+     * provide a finite maxAttempts budget for tests or explicit policies.
      */
     fun retry(
         delivery: QueuedOlmDeviceDelivery,
@@ -438,7 +439,7 @@ internal class OlmDeliveryQueue(
 
     private companion object {
         const val UPLOADED_RETRY_INTERVAL_MILLIS = 15L * 60L * 1000L
-        const val DEFAULT_MAX_ATTEMPTS = 8
+        const val DEFAULT_MAX_ATTEMPTS = Int.MAX_VALUE
         const val DEFAULT_LEASE_MILLIS = 60_000L
         const val BASE_RETRY_DELAY_MILLIS = 2_000L
         const val MAX_BACKOFF_EXPONENT = 10

@@ -154,6 +154,25 @@ class OlmDeliveryQueueTest {
     }
 
     @Test
+    fun productionRetryBudgetKeepsTransientFailuresRecoverableBeyondEightAttempts() {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "long-outage", listOf(prepared("phone")))
+
+        var now = 10_000L
+        repeat(16) { attemptIndex ->
+            val claimed = requireNotNull(queue.claimNext("alice", "sender-device", now)) {
+                "Transient attempt ${attemptIndex + 1} should remain eligible after backoff"
+            }
+            assertTrue(queue.retry(claimed, now, "temporary_network_failure"))
+            val persisted = store.rows.getValue(claimed.deliveryId)
+            assertEquals(OlmDeliveryStatus.QUEUED, persisted.status)
+            assertEquals(attemptIndex + 1, persisted.attemptCount)
+            now = persisted.nextAttemptAtMillis
+        }
+    }
+
+    @Test
     fun expiredLeaseCanBeReclaimedAfterProcessInterruption() {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100)

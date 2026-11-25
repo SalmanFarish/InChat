@@ -16,6 +16,9 @@ import androidx.work.workDataOf
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DecryptedGroupMessage
 import com.example.inchat.crypto.EncryptedGroupMessageRepository
+import com.example.inchat.crypto.EncryptedDirectPendingMessageRepository
+import com.example.inchat.crypto.EncryptedDirectPendingMessageRetryLock
+import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
 import com.example.inchat.crypto.MegolmGroupMessageSendOutcome
 import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
 import com.example.inchat.crypto.isPendingGroupIntentRetryMembershipCurrent
@@ -138,6 +141,7 @@ class EncryptedOlmDeliveryWorker(
         }
 
         var groupKeyRecoveryRetryRequired = false
+        var directPendingRetryRequired = false
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
             val queue = OlmDeliveryQueue(
@@ -261,6 +265,25 @@ class EncryptedOlmDeliveryWorker(
             } catch (error: Exception) {
                 groupKeyRecoveryRetryRequired = true
                 Log.w(TAG, "Staged encrypted group-message recovery failed; retrying.", error)
+            }
+
+            // Resume local-first direct-message intents before the queue runner.
+            // Newly committed Olm envelopes can therefore upload in this same pass.
+            try {
+                val directRetry = retryPendingDirectMessages(
+                    database = database,
+                    ownerUserId = ownerUserId,
+                    senderDeviceId = senderDeviceId,
+                )
+                directPendingRetryRequired = directRetry.second
+                if (directRetry.first > 0) {
+                    Log.i(TAG, "Committed " + directRetry.first + " pending encrypted direct messages.")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                directPendingRetryRequired = true
+                Log.w(TAG, "Pending encrypted direct-message recovery failed; preserving local intents.", error)
             }
 
             val trustRepository = TrustedDeviceRepository(applicationContext)
@@ -473,13 +496,94 @@ class EncryptedOlmDeliveryWorker(
             if (retriedGroupMessages > 0) {
                 Log.i(TAG, "Automatically queued " + retriedGroupMessages + " pending encrypted group messages.")
             }
-            if (result.retryRequired || groupKeyRecoveryRetryRequired) Result.retry() else Result.success()
+            if (result.retryRequired || groupKeyRecoveryRetryRequired || directPendingRetryRequired) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             Log.w(TAG, "Encrypted relay delivery will be retried.", error)
             Result.retry()
         }
+    }
+
+    /**
+     * Convert locally encrypted direct intents into immutable Olm fan-out commits.
+     * A failed item stays encrypted in Room and causes another WorkManager pass;
+     * no plaintext Firebase fallback is used.
+     */
+    private suspend fun retryPendingDirectMessages(
+        database: LocalChatDatabase,
+        ownerUserId: String,
+        senderDeviceId: String,
+    ): Pair<Int, Boolean> = EncryptedDirectPendingMessageRetryLock.mutex.withLock {
+        val auth = FirebaseAuth.getInstance()
+        val identity = DeviceIdentityRepository(applicationContext)
+        fun requireActiveIdentity() {
+            require(auth.currentUser?.uid == ownerUserId) {
+                "Authenticated account changed during background direct-message retry"
+            }
+            require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
+                "Local sender device changed during background direct-message retry"
+            }
+        }
+
+        requireActiveIdentity()
+        val repository = EncryptedDirectPendingMessageRepository(
+            database.encryptedDirectPendingMessageDao(),
+        )
+        val pending = repository.pendingOutgoingIntents(ownerUserId)
+        if (pending.isEmpty()) return 0 to false
+
+        val sender = OlmDirectMessageSendCoordinatorFactory(
+            context = applicationContext,
+            database = database,
+            auth = auth,
+        ).create()
+        var committedCount = 0
+        var retryRequired = false
+
+        for (intent in pending) {
+            requireActiveIdentity()
+            try {
+                // A clear-chat action may have removed the intent after the
+                // initial snapshot. Never send an item that is no longer pending.
+                if (!repository.isPendingOutgoingIntent(
+                    ownerUserId,
+                    intent.conversationId,
+                    intent.messageId,
+                )) continue
+
+                sender.sendTextMessage(
+                    senderUserId = ownerUserId,
+                    recipientUserId = intent.conversationPeerUserId,
+                    conversationId = intent.conversationId,
+                    messageId = intent.messageId,
+                    sentAtMillis = intent.sentAtMillis,
+                    text = intent.plaintext,
+                )
+                requireActiveIdentity()
+                repository.deletePendingOutgoingIntent(
+                    ownerUserId,
+                    intent.conversationId,
+                    intent.messageId,
+                )
+                committedCount++
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // An account/device change is a hard boundary, never an item failure.
+                requireActiveIdentity()
+                retryRequired = true
+                Log.w(
+                    TAG,
+                    "Encrypted direct-message retry failed for " +
+                        intent.conversationId + "/" + intent.messageId + ".",
+                    error,
+                )
+            }
+        }
+
+        requireActiveIdentity()
+        return committedCount to retryRequired
     }
 
     private suspend fun retryPendingGroupMessages(
