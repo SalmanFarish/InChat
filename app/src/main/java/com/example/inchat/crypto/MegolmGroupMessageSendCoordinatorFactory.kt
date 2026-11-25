@@ -1,9 +1,11 @@
 package com.example.inchat.crypto
 
 import android.content.Context
+import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.google.firebase.auth.FirebaseAuth
 
 /**
@@ -181,9 +183,18 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
             },
             ensureLocalDevicePublished = {
                 val owner = authenticatedUserId()
-                directory.ensureMyDevicePublished(identity)
+                val bundle = directory.ensureMyDevicePublished(identity)
                 require(authenticatedUserId() == owner) {
                     "Authenticated account changed while publishing the group sender identity"
+                }
+                runCatching {
+                    EncryptedOlmDeviceWorkScheduler.schedule(
+                        context = appContext,
+                        ownerUserId = owner,
+                        deviceId = bundle.deviceId,
+                    )
+                }.onFailure { error ->
+                    Log.w("MegolmGroupSender", "Encrypted inbox and push registration could not be scheduled yet.", error)
                 }
             },
         )
