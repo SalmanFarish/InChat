@@ -235,7 +235,7 @@ class MainActivity :
         val loggedInUid = (uiState as? AuthUiState.LoggedIn)?.uid
 
         // Device identity publication and encrypted inbox work are app-managed.
-        // They must not depend on opening a verification/settings screen.
+        // They must not depend on opening a security settings screen.
         LaunchedEffect(loggedInUid) {
             val uid = loggedInUid ?: return@LaunchedEffect
             try {
