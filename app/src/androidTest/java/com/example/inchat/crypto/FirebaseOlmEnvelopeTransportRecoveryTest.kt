@@ -11,6 +11,43 @@ import org.junit.runner.RunWith
 class FirebaseOlmEnvelopeTransportRecoveryTest {
 
     @Test
+    fun firstUsePinnedIdentityCanBeRelayedWithoutSasVerification() = runBlocking {
+        val store = FakeRelayStore()
+        var messagingTrustChecks = 0
+        val trustVerifier = object : OlmDeviceTrustVerifier {
+            override fun isVerified(
+                peerUserId: String,
+                peerDeviceId: String,
+                peerEd25519IdentityKey: String,
+            ) = false
+
+            override fun isTrustedForMessaging(
+                peerUserId: String,
+                peerDeviceId: String,
+                peerEd25519IdentityKey: String,
+            ): Boolean {
+                messagingTrustChecks++
+                assertEquals("bob", peerUserId)
+                assertEquals("recipient-device", peerDeviceId)
+                assertEquals("recipient-ed25519", peerEd25519IdentityKey)
+                return true
+            }
+        }
+        val transport = FirebaseOlmEnvelopeTransport(
+            trustVerifier = trustVerifier,
+            relayStore = store,
+            currentAuthenticatedUserId = { "alice" },
+            readPublishedDevices = { listOf(recipientBundle()) },
+            expectedAuthenticatedUserId = "alice",
+        )
+
+        assertEquals(FirebaseOlmUploadResult.STORED, transport.upload(queuedDelivery(), "sender-device"))
+        assertEquals(1, messagingTrustChecks)
+        assertEquals(1, store.inboxPutAttempts)
+        assertEquals(1, store.inbox.size)
+    }
+
+    @Test
     fun uploadRetriesSameImmutableDeliveryAfterRelayAcceptedButCompletionWasLost() = runBlocking {
         val store = FakeRelayStore()
         val delivery = queuedDelivery()
@@ -321,7 +358,7 @@ class FirebaseOlmEnvelopeTransportRecoveryTest {
             transport.upload(queuedDelivery(), "sender-device")
         }
 
-        assertTrue("A replacement identity key must require a fresh SAS trust decision", result.isFailure)
+        assertTrue("A changed identity must remain blocked without changing the saved trust pin", result.isFailure)
         assertEquals("replacement-ed25519", checkedIdentityKey)
         assertEquals(0, store.inboxPutAttempts)
         assertTrue(store.inbox.isEmpty())

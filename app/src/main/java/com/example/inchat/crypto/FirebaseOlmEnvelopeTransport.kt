@@ -253,13 +253,13 @@ internal class FirebaseOlmEnvelopeTransport(
             ?: throw IllegalStateException("Recipient device is no longer published")
         requireAuthenticatedUserId(senderUid)
         check(
-            trustVerifier.isVerified(
+            trustVerifier.isTrustedForMessaging(
                 peerUserId = delivery.recipientUserId,
                 peerDeviceId = currentRecipientDevice.deviceId,
                 peerEd25519IdentityKey = currentRecipientDevice.ed25519IdentityKey,
             )
         ) {
-            "Recipient device is no longer trusted on this installation"
+            "Recipient device identity changed or was revoked on this installation"
         }
 
         val envelope = EncryptedOlmEnvelopeCodec.decode(delivery.envelope)

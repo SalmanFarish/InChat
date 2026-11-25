@@ -153,7 +153,7 @@ internal class OlmOutboundDeliveryPreparer(
                 peerEd25519IdentityKey = remoteDevice.ed25519IdentityKey,
             )
         ) {
-            "Recipient device identity changed. Verify its safety number before messaging"
+            "Recipient device identity changed. Encrypted delivery is blocked to protect this conversation"
         }
 
         var claimedPreKey: SignedOlmPreKey? = null

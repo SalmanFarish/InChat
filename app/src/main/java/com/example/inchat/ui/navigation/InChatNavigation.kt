@@ -84,7 +84,6 @@ import com.example.inchat.ui.search.SearchScreen
 import com.example.inchat.ui.search.SearchViewModel
 import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
-import com.example.inchat.ui.settings.DeviceVerificationScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
 import com.example.inchat.ui.theme.JetBrainsMono
 import kotlinx.coroutines.launch
@@ -639,10 +638,6 @@ fun InChatApp(
                         )
                     },
 
-                    onDeviceVerificationClick = {
-                        navController.navigate("device_verification")
-                    },
-
                     onDeviceTransferClick = {
                         navController.navigate("device_transfer")
                     }
@@ -656,26 +651,9 @@ fun InChatApp(
                 )
             }
 
-            composable(
-                route = "device_verification?peerUsername={peerUsername}",
-                arguments = listOf(
-                    navArgument("peerUsername") {
-                        type = NavType.StringType
-                        defaultValue = ""
-                    }
-                )
-            ) { entry ->
-                val peerUsername = entry.arguments
-                    ?.getString("peerUsername")
-                    .orEmpty()
-                DeviceVerificationScreen(
-                    uid = uid,
-                    initialPeerUsername = peerUsername.takeIf { it.isNotBlank() },
-                    onBackClick = { navController.popBackStack() }
-                )
-            }
-
             /*
+             * ==================================================
+             * PRIVACY SETTINGS            /*
              * ==================================================
              * PRIVACY SETTINGS
              * ==================================================
@@ -965,12 +943,7 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() },
-                    onVerifyIdentityClick = { peerUsername ->
-                        navController.navigate(
-                            "device_verification?peerUsername=${Uri.encode(peerUsername)}"
-                        )
-                    }
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 

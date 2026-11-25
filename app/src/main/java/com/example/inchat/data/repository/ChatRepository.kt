@@ -171,8 +171,27 @@ class ChatRepository {
             }
 
             val chatId = getChatRoomId(currentUserId, otherUserId)
+            val chatRef = database.getReference("chats").child(chatId)
+
+            suspend fun ensureDirectChatType() {
+                val typeRef = chatRef.child("type")
+                when (typeRef.get().await().getValue(String::class.java)) {
+                    "direct" -> Unit
+                    null -> {
+                        try {
+                            typeRef.setValue("direct").await()
+                        } catch (writeError: Exception) {
+                            if (typeRef.get().await().getValue(String::class.java) != "direct") {
+                                throw writeError
+                            }
+                        }
+                    }
+                    else -> throw IllegalStateException("The existing conversation is not a direct chat.")
+                }
+            }
 
             if (knownChatIds.contains(chatId)) {
+                ensureDirectChatType()
                 return Result.success(chatId)
             }
 
@@ -180,8 +199,6 @@ class ChatRepository {
                 if (currentUserId < otherUserId) currentUserId else otherUserId
             val participantB =
                 if (currentUserId < otherUserId) otherUserId else currentUserId
-
-            val chatRef = database.getReference("chats").child(chatId)
 
             // Verify only participant fields. A root read would download
             // the legacy messages subtree as well.
@@ -199,6 +216,7 @@ class ChatRepository {
                 if (existingA != participantA || existingB != participantB) {
                     throw IllegalStateException("The existing chat record has different participants.")
                 }
+                ensureDirectChatType()
                 knownChatIds.add(chatId)
                 return Result.success(chatId)
             }
@@ -212,6 +230,7 @@ class ChatRepository {
             try {
                 chatRef.setValue(
                     mapOf(
+                        "type" to "direct",
                         "participantA" to participantA,
                         "participantB" to participantB
                     )
@@ -224,6 +243,7 @@ class ChatRepository {
                 val racedB = chatRef.child("participantB").get().await()
                     .getValue(String::class.java)
                 if (racedA != participantA || racedB != participantB) throw createError
+                ensureDirectChatType()
             }
 
             knownChatIds.add(chatId)

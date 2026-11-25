@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
@@ -54,16 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import com.example.inchat.crypto.DeviceKeyDirectoryRepository
-import com.example.inchat.crypto.DeviceTrustOverview
-import com.example.inchat.crypto.PublicDeviceKeyBundle
-import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.repository.UserRepository
-import com.google.firebase.auth.FirebaseAuth
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.JetBrainsMono
 
@@ -74,23 +64,10 @@ fun ChatInfoScreen(
     otherUserId: String,
     otherUserNickname: String,
     chatViewModel: ChatViewModel,
-    onBackClick: () -> Unit,
-    onVerifyIdentityClick: (String) -> Unit = {}
+    onBackClick: () -> Unit
 ) {
     val userRepository = remember { UserRepository() }
-    val appContext = LocalContext.current.applicationContext
-    val identityDirectory = remember { DeviceKeyDirectoryRepository() }
-    val trustRepository = remember(appContext) { TrustedDeviceRepository(appContext) }
     var otherUserProfilePhoto by remember(otherUserId) { mutableStateOf("") }
-    var otherUserUsername by remember(otherUserId) { mutableStateOf("") }
-    var peerDevices by remember(currentUserId, otherUserId) {
-        mutableStateOf<List<PublicDeviceKeyBundle>?>(null)
-    }
-    var identityOverview by remember(currentUserId, otherUserId) {
-        mutableStateOf<DeviceTrustOverview?>(null)
-    }
-    var identityLoadError by remember(currentUserId, otherUserId) { mutableStateOf<String?>(null) }
-    var trustRevision by remember(currentUserId, otherUserId) { mutableStateOf(0) }
 
     LaunchedEffect(otherUserId) {
         val user = userRepository.getUserByIdFast(otherUserId)
@@ -98,61 +75,9 @@ fun ChatInfoScreen(
             ?.profilePhotoData
             ?.ifBlank { user.profilePhotoUrl }
             .orEmpty()
-        otherUserUsername = user?.username.orEmpty()
     }
 
-    // Chat Info is read-only: inspect the local identity pins without TOFU-pinning
-    // a contact merely because the user opened this screen.
-    LaunchedEffect(currentUserId, otherUserId) {
-        peerDevices = null
-        identityOverview = null
-        identityLoadError = null
-        try {
-            peerDevices = withContext(Dispatchers.IO) {
-                check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
-                    "The signed-in account changed. Sign in again."
-                }
-                val devices = identityDirectory.getUserDevices(otherUserId)
-                check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
-                    "The signed-in account changed while loading device identities."
-                }
-                devices
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            identityLoadError = failure.message ?: "Could not load published device identities."
-        }
-    }
-
-    LaunchedEffect(trustRepository, currentUserId, otherUserId) {
-        trustRepository.observeTrustChanges().collect {
-            trustRevision += 1
-        }
-    }
-
-    LaunchedEffect(peerDevices, trustRevision) {
-        val devices = peerDevices ?: return@LaunchedEffect
-        try {
-            val statuses = withContext(Dispatchers.IO) {
-                devices.map { device ->
-                    trustRepository.messagingTrustStatus(
-                        peerUserId = otherUserId,
-                        peerDeviceId = device.deviceId,
-                        peerEd25519IdentityKey = device.ed25519IdentityKey,
-                    )
-                }
-            }
-            identityOverview = DeviceTrustOverview.from(statuses)
-            identityLoadError = null
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            identityLoadError = failure.message ?: "Could not read this phone's local trust status."
-        }
-    }
-
-    val blockState by chatViewModel.blockState.collectAsState()
+    val blockState by chatViewModel.blockState.collectAsState()    val blockState by chatViewModel.blockState.collectAsState()
     val otherUserPresence by chatViewModel.otherUserPresence.collectAsState()
 
     LaunchedEffect(currentUserId, otherUserId) {
@@ -441,81 +366,8 @@ fun ChatInfoScreen(
             }
 
             item {
-                ChatInfoSectionLabel("SAFETY")
+                ChatInfoSectionLabel("SAFETY & PRIVACY")
                 ChatInfoCard {
-                    when {
-                        identityOverview != null -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 13.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Text(
-                                    text = identityOverview!!.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (identityOverview!!.requiresReview) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.primary
-                                    }
-                                )
-                                Text(
-                                    text = identityOverview!!.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            )
-                        }
-                        identityLoadError != null -> {
-                            Text(
-                                text = "Couldn't check device identity status: ${identityLoadError}",
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            )
-                        }
-                        else -> {
-                            Text(
-                                text = "Checking published device identities…",
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            )
-                        }
-                    }
-
-                    ChatInfoActionRow(
-                        icon = Icons.Outlined.Lock,
-                        title = "Verify identity",
-                        subtitle = if (otherUserUsername.isNotBlank()) {
-                            "Compare safety numbers with @${otherUserUsername}"
-                        } else {
-                            "This person's username is not available right now"
-                        },
-                        accent = MaterialTheme.colorScheme.primary,
-                        enabled = otherUserUsername.isNotBlank(),
-                        onClick = { onVerifyIdentityClick(otherUserUsername) }
-                    )
-
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
-
                     val blockTitle = when (blockState) {
                         BlockState.NONE -> "Block user"
                         BlockState.I_BLOCKED_THEM -> "Unblock user"

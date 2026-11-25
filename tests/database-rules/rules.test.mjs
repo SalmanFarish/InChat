@@ -353,6 +353,31 @@ test("clients cannot create a group directly in Realtime Database", async () => 
   );
 });
 
+test("a direct participant can label a legacy chat for automatic encrypted messaging", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await remove(ref(context.database(), "chats/alice_bob/type"));
+  });
+
+  const bobDb = testEnv.authenticatedContext("bob").database();
+  await assertSucceeds(set(ref(bobDb, "chats/alice_bob/type"), "direct"));
+  await assertFails(set(ref(bobDb, "chats/alice_bob/type"), "group"));
+
+  await assertSucceeds(set(
+    ref(bobDb, "deviceKeyClaimsByClaimant/bob/alice/device-alice-1/one-time-1"),
+    true,
+  ));
+  await assertSucceeds(set(
+    ref(bobDb, "deviceKeyClaims/alice/device-alice-1/one-time-1"),
+    directPreKeyClaim("bob", "alice"),
+  ));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await remove(ref(context.database(), "chats/alice_bob/type"));
+  });
+  const malloryDb = testEnv.authenticatedContext("mallory").database();
+  await assertFails(set(ref(malloryDb, "chats/alice_bob/type"), "direct"));
+});
+
 test("even a group admin cannot directly change the members map", async () => {
   const aliceDb = testEnv.authenticatedContext("alice").database();
 
