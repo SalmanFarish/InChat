@@ -57,7 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -231,7 +231,7 @@ private fun SearchHeader() {
             Text(
                 text = "INCHAT / DISCOVER",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 10.sp,
                     letterSpacing = 1.35.sp
                 ),
@@ -346,7 +346,7 @@ private fun SearchInput(
         Text(
             text = "USERNAME SEARCH",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 0.8.sp
             ),
@@ -358,7 +358,7 @@ private fun SearchInput(
         Text(
             text = "LIVE RESULTS",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 0.6.sp
             ),
@@ -394,7 +394,7 @@ private fun RecentSearches(
                     Text(
                         text = "CLEAR",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             letterSpacing = 0.7.sp
                         )
                     )
@@ -464,7 +464,7 @@ private fun SectionHeading(
         Text(
             text = title,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 10.sp,
                 letterSpacing = 1.sp,
                 fontWeight = FontWeight.SemiBold
@@ -477,7 +477,7 @@ private fun SectionHeading(
         Text(
             text = detail,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 0.5.sp
             ),
@@ -549,7 +549,7 @@ private fun SearchUserRow(
             Text(
                 text = "VIEW",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.7.sp
                 ),
@@ -647,7 +647,7 @@ private fun SearchLoading() {
         Text(
             text = "SEARCHING DIRECTORY",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 0.9.sp
             ),
@@ -777,7 +777,7 @@ private fun SearchWelcome() {
                 text = "TYPE A USERNAME TO BEGIN",
                 modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.55.sp
                 ),
