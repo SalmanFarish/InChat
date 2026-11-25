@@ -71,7 +71,7 @@ import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import com.example.inchat.ui.auth.AuthViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -634,7 +634,7 @@ private fun HomeHeader(
                 Text(
                     text = "InChat",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = JetBrainsMono,
+                        fontFamily = GoogleSansFlex,
                         fontSize = 10.sp,
                         letterSpacing = 1.8.sp
                     ),
@@ -663,7 +663,7 @@ private fun HomeHeader(
                         "$chatCount CHATS IN YOUR INBOX"
                 },
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.65.sp
                 ),
@@ -787,7 +787,7 @@ private fun HomeSectionHeading(
         Text(
             text = "RECENT CONVERSATIONS",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 1.0.sp
             ),
@@ -800,7 +800,7 @@ private fun HomeSectionHeading(
             Text(
                 text = "$unreadCount UNREAD",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp
                 ),
                 color = MaterialTheme.colorScheme.primary
@@ -812,7 +812,7 @@ private fun HomeSectionHeading(
         Text(
             text = totalChats.toString().padStart(2, '0'),
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1390,7 +1390,7 @@ private fun HiddenChatsToggle(
             Text(
                 text = "HIDDEN CHATS  /  $hiddenCount",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.55.sp
                 ),
@@ -1402,7 +1402,7 @@ private fun HiddenChatsToggle(
             Text(
                 text = if (expanded) "HIDE" else "SHOW",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold
                 ),
@@ -1611,7 +1611,7 @@ private fun ConversationItem(
                     Text(
                         text = formatConversationTime(conversation.lastTimestamp),
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             fontSize = 9.sp,
                             letterSpacing = 0.1.sp
                         ),
@@ -1644,7 +1644,7 @@ private fun ConversationItem(
                                     horizontal = 7.dp,
                                     vertical = 3.dp
                                 ),
-                                fontFamily = JetBrainsMono,
+                                fontFamily = GoogleSansFlex,
                                 fontSize = 9.sp,
                                 lineHeight = 11.sp,
                                 fontWeight = FontWeight.Bold,
