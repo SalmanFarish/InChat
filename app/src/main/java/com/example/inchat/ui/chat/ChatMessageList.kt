@@ -1,17 +1,28 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +80,25 @@ fun ChatMessageList(
 
     val coroutineScope =
         rememberCoroutineScope()
+
+    var showScrollToLatest by remember {
+        mutableStateOf(false)
+    }
+
+    // Match shadcn's MessageScrollerButton: only show the control when
+    // the reader is away from the live edge; never steal scroll focus.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex =
+                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastItemIndex = layoutInfo.totalItemsCount - 1
+
+            lastItemIndex >= 0 && lastVisibleIndex < lastItemIndex
+        }
+            .distinctUntilChanged()
+            .collect { showScrollToLatest = it }
+    }
 
     val density = LocalDensity.current
 
@@ -748,6 +778,38 @@ fun ChatMessageList(
                             )
                         
                             }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showScrollToLatest,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                    enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.85f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tonalElevation = 3.dp
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val latestIndex = listState.layoutInfo.totalItemsCount - 1
+                                if (latestIndex >= 0) {
+                                    coroutineScope.launch {
+                                        listState.animateScrollToItem(latestIndex)
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Jump to latest messages"
+                            )
                         }
                     }
                 }
