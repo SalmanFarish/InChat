@@ -100,6 +100,9 @@ dependencies {
         libs.androidx.compose.material3
     )
 
+    // Google Sans Flex downloadable variable font support for Jetpack Compose.
+    implementation("androidx.compose.ui:ui-text-google-fonts")
+
     implementation(
         libs.androidx.compose.ui
     )
