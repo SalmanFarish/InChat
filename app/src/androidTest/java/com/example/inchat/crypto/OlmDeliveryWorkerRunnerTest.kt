@@ -96,6 +96,7 @@ class OlmDeliveryWorkerRunnerTest {
                     recipientUserId = "alice",
                 ),
             ),
+            conversationPeerUserId = "bob",
         )
         val events = mutableListOf<String>()
         val result = OlmDeliveryWorkerRunner(
@@ -1143,7 +1144,7 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
-    fun encryptedPushIsSentOnlyToRecipientAccountDevicesNotSenderSecondaryDevices() = runBlocking {
+    fun encryptedPushWakesRecipientAndSenderOwnedCompanionDevices() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
         queue.enqueue(
@@ -1171,7 +1172,7 @@ class OlmDeliveryWorkerRunnerTest {
 
         assertEquals(2, result.uploaded)
         assertFalse(result.retryRequired)
-        assertEquals(listOf("bob" to "bob-phone"), notifications)
+        assertEquals(listOf("bob" to "bob-phone", "alice" to "alice-tablet"), notifications)
         assertEquals(2, store.rows.values.count { it.status == OlmDeliveryStatus.UPLOADED })
     }
 
