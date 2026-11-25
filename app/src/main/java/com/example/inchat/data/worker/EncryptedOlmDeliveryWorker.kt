@@ -514,7 +514,8 @@ class EncryptedOlmDeliveryWorker(
         database: LocalChatDatabase,
         ownerUserId: String,
         senderDeviceId: String,
-    ): Pair<Int, Boolean> = EncryptedDirectPendingMessageRetryLock.mutex.withLock {
+    ): Pair<Int, Boolean> {
+        return EncryptedDirectPendingMessageRetryLock.mutex.withLock {
         val auth = FirebaseAuth.getInstance()
         val identity = DeviceIdentityRepository(applicationContext)
         fun requireActiveIdentity() {
@@ -531,7 +532,7 @@ class EncryptedOlmDeliveryWorker(
             database.encryptedDirectPendingMessageDao(),
         )
         val pending = repository.pendingOutgoingIntents(ownerUserId)
-        if (pending.isEmpty()) return 0 to false
+        if (pending.isEmpty()) return@withLock 0 to false
 
         val sender = OlmDirectMessageSendCoordinatorFactory(
             context = applicationContext,
@@ -583,7 +584,8 @@ class EncryptedOlmDeliveryWorker(
         }
 
         requireActiveIdentity()
-        return committedCount to retryRequired
+        committedCount to retryRequired
+        }
     }
 
     private suspend fun retryPendingGroupMessages(

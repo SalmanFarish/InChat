@@ -604,9 +604,9 @@ fun ChatComposer(
                                     otherUserNickname,
 
                                 onQueued = {
-                                    // The encrypted message intent is durably
-                                    // saved to Room before this callback. The timeline
-                                    // observes it while background delivery continues.
+                                    // The encrypted message and complete device
+                                    // fan-out are committed to Room before this
+                                    // callback; the timeline observes that copy.
                                     sendingMessage = false
                                     onMessageSent()
                                     keyboardController?.hide()
