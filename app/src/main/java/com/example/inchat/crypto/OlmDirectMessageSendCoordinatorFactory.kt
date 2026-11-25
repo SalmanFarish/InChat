@@ -5,7 +5,8 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
-import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
+import com.example.inchat.data.worker.EncryptedOlmInboxWorker
+import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.FirebaseAuth
 
 /**
@@ -80,11 +81,12 @@ internal class OlmDirectMessageSendCoordinatorFactory(
             auth = auth,
             onDeviceReady = { ownerUserId, deviceId ->
                 runCatching {
-                    EncryptedOlmDeviceWorkScheduler.schedule(
+                    EncryptedOlmInboxWorker.schedule(
                         context = appContext,
                         ownerUserId = ownerUserId,
-                        deviceId = deviceId,
+                        recipientDeviceId = deviceId,
                     )
+                    FcmTokenRegistrationWorker.enqueue(appContext, ownerUserId)
                 }.onFailure { error ->
                     Log.w(TAG, "Encrypted inbox and push registration could not be scheduled yet.", error)
                 }
