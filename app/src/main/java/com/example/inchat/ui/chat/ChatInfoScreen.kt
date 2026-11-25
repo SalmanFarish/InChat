@@ -83,14 +83,14 @@ fun ChatInfoScreen(
     val trustRepository = remember(appContext) { TrustedDeviceRepository(appContext) }
     var otherUserProfilePhoto by remember(otherUserId) { mutableStateOf("") }
     var otherUserUsername by remember(otherUserId) { mutableStateOf("") }
-    var peerDevices by remember(otherUserId) {
+    var peerDevices by remember(currentUserId, otherUserId) {
         mutableStateOf<List<PublicDeviceKeyBundle>?>(null)
     }
-    var identityOverview by remember(otherUserId) {
+    var identityOverview by remember(currentUserId, otherUserId) {
         mutableStateOf<DeviceTrustOverview?>(null)
     }
-    var identityLoadError by remember(otherUserId) { mutableStateOf<String?>(null) }
-    var trustRevision by remember(otherUserId) { mutableStateOf(0) }
+    var identityLoadError by remember(currentUserId, otherUserId) { mutableStateOf<String?>(null) }
+    var trustRevision by remember(currentUserId, otherUserId) { mutableStateOf(0) }
 
     LaunchedEffect(otherUserId) {
         val user = userRepository.getUserByIdFast(otherUserId)
@@ -112,7 +112,11 @@ fun ChatInfoScreen(
                 check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
                     "The signed-in account changed. Sign in again."
                 }
-                identityDirectory.getUserDevices(otherUserId)
+                val devices = identityDirectory.getUserDevices(otherUserId)
+                check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                    "The signed-in account changed while loading device identities."
+                }
+                devices
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -121,7 +125,7 @@ fun ChatInfoScreen(
         }
     }
 
-    LaunchedEffect(trustRepository, otherUserId) {
+    LaunchedEffect(trustRepository, currentUserId, otherUserId) {
         trustRepository.observeTrustChanges().collect {
             trustRevision += 1
         }
