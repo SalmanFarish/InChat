@@ -684,7 +684,7 @@ internal fun ComposerSendButton(
                 .size(36.dp)
                 .background(
                     color = if (enabled) {
-                        activeColor.copy(alpha = 0.20f)
+                        activeColor
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant
                     },
@@ -705,7 +705,7 @@ internal fun ComposerSendButton(
                 },
                 modifier = Modifier.size(20.dp),
                 tint = if (enabled) {
-                    activeColor
+                    MaterialTheme.colorScheme.onPrimary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }
