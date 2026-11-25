@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Polls this installation's ciphertext-only Olm inbox, durably stages deliveries,
- * then advances only SAS-trusted receipts through authenticated Olm decryption
+ * then advances only automatically pinned, unchanged device identities through authenticated Olm decryption
  * and atomic local message/receipt persistence.
  *
  * The decrypted text is encrypted with the device Keystore key before its
@@ -142,7 +142,7 @@ class EncryptedOlmInboxWorker(
             }
 
             // Decryption remains isolated from plaintext Firebase listeners and UI.
-            // Only SAS-trusted, signature-verified device bundles reach the handoff.
+            // Only automatically pinned, unchanged, signature-verified bundles reach the handoff.
             val olmSessionRepository = OlmSessionRepository(applicationContext)
             val megolmSessionRepository = MegolmSessionRepository(applicationContext) {
                 FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
