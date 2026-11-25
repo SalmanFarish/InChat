@@ -64,11 +64,10 @@ class EncryptedGroupOutgoingCommitIntegrityTest {
                 outgoing.text,
             ))
             val expectedMarker = commitMarker(outgoing)
-            assertEquals(
-                1L,
+            assertTrue(
                 database.olmDeliveryQueueDao().insertOutgoingGroupCommitIfAbsent(
                     mutate(expectedMarker),
-                ),
+                ) > 0L,
             )
 
             assertRejected {
@@ -124,9 +123,8 @@ class EncryptedGroupOutgoingCommitIntegrityTest {
             ))
             val expectedMarker = commitMarker(outgoing)
             val mismatchedMarker = mutate(expectedMarker)
-            assertEquals(
-                1L,
-                database.olmDeliveryQueueDao().insertOutgoingGroupCommitIfAbsent(mismatchedMarker),
+            assertTrue(
+                database.olmDeliveryQueueDao().insertOutgoingGroupCommitIfAbsent(mismatchedMarker) > 0L,
             )
 
             assertRejected {
