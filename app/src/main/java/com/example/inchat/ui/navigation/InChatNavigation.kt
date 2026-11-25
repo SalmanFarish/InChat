@@ -656,9 +656,21 @@ fun InChatApp(
                 )
             }
 
-            composable("device_verification") {
+            composable(
+                route = "device_verification?peerUsername={peerUsername}",
+                arguments = listOf(
+                    navArgument("peerUsername") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { entry ->
+                val peerUsername = entry.arguments
+                    ?.getString("peerUsername")
+                    .orEmpty()
                 DeviceVerificationScreen(
                     uid = uid,
+                    initialPeerUsername = peerUsername.takeIf { it.isNotBlank() },
                     onBackClick = { navController.popBackStack() }
                 )
             }
@@ -953,7 +965,12 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() }
+                    onBackClick = { navController.popBackStack() },
+                    onVerifyIdentityClick = { peerUsername ->
+                        navController.navigate(
+                            "device_verification?peerUsername=${Uri.encode(peerUsername)}"
+                        )
+                    }
                 )
             }
 
