@@ -303,7 +303,9 @@ class EncryptedOlmInboxWorker(
             val workManager = WorkManager.getInstance(appContext)
             workManager.enqueueUniqueWork(
                 immediateWorkName(ownerUserId, recipientDeviceId),
-                ExistingWorkPolicy.KEEP,
+                // A push wake-up must not be dropped when the startup/periodic
+                // inbox pass is already running. Queue this pass behind it.
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 immediate,
             )
             workManager.enqueueUniquePeriodicWork(
