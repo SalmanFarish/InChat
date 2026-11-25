@@ -145,12 +145,12 @@ internal class OlmDirectMessageSendCoordinator(
             )
         }
         val senderDeviceId = senderBundle.deviceId
-        // A newly provisioned device needs both its outbound queue and inbox
-        // poller. Keep this best-effort: the message queue owns send success.
-        onDeviceReady(senderUserId, senderDeviceId)
         require(auth.currentUser?.uid == senderUserId) {
             "Authenticated account changed while preparing secure messaging"
         }
+        // A newly provisioned device needs both its outbound queue and inbox
+        // poller. Keep this best-effort: the message queue owns send success.
+        onDeviceReady(senderUserId, senderDeviceId)
         val senderDevices = directory.getUserDevices(senderUserId)
         val recipientDevices = directory.getUserDevices(recipientUserId)
         require(auth.currentUser?.uid == senderUserId) {
