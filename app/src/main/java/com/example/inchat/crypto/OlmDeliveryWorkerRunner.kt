@@ -51,6 +51,7 @@ internal class OlmDeliveryWorkerRunner(
         ).processPending()
 
         var uploaded = 0
+        var retryRequired = false
         var notificationDispatchFailures = 0
         repeat(maxDeliveriesPerRun) {
             val delivery = withContext(ioDispatcher) {
@@ -59,7 +60,7 @@ internal class OlmDeliveryWorkerRunner(
                 uploaded = uploaded,
                 acknowledged = acknowledgements.removed,
                 unmatchedAcknowledgements = acknowledgements.unmatched,
-                retryRequired = false,
+                retryRequired = retryRequired,
                 notificationDispatchFailures = notificationDispatchFailures,
             )
 
@@ -76,14 +77,7 @@ internal class OlmDeliveryWorkerRunner(
                             errorCode = STALE_GROUP_MEMBERSHIP,
                         )
                     }
-                    if (!quarantined) {
-                        return OlmDeliveryWorkerRunResult(
-                            uploaded = uploaded,
-                            acknowledged = acknowledgements.removed,
-                            unmatchedAcknowledgements = acknowledgements.unmatched,
-                            retryRequired = true,
-                        )
-                    }
+                    if (!quarantined) retryRequired = true
                     return@repeat
                 }
                 // The relay write is the durable source of truth. Notify only
@@ -111,14 +105,10 @@ internal class OlmDeliveryWorkerRunner(
                         )
                     }
                 }
-                return OlmDeliveryWorkerRunResult(
-                    uploaded = uploaded,
-                    acknowledged = acknowledgements.removed,
-                    unmatchedAcknowledgements = acknowledgements.unmatched,
-                    // A permanent rejection is settled only when this claim was
-                    // successfully quarantined. A stale lease still needs recovery.
-                    retryRequired = failure.retryable || !transitioned,
-                )
+                // A failed device must not head-of-line block unrelated deliveries.
+                // Its own persisted backoff keeps it out of the remaining claims.
+                if (failure.retryable || !transitioned) retryRequired = true
+                return@repeat
             } catch (_: Exception) {
                 withContext(ioDispatcher) {
                     queue.retry(
@@ -127,12 +117,8 @@ internal class OlmDeliveryWorkerRunner(
                         errorCode = RELAY_UPLOAD_ERROR,
                     )
                 }
-                return OlmDeliveryWorkerRunResult(
-                    uploaded = uploaded,
-                    acknowledged = acknowledgements.removed,
-                    unmatchedAcknowledgements = acknowledgements.unmatched,
-                    retryRequired = true,
-                )
+                retryRequired = true
+                return@repeat
             }
 
             // Dispatch the recipient wake-up immediately after the ciphertext
@@ -167,13 +153,8 @@ internal class OlmDeliveryWorkerRunner(
                             errorCode = DIRECT_PREVIEW_SYNC_ERROR,
                         )
                     }
-                    return OlmDeliveryWorkerRunResult(
-                        uploaded = uploaded,
-                        acknowledged = acknowledgements.removed,
-                        unmatchedAcknowledgements = acknowledgements.unmatched,
-                        retryRequired = true,
-                        notificationDispatchFailures = notificationDispatchFailures,
-                    )
+                    retryRequired = true
+                    return@repeat
                 }
             }
 
@@ -191,13 +172,8 @@ internal class OlmDeliveryWorkerRunner(
                             errorCode = GROUP_PREVIEW_SYNC_ERROR,
                         )
                     }
-                    return OlmDeliveryWorkerRunResult(
-                        uploaded = uploaded,
-                        acknowledged = acknowledgements.removed,
-                        unmatchedAcknowledgements = acknowledgements.unmatched,
-                        retryRequired = true,
-                        notificationDispatchFailures = notificationDispatchFailures,
-                    )
+                    retryRequired = true
+                    return@repeat
                 }
             }
 
@@ -212,13 +188,8 @@ internal class OlmDeliveryWorkerRunner(
                 // The upload completed after this claim expired or was reclaimed.
                 // Do not report the pass as settled: another worker owns the row,
                 // and WorkManager should promptly re-run acknowledgement/recovery.
-                return OlmDeliveryWorkerRunResult(
-                    uploaded = uploaded,
-                    acknowledged = acknowledgements.removed,
-                    unmatchedAcknowledgements = acknowledgements.unmatched,
-                    retryRequired = true,
-                    notificationDispatchFailures = notificationDispatchFailures,
-                )
+                retryRequired = true
+                return@repeat
             }
         }
 
@@ -228,7 +199,7 @@ internal class OlmDeliveryWorkerRunner(
             uploaded = uploaded,
             acknowledged = acknowledgements.removed,
             unmatchedAcknowledgements = acknowledgements.unmatched,
-            retryRequired = uploaded > 0,
+            retryRequired = retryRequired || uploaded > 0,
             notificationDispatchFailures = notificationDispatchFailures,
         )
     }

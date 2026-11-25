@@ -683,6 +683,91 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun failedRecipientDoesNotBlockOtherDueDeliveriesInTheSamePass() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "device-first", listOf(prepared("sender-device", "phone")))
+        queue.enqueue("alice", "sender-device", "device-second", listOf(prepared("sender-device", "tablet")))
+
+        var nowMillis = 10_000L
+        var failFirstAttempt = true
+        val events = mutableListOf<String>()
+        val attemptedDeliveryIds = mutableListOf<String>()
+        val storedDeliveryIds = mutableListOf<String>()
+        val transport = object : OlmOutgoingDeliveryTransport {
+            override suspend fun upload(
+                delivery: QueuedOlmDeviceDelivery,
+                senderDeviceId: String,
+            ): FirebaseOlmUploadResult {
+                assertEquals("sender-device", senderDeviceId)
+                events += "upload:" + delivery.messageId
+                attemptedDeliveryIds += delivery.deliveryId
+                if (delivery.messageId == "device-first" && failFirstAttempt) {
+                    failFirstAttempt = false
+                    throw IllegalStateException("temporary first recipient failure")
+                }
+                storedDeliveryIds += delivery.deliveryId
+                return FirebaseOlmUploadResult.STORED
+            }
+
+            override suspend fun readMyDeliveryAcknowledgements(
+                senderDeviceId: String,
+            ): List<OlmDeliveryAcknowledgement> {
+                events += "read-acks"
+                return emptyList()
+            }
+
+            override suspend fun removeMyDeliveryAcknowledgement(
+                senderDeviceId: String,
+                deliveryId: String,
+            ) = Unit
+        }
+        val runner = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { nowMillis },
+            maxDeliveriesPerRun = 2,
+        )
+
+        val firstPass = runner.run()
+        val failedRow = store.rows.values.single { it.messageId == "device-first" }
+        val deliveredRow = store.rows.values.single { it.messageId == "device-second" }
+        assertEquals(1, firstPass.uploaded)
+        assertTrue(firstPass.retryRequired)
+        assertEquals(OlmDeliveryStatus.QUEUED, failedRow.status)
+        assertEquals(12_000L, failedRow.nextAttemptAtMillis)
+        assertEquals(OlmDeliveryStatus.UPLOADED, deliveredRow.status)
+        assertEquals(listOf(deliveredRow.deliveryId), storedDeliveryIds)
+        assertEquals(
+            listOf("read-acks", "upload:device-first", "upload:device-second"),
+            events,
+        )
+
+        nowMillis = 11_999L
+        val beforeBackoffExpires = runner.run()
+        assertEquals(0, beforeBackoffExpires.uploaded)
+        assertFalse(beforeBackoffExpires.retryRequired)
+        assertEquals(2, attemptedDeliveryIds.size)
+
+        nowMillis = 12_000L
+        val recovered = runner.run()
+        assertEquals(1, recovered.uploaded)
+        assertFalse(recovered.retryRequired)
+        assertEquals(
+            listOf(failedRow.deliveryId, deliveredRow.deliveryId, failedRow.deliveryId),
+            attemptedDeliveryIds,
+        )
+        assertEquals(
+            listOf(deliveredRow.deliveryId, failedRow.deliveryId),
+            storedDeliveryIds,
+        )
+        assertEquals(OlmDeliveryStatus.UPLOADED, store.rows.getValue(failedRow.deliveryId).status)
+    }
+
+    @Test
     fun partialBatchFailureKeepsEarlierLeaseAndRetriesOnlyFailedDelivery() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
