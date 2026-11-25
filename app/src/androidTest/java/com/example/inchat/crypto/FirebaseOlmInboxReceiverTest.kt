@@ -254,7 +254,8 @@ class FirebaseOlmInboxReceiverTest {
             assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
 
             val retry = receiver.receivePending()
-            assertEquals(1, retry.stored)
+            assertEquals(0, retry.stored)
+            assertEquals(1, retry.alreadyPending)
             assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
             assertTrue(transport.items.isEmpty())
             assertEquals(
