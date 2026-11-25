@@ -127,8 +127,8 @@ fun DeviceVerificationScreen(
                 return@rememberLauncherForActivityResult
             }
 
-            if (payload.userId == uid) {
-                error = "Scan the QR code from the other person's device, not this account."
+            if (payload.userId == uid && payload.deviceId == localDeviceId) {
+                error = "This QR code belongs to the device you're already using. Scan another published device."
             } else {
                 scope.launch {
                     isLoadingPeerDevices = true
@@ -155,6 +155,9 @@ fun DeviceVerificationScreen(
                                 "The signed-in account changed while checking the scanned device."
                             }
                             val user = UserRepository().getUserByIdFast(payload.userId)
+                            check(directoryRepository.authenticatedUserId == uid) {
+                                "The signed-in account changed while resolving the scanned account."
+                            }
                             publishedDevices to user?.username.orEmpty()
                         }
                         peerAccountUserId = payload.userId
@@ -678,7 +681,7 @@ fun DeviceVerificationScreen(
                 val targetUserId = peerAccountUserId
                 if (targetUserId != null) {
                     Text(
-                        text = if (peerAccountUsername.isNotBlank()) {
+                        text = if (!peerAccountUsername.isNullOrBlank()) {
                             "Devices for @${peerAccountUsername}"
                         } else {
                             "Devices for account ${targetUserId.take(12)}"
