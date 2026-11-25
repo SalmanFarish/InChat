@@ -689,6 +689,12 @@ class OlmDeliveryWorkerRunnerTest {
         queue.enqueue("alice", "sender-device", "device-first", listOf(prepared("sender-device", "phone")))
         queue.enqueue("alice", "sender-device", "device-second", listOf(prepared("sender-device", "tablet")))
 
+        // Mirror Room's deterministic ORDER BY deliveryId for equal due times.
+        val productionOrder = store.rows.values.sortedBy { it.deliveryId }
+        store.rows.clear()
+        productionOrder.forEach { store.rows[it.deliveryId] = it }
+        val firstClaimedDeliveryId = productionOrder.first().deliveryId
+
         var nowMillis = 10_000L
         var failFirstAttempt = true
         val events = mutableListOf<String>()
@@ -702,7 +708,7 @@ class OlmDeliveryWorkerRunnerTest {
                 assertEquals("sender-device", senderDeviceId)
                 events += "upload:" + delivery.messageId
                 attemptedDeliveryIds += delivery.deliveryId
-                if (delivery.messageId == "device-first" && failFirstAttempt) {
+                if (delivery.deliveryId == firstClaimedDeliveryId && failFirstAttempt) {
                     failFirstAttempt = false
                     throw IllegalStateException("temporary first recipient failure")
                 }
@@ -733,8 +739,8 @@ class OlmDeliveryWorkerRunnerTest {
         )
 
         val firstPass = runner.run()
-        val failedRow = store.rows.values.single { it.messageId == "device-first" }
-        val deliveredRow = store.rows.values.single { it.messageId == "device-second" }
+        val failedRow = store.rows.getValue(firstClaimedDeliveryId)
+        val deliveredRow = store.rows.values.single { it.deliveryId != firstClaimedDeliveryId }
         assertEquals(1, firstPass.uploaded)
         assertTrue(firstPass.retryRequired)
         assertEquals(OlmDeliveryStatus.QUEUED, failedRow.status)
@@ -742,7 +748,11 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(OlmDeliveryStatus.UPLOADED, deliveredRow.status)
         assertEquals(listOf(deliveredRow.deliveryId), storedDeliveryIds)
         assertEquals(
-            listOf("read-acks", "upload:device-first", "upload:device-second"),
+            listOf(
+                "read-acks",
+                "upload:" + productionOrder[0].messageId,
+                "upload:" + productionOrder[1].messageId,
+            ),
             events,
         )
 
@@ -757,7 +767,11 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals(1, recovered.uploaded)
         assertFalse(recovered.retryRequired)
         assertEquals(
-            listOf(failedRow.deliveryId, deliveredRow.deliveryId, failedRow.deliveryId),
+            listOf(
+                productionOrder[0].deliveryId,
+                productionOrder[1].deliveryId,
+                failedRow.deliveryId,
+            ),
             attemptedDeliveryIds,
         )
         assertEquals(
