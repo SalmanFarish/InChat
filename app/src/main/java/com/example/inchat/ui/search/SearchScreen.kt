@@ -2,6 +2,9 @@ package com.example.inchat.ui.search
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -268,15 +271,26 @@ private fun SearchInput(
     onClear: () -> Unit,
     onSearch: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
+        },
+        label = "people_search_border"
+    )
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
-            width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
+            width = if (isFocused) 1.25.dp else 0.8.dp,
+            color = borderColor
         )
     ) {
         Row(
@@ -298,6 +312,7 @@ private fun SearchInput(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
+                interactionSource = interactionSource,
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(focusRequester),
