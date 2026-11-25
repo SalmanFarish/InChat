@@ -416,7 +416,7 @@ class RoomOlmDeliveryQueueStoreTest {
                     "bob",
                     "sender-device",
                     "same-message-id",
-                    listOf(prepared("device-phone", "sender-device")),
+                    listOf(prepared("device-phone", "sender-device").copy(recipientUserId = "alice")),
                 ),
             )
 

@@ -329,7 +329,7 @@ class OlmSenderRecipientRecoveryIntegrationTest {
                     ?.let { EncryptedOlmMessageVault().decrypt(it).text },
             )
             assertEquals(
-                OlmInboundReceiptStatus.PROCESSED.name,
+                OlmInboundReceiptStatus.FINALIZED.name,
                 recipientDatabase.olmInboundReceiptDao().getByReceiptId(receiptId)?.status,
             )
             assertEquals(

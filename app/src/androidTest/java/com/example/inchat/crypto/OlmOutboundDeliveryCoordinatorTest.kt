@@ -276,7 +276,7 @@ class OlmOutboundDeliveryCoordinatorTest {
                 senderDevices = listOf(bundle("sender-phone")),
             )
         } catch (expected: IllegalStateException) {
-            rejected = expected.message.orEmpty().contains("has not been verified")
+            rejected = expected.message.orEmpty().contains("identity changed")
         }
 
         assertTrue(rejected)

@@ -75,7 +75,7 @@ class OlmDeliveryWorkerRunnerTest {
         assertEquals("group_membership_epoch_stale", stale.lastError)
         assertEquals(OlmDeliveryStatus.UPLOADED, direct.status)
         assertEquals(1, result.uploaded)
-        assertTrue(result.retryRequired) // Uploaded deliveries request the normal follow-up ack pass.
+        assertFalse(result.retryRequired) // The stale row is terminally quarantined and the direct row uploaded.
         assertEquals(listOf("read-acks", "upload:direct-message"), events)
     }
 
