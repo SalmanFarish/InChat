@@ -245,8 +245,15 @@ class MainActivity :
                         "Signed-in account changed before automatic device setup"
                     }
                     val identity = DeviceIdentityRepository(appContext)
+                    // Do not create a brand-new identity here: a clean install
+                    // may still choose the optional encrypted identity transfer.
+                    val existingDeviceId = identity.existingDeviceIdForDelivery()
+                        ?: return@withContext
                     val directory = DeviceKeyDirectoryRepository(auth = auth)
                     val bundle = directory.ensureMyDevicePublished(identity)
+                    check(bundle.deviceId == existingDeviceId) {
+                        "The restored device identity changed during automatic setup"
+                    }
                     check(auth.currentUser?.uid == uid) {
                         "Signed-in account changed during automatic device setup"
                     }
