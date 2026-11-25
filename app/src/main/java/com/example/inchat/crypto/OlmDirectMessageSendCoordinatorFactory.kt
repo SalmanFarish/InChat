@@ -3,6 +3,8 @@ package com.example.inchat.crypto
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
@@ -153,8 +155,13 @@ internal class OlmDirectMessageSendCoordinator(
         // A newly provisioned device needs both its outbound queue and inbox
         // poller. Keep this best-effort: the message queue owns send success.
         onDeviceReady(senderUserId, senderDeviceId)
-        val senderDevices = directory.getUserDevices(senderUserId)
-        val recipientDevices = directory.getUserDevices(recipientUserId)
+        // These two independent directory reads are network-bound. Resolve them
+        // together so one slow Firebase read does not serially delay the other.
+        val (senderDevices, recipientDevices) = coroutineScope {
+            val senderDevices = async { directory.getUserDevices(senderUserId) }
+            val recipientDevices = async { directory.getUserDevices(recipientUserId) }
+            senderDevices.await() to recipientDevices.await()
+        }
         require(auth.currentUser?.uid == senderUserId) {
             "Authenticated account changed while resolving encrypted recipient devices"
         }
