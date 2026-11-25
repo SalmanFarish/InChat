@@ -507,7 +507,7 @@ fun DeviceTransferScreen(
                 TransferMode.SOURCE_DONE -> {
                     StepLabel("4 of 4 · Transfer complete")
                     InfoCard(
-                        "Your old device identity has been retired. Continue using InChat on the new phone. Re-establish device trust and verification on the new installation where needed.",
+                        "Your old device identity has been retired. Continue using InChat on the new phone. Device setup and messaging work automatically.",
                     )
                     Button(onClick = onBackClick, modifier = Modifier.fillMaxWidth()) {
                         Text("Done")
