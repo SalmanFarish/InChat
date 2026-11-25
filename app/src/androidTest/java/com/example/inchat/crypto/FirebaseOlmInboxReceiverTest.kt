@@ -5,7 +5,10 @@ import android.util.Base64
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.inchat.data.local.LocalChatDatabase
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -36,6 +39,63 @@ class FirebaseOlmInboxReceiverTest {
                 OlmInboundRegistration.PENDING_RETRY,
                 ledger.register("alice", "message-1", encoded, 101L),
             )
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun overlappingInboxReceiversDoNotRaceTheSameRemoteDelivery() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-overlapping-receive-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "a".repeat(64), "alice", "sender-device", "overlap-message", envelope(1),
+            )
+            val transport = FakeTransport(mutableListOf(item))
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            val callbackEntered = CompletableDeferred<Unit>()
+            val releaseCallback = CompletableDeferred<Unit>()
+            val first = FirebaseOlmInboxReceiver(
+                transport, ledger, "receiver-device",
+                onAcknowledgementStored = {
+                    callbackEntered.complete(Unit)
+                    releaseCallback.await()
+                },
+            )
+            val second = FirebaseOlmInboxReceiver(
+                transport, ledger, "receiver-device",
+            )
+
+            val firstRun = async { first.receivePending() }
+            callbackEntered.await()
+            val secondStarted = CompletableDeferred<Unit>()
+            val secondRun = async {
+                secondStarted.complete(Unit)
+                second.receivePending()
+            }
+            secondStarted.await()
+            yield()
+
+            // The second worker cannot read the still-uncommitted relay item.
+            assertEquals(1, transport.readCalls)
+            assertEquals(listOf(item), transport.items)
+
+            releaseCallback.complete(Unit)
+            val firstResult = firstRun.await()
+            val secondResult = secondRun.await()
+
+            assertEquals(1, firstResult.stored)
+            assertEquals(0, secondResult.stored)
+            assertEquals(2, transport.readCalls)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgementAttempts)
+            assertEquals(listOf(item.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(listOf(item.deliveryId), transport.removedDeliveryIds)
+            assertTrue(transport.items.isEmpty())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -454,10 +514,15 @@ class FirebaseOlmInboxReceiverTest {
         private var failFirstRemovalAfterCommit: Boolean = false,
     ) : OlmInboxTransport {
         val acknowledgementAttempts = mutableListOf<String>()
+        var readCalls = 0
+            private set
         val acknowledgedDeliveryIds = mutableListOf<String>()
         val removedDeliveryIds = mutableListOf<String>()
 
-        override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> = items.toList()
+        override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
+            readCalls++
+            return items.toList()
+        }
 
         override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) {
             acknowledgementAttempts += item.deliveryId

@@ -4,6 +4,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal data class FirebaseOlmInboxReceiveResult(
     val stored: Int,
@@ -25,7 +27,7 @@ internal class FirebaseOlmInboxReceiver(
     private val clock: () -> Long = System::currentTimeMillis,
     private val onAcknowledgementStored: suspend (FirebaseOlmInboxItem) -> Unit = {},
 ) {
-    suspend fun receivePending(): FirebaseOlmInboxReceiveResult {
+    suspend fun receivePending(): FirebaseOlmInboxReceiveResult = RECEIVE_MUTEX.withLock {
         val items = transport.readMyDeviceInbox(deviceId)
         var stored = 0
         var pending = 0
@@ -88,6 +90,12 @@ internal class FirebaseOlmInboxReceiver(
         // WorkManager still retries the pass, while successfully handled later
         // items are already removed and won't needlessly repeat on the next poll.
         firstFailure?.let { throw it }
-        return FirebaseOlmInboxReceiveResult(stored, pending, processed, conflicts, rejected)
+        FirebaseOlmInboxReceiveResult(stored, pending, processed, conflicts, rejected)
+    }
+
+    private companion object {
+        // Immediate push and periodic inbox workers can overlap. Serialize the
+        // remote inbox read/ack/remove transaction to avoid duplicate ACK races.
+        val RECEIVE_MUTEX = Mutex()
     }
 }
