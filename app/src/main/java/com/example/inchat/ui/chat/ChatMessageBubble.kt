@@ -232,12 +232,26 @@ fun SwipeableMessageBubble(
             Column(
                 modifier =
                     Modifier
-                        .widthIn(
-                            max =
-                                maxBubbleWidth
-                        )
+                        .widthIn(max = maxBubbleWidth)
                         .animateContentSize()
             ) {
+                // shadcn MessageHeader: group identity stays outside the bubble.
+                if (showSenderName && message.senderNickname.isNotBlank()) {
+                    Text(
+                        text = message.senderNickname,
+                        modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            letterSpacing = 0.05.sp
+                        ),
+                        fontWeight = FontWeight.SemiBold,
+                        color = chatTheme.statusAccentColor,
+                        maxLines = 1
+                    )
+                }
+
                 val bubbleShape =
                     RoundedCornerShape(
                         topStart = if (!isMe && !isFirstInGroup) 8.dp else 20.dp,
@@ -250,18 +264,11 @@ fun SwipeableMessageBubble(
                     modifier =
                         Modifier
                             .combinedClickable(
-                                interactionSource =
-                                    null,
-                                indication =
-                                    null,
+                                interactionSource = null,
+                                indication = null,
                                 onClick = onClick,
-                                onDoubleClick = {
-                                    onReactionClick(
-                                        "❤️"
-                                    )
-                                },
-                                onLongClick =
-                                    onLongClick
+                                onDoubleClick = { onReactionClick("❤️") },
+                                onLongClick = onLongClick
                             )
                             .clip(bubbleShape)
                             .background(
@@ -284,175 +291,118 @@ fun SwipeableMessageBubble(
                                 },
                                 shape = bubbleShape
                             )
-                            .padding(
-                                horizontal = 16.dp,
-                                vertical = 11.dp
-                            )
+                            .padding(horizontal = 16.dp, vertical = 11.dp)
                 ) {
-                    if (showSenderName && message.senderNickname.isNotBlank()) {
-                        Text(
-                            text = message.senderNickname,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = GoogleSansFlex,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                letterSpacing = 0.05.sp
-                            ),
-                            fontWeight = FontWeight.SemiBold,
-                            color = chatTheme.statusAccentColor,
-                            maxLines = 1
-                        )
-
-                        Spacer(Modifier.height(5.dp))
-                    }
-
                     message.replyTo?.let { reply ->
                         ReplyMessagePreview(
-                            reply =
-                                reply,
-                            isMe =
-                                isMe,
-                            chatTheme =
-                                chatTheme,
-                            onClick = {
-                                onQuotedReplyClick(
-                                    reply.messageId
-                                )
-                            }
+                            reply = reply,
+                            isMe = isMe,
+                            chatTheme = chatTheme,
+                            onClick = { onQuotedReplyClick(reply.messageId) }
                         )
-
-                        Spacer(
-                            modifier =
-                                Modifier.height(
-                                    4.dp
-                                )
-                        )
+                        Spacer(Modifier.height(4.dp))
                     }
 
                     Text(
-                        text =
-                            message.text,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyLarge
-                                .copy(
-                                    fontFamily = GoogleSansFlex,
-                                    fontSize = 15.sp,
-                                    lineHeight = 22.sp,
-                                    letterSpacing = 0.sp
-                                ),
-                        color =
-                            if (isMe) {
-                                chatTheme.outgoingTextColor
-                            } else {
-                                chatTheme.incomingTextColor
-                            }
-                    )
-
-                    val metadataStyle =
-                        MaterialTheme.typography.labelSmall.copy(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyLarge.copy(
                             fontFamily = GoogleSansFlex,
-                            fontSize = 10.sp,
-                            lineHeight = 14.sp,
-                            letterSpacing = 0.1.sp
-                        )
-
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(top = 4.dp, end = 1.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (message.edited) {
-                            Text(
-                                text = "EDITED",
-                                style = metadataStyle.copy(letterSpacing = 0.5.sp),
-                                fontWeight = FontWeight.Medium,
-                                color = chatTheme.secondaryTextColor.copy(alpha = 0.78f),
-                                maxLines = 1
-                            )
-
-                            Spacer(Modifier.width(6.dp))
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                            letterSpacing = 0.sp
+                        ),
+                        color = if (isMe) {
+                            chatTheme.outgoingTextColor
+                        } else {
+                            chatTheme.incomingTextColor
                         }
-
-                        Text(
-                            text = formatMessageTime(message.timestamp),
-                            style = metadataStyle,
-                            fontWeight = FontWeight.Medium,
-                            color = chatTheme.secondaryTextColor.copy(
-                                alpha = if (isMe) 0.92f else 0.78f
-                            ),
-                            maxLines = 1
-                        )
-
-                        if (isMe && encryptedDeliveryStatus != null) {
-                            Spacer(Modifier.width(7.dp))
-                            EncryptedMessageDeliveryIndicator(
-                                status = encryptedDeliveryStatus,
-                                tint = if (
-                                    encryptedDeliveryStatus == EncryptedMessageDeliveryStatus.DELIVERED
-                                ) {
-                                    chatTheme.statusAccentColor
-                                } else {
-                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
-                                },
-                            )
-                        } else if (
-                            isMe &&
-                            deliveryStatus != MessageDeliveryStatus.NONE
-                        ) {
-                            Spacer(Modifier.width(7.dp))
-                            MessageDeliveryIndicator(
-                                status = deliveryStatus,
-                                tint = if (
-                                    deliveryStatus == MessageDeliveryStatus.SEEN_JUST_NOW ||
-                                    deliveryStatus == MessageDeliveryStatus.SEEN
-                                ) {
-                                    chatTheme.statusAccentColor
-                                } else {
-                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
-                                }
-                            )
-                        }
-                    }
+                    )
                 }
 
-                if (
-                    message.reactions.isNotEmpty()
-                ) {
+                // shadcn BubbleReactions: attach the reaction pill to the bubble edge.
+                if (message.reactions.isNotEmpty()) {
                     ReactionSummary(
-                        reactions =
-                            message.reactions,
-                        currentUserId =
-                            currentUserId,
-                        onReactionClick = {
-                            reaction ->
-                            if (
-                                message.reactions[currentUserId] ==
-                                reaction
-                            ) {
-                                onReactionClick(
-                                    reaction
-                                )
+                        reactions = message.reactions,
+                        currentUserId = currentUserId,
+                        onReactionClick = { reaction ->
+                            if (message.reactions[currentUserId] == reaction) {
+                                onReactionClick(reaction)
                             }
                         },
-                        modifier =
-                            Modifier
-                                .padding(top = 2.dp)
-                                .offset(y = (-4).dp)
-                                .align(
-                                    if (isMe) {
-                                        Alignment.End
-                                    } else {
-                                        Alignment.Start
-                                    }
-                                )
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .offset(y = (-4).dp)
+                            .align(if (isMe) Alignment.End else Alignment.Start)
                     )
                 }
-            }
 
+                // shadcn MessageFooter: keep time and delivery state visible below the bubble.
+                val metadataStyle = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = GoogleSansFlex,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    letterSpacing = 0.1.sp
+                )
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (message.edited) {
+                        Text(
+                            text = "EDITED",
+                            style = metadataStyle.copy(letterSpacing = 0.5.sp),
+                            fontWeight = FontWeight.Medium,
+                            color = chatTheme.secondaryTextColor.copy(alpha = 0.78f),
+                            maxLines = 1
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+
+                    Text(
+                        text = formatMessageTime(message.timestamp),
+                        style = metadataStyle,
+                        fontWeight = FontWeight.Medium,
+                        color = chatTheme.secondaryTextColor.copy(
+                            alpha = if (isMe) 0.92f else 0.78f
+                        ),
+                        maxLines = 1
+                    )
+
+                    if (isMe && encryptedDeliveryStatus != null) {
+                        Spacer(Modifier.width(7.dp))
+                        EncryptedMessageDeliveryIndicator(
+                            status = encryptedDeliveryStatus,
+                            tint = if (
+                                encryptedDeliveryStatus == EncryptedMessageDeliveryStatus.DELIVERED
+                            ) {
+                                chatTheme.statusAccentColor
+                            } else {
+                                chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                            }
+                        )
+                    } else if (
+                        isMe &&
+                        deliveryStatus != MessageDeliveryStatus.NONE
+                    ) {
+                        Spacer(Modifier.width(7.dp))
+                        MessageDeliveryIndicator(
+                            status = deliveryStatus,
+                            tint = if (
+                                deliveryStatus == MessageDeliveryStatus.SEEN_JUST_NOW ||
+                                deliveryStatus == MessageDeliveryStatus.SEEN
+                            ) {
+                                chatTheme.statusAccentColor
+                            } else {
+                                chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         /*
