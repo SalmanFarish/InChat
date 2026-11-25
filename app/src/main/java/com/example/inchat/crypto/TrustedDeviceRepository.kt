@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** Checks and records the local trust state of a published device identity. */
 internal fun interface OlmDeviceTrustVerifier {
-    /** True only after both users completed the SAS comparison for this exact key. */
+    /** Legacy explicit-verification marker; normal encrypted messaging does not depend on it. */
     fun isVerified(
         peerUserId: String,
         peerDeviceId: String,
@@ -17,9 +17,9 @@ internal fun interface OlmDeviceTrustVerifier {
     ): Boolean
 
     /**
-     * Messaging may use a stable first-seen identity without forcing a SAS ceremony.
-     * Implementations pin a new key once and reject a changed key. The default
-     * keeps existing test doubles and strict policies fail-closed.
+     * Messaging may use a stable first-seen identity without user interaction.
+     * Production storage pins new keys once and rejects a changed key. The default
+     * keeps strict test doubles fail-closed unless they implement this policy.
      */
     fun isTrustedForMessaging(
         peerUserId: String,
@@ -29,13 +29,15 @@ internal fun interface OlmDeviceTrustVerifier {
 }
 
 /**
- * Stores peer identity pins and SAS confirmations locally in an Android Keystore
- * AES-GCM encrypted file. Firebase is never an authority for trust decisions.
+ * Stores peer identity pins and legacy explicit-verification metadata locally in
+ * an Android Keystore AES-GCM encrypted file. Firebase is never an authority for
+ * trust decisions.
  *
  * An identity first encountered during ordinary messaging is pinned locally
- * (trust on first use). A later key change is rejected until the user completes
- * SAS verification for the new identity. First-use pinning is not displayed as
- * SAS verification and never creates a verifiedAt timestamp.
+ * without user interaction (trust on first use). A later key change or explicit
+ * revocation remains blocked; it is never silently accepted as a new identity.
+ * The historical verification timestamp is retained only for compatibility and
+ * does not gate normal messaging.
  */
 internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifier, SasVerificationTrustStore {
     private val stateStore = CryptoStateStore(
@@ -79,8 +81,9 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
     /**
      * Pin the first observed identity for ordinary messaging. Existing pins are
      * accepted only while the published Ed25519 identity key remains unchanged.
-     * A changed key is deliberately not overwritten here; it requires an explicit
-     * SAS comparison before a new identity can become trusted.
+     * A changed or revoked identity is deliberately not overwritten here. It
+     * remains blocked until a separate, authenticated device-recovery flow gives
+     * the installation a new device identity.
      */
     override fun isTrustedForMessaging(
         peerUserId: String,
@@ -142,7 +145,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
     /** Observe local pin/verification/revocation changes without exposing key material. */
     fun observeTrustChanges(): Flow<Unit> = TRUST_CHANGES
 
-    /** Returns the verification time only after SAS confirmed this exact identity key. */
+    /** Legacy metadata timestamp; normal messaging does not require this value. */
     fun verifiedAtMillis(
         peerUserId: String,
         peerDeviceId: String,
@@ -159,7 +162,7 @@ internal class TrustedDeviceRepository(context: Context) : OlmDeviceTrustVerifie
         }?.verifiedAtMillis
     }
 
-    /** SAS verification status is intentionally distinct from first-use messaging trust. */
+    /** Legacy explicit-verification status, kept separate from automatic messaging trust. */
     override fun isVerified(
         peerUserId: String,
         peerDeviceId: String,
