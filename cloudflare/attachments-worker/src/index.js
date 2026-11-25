@@ -5,7 +5,7 @@ import {
   mutateGroupMembersWithEtag,
   ensureGroupCryptoMembershipSnapshotWithEtag,
 } from "./group-crypto-membership.js";
-import { processEncryptedOlmPush } from "./olm-push.js";
+import { processEncryptedOlmAcknowledgementPush, processEncryptedOlmPush } from "./olm-push.js";
 import { processOlmMailboxRequest, OlmDeviceMailboxDurableObject } from "./olm-mailbox.js";
 export { OlmDeviceMailboxDurableObject };
 import { syncEncryptedDirectPreview } from "./encrypted-direct-preview.js";
@@ -2195,6 +2195,35 @@ async function processEncryptedOlmPushRequest(request, env, uid, adminAuth) {
   return json(outcome.payload, outcome.status);
 }
 
+async function processEncryptedOlmAcknowledgementPushRequest(request, env, uid, adminAuth) {
+  let raw;
+  try {
+    raw = await readRequestTextLimited(request, 4096);
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return json({ error: "Encrypted acknowledgement request is too large." }, 413);
+    }
+    return json({ error: "Invalid acknowledgement JSON body." }, 400);
+  }
+
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch (_) {
+    return json({ error: "Invalid acknowledgement JSON body." }, 400);
+  }
+
+  const outcome = await processEncryptedOlmAcknowledgementPush({
+    env,
+    uid,
+    body,
+    adminToken: adminAuth,
+    adminDatabaseRequest,
+    fcmRequest,
+  });
+  return json(outcome.payload, outcome.status);
+}
+
 async function processUserReportRequest(request, env, uid, adminAuth) {
   let raw;
   try {
@@ -2337,6 +2366,19 @@ export default {
 
         const adminAuth = await getFirebaseAdminToken(env);
         return recoverPassword(request, env, adminAuth);
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/olm/notify-ack"
+      ) {
+        const ipLimitResponse = await enforceEncryptedOlmPushIpRateLimit(request, env);
+        if (ipLimitResponse) return ipLimitResponse;
+        const user = await authenticate(getBearer(request), env);
+        const accountLimitResponse = await enforceEncryptedOlmPushAccountRateLimit(env, user.uid);
+        if (accountLimitResponse) return accountLimitResponse;
+        const adminAuth = await getFirebaseAdminToken(env);
+        return processEncryptedOlmAcknowledgementPushRequest(request, env, user.uid, adminAuth);
       }
 
       if (

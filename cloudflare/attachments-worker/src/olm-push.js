@@ -644,3 +644,273 @@ export async function processEncryptedOlmPush({
     ...(unregistered ? { reason: "recipient_device_token_unregistered" } : {}),
   });
 }
+
+
+function validateAcknowledgementRequest(body, authenticatedUid) {
+  if (!isRecord(body)) {
+    return { error: result(400, { error: "Invalid encrypted acknowledgement request." }) };
+  }
+  const expectedFields = [
+    "deliveryId",
+    "messageId",
+    "recipientDeviceId",
+    "senderDeviceId",
+    "senderUid",
+  ];
+  const fields = Object.keys(body).sort();
+  if (
+    fields.length !== expectedFields.length ||
+    fields.some((field, index) => field !== expectedFields[index])
+  ) {
+    return { error: result(400, { error: "Encrypted acknowledgement request has missing or unknown fields." }) };
+  }
+  if (!UID_PATTERN.test(authenticatedUid)) {
+    return { error: result(401, { error: "Unauthorized." }) };
+  }
+  if (
+    typeof body.senderUid !== "string" ||
+    !UID_PATTERN.test(body.senderUid) ||
+    body.senderUid === authenticatedUid ||
+    typeof body.senderDeviceId !== "string" ||
+    !DEVICE_PATTERN.test(body.senderDeviceId) ||
+    typeof body.recipientDeviceId !== "string" ||
+    !DEVICE_PATTERN.test(body.recipientDeviceId) ||
+    typeof body.deliveryId !== "string" ||
+    !DELIVERY_PATTERN.test(body.deliveryId) ||
+    typeof body.messageId !== "string" ||
+    !MESSAGE_PATTERN.test(body.messageId)
+  ) {
+    return { error: result(400, { error: "Encrypted acknowledgement request contains an invalid identifier." }) };
+  }
+  return {
+    value: {
+      senderUid: body.senderUid,
+      senderDeviceId: body.senderDeviceId,
+      recipientUid: authenticatedUid,
+      recipientDeviceId: body.recipientDeviceId,
+      deliveryId: body.deliveryId.toLowerCase(),
+      messageId: body.messageId,
+    },
+  };
+}
+
+/**
+ * Sends a metadata-only wake-up to the sender after the recipient has durably
+ * written an exact relay acknowledgement. Firebase remains the source of truth;
+ * FCM only asks the sender device to process its existing Room outbox.
+ */
+export async function processEncryptedOlmAcknowledgementPush({
+  env,
+  uid,
+  body,
+  adminToken: adminTokenInput,
+  adminDatabaseRequest,
+  fcmRequest,
+  fetchImpl = fetch,
+  now = Date.now(),
+}) {
+  const validation = validateAcknowledgementRequest(body, uid);
+  if (validation.error) return validation.error;
+  const input = validation.value;
+  const adminAccessToken = typeof adminTokenInput === "string" ?
+    adminTokenInput :
+    (isRecord(adminTokenInput) && typeof adminTokenInput.token === "string" ?
+      adminTokenInput.token :
+      "");
+  const adminProjectId = isRecord(adminTokenInput) ?
+    adminTokenInput.projectId :
+    env.FIREBASE_PROJECT_ID;
+  if (
+    !adminAccessToken ||
+    typeof adminProjectId !== "string" ||
+    !adminProjectId.trim()
+  ) {
+    return result(503, { error: "Firebase Admin credentials are unavailable." });
+  }
+
+  const acknowledgementPath =
+    "olmDeliveryAcks/" + input.senderUid + "/" +
+    input.senderDeviceId + "/" + input.deliveryId;
+  const acknowledgement = await adminDatabaseRequest(
+    env,
+    adminAccessToken,
+    acknowledgementPath,
+  );
+  const acknowledgementFields = [
+    "acknowledgedAt",
+    "messageId",
+    "recipientDeviceId",
+    "recipientUid",
+  ];
+  if (!isRecord(acknowledgement)) {
+    return result(404, { error: "The encrypted delivery acknowledgement was not found." });
+  }
+  const actualFields = Object.keys(acknowledgement).sort();
+  const expectedFields = [...acknowledgementFields].sort();
+  if (
+    actualFields.length !== expectedFields.length ||
+    actualFields.some((field, index) => field !== expectedFields[index]) ||
+    acknowledgement.recipientUid !== input.recipientUid ||
+    acknowledgement.recipientDeviceId !== input.recipientDeviceId ||
+    acknowledgement.messageId !== input.messageId ||
+    typeof acknowledgement.acknowledgedAt !== "number" ||
+    !Number.isFinite(acknowledgement.acknowledgedAt)
+  ) {
+    return result(409, { error: "The stored acknowledgement does not match the authenticated device and delivery." });
+  }
+
+  const [senderDevice, recipientDevice] = await Promise.all([
+    adminDatabaseRequest(
+      env,
+      adminAccessToken,
+      "deviceKeys/" + input.senderUid + "/" + input.senderDeviceId,
+    ),
+    adminDatabaseRequest(
+      env,
+      adminAccessToken,
+      "deviceKeys/" + input.recipientUid + "/" + input.recipientDeviceId,
+    ),
+  ]);
+  if (
+    !isPublishedDevice(senderDevice, input.senderDeviceId) ||
+    !isPublishedDevice(recipientDevice, input.recipientDeviceId)
+  ) {
+    return result(404, { error: "The acknowledging or sender device is no longer published." });
+  }
+
+  const tokenValue = await adminDatabaseRequest(
+    env,
+    adminAccessToken,
+    "privateUsers/" + input.senderUid + "/olmDeviceFcmTokens/" + input.senderDeviceId,
+  );
+  const registrationToken =
+    typeof tokenValue === "string" && tokenValue.trim().length <= 4096 ?
+      tokenValue.trim() :
+      "";
+  if (!registrationToken) {
+    return result(200, {
+      success: true,
+      notificationSent: false,
+      reason: "sender_device_has_no_fcm_token",
+    });
+  }
+
+  const receiptPath =
+    "olmAckPushDispatch/" + input.senderUid + "/" +
+    input.senderDeviceId + "/" + input.deliveryId;
+  const claim = await claimPushDispatch(
+    env,
+    adminAccessToken,
+    receiptPath,
+    input.recipientUid,
+    input.messageId,
+    input.senderUid,
+    input.senderDeviceId,
+    input.deliveryId,
+    fetchImpl,
+    now,
+  );
+  if (claim.alreadyProcessed) {
+    return result(200, {
+      success: true,
+      notificationSent: claim.notificationSent,
+      alreadyProcessed: true,
+    });
+  }
+  if (claim.busy || typeof claim.claimId !== "string") {
+    return result(503, {
+      success: false,
+      retryable: true,
+      error: "This encrypted acknowledgement wake-up is already being processed.",
+    });
+  }
+
+  const fcmUrl =
+    "https://fcm.googleapis.com/v1/projects/" +
+    encodeURIComponent(adminProjectId) +
+    "/messages:send";
+  let delivery;
+  try {
+    delivery = await fcmRequest(
+      adminAccessToken,
+      fcmUrl,
+      "POST",
+      {
+        message: {
+          token: registrationToken,
+          data: {
+            type: "encrypted_olm_ack",
+            deliveryId: input.deliveryId,
+            senderDeviceId: input.senderDeviceId,
+          },
+          android: {
+            priority: "high",
+            ttl: "86400s",
+          },
+        },
+      },
+      [404],
+    );
+  } catch (_) {
+    const completed = await finishPushDispatch(
+      env,
+      adminAccessToken,
+      receiptPath,
+      claim.claimId,
+      "failed",
+      fetchImpl,
+    );
+    if (!completed) {
+      return result(503, {
+        success: false,
+        retryable: true,
+        error: "Acknowledgement push failed and its retry state could not be saved.",
+      });
+    }
+    return result(503, {
+      success: false,
+      retryable: true,
+      error: "Firebase Cloud Messaging could not accept the acknowledgement wake-up.",
+    });
+  }
+
+  const unregistered =
+    delivery.status === 404 ||
+    JSON.stringify(delivery.body || {}).includes("UNREGISTERED");
+  if (unregistered) {
+    try {
+      await removeDeviceTokenIfUnchanged(
+        env,
+        adminAccessToken,
+        input.senderUid,
+        input.senderDeviceId,
+        registrationToken,
+        fetchImpl,
+      );
+    } catch (error) {
+      console.warn("Could not clean up an unregistered sender FCM token.", error);
+    }
+  }
+
+  const finalStatus = unregistered ? "unregistered" : "sent";
+  const completed = await finishPushDispatch(
+    env,
+    adminAccessToken,
+    receiptPath,
+    claim.claimId,
+    finalStatus,
+    fetchImpl,
+  );
+  if (!completed) {
+    return result(503, {
+      success: false,
+      retryable: true,
+      error: "Acknowledgement push was accepted but its dispatch receipt could not be saved.",
+    });
+  }
+  return result(200, {
+    success: true,
+    notificationSent: !unregistered,
+    ...(unregistered ? { reason: "sender_device_token_unregistered" } : {}),
+  });
+}
