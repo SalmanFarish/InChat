@@ -20,6 +20,31 @@ import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
+ * Validates a direct-chat wake-up against its actual conversation peer.
+ *
+ * A recipient may be the peer account or another device owned by the sender.
+ * The conversation ID always identifies the two chat participants, not the
+ * recipient device's account, which can be the sender account itself.
+ */
+internal fun isValidEncryptedOlmDirectWakeupScope(
+    ownerUserId: String,
+    recipientUserId: String,
+    conversationId: String,
+    conversationPeerUserId: String,
+): Boolean {
+    val userIdPattern = Regex("[A-Za-z0-9_-]{1,128}")
+    return ownerUserId.matches(userIdPattern) &&
+        recipientUserId.matches(userIdPattern) &&
+        conversationPeerUserId.matches(userIdPattern) &&
+        conversationPeerUserId != ownerUserId &&
+        (recipientUserId == ownerUserId || recipientUserId == conversationPeerUserId) &&
+        conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
+            ownerUserId,
+            conversationPeerUserId,
+        )
+}
+
+/**
  * Retries the metadata-only FCM wake-up independently from ciphertext relay upload.
  *
  * The durable Room outbox and remote inbox remain authoritative. This worker only
@@ -67,12 +92,11 @@ class EncryptedOlmMessageWakeWorker(
             }
         } else {
             if (membershipEpoch != 0L ||
-                !conversationPeerUserId.matches(USER_ID_PATTERN) ||
-                conversationPeerUserId == ownerUserId ||
-                (recipientUserId != ownerUserId && recipientUserId != conversationPeerUserId) ||
-                conversationId != OlmAuthenticatedMessagePayloadCodec.directConversationId(
-                    ownerUserId,
-                    conversationPeerUserId,
+                !isValidEncryptedOlmDirectWakeupScope(
+                    ownerUserId = ownerUserId,
+                    recipientUserId = recipientUserId,
+                    conversationId = conversationId,
+                    conversationPeerUserId = conversationPeerUserId,
                 )
             ) {
                 Log.e(TAG, "Encrypted direct wake-up work has an invalid conversation scope.")
@@ -193,12 +217,12 @@ class EncryptedOlmMessageWakeWorker(
                 require(conversationPeerUserId == null)
             } else {
                 require(membershipEpoch == null)
-                require(conversationPeerUserId != ownerUserId)
-                require(recipientUserId == ownerUserId || recipientUserId == conversationPeerUserId)
                 require(
-                    conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
-                        ownerUserId,
-                        recipientUserId,
+                    isValidEncryptedOlmDirectWakeupScope(
+                        ownerUserId = ownerUserId,
+                        recipientUserId = recipientUserId,
+                        conversationId = conversationId,
+                        conversationPeerUserId = conversationPeerUserId.orEmpty(),
                     ),
                 )
             }
