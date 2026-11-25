@@ -40,6 +40,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import android.text.format.DateUtils
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +58,11 @@ import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
+import com.example.inchat.crypto.DeviceVerificationQrCodec
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.example.inchat.crypto.FirebaseSasVerificationTransport
 import com.example.inchat.crypto.PublicDeviceKeyBundle
 import com.example.inchat.crypto.SasVerificationCoordinator
@@ -87,6 +99,8 @@ fun DeviceVerificationScreen(
     var peerAccountUserId by remember { mutableStateOf<String?>(null) }
     var peerAccountUsername by remember { mutableStateOf<String?>(null) }
     var peerDevices by remember { mutableStateOf<List<PublicDeviceKeyBundle>>(emptyList()) }
+    var preferredPeerDeviceId by remember(uid) { mutableStateOf<String?>(null) }
+    var showOwnDeviceQr by remember(uid) { mutableStateOf(false) }
     var isLoadingPeerDevices by remember { mutableStateOf(false) }
     var coordinator by remember { mutableStateOf<SasVerificationCoordinator?>(null) }
     var states by remember { mutableStateOf<Map<String, SasVerificationUiState>>(emptyMap()) }
@@ -98,6 +112,72 @@ fun DeviceVerificationScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var devicePendingRemoval by remember { mutableStateOf<PublicDeviceKeyBundle?>(null) }
+
+    val qrScannerLauncher = rememberLauncherForActivityResult(
+        contract = ScanContract(),
+    ) { result ->
+        val contents = result.contents
+        if (contents.isNullOrBlank()) {
+            notice = "QR scanning was cancelled."
+        } else {
+            val payload = runCatching {
+                DeviceVerificationQrCodec.decode(contents)
+            }.getOrElse { failure ->
+                error = failure.message ?: "That is not a valid InChat verification QR code."
+                return@rememberLauncherForActivityResult
+            }
+
+            if (payload.userId == uid) {
+                error = "Scan the QR code from the other person's device, not this account."
+            } else {
+                scope.launch {
+                    isLoadingPeerDevices = true
+                    error = null
+                    notice = null
+                    try {
+                        val result = withContext(Dispatchers.IO) {
+                            check(directoryRepository.authenticatedUserId == uid) {
+                                "The signed-in account changed. Sign in again."
+                            }
+                            val publishedDevices = directoryRepository.getUserDevices(payload.userId)
+                            val scannedDevice = publishedDevices.firstOrNull {
+                                it.deviceId == payload.deviceId
+                            } ?: throw IllegalStateException(
+                                "That device is no longer published to its InChat account."
+                            )
+                            require(
+                                DeviceVerificationQrCodec.fingerprint(scannedDevice.ed25519IdentityKey) ==
+                                    payload.identityKeyFingerprint
+                            ) {
+                                "The published identity no longer matches this QR code. Ask the person to share a fresh code."
+                            }
+                            check(directoryRepository.authenticatedUserId == uid) {
+                                "The signed-in account changed while checking the scanned device."
+                            }
+                            val user = UserRepository().getUserByIdFast(payload.userId)
+                            publishedDevices to user?.username.orEmpty()
+                        }
+                        peerAccountUserId = payload.userId
+                        peerAccountUsername = result.second
+                        peerUsernameQuery = result.second
+                        peerDevices = result.first
+                        preferredPeerDeviceId = payload.deviceId
+                        notice = "QR matched the published identity for device ${payload.deviceId.take(12)}. Start verification and compare the safety numbers on both phones."
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        peerAccountUserId = null
+                        peerAccountUsername = null
+                        peerDevices = emptyList()
+                        preferredPeerDeviceId = null
+                        error = failure.message ?: "Could not load the scanned device."
+                    } finally {
+                        isLoadingPeerDevices = false
+                    }
+                }
+            }
+        }
+    }
 
     // Restore this installation's existing identity before offering first-time publication.
     LaunchedEffect(uid, initializationAttempt) {
@@ -251,6 +331,7 @@ fun DeviceVerificationScreen(
         peerAccountUserId = null
         peerAccountUsername = null
         peerDevices = emptyList()
+        preferredPeerDeviceId = null
         scope.launch {
             isLoadingPeerDevices = true
             error = null
@@ -431,6 +512,16 @@ fun DeviceVerificationScreen(
                         Text("THIS DEVICE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(5.dp))
                         Text(localDeviceId.orEmpty(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        val currentDeviceBundle = devices.firstOrNull { it.deviceId == localDeviceId }
+                        if (currentDeviceBundle != null) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = { showOwnDeviceQr = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Show this device's verification QR")
+                            }
+                        }
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -535,10 +626,25 @@ fun DeviceVerificationScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Enter the exact username of the person you want to verify. Only accounts discoverable by username can be loaded here. Compare the safety numbers in person or through another trusted channel.",
+                    "Scan their QR code for a direct device match, or find their account by username. Scanning only selects the published device; both phones must still compare and confirm the safety numbers.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedButton(
+                    onClick = {
+                        val options = ScanOptions().apply {
+                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            setPrompt("Scan the other person's InChat verification QR")
+                            setBeepEnabled(false)
+                            setOrientationLocked(false)
+                        }
+                        qrScannerLauncher.launch(options)
+                    },
+                    enabled = !isLoadingPeerDevices,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Scan verification QR")
+                }
                 OutlinedTextField(
                     value = peerUsernameQuery,
                     onValueChange = {
@@ -546,6 +652,7 @@ fun DeviceVerificationScreen(
                         peerAccountUserId = null
                         peerAccountUsername = null
                         peerDevices = emptyList()
+                        preferredPeerDeviceId = null
                         error = null
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -571,10 +678,21 @@ fun DeviceVerificationScreen(
                 val targetUserId = peerAccountUserId
                 if (targetUserId != null) {
                     Text(
-                        "Devices for @${peerAccountUsername.orEmpty()}",
+                        text = if (peerAccountUsername.isNotBlank()) {
+                            "Devices for @${peerAccountUsername}"
+                        } else {
+                            "Devices for account ${targetUserId.take(12)}"
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    if (preferredPeerDeviceId != null) {
+                        Text(
+                            "QR-selected device: ${preferredPeerDeviceId?.take(12)}. Only this exact device is shown for the verification attempt.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     if (peerDevices.isEmpty()) {
                         Text(
                             "No devices have been published by this account yet.",
@@ -582,7 +700,9 @@ fun DeviceVerificationScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    peerDevices.forEach { device ->
+                    peerDevices
+                        .filter { preferredPeerDeviceId == null || it.deviceId == preferredPeerDeviceId }
+                        .forEach { device ->
                         val state = latestDeviceVerificationState(
                             states = states,
                             peerUserId = targetUserId,
@@ -671,6 +791,20 @@ fun DeviceVerificationScreen(
         }
     }
 
+    val ownQrBundle = devices.firstOrNull { it.deviceId == localDeviceId }
+    if (showOwnDeviceQr && ownQrBundle != null) {
+        val qrPayload = DeviceVerificationQrCodec.encode(
+            userId = uid,
+            deviceId = ownQrBundle.deviceId,
+            ed25519IdentityKey = ownQrBundle.ed25519IdentityKey,
+        )
+        DeviceVerificationQrDialog(
+            payload = qrPayload,
+            deviceId = ownQrBundle.deviceId,
+            onDismiss = { showOwnDeviceQr = false },
+        )
+    }
+
     devicePendingRemoval?.let { device ->
         AlertDialog(
             onDismissRequest = { devicePendingRemoval = null },
@@ -708,6 +842,73 @@ fun DeviceVerificationScreen(
             }
         )
     }
+}
+
+@Composable
+private fun DeviceVerificationQrDialog(
+    payload: String,
+    deviceId: String,
+    onDismiss: () -> Unit,
+) {
+    val qrBitmap = remember(payload) {
+        runCatching {
+            val matrix = QRCodeWriter().encode(
+                payload,
+                BarcodeFormat.QR_CODE,
+                640,
+                640,
+            )
+            Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888).apply {
+                for (x in 0 until matrix.width) {
+                    for (y in 0 until matrix.height) {
+                        setPixel(
+                            x,
+                            y,
+                            if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE,
+                        )
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Verify this device") },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (qrBitmap != null) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "InChat device verification QR code",
+                        modifier = Modifier.size(224.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Text(
+                        "The verification QR code could not be generated.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Text(
+                    "Ask the other person to scan this code. It identifies this account and published device; it does not verify the device by itself.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "DEVICE / " + deviceId.take(20),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
 }
 
 @Composable
