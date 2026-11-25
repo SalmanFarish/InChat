@@ -101,7 +101,9 @@ class CloudflareNotificationRepository {
         messageId: String,
     ): Result<Unit> {
         val recipientUserId = auth.currentUser?.uid.orEmpty()
-        if (recipientUserId.isBlank() || senderUserId.isBlank() || senderUserId == recipientUserId) {
+        if (recipientUserId.isBlank() || senderUserId.isBlank() ||
+            (senderUserId == recipientUserId && senderDeviceId == recipientDeviceId)
+        ) {
             return Result.failure(
                 IllegalStateException("Authenticated recipient does not match the encrypted acknowledgement."),
             )

@@ -30,6 +30,9 @@ function fixture({
     ["deviceKeys/bob/bob-device", {
       schemaVersion: 1, deviceId: "bob-device", ed25519IdentityKey: "bob-public-key",
     }],
+    ["deviceKeys/alice/alice-companion", {
+      schemaVersion: 1, deviceId: "alice-companion", ed25519IdentityKey: "alice-companion-public-key",
+    }],
     ["privateUsers/alice/olmDeviceFcmTokens/alice-device", token],
   ]);
   const versions = new Map();
@@ -143,12 +146,24 @@ test("rejects a wake-up request with extra fields", async () => {
   assert.equal(state.sentMessages.length, 0);
 });
 
-test("does not accept an acknowledgement request from the sender account itself", async () => {
-  const state = fixture();
-  const response = await state.dispatch(baseRequest, "alice");
+test("supports acknowledgements from another device on the sender's own account", async () => {
+  const state = fixture({
+    acknowledgement: {
+      recipientUid: "alice",
+      recipientDeviceId: "alice-companion",
+      messageId: "message-123",
+      acknowledgedAt: 1000,
+    },
+  });
+  const response = await state.dispatch({
+    ...baseRequest,
+    recipientDeviceId: "alice-companion",
+  }, "alice");
 
-  assert.equal(response.status, 400);
-  assert.equal(state.sentMessages.length, 0);
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 1);
+  assert.equal(state.sentMessages[0].body.message.token, "sender-fcm-token");
 });
 
 test("does not send when the sender device has no FCM token", async () => {

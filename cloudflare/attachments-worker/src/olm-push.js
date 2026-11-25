@@ -670,7 +670,7 @@ function validateAcknowledgementRequest(body, authenticatedUid) {
   if (
     typeof body.senderUid !== "string" ||
     !UID_PATTERN.test(body.senderUid) ||
-    body.senderUid === authenticatedUid ||
+    (body.senderUid === authenticatedUid && body.senderDeviceId === body.recipientDeviceId) ||
     typeof body.senderDeviceId !== "string" ||
     !DEVICE_PATTERN.test(body.senderDeviceId) ||
     typeof body.recipientDeviceId !== "string" ||

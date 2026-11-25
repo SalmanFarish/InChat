@@ -37,7 +37,6 @@ import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.CloudflareWorkerConfig
-import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.notification.EncryptedMessageNotificationPublisher
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
@@ -137,19 +136,19 @@ class EncryptedOlmInboxWorker(
                 ),
                 deviceId = recipientDeviceId,
                 onAcknowledgementStored = { item ->
-                    // The active migration uses Firebase ACK records. A Cloudflare
-                    // mailbox ACK lives in its Durable Object and is not routed
-                    // through this Firebase-only dispatch endpoint.
+                    // Queue sender notification separately so an HTTP round trip
+                    // never delays this device's inbox decryption and Room commit.
+                    // Cloudflare-mailbox acknowledgements use a different relay path.
                     if (item.relayOrigin != OlmRelayOrigin.CLOUDFLARE) {
-                        CloudflareNotificationRepository()
-                            .notifyEncryptedAcknowledgement(
-                                senderUserId = item.senderUid,
-                                senderDeviceId = item.senderDeviceId,
-                                recipientDeviceId = recipientDeviceId,
-                                deliveryId = item.deliveryId,
-                                messageId = item.messageId,
-                            )
-                            .getOrThrow()
+                        EncryptedOlmAcknowledgementWakeWorker.schedule(
+                            context = applicationContext,
+                            acknowledgedByUserId = ownerUserId,
+                            acknowledgingDeviceId = recipientDeviceId,
+                            senderUserId = item.senderUid,
+                            senderDeviceId = item.senderDeviceId,
+                            deliveryId = item.deliveryId,
+                            messageId = item.messageId,
+                        )
                     }
                 },
             )
