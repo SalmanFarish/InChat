@@ -26,22 +26,22 @@ val GoogleSansFlex = FontFamily(
     Font(
         googleFont = googleSansFlexFont,
         weight = FontWeight.Normal,
-        variationSettings = FontVariation.Settings(FontVariation.weight(400f))
+        variationSettings = FontVariation.Settings(FontVariation.weight(400))
     ),
     Font(
         googleFont = googleSansFlexFont,
         weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(FontVariation.weight(500f))
+        variationSettings = FontVariation.Settings(FontVariation.weight(500))
     ),
     Font(
         googleFont = googleSansFlexFont,
         weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(FontVariation.weight(600f))
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))
     ),
     Font(
         googleFont = googleSansFlexFont,
         weight = FontWeight.Bold,
-        variationSettings = FontVariation.Settings(FontVariation.weight(700f))
+        variationSettings = FontVariation.Settings(FontVariation.weight(700))
     )
 )
 
