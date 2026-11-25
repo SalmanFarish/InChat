@@ -23,6 +23,7 @@ internal class FirebaseOlmInboxReceiver(
     private val deviceId: String,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onAcknowledgementStored: suspend (FirebaseOlmInboxItem) -> Unit = {},
 ) {
     suspend fun receivePending(): FirebaseOlmInboxReceiveResult {
         val items = transport.readMyDeviceInbox(deviceId)
@@ -32,6 +33,15 @@ internal class FirebaseOlmInboxReceiver(
         var conflicts = 0
         var rejected = 0
         var firstFailure: Exception? = null
+
+        suspend fun acknowledgeAndRemove(item: FirebaseOlmInboxItem) {
+            // The server-side acknowledgement is durable before the sender wake-up.
+            // If dispatch fails, leave the inbox copy in place so WorkManager retries
+            // this exact acknowledgement instead of waiting for the periodic poll.
+            transport.acknowledgeStoredDelivery(deviceId, item)
+            onAcknowledgementStored(item)
+            transport.removeFromMyDeviceInbox(deviceId, item)
+        }
 
         // A transient failure for one relay item must not prevent later independent
         // ciphertext receipts from being durably staged in this same bounded pass.
@@ -52,23 +62,19 @@ internal class FirebaseOlmInboxReceiver(
                 when (registration) {
                     OlmInboundRegistration.CONFLICT -> conflicts++
                     OlmInboundRegistration.NEW -> {
-                        transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item)
+                        acknowledgeAndRemove(item)
                         stored++
                     }
                     OlmInboundRegistration.PENDING_RETRY -> {
-                        transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item)
+                        acknowledgeAndRemove(item)
                         pending++
                     }
                     OlmInboundRegistration.DUPLICATE_PROCESSED -> {
-                        transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item)
+                        acknowledgeAndRemove(item)
                         processed++
                     }
                     OlmInboundRegistration.DUPLICATE_REJECTED -> {
-                        transport.acknowledgeStoredDelivery(deviceId, item)
-                        transport.removeFromMyDeviceInbox(deviceId, item)
+                        acknowledgeAndRemove(item)
                         rejected++
                     }
                 }

@@ -29,6 +29,7 @@ internal object NotificationPayloadPolicy {
     const val TYPE_ENCRYPTED_CHAT = "encrypted_message"
     const val TYPE_ENCRYPTED_GROUP = "encrypted_group_message"
     const val TYPE_ENCRYPTED_OLM_WAKEUP = "encrypted_olm"
+    const val TYPE_ENCRYPTED_OLM_ACK_WAKEUP = "encrypted_olm_ack"
 
     const val ROUTE_CHAT = "chat_message"
     const val ROUTE_GROUP = "group_message"
@@ -150,6 +151,17 @@ internal object NotificationPayloadPolicy {
         data.keys == setOf("type", "deliveryId") &&
             data["type"] == TYPE_ENCRYPTED_OLM_WAKEUP &&
             data["deliveryId"]?.matches(Regex("[A-Fa-f0-9]{64}")) == true
+
+    /** Identifies the reserved sender-ack wake-up before ordinary message handling. */
+    fun isEncryptedOlmAckWakeupType(data: Map<String, String>): Boolean =
+        data["type"] == TYPE_ENCRYPTED_OLM_ACK_WAKEUP
+
+    /** Accept only the exact identifiers emitted by the authenticated Worker. */
+    fun isEncryptedOlmAckWakeup(data: Map<String, String>): Boolean =
+        data.keys == setOf("type", "deliveryId", "senderDeviceId") &&
+            data["type"] == TYPE_ENCRYPTED_OLM_ACK_WAKEUP &&
+            data["deliveryId"]?.matches(Regex("[A-Fa-f0-9]{64}")) == true &&
+            data["senderDeviceId"]?.matches(Regex("[A-Za-z0-9_-]{1,64}")) == true
 
     fun from(
         data: Map<String, String>,

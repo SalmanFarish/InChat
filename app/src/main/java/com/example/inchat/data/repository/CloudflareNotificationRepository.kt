@@ -88,6 +88,52 @@ class CloudflareNotificationRepository {
         }
     }
 
+
+    /**
+     * Wakes the originating sender device after this recipient has durably
+     * acknowledged a ciphertext relay item. The push contains identifiers only.
+     */
+    suspend fun notifyEncryptedAcknowledgement(
+        senderUserId: String,
+        senderDeviceId: String,
+        recipientDeviceId: String,
+        deliveryId: String,
+        messageId: String,
+    ): Result<Unit> {
+        val recipientUserId = auth.currentUser?.uid.orEmpty()
+        if (recipientUserId.isBlank() || senderUserId.isBlank() || senderUserId == recipientUserId) {
+            return Result.failure(
+                IllegalStateException("Authenticated recipient does not match the encrypted acknowledgement."),
+            )
+        }
+        val valid = senderUserId.matches(Regex("[A-Za-z0-9_-]{1,128}")) &&
+            senderDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            recipientDeviceId.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+            deliveryId.matches(Regex("[A-Fa-f0-9]{64}")) &&
+            messageId.matches(Regex("[A-Za-z0-9_-]{1,128}"))
+        if (!valid) {
+            return Result.failure(
+                IllegalArgumentException("Invalid encrypted acknowledgement notification reference."),
+            )
+        }
+        if (!CloudflareWorkerConfig.isConfigured) return Result.success(Unit)
+
+        return post(
+            path = "/olm/notify-ack",
+            body = JSONObject()
+                .put("senderUid", senderUserId)
+                .put("senderDeviceId", senderDeviceId)
+                .put("recipientDeviceId", recipientDeviceId)
+                .put("deliveryId", deliveryId)
+                .put("messageId", messageId),
+        ).map { response ->
+            if (!response.optBoolean("success", false)) {
+                throw IllegalStateException("Cloudflare Worker did not accept the encrypted acknowledgement wake-up.")
+            }
+            Unit
+        }
+    }
+
     /**
      * Updates both participants' inbox metadata after the ciphertext-only direct
      * relay upload. The Worker accepts message identifiers/timestamp only and

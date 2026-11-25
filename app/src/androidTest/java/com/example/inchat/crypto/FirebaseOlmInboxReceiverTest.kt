@@ -366,6 +366,86 @@ class FirebaseOlmInboxReceiverTest {
         }
     }
 
+    @Test
+    fun acknowledgementWakeRunsAfterDurableAckAndBeforeInboxRemoval() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-ack-wakeup-order-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "8".repeat(64), "alice", "sender-device", "message-ack-wakeup", envelope(1),
+            )
+            val transport = FakeTransport(mutableListOf(item))
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            var wakeCount = 0
+            val receiver = FirebaseOlmInboxReceiver(
+                transport = transport,
+                ledger = ledger,
+                deviceId = "receiver-device",
+                onAcknowledgementStored = { acknowledgedItem ->
+                    wakeCount++
+                    assertEquals(item.deliveryId, acknowledgedItem.deliveryId)
+                    assertTrue(transport.acknowledgedDeliveryIds.contains(item.deliveryId))
+                    assertTrue(transport.items.contains(item))
+                    assertTrue(!transport.removedDeliveryIds.contains(item.deliveryId))
+                },
+            )
+
+            val result = receiver.receivePending()
+
+            assertEquals(1, result.stored)
+            assertEquals(1, wakeCount)
+            assertTrue(transport.items.isEmpty())
+            assertEquals(listOf(item.deliveryId), transport.removedDeliveryIds)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun failedAcknowledgementWakeKeepsRelayCopyForWorkManagerRetry() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-ack-wakeup-retry-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val item = FirebaseOlmInboxItem(
+                "6".repeat(64), "alice", "sender-device", "message-ack-wakeup-retry", envelope(1),
+            )
+            val transport = FakeTransport(mutableListOf(item))
+            val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
+            var wakeAttempts = 0
+            val receiver = FirebaseOlmInboxReceiver(
+                transport = transport,
+                ledger = ledger,
+                deviceId = "receiver-device",
+                onAcknowledgementStored = {
+                    wakeAttempts++
+                    if (wakeAttempts == 1) throw IllegalStateException("temporary acknowledgement push failure")
+                },
+            )
+
+            assertTrue(runCatching { receiver.receivePending() }.isFailure)
+            assertEquals(1, transport.acknowledgementAttempts.size)
+            assertEquals(1, wakeAttempts)
+            assertTrue(transport.items.contains(item))
+            assertTrue(transport.removedDeliveryIds.isEmpty())
+
+            val retry = receiver.receivePending()
+            assertEquals(1, retry.alreadyPending)
+            assertEquals(2, wakeAttempts)
+            assertTrue(transport.items.isEmpty())
+            assertEquals(listOf(item.deliveryId), transport.removedDeliveryIds)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private class FakeTransport(
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,

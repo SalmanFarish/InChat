@@ -286,6 +286,45 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun encryptedOlmAcknowledgementWakeupAcceptsOnlyExactSenderDeviceReference() {
+        assertTrue(
+            NotificationPayloadPolicy.isEncryptedOlmAckWakeup(
+                mapOf(
+                    "type" to NotificationPayloadPolicy.TYPE_ENCRYPTED_OLM_ACK_WAKEUP,
+                    "deliveryId" to "a".repeat(64),
+                    "senderDeviceId" to "sender-device",
+                ),
+            ),
+        )
+        assertTrue(
+            NotificationPayloadPolicy.isEncryptedOlmAckWakeupType(
+                mapOf("type" to NotificationPayloadPolicy.TYPE_ENCRYPTED_OLM_ACK_WAKEUP),
+            ),
+        )
+    }
+
+    @Test
+    fun encryptedOlmAcknowledgementWakeupRejectsExtraFieldsAndInvalidIdentifiers() {
+        val type = NotificationPayloadPolicy.TYPE_ENCRYPTED_OLM_ACK_WAKEUP
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmAckWakeup(
+                mapOf("type" to type, "deliveryId" to "a".repeat(64),
+                    "senderDeviceId" to "sender-device", "message" to "untrusted"),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmAckWakeup(
+                mapOf("type" to type, "deliveryId" to "invalid", "senderDeviceId" to "sender-device"),
+            ),
+        )
+        assertFalse(
+            NotificationPayloadPolicy.isEncryptedOlmAckWakeup(
+                mapOf("type" to type, "deliveryId" to "a".repeat(64), "senderDeviceId" to "../other"),
+            ),
+        )
+    }
+
+    @Test
     fun encryptedDirectPushIgnoresAllUntrustedDisplayContent() {
         val presentation = NotificationPayloadPolicy.from(
             data = mapOf(

@@ -32,10 +32,12 @@ import com.example.inchat.crypto.PartitionedOlmEnvelopeTransport
 import com.example.inchat.crypto.OlmInboxTransport
 import com.example.inchat.crypto.FirebaseOlmInboxReceiver
 import com.example.inchat.crypto.OlmInboundDeliveryLedger
+import com.example.inchat.crypto.OlmRelayOrigin
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.CloudflareWorkerConfig
+import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.notification.EncryptedMessageNotificationPublisher
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
@@ -134,6 +136,22 @@ class EncryptedOlmInboxWorker(
                     localDeviceId = recipientDeviceId,
                 ),
                 deviceId = recipientDeviceId,
+                onAcknowledgementStored = { item ->
+                    // The active migration uses Firebase ACK records. A Cloudflare
+                    // mailbox ACK lives in its Durable Object and is not routed
+                    // through this Firebase-only dispatch endpoint.
+                    if (item.relayOrigin != OlmRelayOrigin.CLOUDFLARE) {
+                        CloudflareNotificationRepository()
+                            .notifyEncryptedAcknowledgement(
+                                senderUserId = item.senderUid,
+                                senderDeviceId = item.senderDeviceId,
+                                recipientDeviceId = recipientDeviceId,
+                                deliveryId = item.deliveryId,
+                                messageId = item.messageId,
+                            )
+                            .getOrThrow()
+                    }
+                },
             )
             val result = receiver.receivePending()
             // Inbox polling can suspend while Firebase auth changes. Do not build

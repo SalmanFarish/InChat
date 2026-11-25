@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import com.example.inchat.MainActivity
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
+import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -71,6 +72,17 @@ class InChatFirebaseMessagingService :
                 scheduleEncryptedInboxWake(remoteMessage.data)
             } else {
                 Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
+            }
+            return
+        }
+
+        // Sender acknowledgements are wake-ups only: they do not create a
+        // user-visible notification or carry message content.
+        if (NotificationPayloadPolicy.isEncryptedOlmAckWakeupType(remoteMessage.data)) {
+            if (NotificationPayloadPolicy.isEncryptedOlmAckWakeup(remoteMessage.data)) {
+                scheduleEncryptedSenderWake(remoteMessage.data)
+            } else {
+                Log.w("InChatFCM", "Ignored an invalid encrypted acknowledgement wake-up.")
             }
             return
         }
@@ -186,6 +198,34 @@ class InChatFirebaseMessagingService :
                 "Could not schedule refreshed FCM token registration.",
                 error
             )
+        }
+    }
+
+    private fun scheduleEncryptedSenderWake(data: Map<String, String>) {
+        if (!NotificationPayloadPolicy.isEncryptedOlmAckWakeup(data)) return
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.i("InChatFCM", "Encrypted acknowledgement wake-up arrived before account restoration.")
+            return
+        }
+        val expectedDeviceId = data["senderDeviceId"].orEmpty()
+        val localDeviceId = runCatching {
+            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not resolve the sender device for an acknowledgement wake-up.", error)
+        }.getOrNull() ?: return
+        if (expectedDeviceId != localDeviceId) {
+            Log.w("InChatFCM", "Ignored an acknowledgement wake-up for another device.")
+            return
+        }
+        runCatching {
+            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                context = applicationContext,
+                ownerUserId = uid,
+                senderDeviceId = localDeviceId,
+            )
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not schedule encrypted sender acknowledgement recovery.", error)
         }
     }
 
