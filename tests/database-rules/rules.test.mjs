@@ -353,6 +353,30 @@ test("clients cannot create a group directly in Realtime Database", async () => 
   );
 });
 
+test("a direct inbox entry can recover its missing chat record", async () => {
+  // Simulate a stale local/inbox index after the shared chat record was lost.
+  // Opening the indexed conversation must be able to recreate only the
+  // participant metadata, without granting access to the chat root or history.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await remove(ref(context.database(), "chats/alice_bob"));
+  });
+
+  const aliceDb = testEnv.authenticatedContext("alice").database();
+  await assertFails(get(ref(aliceDb, "chats/alice_bob/participantA")));
+  await assertFails(get(ref(aliceDb, "chats/alice_bob/type")));
+
+  await assertSucceeds(set(ref(aliceDb, "chats/alice_bob"), {
+    type: "direct",
+    participantA: "alice",
+    participantB: "bob",
+  }));
+
+  await assertSucceeds(get(ref(aliceDb, "chats/alice_bob/participantA")));
+  await assertSucceeds(get(ref(aliceDb, "chats/alice_bob/type")));
+  await assertFails(get(ref(aliceDb, "chats/alice_bob")));
+  await assertFails(get(ref(aliceDb, "chats/alice_bob/messages")));
+});
+
 test("a direct participant can label a legacy chat for automatic encrypted messaging", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await remove(ref(context.database(), "chats/alice_bob/type"));
