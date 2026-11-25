@@ -90,11 +90,6 @@ class ChatRepository {
         const val MESSAGE_EDIT_WINDOW_MS = 15L * 60L * 1000L
         const val OLDER_MESSAGE_PAGE_SIZE = 50
 
-        // Chat IDs verified during this process do not need another
-        // network existence check every time the user reopens them.
-        private val knownChatIds =
-            ConcurrentHashMap.newKeySet<String>()
-
         // Prevent repeated warm-up reads while Home emits inbox metadata updates.
         private val prefetchedChatIds =
             ConcurrentHashMap.newKeySet<String>()
@@ -190,11 +185,6 @@ class ChatRepository {
                 }
             }
 
-            if (knownChatIds.contains(chatId)) {
-                ensureDirectChatType()
-                return Result.success(chatId)
-            }
-
             val participantA =
                 if (currentUserId < otherUserId) currentUserId else otherUserId
             val participantB =
@@ -217,7 +207,6 @@ class ChatRepository {
                     throw IllegalStateException("The existing chat record has different participants.")
                 }
                 ensureDirectChatType()
-                knownChatIds.add(chatId)
                 return Result.success(chatId)
             }
 
@@ -246,7 +235,6 @@ class ChatRepository {
                 ensureDirectChatType()
             }
 
-            knownChatIds.add(chatId)
             Result.success(chatId)
         } catch (e: Exception) {
             Log.e(TAG, "Could not create or verify direct chat", e)
@@ -651,36 +639,6 @@ class ChatRepository {
         return Result.success(emptyList())
     }
 
-    /*
-     * A direct entry in the signed-in user's userChats index is written
-     * by the chat message flow only after the direct chat record exists.
-     * Cache that confirmation so opening a conversation from Home does
-     * not need another Firebase existence read before attaching listeners.
-     *
-     * Validate the deterministic chat ID against both participants before
-     * trusting the index. New conversations opened from Search still go
-     * through ensureChat() and its normal create/verify path.
-     */
-    private fun rememberIndexedDirectChats(
-        currentUserId: String,
-        conversations: List<Conversation>
-    ) {
-        if (currentUserId.isBlank()) return
-
-        conversations.forEach { conversation ->
-            if (
-                conversation.chatType != "group" &&
-                conversation.otherUserId.isNotBlank() &&
-                conversation.chatId == getChatRoomId(
-                    currentUserId,
-                    conversation.otherUserId
-                )
-            ) {
-                knownChatIds.add(conversation.chatId)
-            }
-        }
-    }
-
     /**
      * Warm the local message cache for the most recently active chats while
      * the user is on Home, so opening one is not a cold Firebase fetch.
@@ -731,10 +689,6 @@ class ChatRepository {
              */
             conversationCache[currentUserId]
                 ?.let { cachedConversations ->
-                    rememberIndexedDirectChats(
-                        currentUserId = currentUserId,
-                        conversations = cachedConversations
-                    )
                     trySend(
                         cachedConversations
                     )
@@ -797,10 +751,6 @@ class ChatRepository {
                         conversationCache[currentUserId] =
                             immutableConversations
 
-                        rememberIndexedDirectChats(
-                            currentUserId = currentUserId,
-                            conversations = immutableConversations
-                        )
 
                         trySend(
                             immutableConversations
