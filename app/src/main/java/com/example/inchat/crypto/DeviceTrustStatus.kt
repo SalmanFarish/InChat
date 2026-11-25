@@ -2,7 +2,7 @@ package com.example.inchat.crypto
 
 /**
  * Local trust state for one published peer device, bound to its current
- * Ed25519 identity key. First-use pinning is deliberately distinct from SAS.
+ * Ed25519 identity key. Legacy SAS metadata is not required for messaging.
  */
 internal enum class DeviceTrustStatus {
     NOT_SEEN,
@@ -30,7 +30,7 @@ internal data class DeviceTrustOverview(
             if (blocked > 0) {
                 return DeviceTrustOverview(
                     title = "Identity needs review",
-                    description = "At least one device identity changed or was blocked on this phone. Verify the device before trusting its messages.",
+                    description = "At least one device identity changed or was revoked on this phone. Messages from that device remain blocked.",
                     requiresReview = true,
                 )
             }
@@ -38,22 +38,22 @@ internal data class DeviceTrustOverview(
             val pinned = statuses.count { it == DeviceTrustStatus.FIRST_USE_PINNED }
             if (pinned > 0) {
                 return DeviceTrustOverview(
-                    title = "First-use identity pinned",
-                    description = "Messaging can continue. Safety numbers have not been compared for every published device.",
+                    title = "Device identity pinned",
+                    description = "This device identity is saved on this phone. Encrypted messaging can continue automatically.",
                 )
             }
 
             val unseen = statuses.count { it == DeviceTrustStatus.NOT_SEEN }
             if (unseen > 0) {
                 return DeviceTrustOverview(
-                    title = "Not yet checked on this phone",
-                    description = "This phone has not received an encrypted message from every published device yet.",
+                    title = "New device identity",
+                    description = "InChat saves each device identity automatically when encrypted messaging first uses it.",
                 )
             }
 
             return DeviceTrustOverview(
-                title = "All devices SAS-verified",
-                description = "Safety numbers were compared and confirmed for every currently published device.",
+                title = "All device identities pinned",
+                description = "Every currently published device identity is saved on this phone.",
             )
         }
     }
