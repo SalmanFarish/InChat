@@ -138,19 +138,20 @@ internal class OlmDeliveryWorkerRunner(
             // Dispatch the recipient wake-up immediately after the ciphertext
             // is durably accepted by the relay. The generic inbox-preview HTTP
             // update is independent and must not delay the FCM wake-up.
-            if (delivery.recipientUserId != senderUserId) {
-                try {
-                    notifyEncryptedRecipient(delivery)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    notificationDispatchFailures++
-                    // Push is only a wake-up hint. The relay already durably
-                    // accepted this immutable delivery, and the recipient's
-                    // inbox poll is the recovery path if push dispatch fails.
-                    // Do not spend the ciphertext upload retry budget or
-                    // re-upload a delivery solely because a notification failed.
-                }
+            try {
+                // Every remote device needs a wake-up, including a companion
+                // device owned by the sending account. It must stage the exact
+                // ciphertext and ACK group-key distributions before group send.
+                notifyEncryptedRecipient(delivery)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notificationDispatchFailures++
+                // Push is only a wake-up hint. The relay already durably
+                // accepted this immutable delivery, and the recipient's
+                // inbox poll is the recovery path if push dispatch fails.
+                // Do not spend the ciphertext upload retry budget or
+                // re-upload a delivery solely because a notification failed.
             }
 
             if (delivery.recipientUserId != senderUserId && delivery.groupId == null) {

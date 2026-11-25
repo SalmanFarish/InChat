@@ -85,7 +85,7 @@ jobs:
           profile: pixel_5
           emulator-options: -no-window -no-audio -no-boot-anim -gpu off -no-snapshot
           disable-animations: true
-          script: bash ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.EncryptedDirectPendingMessageRepositoryTest,com.example.inchat.crypto.OlmSenderRecipientRecoveryIntegrationTest,com.example.inchat.crypto.FirebaseOlmInboxReceiverTest,com.example.inchat.crypto.OlmOutboundDeliveryCoordinatorTest,com.example.inchat.crypto.OlmDeliveryQueueTest,com.example.inchat.crypto.OlmDeliveryWorkerRunnerTest,com.example.inchat.crypto.RoomOlmDirectMessageCommitAtomicityTest,com.example.inchat.crypto.RoomOlmDeliveryQueueStoreTest
+          script: bash ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.inchat.crypto.EncryptedDirectPendingMessageRepositoryTest,com.example.inchat.crypto.OlmSenderRecipientRecoveryIntegrationTest,com.example.inchat.crypto.FirebaseOlmInboxReceiverTest,com.example.inchat.crypto.OlmOutboundDeliveryCoordinatorTest,com.example.inchat.crypto.OlmDeliveryQueueTest,com.example.inchat.crypto.OlmDeliveryWorkerRunnerTest,com.example.inchat.crypto.RoomOlmDirectMessageCommitAtomicityTest,com.example.inchat.crypto.RoomOlmDeliveryQueueStoreTest,com.example.inchat.crypto.OlmDeliveryReceiptDaoTest,com.example.inchat.crypto.OlmDeliveryAckProcessorTest,com.example.inchat.crypto.EncryptedGroupOutgoingCommitIntegrityTest,com.example.inchat.crypto.RoomOlmGroupMessageCommitAtomicityTest,com.example.inchat.crypto.OlmGroupKeyDistributionReadinessTest
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

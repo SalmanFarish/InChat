@@ -82,6 +82,42 @@ class OlmDeliveryWorkerRunnerTest {
     }
 
     @Test
+    fun dispatchesWakeupToSenderOwnedCompanionDeviceWithoutPreviewSync() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            "alice",
+            "sender-device",
+            "companion-device-wakeup",
+            listOf(
+                prepared(
+                    senderDeviceId = "sender-device",
+                    recipientDeviceId = "alice-companion",
+                    recipientUserId = "alice",
+                ),
+            ),
+        )
+        val events = mutableListOf<String>()
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(events, mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+            notifyEncryptedRecipient = { events += "notify-companion" },
+            syncEncryptedDirectPreview = { events += "sync-direct-preview" },
+            syncEncryptedGroupPreview = { events += "sync-group-preview" },
+        ).run()
+
+        assertEquals(1, result.uploaded)
+        assertEquals(
+            listOf("read-acks", "upload:companion-device-wakeup", "notify-companion"),
+            events,
+        )
+    }
+
+    @Test
     fun staleGroupMembershipIsQuarantinedWithoutBlockingDirectDeliveries() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)

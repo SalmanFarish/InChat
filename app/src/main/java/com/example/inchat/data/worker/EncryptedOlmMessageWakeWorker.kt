@@ -47,10 +47,10 @@ class EncryptedOlmMessageWakeWorker(
             !senderDeviceId.matches(DEVICE_ID_PATTERN) ||
             !recipientUserId.matches(USER_ID_PATTERN) ||
             !recipientDeviceId.matches(DEVICE_ID_PATTERN) ||
-            recipientUserId == ownerUserId ||
             !deliveryId.matches(DELIVERY_ID_PATTERN) ||
             !messageId.matches(MESSAGE_ID_PATTERN) ||
-            !conversationId.matches(CONVERSATION_ID_PATTERN)
+            !conversationId.matches(CONVERSATION_ID_PATTERN) ||
+            (recipientUserId == ownerUserId && recipientDeviceId == senderDeviceId)
         ) {
             Log.e(TAG, "Encrypted message wake-up work has invalid identifiers.")
             return Result.failure()
@@ -68,7 +68,8 @@ class EncryptedOlmMessageWakeWorker(
         } else {
             if (membershipEpoch != 0L ||
                 !conversationPeerUserId.matches(USER_ID_PATTERN) ||
-                conversationPeerUserId != recipientUserId ||
+                conversationPeerUserId == ownerUserId ||
+                (recipientUserId != ownerUserId && recipientUserId != conversationPeerUserId) ||
                 conversationId != OlmAuthenticatedMessagePayloadCodec.directConversationId(
                     ownerUserId,
                     conversationPeerUserId,
@@ -180,8 +181,9 @@ class EncryptedOlmMessageWakeWorker(
         ) {
             require(ownerUserId.matches(USER_ID_PATTERN))
             require(senderDeviceId.matches(DEVICE_ID_PATTERN))
-            require(recipientUserId.matches(USER_ID_PATTERN) && recipientUserId != ownerUserId)
+            require(recipientUserId.matches(USER_ID_PATTERN))
             require(recipientDeviceId.matches(DEVICE_ID_PATTERN))
+            require(recipientUserId != ownerUserId || recipientDeviceId != senderDeviceId)
             require(deliveryId.matches(DELIVERY_ID_PATTERN))
             require(messageId.matches(MESSAGE_ID_PATTERN))
             require(conversationId.matches(CONVERSATION_ID_PATTERN))
@@ -191,7 +193,8 @@ class EncryptedOlmMessageWakeWorker(
                 require(conversationPeerUserId == null)
             } else {
                 require(membershipEpoch == null)
-                require(conversationPeerUserId == recipientUserId)
+                require(conversationPeerUserId != ownerUserId)
+                require(recipientUserId == ownerUserId || recipientUserId == conversationPeerUserId)
                 require(
                     conversationId == OlmAuthenticatedMessagePayloadCodec.directConversationId(
                         ownerUserId,
