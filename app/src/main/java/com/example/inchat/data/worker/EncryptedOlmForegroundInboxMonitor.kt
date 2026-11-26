@@ -39,11 +39,11 @@ internal object EncryptedOlmForegroundInboxMonitor {
         }
     }
 
-    fun setAccount(context: Context, ownerUserId: String?) {
+    fun setAccount(context: Context, accountUserId: String?) {
         scope.launch {
             appContext = context.applicationContext
-            if (this@EncryptedOlmForegroundInboxMonitor.ownerUserId != ownerUserId) {
-                this@EncryptedOlmForegroundInboxMonitor.ownerUserId = ownerUserId
+            if (ownerUserId != accountUserId) {
+                ownerUserId = accountUserId
                 deviceId = null
                 detach()
             }
@@ -51,15 +51,15 @@ internal object EncryptedOlmForegroundInboxMonitor {
     }
 
     /** Called whenever startup or first-use provisioning makes a device usable. */
-    fun setDeviceScope(context: Context, ownerUserId: String, deviceId: String) {
+    fun setDeviceScope(context: Context, accountUserId: String, localDeviceId: String) {
         scope.launch {
             appContext = context.applicationContext
-            if (this@EncryptedOlmForegroundInboxMonitor.ownerUserId != ownerUserId) {
-                this@EncryptedOlmForegroundInboxMonitor.ownerUserId = ownerUserId
-                this@EncryptedOlmForegroundInboxMonitor.deviceId = null
+            if (ownerUserId != accountUserId) {
+                ownerUserId = accountUserId
+                deviceId = null
                 detach()
             }
-            this@EncryptedOlmForegroundInboxMonitor.deviceId = deviceId
+            deviceId = localDeviceId
             attachIfReady()
         }
     }
