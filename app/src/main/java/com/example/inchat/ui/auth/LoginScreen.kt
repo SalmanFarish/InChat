@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -98,9 +97,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            AuthBrandHeader()
-
-            Spacer(Modifier.height(35.dp))
+            Spacer(Modifier.height(18.dp))
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -108,15 +105,15 @@ fun LoginScreen(
             ) {
                 Text(
                     text = when (mode) {
-                        AuthMode.Login -> "Welcome back."
-                        AuthMode.Register -> "Create your account."
-                        AuthMode.Recover -> "Let's get you back in."
+                        AuthMode.Login -> "Welcome back"
+                        AuthMode.Register -> "Create account"
+                        AuthMode.Recover -> "Reset password"
                     },
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontSize = 29.sp,
                         lineHeight = 35.sp
                     ),
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
@@ -153,8 +150,6 @@ fun LoginScreen(
                     modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(13.dp)
                 ) {
-                    AuthFieldLabel("EMAIL ADDRESS")
-
                     OutlinedTextField(
                         value = emailInput,
                         onValueChange = {
@@ -171,8 +166,6 @@ fun LoginScreen(
                     )
 
                     if (mode == AuthMode.Register) {
-                        AuthFieldLabel("USERNAME")
-
                         OutlinedTextField(
                             value = usernameInput,
                             onValueChange = {
@@ -187,8 +180,6 @@ fun LoginScreen(
                     }
 
                     if (mode != AuthMode.Recover) {
-                        AuthFieldLabel("PASSWORD")
-
                         OutlinedTextField(
                             value = passwordInput,
                             onValueChange = {
@@ -488,11 +479,11 @@ fun LoginScreen(
             Spacer(Modifier.height(18.dp))
 
             Text(
-                text = "PRIVATE CONVERSATIONS. MINIMAL IDENTITY.",
+                text = "Your conversations, all in one place.",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = GoogleSansFlex,
-                    fontSize = 8.sp,
-                    letterSpacing = 0.65.sp
+                    fontSize = 11.sp,
+                    letterSpacing = 0.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -522,72 +513,4 @@ fun LoginScreen(
             }
         )
     }
-}
-
-@Composable
-private fun AuthBrandHeader() {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(62.dp)
-                .clip(RoundedCornerShape(19.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline,
-                    shape = RoundedCornerShape(19.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
-
-        Spacer(Modifier.height(13.dp))
-
-        Text(
-            text = "INCHAT",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = GoogleSansFlex,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 2.2.sp
-            ),
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(Modifier.height(4.dp))
-
-        Text(
-            text = "SECURE ACCESS",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = GoogleSansFlex,
-                fontSize = 9.sp,
-                letterSpacing = 1.1.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun AuthFieldLabel(
-    label: String
-) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = GoogleSansFlex,
-            fontSize = 9.sp,
-            letterSpacing = 0.85.sp,
-            fontWeight = FontWeight.Medium
-        ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 }
