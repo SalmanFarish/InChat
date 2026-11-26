@@ -633,11 +633,18 @@ class ChatViewModel : ViewModel() {
                     // A cancelled/late initialization from the previous account
                     // must not overwrite the new account's chat-ready state.
                     val stillOwnsInitialization =
-                        initializingChatId == chatId &&
-                            initializingChatOwnerUserId == currentUserId
+                        (initializingChatId == chatId &&
+                            initializingChatOwnerUserId == currentUserId) ||
+                            (initializedChatId == chatId &&
+                                initializedChatOwnerUserId == currentUserId)
                     if (stillOwnsInitialization) {
-                        initializingChatId = ""
-                        initializingChatOwnerUserId = ""
+                        if (
+                            initializingChatId == chatId &&
+                            initializingChatOwnerUserId == currentUserId
+                        ) {
+                            initializingChatId = ""
+                            initializingChatOwnerUserId = ""
+                        }
 
                         if (
                             initializedChatId == chatId &&
