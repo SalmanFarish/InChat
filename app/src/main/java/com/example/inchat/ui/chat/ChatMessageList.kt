@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
@@ -106,6 +107,41 @@ fun ChatMessageList(
         }
             .distinctUntilChanged()
             .collect { showScrollToLatest = it }
+    }
+
+    // Keep the typing bubble visible at the live edge. Adding a lazy-list item
+    // does not itself scroll the list, so follow it only when the reader was
+    // already at the bottom; never pull someone away from older messages.
+    LaunchedEffect(listState, messagesLoaded) {
+        var wasAtBottom = false
+        var previousTypingState = false
+
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            Triple(
+                isOtherUserTyping,
+                layoutInfo.totalItemsCount,
+                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            )
+        }.collect { (typing, totalItems, lastVisibleIndex) ->
+            val typingJustStarted = typing && !previousTypingState
+            if (typingJustStarted && wasAtBottom && messagesLoaded) {
+                withFrameNanos { }
+                val latestIndex = listState.layoutInfo.totalItemsCount - 1
+                if (latestIndex >= 0) {
+                    listState.scrollToItem(latestIndex)
+                }
+            }
+
+            if (typingJustStarted && wasAtBottom) {
+                // Preserve the pre-insertion live-edge state until the
+                // post-scroll layout reports the typing row as visible.
+                wasAtBottom = true
+            } else {
+                wasAtBottom = totalItems > 0 && lastVisibleIndex >= totalItems - 1
+            }
+            previousTypingState = typing
+        }
     }
 
     val density = LocalDensity.current
@@ -1013,20 +1049,14 @@ private fun TypingIndicator(chatTheme: ChatTheme) {
         shadowElevation = 0.dp,
         modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
     ) {
-        androidx.compose.foundation.layout.Row(
+        Text(
+            text = "•••",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Typing",
-                color = chatTheme.incomingTextColor,
-                style = MaterialTheme.typography.bodySmall
+            color = chatTheme.statusAccentColor.copy(alpha = pulse),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 15.sp,
+                lineHeight = 22.sp
             )
-            Text(
-                text = "  •••",
-                color = chatTheme.statusAccentColor.copy(alpha = pulse),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+        )
     }
 }
