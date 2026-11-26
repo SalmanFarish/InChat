@@ -275,57 +275,45 @@ class EncryptedOlmDeliveryWorker(
                 },
                 syncEncryptedDirectPreview = { delivery ->
                     if (delivery.groupId == null && delivery.recipientUserId != ownerUserId) {
-                        val conversationId = requireNotNull(delivery.conversationId) {
-                            "Encrypted direct delivery is missing its conversation scope"
-                        }
-                        val commit = requireNotNull(
-                            database.olmDeliveryQueueDao().getOutgoingDirectCommit(
-                                ownerUserId = ownerUserId,
-                                conversationId = conversationId,
-                                messageId = delivery.messageId,
-                            ),
-                        ) {
-                            "Encrypted direct delivery has no immutable outgoing commit marker"
-                        }
-                        notifications.syncEncryptedDirectMessagePreview(
-                            senderUserId = ownerUserId,
-                            chatId = conversationId,
-                            messageId = delivery.messageId,
-                            sentAtMillis = commit.sentAtMillis,
-                            deliveryId = delivery.deliveryId,
+                        EncryptedOlmMessagePreviewWorker.schedule(
+                            context = applicationContext,
+                            ownerUserId = ownerUserId,
                             senderDeviceId = senderDeviceId,
+                            recipientUserId = delivery.recipientUserId,
                             recipientDeviceId = delivery.recipientDeviceId,
-                        ).getOrThrow()
+                            deliveryId = delivery.deliveryId,
+                            messageId = delivery.messageId,
+                            conversationId = requireNotNull(delivery.conversationId) {
+                                "Encrypted direct delivery is missing its conversation scope"
+                            },
+                            conversationPeerUserId = requireNotNull(delivery.conversationPeerUserId) {
+                                "Encrypted direct delivery is missing its peer scope"
+                            },
+                            groupId = null,
+                            membershipEpoch = null,
+                        )
                     }
                 },
-                syncEncryptedGroupPreview = groupPreview@{ delivery ->
+                syncEncryptedGroupPreview = { delivery ->
                     val groupId = delivery.groupId
                     if (groupId != null && delivery.recipientUserId != ownerUserId) {
-                        // Group-key distributions use the same Olm device outbox
-                        // but are not chat messages. Only a committed Megolm
-                        // message may update the conversation preview.
-                        val commit = database.olmDeliveryQueueDao().getOutgoingGroupCommit(
+                        // The preview worker verifies the immutable group commit.
+                        // Group-key distribution rows have no message commit and are ignored.
+                        EncryptedOlmMessagePreviewWorker.schedule(
+                            context = applicationContext,
                             ownerUserId = ownerUserId,
-                            groupId = groupId,
-                            messageId = delivery.messageId,
-                        ) ?: return@groupPreview
-                        check(
-                            commit.senderDeviceId == senderDeviceId &&
-                                commit.membershipEpoch == delivery.membershipEpoch,
-                        ) {
-                            "Encrypted group delivery does not match its durable group-message commit"
-                        }
-                        notifications.syncEncryptedGroupMessagePreview(
-                            senderUserId = ownerUserId,
-                            groupId = groupId,
-                            messageId = delivery.messageId,
-                            sentAtMillis = commit.sentAtMillis,
-                            membershipEpoch = commit.membershipEpoch,
-                            deliveryId = delivery.deliveryId,
-                            recipientUserId = delivery.recipientUserId,
                             senderDeviceId = senderDeviceId,
+                            recipientUserId = delivery.recipientUserId,
                             recipientDeviceId = delivery.recipientDeviceId,
-                        ).getOrThrow()
+                            deliveryId = delivery.deliveryId,
+                            messageId = delivery.messageId,
+                            conversationId = requireNotNull(delivery.conversationId) {
+                                "Encrypted group delivery is missing its conversation scope"
+                            },
+                            conversationPeerUserId = null,
+                            groupId = groupId,
+                            membershipEpoch = delivery.membershipEpoch,
+                        )
                     }
                 },
                 notifyEncryptedRecipient = { delivery ->
