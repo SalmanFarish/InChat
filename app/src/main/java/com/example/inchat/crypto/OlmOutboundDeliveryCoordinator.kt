@@ -78,8 +78,8 @@ internal class OlmOutboundDeliveryCoordinator(
 
         // Validate every per-device payload before the first one-time prekey
         // is claimed. A malformed later target must not consume earlier keys.
-        val payloads = targets.map { target ->
-            OlmAuthenticatedMessagePayload(
+        val targetPayloads = targets.map { target ->
+            target to OlmAuthenticatedMessagePayload(
                 messageId = messageId,
                 conversationId = conversationId,
                 conversationPeerUserId = recipientUserId,
@@ -91,6 +91,7 @@ internal class OlmOutboundDeliveryCoordinator(
                 text = text,
             ).also { OlmAuthenticatedMessagePayloadCodec.encode(it) }
         }
+        val payloads = targetPayloads.map { it.second }
 
         val directCommit = DirectOutgoingMessageCommit(
             ownerUserId = senderUserId,
@@ -134,8 +135,8 @@ internal class OlmOutboundDeliveryCoordinator(
         }
 
         // Do not enqueue a partial fan-out if any target cannot be prepared.
-        val prepared = payloads.map { payload ->
-            preparer.prepareFirstMessage(payload).also { delivery ->
+        val prepared = targetPayloads.map { (target, payload) ->
+            preparer.prepareFirstMessage(payload, target.device).also { delivery ->
                 require(delivery.recipientUserId == payload.recipientUserId &&
                     delivery.recipientDeviceId == payload.recipientDeviceId
                 ) {
