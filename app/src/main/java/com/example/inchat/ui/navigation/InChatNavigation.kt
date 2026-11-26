@@ -228,10 +228,6 @@ fun InChatApp(
         }
     }
 
-    BackHandler {
-        handleBack()
-    }
-
     val showBottomBar =
         currentRoute ==
                 "home"
@@ -393,6 +389,12 @@ fun InChatApp(
             composable(
                 "home"
             ) {
+
+                // This destination-level handler is registered after NavHost's
+                // own handler, so Back cannot pop the start destination.
+                BackHandler {
+                    handleBack()
+                }
 
                 MainTabPager(
 
