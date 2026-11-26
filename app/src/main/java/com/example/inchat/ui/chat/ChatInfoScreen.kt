@@ -396,71 +396,73 @@ private fun ChatInfoProfileCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
         border = BorderStroke(
             width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
         )
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                modifier = Modifier
-                    .size(66.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        shape = CircleShape
-                    )
-                    .padding(3.dp)
-            ) {
-                InChatProfileAvatar(
-                    profilePhotoUrl = profilePhoto,
-                    modifier = Modifier.fillMaxSize(),
-                    iconSize = 31.dp,
-                    contentDescription = "Profile picture"
+            Surface(
+                modifier = Modifier.size(100.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
                 )
+            ) {
+                Box(
+                    modifier = Modifier.padding(5.dp)
+                ) {
+                    InChatProfileAvatar(
+                        profilePhotoUrl = profilePhoto,
+                        modifier = Modifier.fillMaxSize(),
+                        iconSize = 42.dp,
+                        contentDescription = "Profile picture"
+                    )
+                }
             }
 
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.height(14.dp))
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = nickname,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 17.sp,
-                        lineHeight = 22.sp
-                    ),
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            Text(
+                text = nickname,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 21.sp,
+                    lineHeight = 27.sp
+                ),
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                border = BorderStroke(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
                 )
-
-                Spacer(Modifier.height(7.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(
-                        width = 0.7.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PresenceStatus(
-                            presence = presence,
-                            isTyping = false
-                        )
-                    }
+                    PresenceStatus(
+                        presence = presence,
+                        isTyping = false
+                    )
                 }
             }
         }
@@ -509,9 +511,10 @@ private fun ChatInfoActionRow(
     showChevron: Boolean = true,
     onClick: () -> Unit
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 7.dp, vertical = 4.dp)
             .then(
                 if (enabled) {
                     Modifier.clickable(
@@ -522,62 +525,79 @@ private fun ChatInfoActionRow(
                 } else {
                     Modifier
                 }
-            )
-            .padding(horizontal = 15.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+            ),
+        shape = RoundedCornerShape(17.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)
+        ),
+        shadowElevation = if (enabled) 2.dp else 0.dp,
+        tonalElevation = 0.dp
     ) {
-        Surface(
-            modifier = Modifier.size(40.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = accent.copy(alpha = 0.12f)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(13.dp),
+                color = accent.copy(alpha = 0.14f),
+                border = BorderStroke(
+                    width = 0.7.dp,
+                    color = accent.copy(alpha = 0.18f)
+                )
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(19.dp),
-                    tint = accent
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = accent
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                    fontWeight = FontWeight.Medium,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
 
-        Spacer(Modifier.width(12.dp))
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                fontWeight = FontWeight.Medium,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (showChevron) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (showChevron) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Outlined.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
