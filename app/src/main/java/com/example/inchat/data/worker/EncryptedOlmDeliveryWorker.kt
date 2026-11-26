@@ -35,7 +35,6 @@ import com.example.inchat.crypto.OlmSessionRepository
 import com.example.inchat.crypto.RoomOlmGroupKeyDistributionRecoveryStateStore
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
-import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.data.repository.CloudflareWorkerConfig
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
@@ -186,7 +185,6 @@ class EncryptedOlmDeliveryWorker(
                 cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
                 cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
             )
-            val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
                 transport = transport,
