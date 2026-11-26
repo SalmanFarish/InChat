@@ -307,7 +307,7 @@ class EncryptedOlmInboxWorker(
                 .setInputData(data)
                 .addTag(WORK_TAG)
                 .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmInboxWorker>(
                 PERIODIC_INTERVAL_MINUTES,
