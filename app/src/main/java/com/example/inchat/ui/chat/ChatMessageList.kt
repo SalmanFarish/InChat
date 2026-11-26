@@ -134,14 +134,16 @@ fun ChatMessageList(
     var enteringMessageId by remember { mutableStateOf<String?>(null) }
     var enteringMessageFromBottom by remember { mutableStateOf(false) }
     var observedLatestMessageId by remember { mutableStateOf<String?>(null) }
+    var hasObservedInitialSnapshot by remember { mutableStateOf(false) }
 
     LaunchedEffect(messagesLoaded, messages.lastOrNull()?.id) {
         if (!messagesLoaded) return@LaunchedEffect
         val latest = messages.lastOrNull()
         val latestId = latest?.id
         val previousId = observedLatestMessageId
-        if (previousId == null) {
+        if (!hasObservedInitialSnapshot) {
             observedLatestMessageId = latestId
+            hasObservedInitialSnapshot = true
         } else if (latestId != null && latestId != previousId) {
             enteringMessageId = latestId
             enteringMessageFromBottom = latest.senderId == currentUserId
