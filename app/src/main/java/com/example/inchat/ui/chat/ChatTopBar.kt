@@ -122,7 +122,7 @@ fun ChatTopBar(
                             16.sp,
 
                         fontWeight =
-                            FontWeight.SemiBold,
+                            FontWeight.Medium,
 
                         letterSpacing =
                             0.1.sp,
