@@ -296,7 +296,7 @@ fun ChatThemeCard(
             ) {
                 Text(
                     text = theme.title,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -346,7 +346,7 @@ fun ChatThemeRow(
             Text(
                 text = theme.title,
                 fontSize = 16.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
