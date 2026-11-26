@@ -147,7 +147,7 @@ fun CreateGroupScreen(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "New group",
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 },
@@ -257,7 +257,7 @@ fun CreateGroupScreen(
                     top = 16.dp,
                     bottom = 8.dp
                 ),
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             )
 
             if (selectedUsers.isNotEmpty()) {
@@ -372,7 +372,7 @@ fun CreateGroupScreen(
                         ) {
                             Text(
                                 text = user.username,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
