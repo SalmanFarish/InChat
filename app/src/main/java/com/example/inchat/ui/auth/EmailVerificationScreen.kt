@@ -51,7 +51,7 @@ fun EmailVerificationScreen(
             Text(
                 text = "Verify your email",
                 fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center
             )
@@ -70,7 +70,7 @@ fun EmailVerificationScreen(
             Text(
                 text = state.email,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center
             )
 
