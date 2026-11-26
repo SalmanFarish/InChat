@@ -1397,7 +1397,7 @@ private fun BottomNavigationItem(
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = GoogleSansFlex,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         letterSpacing = 0.1.sp
                     ),
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
