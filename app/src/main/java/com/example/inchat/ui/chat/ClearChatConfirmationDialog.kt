@@ -68,7 +68,7 @@ fun ClearChatConfirmationDialog(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -150,7 +150,7 @@ private fun ClearChatActionRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (destructive) {
                     MaterialTheme.colorScheme.onErrorContainer
                 } else {
