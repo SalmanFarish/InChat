@@ -98,7 +98,7 @@ fun PublicProfileScreen(
                             "Profile",
 
                         fontWeight =
-                            FontWeight.Bold,
+                            FontWeight.Medium,
 
                         letterSpacing =
                             (-0.2).sp
@@ -373,7 +373,7 @@ private fun ProfileContent(
                 28.sp,
 
             fontWeight =
-                FontWeight.Bold,
+                FontWeight.Medium,
 
             textAlign =
                 TextAlign.Center,
@@ -525,7 +525,7 @@ private fun ProfileContent(
                     16.sp,
 
                 fontWeight =
-                    FontWeight.Bold
+                    FontWeight.Medium
             )
         }
 
@@ -612,7 +612,7 @@ private fun PresenceText(
                     .primary,
 
             fontWeight =
-                FontWeight.SemiBold
+                FontWeight.Medium
         )
 
     } else {
@@ -672,7 +672,7 @@ private fun ProfileError(
                     .titleLarge,
 
             fontWeight =
-                FontWeight.Bold,
+                FontWeight.Medium,
 
             textAlign =
                 TextAlign.Center
