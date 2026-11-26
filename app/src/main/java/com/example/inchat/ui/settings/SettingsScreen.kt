@@ -103,7 +103,7 @@ fun SettingsScreen(
                     Text(
                         text = "Settings",
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -141,18 +141,6 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .padding(bottom = 3.dp)
                 ) {
-                    Text(
-                        text = "INCHAT / PREFERENCES",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = GoogleSansFlex,
-                            fontSize = 10.sp,
-                            letterSpacing = 1.1.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(Modifier.height(7.dp))
-
                     Text(
                         text = "Settings",
                         style = MaterialTheme.typography.headlineSmall.copy(
@@ -202,7 +190,7 @@ fun SettingsScreen(
                                 Text(
                                     text = "Your InChat account",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -294,7 +282,7 @@ fun SettingsScreen(
                                 Text(
                                     text = "Password sign-in",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -344,7 +332,7 @@ fun SettingsScreen(
                             ) {
                                 Text(
                                     text = "Add password",
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -370,7 +358,7 @@ fun SettingsScreen(
                         SettingsIconTile(icon = Icons.Outlined.Lock, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Transfer to a new phone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Transfer to a new phone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(Modifier.height(3.dp))
                             Text("Move this phone's encrypted identity using QR pairing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -415,7 +403,7 @@ fun SettingsScreen(
                             Text(
                                 text = "Privacy & visibility",
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
 
@@ -474,17 +462,6 @@ fun SettingsScreen(
                         .padding(top = 8.dp, bottom = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "INCHAT",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = GoogleSansFlex,
-                            letterSpacing = 1.2.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(Modifier.height(5.dp))
-
                     Text(
                         text = "Private conversations. Minimal identity.",
                         style = MaterialTheme.typography.bodySmall,
@@ -941,7 +918,7 @@ private fun SettingsSectionLabel(
             fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -1036,7 +1013,7 @@ private fun SettingsActionRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color = accent
                 )
 
