@@ -246,7 +246,7 @@ fun SwipeableMessageBubble(
                             lineHeight = 14.sp,
                             letterSpacing = 0.05.sp
                         ),
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = chatTheme.statusAccentColor,
                         maxLines = 1
                     )
@@ -566,7 +566,7 @@ fun ReactionSummary(
                                 userReaction ==
                                 reaction
                             ) {
-                                FontWeight.SemiBold
+                                FontWeight.Medium
                             } else {
                                 FontWeight.Normal
                             },
