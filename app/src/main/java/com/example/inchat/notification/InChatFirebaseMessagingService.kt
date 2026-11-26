@@ -62,6 +62,38 @@ class InChatFirebaseMessagingService :
 
     }
 
+    /**
+     * FCM may discard a backlog after a device has been disconnected for too
+     * long or too many pending messages accumulate. The push stream is only a
+     * hint: reconcile the complete durable ciphertext inbox instead of trying
+     * to infer which messages were lost.
+     */
+    override fun onDeletedMessages() {
+        super.onDeletedMessages()
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            Log.i("InChatFCM", "FCM backlog was deleted before account restoration.")
+            return
+        }
+
+        val deviceId = runCatching {
+            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not resolve the device for deleted-message recovery.", error)
+        }.getOrNull() ?: return
+
+        runCatching {
+            EncryptedOlmInboxWorker.wake(
+                context = applicationContext,
+                ownerUserId = uid,
+                recipientDeviceId = deviceId,
+            )
+        }.onFailure { error ->
+            Log.w("InChatFCM", "Could not schedule full encrypted inbox reconciliation.", error)
+        }
+    }
+
     override fun onMessageReceived(
         remoteMessage: RemoteMessage
     ) {

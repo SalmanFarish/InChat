@@ -796,8 +796,9 @@ export async function processEncryptedOlmAcknowledgementPush({
       tokenValue.trim() :
       "";
   if (!registrationToken) {
-    return result(200, {
-      success: true,
+    return result(503, {
+      success: false,
+      retryable: true,
       notificationSent: false,
       reason: "sender_device_has_no_fcm_token",
     });
@@ -916,9 +917,16 @@ export async function processEncryptedOlmAcknowledgementPush({
       error: "Acknowledgement push was accepted but its dispatch receipt could not be saved.",
     });
   }
+  if (unregistered) {
+    return result(503, {
+      success: false,
+      retryable: true,
+      notificationSent: false,
+      reason: "sender_device_token_unregistered",
+    });
+  }
   return result(200, {
     success: true,
-    notificationSent: !unregistered,
-    ...(unregistered ? { reason: "sender_device_token_unregistered" } : {}),
+    notificationSent: true,
   });
 }

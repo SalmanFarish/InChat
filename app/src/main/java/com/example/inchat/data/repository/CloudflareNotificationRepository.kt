@@ -126,8 +126,13 @@ class CloudflareNotificationRepository {
                 .put("deliveryId", deliveryId)
                 .put("messageId", messageId),
         ).map { response ->
-            if (!response.optBoolean("success", false)) {
-                throw IllegalStateException("Cloudflare Worker did not accept the encrypted acknowledgement wake-up.")
+            if (!response.optBoolean("success", false) ||
+                !response.optBoolean("notificationSent", false)
+            ) {
+                throw IllegalStateException(
+                    "Cloudflare Worker did not dispatch the encrypted acknowledgement wake-up: " +
+                        response.optString("reason", "notificationSent=false"),
+                )
             }
             Unit
         }

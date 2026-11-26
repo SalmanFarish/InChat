@@ -86,8 +86,15 @@ class EncryptedOlmAcknowledgementWakeWorker(
             when {
                 failure == null -> Result.success()
                 notifications.isRetryableNotificationFailure(failure) -> {
-                    Log.w(TAG, "Encrypted acknowledgement wake-up will be retried.", failure)
-                    Result.retry()
+                    if (runAttemptCount < MAX_WAKE_ATTEMPTS) {
+                        Log.w(TAG, "Encrypted acknowledgement wake-up will be retried.", failure)
+                        Result.retry()
+                    } else {
+                        // Sender ACK state is durable in Firebase. Stop an unbounded
+                        // FCM retry chain and let the sender's recovery poll reconcile it.
+                        Log.w(TAG, "Stopping repeated acknowledgement wake-up attempts; durable ACK recovery remains active.", failure)
+                        Result.success()
+                    }
                 }
                 else -> {
                     Log.e(TAG, "Encrypted acknowledgement wake-up was rejected permanently.", failure)
@@ -104,6 +111,7 @@ class EncryptedOlmAcknowledgementWakeWorker(
 
     companion object {
         private const val TAG = "EncryptedOlmAckWake"
+        private const val MAX_WAKE_ATTEMPTS = 8
         private const val KEY_ACK_USER_ID = "acknowledged_by_user_id"
         private const val KEY_ACK_DEVICE_ID = "acknowledging_device_id"
         private const val KEY_SENDER_USER_ID = "sender_user_id"
@@ -154,7 +162,7 @@ class EncryptedOlmAcknowledgementWakeWorker(
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build(),
                 )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 workName(acknowledgedByUserId, acknowledgingDeviceId, deliveryId),

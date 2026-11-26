@@ -170,7 +170,9 @@ test("does not send when the sender device has no FCM token", async () => {
   const state = fixture({ token: null });
   const response = await state.dispatch();
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.success, false);
+  assert.equal(response.payload.retryable, true);
   assert.equal(response.payload.notificationSent, false);
   assert.equal(response.payload.reason, "sender_device_has_no_fcm_token");
   assert.equal(state.sentMessages.length, 0);
@@ -183,4 +185,26 @@ test("rejects an acknowledgement that is absent from the durable relay", async (
 
   assert.equal(response.status, 404);
   assert.equal(state.sentMessages.length, 0);
+});
+
+test("removes an unregistered sender token and keeps the acknowledgement wake retryable", async () => {
+  const state = fixture({
+    fcmResult: {
+      ok: true,
+      status: 404,
+      body: { error: { details: [{ errorCode: "UNREGISTERED" }] } },
+    },
+  });
+  const response = await state.dispatch();
+
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.success, false);
+  assert.equal(response.payload.retryable, true);
+  assert.equal(response.payload.notificationSent, false);
+  assert.equal(response.payload.reason, "sender_device_token_unregistered");
+  assert.equal(state.database.has("privateUsers/alice/olmDeviceFcmTokens/alice-device"), false);
+  assert.equal(
+    state.database.get("olmAckPushDispatch/alice/alice-device/" + deliveryId).status,
+    "unregistered",
+  );
 });

@@ -155,8 +155,15 @@ class EncryptedOlmMessageWakeWorker(
             when {
                 failure == null -> Result.success()
                 notifications.isRetryableNotificationFailure(failure) -> {
-                    Log.w(TAG, "Encrypted message wake-up will be retried.", failure)
-                    Result.retry()
+                    if (runAttemptCount < MAX_WAKE_ATTEMPTS) {
+                        Log.w(TAG, "Encrypted message wake-up will be retried.", failure)
+                        Result.retry()
+                    } else {
+                        // FCM is only a wake-up hint. The durable inbox and periodic
+                        // reconciliation remain authoritative when a token stays invalid.
+                        Log.w(TAG, "Stopping repeated FCM wake-up attempts; durable inbox recovery remains active.", failure)
+                        Result.success()
+                    }
                 }
                 else -> {
                     Log.e(TAG, "Encrypted message wake-up was rejected permanently.", failure)
@@ -173,6 +180,7 @@ class EncryptedOlmMessageWakeWorker(
 
     companion object {
         private const val TAG = "EncryptedOlmMessageWake"
+        private const val MAX_WAKE_ATTEMPTS = 8
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_SENDER_DEVICE_ID = "sender_device_id"
         private const val KEY_RECIPIENT_USER_ID = "recipient_user_id"

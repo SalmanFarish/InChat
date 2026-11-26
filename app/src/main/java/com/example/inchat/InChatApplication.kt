@@ -8,6 +8,7 @@ import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
+import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
@@ -154,6 +155,21 @@ class InChatApplication : Application() {
                             authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid,
                         )
                         if (authStillMatches) {
+                            // Firebase does not guarantee that onNewToken is replayed
+                            // after a process restart. Reconcile the latest token whenever
+                            // an existing authenticated session is restored as well.
+                            runCatching {
+                                FcmTokenRegistrationWorker.enqueue(
+                                    context = applicationContext,
+                                    uid = ownerUserId,
+                                )
+                            }.onFailure { error ->
+                                Log.w(
+                                    "InChatApplication",
+                                    "Could not restore FCM token registration work.",
+                                    error,
+                                )
+                            }
                             if (identityLookup.isSuccess) {
                                 // Cancel the previous account/device scope, then
                                 // cancel any tagged jobs left by an interrupted
