@@ -1,5 +1,11 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Done
@@ -19,28 +25,35 @@ internal fun EncryptedMessageDeliveryIndicator(
     status: EncryptedMessageDeliveryStatus,
     tint: Color,
 ) {
-    when (status) {
-        EncryptedMessageDeliveryStatus.NOT_TRACKED -> Unit
-        EncryptedMessageDeliveryStatus.WAITING ->
-            Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
-        EncryptedMessageDeliveryStatus.SENDING ->
-            Text(text = "…", fontSize = 12.sp, color = tint, maxLines = 1)
-        EncryptedMessageDeliveryStatus.SENT ->
-            Icon(
-                imageVector = Icons.Filled.Done,
-                contentDescription = "Sent",
-                modifier = Modifier.size(14.dp),
-                tint = tint,
-            )
-        EncryptedMessageDeliveryStatus.DELIVERED ->
-            Icon(
-                imageVector = Icons.Filled.DoneAll,
-                contentDescription = "Delivered",
-                modifier = Modifier.size(14.dp),
-                tint = tint,
-            )
-        EncryptedMessageDeliveryStatus.FAILED ->
-            Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
+    AnimatedContent(
+        targetState = status,
+        transitionSpec = {
+            (fadeIn(tween(170)) + scaleIn(initialScale = 0.72f)) togetherWith
+                fadeOut(tween(110))
+        },
+        label = "encrypted-delivery-state"
+    ) { current ->
+        when (current) {
+            EncryptedMessageDeliveryStatus.NOT_TRACKED -> Unit
+            EncryptedMessageDeliveryStatus.WAITING,
+            EncryptedMessageDeliveryStatus.FAILED ->
+                Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
+            EncryptedMessageDeliveryStatus.SENDING -> DeliveryPulse(tint)
+            EncryptedMessageDeliveryStatus.SENT ->
+                Icon(
+                    imageVector = Icons.Filled.Done,
+                    contentDescription = "Sent",
+                    modifier = Modifier.size(14.dp),
+                    tint = tint,
+                )
+            EncryptedMessageDeliveryStatus.DELIVERED ->
+                Icon(
+                    imageVector = Icons.Filled.DoneAll,
+                    contentDescription = "Delivered",
+                    modifier = Modifier.size(14.dp),
+                    tint = tint,
+                )
+        }
     }
 }
 
