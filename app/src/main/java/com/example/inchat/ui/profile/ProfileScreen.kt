@@ -121,19 +121,7 @@ fun ProfileScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "INCHAT / ACCOUNT",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = GoogleSansFlex,
-                            fontSize = 10.sp,
-                            letterSpacing = 1.25.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(Modifier.height(7.dp))
-
-                    Text(
-                        text = "Your profile",
+                        text = "Profile",
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontSize = 28.sp,
                             lineHeight = 34.sp
@@ -218,7 +206,7 @@ fun ProfileScreen(
                             fontSize = 25.sp,
                             lineHeight = 31.sp
                         ),
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
                         maxLines = 2,
@@ -391,7 +379,7 @@ private fun ProfileSectionLabel(
             fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
