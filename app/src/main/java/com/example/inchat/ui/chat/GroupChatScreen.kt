@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -170,6 +171,14 @@ fun GroupChatScreen(
             selectedMessageIds - message.id
         } else {
             selectedMessageIds + message.id
+        }
+    }
+
+    BackHandler {
+        if (selectedMessageIds.isNotEmpty()) {
+            selectedMessageIds = emptySet()
+        } else {
+            onBackClick()
         }
     }
 
