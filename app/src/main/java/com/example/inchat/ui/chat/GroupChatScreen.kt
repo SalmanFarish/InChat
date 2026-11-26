@@ -311,7 +311,7 @@ fun GroupChatScreen(
                             Text(
                                 text = group?.name?.ifBlank { "Group" } ?: "Group",
                                 fontFamily = GoogleSansFlex,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
