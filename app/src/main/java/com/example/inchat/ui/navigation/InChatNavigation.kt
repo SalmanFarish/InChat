@@ -1,6 +1,10 @@
 package com.example.inchat.ui.navigation
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -50,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +92,12 @@ import com.example.inchat.ui.settings.SettingsScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
 import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
+
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 data class NotificationChatTarget(
     val recipientUserId: String,
@@ -191,6 +202,35 @@ fun InChatApp(
         backStackEntry
             ?.destination
             ?.route
+
+    val context = LocalContext.current
+
+    /*
+     * Keep the NavHost start destination alive. A rapid second Back press
+     * after leaving a conversation must exit from Home, never pop Home itself
+     * and leave an empty NavHost (the black-screen failure).
+     */
+    fun handleBack() {
+        val activeRoute = navController.currentDestination?.route
+        if (activeRoute == "home") {
+            if (
+                pagerState.currentPage != 0 ||
+                pagerState.currentPageOffsetFraction != 0f
+            ) {
+                navigationScope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+            } else {
+                context.findActivity()?.finish()
+            }
+        } else if (!navController.popBackStack()) {
+            context.findActivity()?.finish()
+        }
+    }
+
+    BackHandler {
+        handleBack()
+    }
 
     val showBottomBar =
         currentRoute ==
@@ -862,7 +902,7 @@ fun InChatApp(
                         groupChatViewModel,
 
                     onBackClick = {
-                        navController.popBackStack()
+                        handleBack()
                     },
 
                     onGroupInfoClick = {
@@ -1022,9 +1062,7 @@ fun InChatApp(
                         chatViewModel,
 
                     onBackClick = {
-
-                        navController
-                            .popBackStack()
+                        handleBack()
                     },
 
                     onChatInfoClick = {
