@@ -1,5 +1,6 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -51,6 +53,7 @@ import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -497,8 +500,12 @@ private fun GroupInfoContent(
                             end = 16.dp,
                             bottom = 8.dp
                         ),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
             ) {
                 Row(
                     modifier =
@@ -525,7 +532,12 @@ private fun GroupInfoContent(
                             style =
                                 MaterialTheme
                                     .typography
-                                    .titleLarge,
+                                    .titleLarge
+                                    .copy(
+                                        fontFamily = GoogleSansFlex,
+                                        fontSize = 21.sp,
+                                        lineHeight = 26.sp
+                                    ),
                             fontWeight = FontWeight.Bold,
                             maxLines = 2
                         )
@@ -709,9 +721,19 @@ private fun GroupMemberRow(
                 .orEmpty()
         }
 
-    Row(
-        modifier =
-            Modifier
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
                 .fillMaxWidth()
                 .clickable(
                     enabled = canManage,
@@ -719,12 +741,9 @@ private fun GroupMemberRow(
                     indication = null,
                     onClick = onManageClick
                 )
-                .padding(
-                    horizontal = 20.dp,
-                    vertical = 8.dp
-                ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         InChatProfileAvatar(
             profilePhotoUrl = photoUrl,
             modifier = Modifier.size(46.dp),
@@ -793,6 +812,7 @@ private fun GroupMemberRow(
                 )
             }
         }
+        }
     }
 }
 
@@ -811,7 +831,10 @@ private fun GroupInfoSectionLabel(
                     end = 20.dp,
                     bottom = 6.dp
                 ),
-        style = MaterialTheme.typography.labelSmall,
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = GoogleSansFlex,
+            letterSpacing = 1.sp
+        ),
         fontWeight = FontWeight.SemiBold,
         color =
             MaterialTheme
@@ -836,8 +859,12 @@ private fun GroupInfoActionRow(
                     vertical = 4.dp
                 )
                 .clickableForGroupInfo(onClick),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant
+        shape = RoundedCornerShape(17.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
     ) {
         Row(
             modifier =
@@ -849,12 +876,22 @@ private fun GroupInfoActionRow(
                     ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
 
             Spacer(
                 modifier = Modifier.width(14.dp)
