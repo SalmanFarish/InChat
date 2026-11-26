@@ -236,7 +236,7 @@ async function claimPushDispatch(
   const snapshot = await readWithEtag(env, adminToken, path, fetchImpl);
   const existing = isRecord(snapshot.value) ? snapshot.value : null;
 
-  if (existing?.status === "sent" || existing?.status === "unregistered") {
+  if (existing?.status === "sent") {
     return {
       alreadyProcessed: true,
       notificationSent: existing.status === "sent",
@@ -514,8 +514,9 @@ export async function processEncryptedOlmPush({
       tokenValue.trim() :
       "";
   if (!registrationToken) {
-    return result(200, {
-      success: true,
+    return result(503, {
+      success: false,
+      retryable: true,
       notificationSent: false,
       reason: "recipient_device_has_no_fcm_token",
     });
@@ -638,10 +639,17 @@ export async function processEncryptedOlmPush({
     });
   }
 
+  if (unregistered) {
+    return result(503, {
+      success: false,
+      retryable: true,
+      notificationSent: false,
+      reason: "recipient_device_token_unregistered",
+    });
+  }
   return result(200, {
     success: true,
-    notificationSent: !unregistered,
-    ...(unregistered ? { reason: "recipient_device_token_unregistered" } : {}),
+    notificationSent: true,
   });
 }
 

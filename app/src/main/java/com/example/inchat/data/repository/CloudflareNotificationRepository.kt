@@ -81,10 +81,7 @@ class CloudflareNotificationRepository {
                 .put("senderDeviceId", senderDeviceId)
                 .put("recipientDeviceId", recipientDeviceId)
         ).map { response ->
-            if (!response.optBoolean("success", false)) {
-                throw IllegalStateException("Cloudflare Worker did not accept encrypted push dispatch.")
-            }
-            Unit
+            requireEncryptedWakeupAccepted(response, "direct")
         }
     }
 
@@ -308,10 +305,7 @@ class CloudflareNotificationRepository {
                 .put("senderDeviceId", senderDeviceId)
                 .put("recipientDeviceId", recipientDeviceId)
         ).map { response ->
-            if (!response.optBoolean("success", false)) {
-                throw IllegalStateException("Cloudflare Worker did not accept encrypted group push dispatch.")
-            }
-            Unit
+            requireEncryptedWakeupAccepted(response, "group")
         }
     }
 
@@ -599,6 +593,22 @@ class CloudflareNotificationRepository {
             Log.w(TAG, "Could not synchronize group notification topics.", error)
             Result.failure(error)
         }
+    }
+
+    private fun requireEncryptedWakeupAccepted(response: JSONObject, scope: String) {
+        if (!response.optBoolean("success", false)) {
+            throw IllegalStateException("Cloudflare Worker did not accept encrypted $scope push dispatch.")
+        }
+        if (response.optBoolean("notificationSent", false)) return
+
+        // Blocked conversations and already-acknowledged ciphertext are terminal
+        // no-push outcomes. Missing or stale device tokens remain retryable.
+        val reason = response.optString("reason")
+        if (reason == "blocked" || reason == "delivery_already_acknowledged") return
+        throw IllegalStateException(
+            "Encrypted $scope push was not dispatched: " +
+                reason.ifBlank { "notificationSent=false" },
+        )
     }
 
     internal fun isRetryableNotificationFailure(error: Throwable): Boolean {

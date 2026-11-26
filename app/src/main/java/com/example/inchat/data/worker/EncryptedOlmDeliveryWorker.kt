@@ -737,7 +737,7 @@ class EncryptedOlmDeliveryWorker(
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_SENDER_DEVICE_ID = "sender_device_id"
         private const val PERIODIC_INTERVAL_MINUTES = 15L
-        private const val DEFAULT_RETRY_DELAY_MILLIS = 30_000L
+        private const val DEFAULT_RETRY_DELAY_MILLIS = 10_000L
         private const val WORK_TAG = "encrypted_olm_delivery"
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")

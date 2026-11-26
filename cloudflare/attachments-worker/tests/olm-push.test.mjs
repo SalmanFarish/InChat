@@ -513,7 +513,9 @@ test("removes only the unchanged token when FCM reports it unregistered", async 
   });
   const response = await state.dispatch();
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.success, false);
+  assert.equal(response.payload.retryable, true);
   assert.equal(response.payload.notificationSent, false);
   assert.equal(state.database.has("privateUsers/bob/olmDeviceFcmTokens/bob-device"), false);
   assert.equal(
@@ -565,7 +567,9 @@ test("does not notify when the recipient device has no registered token", async 
   const state = fixture({ token: null });
   const response = await state.dispatch();
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 503);
+  assert.equal(response.payload.success, false);
+  assert.equal(response.payload.retryable, true);
   assert.equal(response.payload.notificationSent, false);
   assert.equal(response.payload.reason, "recipient_device_has_no_fcm_token");
   assert.equal(state.sentMessages.length, 0);
