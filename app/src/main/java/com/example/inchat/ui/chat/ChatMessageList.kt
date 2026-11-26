@@ -5,6 +5,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +78,7 @@ fun ChatMessageList(
     onToggleMessageSelection: (Message) -> Unit = {},
     encryptedMessageIds: Set<String> = emptySet(),
     encryptedDeliveryStatuses: Map<String, EncryptedMessageDeliveryStatus> = emptyMap(),
+    isOtherUserTyping: Boolean = false,
 ) {
 
     val listState =
@@ -506,8 +512,8 @@ fun ChatMessageList(
 
                     contentPadding =
                         PaddingValues(
-                            vertical =
-                                14.dp
+                            top = 14.dp,
+                            bottom = if (isOtherUserTyping) 58.dp else 14.dp
                         )
                 ) {
 
@@ -814,6 +820,54 @@ fun ChatMessageList(
                     }
                 }
             }
+
+            AnimatedVisibility(
+                visible = isOtherUserTyping && messagesLoaded && !messagingBlocked,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 14.dp, bottom = 5.dp),
+                enter = fadeIn() + scaleIn(initialScale = 0.88f),
+                exit = fadeOut() + scaleOut(targetScale = 0.88f)
+            ) {
+                TypingIndicator()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingIndicator() {
+    val transition = rememberInfiniteTransition(label = "typing-indicator")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 620),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "typing-dots-alpha"
+    )
+
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        contentColor = MaterialTheme.colorScheme.primary,
+        tonalElevation = 3.dp
+    ) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Typing",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = " •••",
+                color = MaterialTheme.colorScheme.primary.copy(alpha = pulse),
+                style = MaterialTheme.typography.labelMedium
+            )
         }
     }
 }
