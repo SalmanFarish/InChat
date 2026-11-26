@@ -262,17 +262,6 @@ fun HomeScreen(
             filteredConversations.filter { it.isHidden }
         }
 
-    val visibleChatCount =
-        remember(conversations) {
-            conversations.count { !it.isHidden }
-        }
-
-    val totalUnreadCount =
-        remember(conversations) {
-            conversations.filterNot { it.isHidden }
-                .sumOf { it.unreadCount }
-        }
-
     /*
      * =========================================================
      * ACTION MESSAGE
@@ -349,11 +338,7 @@ fun HomeScreen(
                     )
         ) {
 
-            HomeHeader(
-                chatCount = visibleChatCount,
-                unreadCount = totalUnreadCount,
-                onCreateGroupClick = onCreateGroupClick
-            )
+            HomeHeader(onCreateGroupClick = onCreateGroupClick)
 
             HomeSearchBar(
 
@@ -373,13 +358,6 @@ fun HomeScreen(
                         ""
                 }
             )
-
-            if (conversationsLoaded && conversations.isNotEmpty()) {
-                HomeSectionHeading(
-                    totalChats = visibleChatCount,
-                    unreadCount = totalUnreadCount
-                )
-            }
 
             /*
              * =================================================
@@ -602,77 +580,23 @@ fun HomeScreen(
  */
 @Composable
 private fun HomeHeader(
-    chatCount: Int,
-    unreadCount: Long,
     onCreateGroupClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = 22.dp,
-                top = 22.dp,
-                end = 20.dp,
-                bottom = 18.dp
-            ),
+            .padding(start = 22.dp, top = 22.dp, end = 20.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
+        Text(
+            text = "Messages",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontSize = 27.sp,
+                lineHeight = 32.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primary,
-                            CircleShape
-                        )
-                )
-
-                Spacer(Modifier.width(7.dp))
-
-                Text(
-                    text = "InChat",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = GoogleSansFlex,
-                        fontSize = 10.sp,
-                        letterSpacing = 1.8.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(Modifier.height(7.dp))
-
-            Text(
-                text = "Messages",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontSize = 27.sp,
-                    lineHeight = 32.sp
-                ),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Spacer(Modifier.height(4.dp))
-
-            Text(
-                text = when {
-                    unreadCount > 0L ->
-                        "$chatCount CHATS  /  $unreadCount UNREAD"
-                    else ->
-                        "$chatCount CHATS IN YOUR INBOX"
-                },
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = GoogleSansFlex,
-                    fontSize = 9.sp,
-                    letterSpacing = 0.65.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        )
 
         IconButton(
             onClick = onCreateGroupClick,
@@ -781,62 +705,6 @@ private fun HomeSearchBar(
 
 /*
  * ============================================================
- * SECTION HEADING
- * ============================================================
- */
-@Composable
-private fun HomeSectionHeading(
-    totalChats: Int,
-    unreadCount: Long
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = 22.dp,
-                end = 22.dp,
-                bottom = 7.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "RECENT CONVERSATIONS",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = GoogleSansFlex,
-                fontSize = 9.sp,
-                letterSpacing = 1.0.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        if (unreadCount > 0L) {
-            Text(
-                text = "$unreadCount UNREAD",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = GoogleSansFlex,
-                    fontSize = 9.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(Modifier.width(12.dp))
-        }
-
-        Text(
-            text = totalChats.toString().padStart(2, '0'),
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = GoogleSansFlex,
-                fontSize = 9.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-/*
- * ============================================================
  * NO SEARCH RESULTS
  * ============================================================
  */
@@ -927,7 +795,7 @@ private fun NoSearchResults(
                 19.sp,
 
             fontWeight =
-                FontWeight.Bold
+                FontWeight.Medium
         )
 
         Spacer(
@@ -1237,7 +1105,7 @@ private fun ConversationActionsPopup(
                         Text(
                             text = "Delete this chat?",
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
@@ -1353,7 +1221,7 @@ private fun ConversationActionRow(
                 style = MaterialTheme.typography.titleSmall.copy(
                     fontSize = 13.sp
                 ),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (destructive) {
                     MaterialTheme.colorScheme.error
                 } else {
@@ -1419,7 +1287,7 @@ private fun HiddenChatsToggle(
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Medium
                 ),
                 color = MaterialTheme.colorScheme.primary
             )
@@ -1573,9 +1441,9 @@ private fun ConversationItem(
                                 lineHeight = 19.sp
                             ),
                             fontWeight = if (hasUnread) {
-                                FontWeight.Bold
+                                FontWeight.Medium
                             } else {
-                                FontWeight.SemiBold
+                                FontWeight.Medium
                             },
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
@@ -1631,7 +1499,7 @@ private fun ConversationItem(
                             letterSpacing = 0.1.sp
                         ),
                         fontWeight = if (hasUnread) {
-                            FontWeight.SemiBold
+                            FontWeight.Medium
                         } else {
                             FontWeight.Normal
                         },
@@ -1662,7 +1530,7 @@ private fun ConversationItem(
                                 fontFamily = GoogleSansFlex,
                                 fontSize = 9.sp,
                                 lineHeight = 11.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
