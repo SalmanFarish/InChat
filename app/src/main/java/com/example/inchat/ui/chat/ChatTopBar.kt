@@ -43,7 +43,6 @@ fun ChatTopBar(
     otherUserNickname: String,
     otherUserProfilePhoto: String,
     otherUserPresence: Presence,
-    otherUserTyping: Boolean,
     blockState: BlockState,
     onBackClick: () -> Unit,
     onChatInfoClick: () -> Unit,
@@ -137,12 +136,8 @@ fun ChatTopBar(
                     ) {
 
                         PresenceStatus(
-
-                            presence =
-                                otherUserPresence,
-
-                            isTyping =
-                                otherUserTyping
+                            presence = otherUserPresence,
+                            isTyping = false
                         )
                     }
                 }
