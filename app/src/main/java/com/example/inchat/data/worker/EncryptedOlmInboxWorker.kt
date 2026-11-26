@@ -324,8 +324,8 @@ class EncryptedOlmInboxWorker(
         fun schedule(context: Context, ownerUserId: String, recipientDeviceId: String) {
             EncryptedOlmForegroundInboxMonitor.setDeviceScope(
                 context = context,
-                ownerUserId = ownerUserId,
-                deviceId = recipientDeviceId,
+                accountUserId = ownerUserId,
+                localDeviceId = recipientDeviceId,
             )
             wake(context, ownerUserId, recipientDeviceId)
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmInboxWorker>(

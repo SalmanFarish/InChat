@@ -68,7 +68,7 @@ class MainActivity :
     private val encryptedInboxAuthListener = FirebaseAuth.AuthStateListener { auth ->
         EncryptedOlmForegroundInboxMonitor.setAccount(
             context = applicationContext,
-            ownerUserId = auth.currentUser?.uid,
+            accountUserId = auth.currentUser?.uid,
         )
     }
 
