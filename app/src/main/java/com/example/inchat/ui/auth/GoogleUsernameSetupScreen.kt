@@ -82,7 +82,7 @@ fun GoogleUsernameSetupScreen(
                     28.sp,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme.colorScheme.primary,
@@ -215,7 +215,7 @@ fun GoogleUsernameSetupScreen(
                             "Create InChat profile",
 
                         fontWeight =
-                            FontWeight.Bold
+                            FontWeight.Medium
                     )
                 }
             }
