@@ -150,124 +150,7 @@ class EncryptedOlmDeliveryWorker(
                 RoomOlmDeliveryQueueStore(database, database.olmDeliveryQueueDao()),
             )
             val metadataStore = database.olmGroupKeyDistributionMetadataStore()
-            val savedGroupKeyDistributions = metadataStore.getAllForDevice(
-                ownerUserId = ownerUserId,
-                senderDeviceId = senderDeviceId,
-            )
-            if (savedGroupKeyDistributions.isNotEmpty()) {
-                val identityRepository = DeviceIdentityRepository(applicationContext)
-                val olmSessions = OlmSessionRepository(applicationContext, identityRepository)
-                val megolmSessions = MegolmSessionRepository(
-                    context = applicationContext,
-                    identityRepository = identityRepository,
-                    authenticatedUserId = {
-                        FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                    },
-                )
-                val groupRepository = GroupChatRepository()
-                val keyPreparer = OlmGroupSessionKeyDistributionPreparer(
-                    directory = DeviceKeyDirectoryRepository(),
-                    sessions = olmSessions,
-                    trustVerifier = TrustedDeviceRepository(applicationContext),
-                )
-                val recoveryStateReader = RoomOlmGroupKeyDistributionRecoveryStateStore(
-                    database = database,
-                    queueDao = database.olmDeliveryQueueDao(),
-                    receiptDao = database.olmDeliveryReceiptDao(),
-                )
-                val groupKeyOutbox = OlmGroupSessionKeyOutboxCoordinator(
-                    queue = queue,
-                    metadataStore = metadataStore,
-                    deliveryReceipts = database.olmDeliveryReceiptDao(),
-                    authenticatedUserId = { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() },
-                    localDeviceId = {
-                        identityRepository.existingDeviceIdForDelivery().orEmpty()
-                    },
-                    scheduleDelivery = { owner, device ->
-                        schedule(applicationContext, owner, device)
-                    },
-                    recoveryStateReader = recoveryStateReader,
-                )
-                val recovery = try {
-                    OlmGroupKeyDistributionRecoveryRunner(
-                        metadataStore = metadataStore,
-                        recoveryStateReader = recoveryStateReader,
-                        membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
-                        authenticatedUserId = {
-                            FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                        },
-                        localDeviceId = {
-                            identityRepository.existingDeviceIdForDelivery().orEmpty()
-                        },
-                        existingOutboundSession = { membership, sessionId ->
-                            megolmSessions.getExistingOutboundSession(membership, sessionId)
-                        },
-                        exportOutboundSessionKey = { membership, sessionId ->
-                            megolmSessions.exportOutboundSessionKey(membership, sessionId)
-                        },
-                        prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected, expected ->
-                            keyPreparer.prepare(
-                                distributionId = distributionId,
-                                membership = membership,
-                                megolmSessionId = sessionId,
-                                sessionKey = key,
-                                issuedAtMillis = issuedAt,
-                                selectedTargetDevices = selected,
-                                expectedTargetDevices = expected,
-                            )
-                        },
-                        resumeDistribution = groupKeyOutbox::resume,
-                        validatePreparedTargets = keyPreparer::arePreparedTargetsStillTrusted,
-                        onDistributionFailure = { metadata, error ->
-                            Log.w(
-                                TAG,
-                                "Group-key recovery failed for " + metadata.groupId +
-                                    "/" + metadata.distributionId + ".",
-                                error,
-                            )
-                        },
-                    ).run()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    // A stale/untrusted group distribution must not block the
-                    // independent direct-device encrypted outbox from draining.
-                    groupKeyRecoveryRetryRequired = true
-                    Log.w(TAG, "Group-key recovery pass failed; existing encrypted deliveries will continue.", error)
-                    null
-                }
-                if (recovery != null) {
-                    groupKeyRecoveryRetryRequired = recovery.distributionsFailed > 0
-                    Log.i(
-                        TAG,
-                        "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
-                            ", skipped=" + recovery.distributionsSkipped +
-                            ", failed=" + recovery.distributionsFailed +
-                            ", queued=" + recovery.deliveriesQueued,
-                    )
-                }
-
-            }
-
-            // Recover exact native-staged Megolm ciphertexts before draining
-            // the Olm queue. A process death after ratchet advancement but before
-            // Room outbox commit must not strand or re-encrypt that message.
-            try {
-                val recoveryCoordinator = MegolmGroupMessageSendCoordinatorFactory(
-                    context = applicationContext,
-                    database = database,
-                    groupRepository = GroupChatRepository(),
-                ).create()
-                val recovered = recoveryCoordinator.recoverPendingMessages()
-                if (recovered > 0) {
-                    Log.i(TAG, "Recovered " + recovered + " staged encrypted group messages.")
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                groupKeyRecoveryRetryRequired = true
-                Log.w(TAG, "Staged encrypted group-message recovery failed; retrying.", error)
-            }
+            val groupRepository = GroupChatRepository()
 
             // Resume local-first direct-message intents before the queue runner.
             // Newly committed Olm envelopes can therefore upload in this same pass.
@@ -303,7 +186,6 @@ class EncryptedOlmDeliveryWorker(
                 cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
                 cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
             )
-            val groupRepository = GroupChatRepository()
             val notifications = CloudflareNotificationRepository()
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
@@ -467,6 +349,107 @@ class EncryptedOlmDeliveryWorker(
                     )
                 },
             ).run()
+
+            // Drain the current durable outbox before doing group-specific recovery.
+            // The recovery planner only rebuilds missing rows; its outbox schedules
+            // another immediate pass for any newly reconstructed group deliveries.
+            val savedGroupKeyDistributions = metadataStore.getAllForDevice(
+                ownerUserId = ownerUserId,
+                senderDeviceId = senderDeviceId,
+            )
+            if (savedGroupKeyDistributions.isNotEmpty()) {
+                val identityRepository = DeviceIdentityRepository(applicationContext)
+                val olmSessions = OlmSessionRepository(applicationContext, identityRepository)
+                val megolmSessions = MegolmSessionRepository(
+                    context = applicationContext,
+                    identityRepository = identityRepository,
+                    authenticatedUserId = {
+                        FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                    },
+                )
+                val keyPreparer = OlmGroupSessionKeyDistributionPreparer(
+                    directory = DeviceKeyDirectoryRepository(),
+                    sessions = olmSessions,
+                    trustVerifier = TrustedDeviceRepository(applicationContext),
+                )
+                val recoveryStateReader = RoomOlmGroupKeyDistributionRecoveryStateStore(
+                    database = database,
+                    queueDao = database.olmDeliveryQueueDao(),
+                    receiptDao = database.olmDeliveryReceiptDao(),
+                )
+                val groupKeyOutbox = OlmGroupSessionKeyOutboxCoordinator(
+                    queue = queue,
+                    metadataStore = metadataStore,
+                    deliveryReceipts = database.olmDeliveryReceiptDao(),
+                    authenticatedUserId = { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() },
+                    localDeviceId = {
+                        identityRepository.existingDeviceIdForDelivery().orEmpty()
+                    },
+                    scheduleDelivery = { owner, device ->
+                        schedule(applicationContext, owner, device)
+                    },
+                    recoveryStateReader = recoveryStateReader,
+                )
+                val recovery = try {
+                    OlmGroupKeyDistributionRecoveryRunner(
+                        metadataStore = metadataStore,
+                        recoveryStateReader = recoveryStateReader,
+                        membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                        authenticatedUserId = {
+                            FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                        },
+                        localDeviceId = {
+                            identityRepository.existingDeviceIdForDelivery().orEmpty()
+                        },
+                        existingOutboundSession = { membership, sessionId ->
+                            megolmSessions.getExistingOutboundSession(membership, sessionId)
+                        },
+                        exportOutboundSessionKey = { membership, sessionId ->
+                            megolmSessions.exportOutboundSessionKey(membership, sessionId)
+                        },
+                        prepareDistribution = { distributionId, membership, sessionId, key, issuedAt, selected, expected ->
+                            keyPreparer.prepare(
+                                distributionId = distributionId,
+                                membership = membership,
+                                megolmSessionId = sessionId,
+                                sessionKey = key,
+                                issuedAtMillis = issuedAt,
+                                selectedTargetDevices = selected,
+                                expectedTargetDevices = expected,
+                            )
+                        },
+                        resumeDistribution = groupKeyOutbox::resume,
+                        validatePreparedTargets = keyPreparer::arePreparedTargetsStillTrusted,
+                        onDistributionFailure = { metadata, error ->
+                            Log.w(
+                                TAG,
+                                "Group-key recovery failed for " + metadata.groupId +
+                                    "/" + metadata.distributionId + ".",
+                                error,
+                            )
+                        },
+                    ).run()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // A stale/untrusted group distribution must not block the
+                    // independent direct-device encrypted outbox from draining.
+                    groupKeyRecoveryRetryRequired = true
+                    Log.w(TAG, "Group-key recovery pass failed; existing encrypted deliveries will continue.", error)
+                    null
+                }
+                if (recovery != null) {
+                    groupKeyRecoveryRetryRequired = recovery.distributionsFailed > 0
+                    Log.i(
+                        TAG,
+                        "Group-key recovery pass completed: scanned=" + recovery.distributionsScanned +
+                            ", skipped=" + recovery.distributionsSkipped +
+                            ", failed=" + recovery.distributionsFailed +
+                            ", queued=" + recovery.deliveriesQueued,
+                    )
+                }
+
+            }
 
             Log.i(
                 TAG,
