@@ -129,6 +129,7 @@ class GroupChatViewModel : ViewModel() {
     val groupReadTimestamps: StateFlow<Map<String, Long>> =
         _groupReadTimestamps.asStateFlow()
     private var listeningGroupId = ""
+    private var listeningUserId = ""
 
     init {
         startConnectionListener()
@@ -172,11 +173,14 @@ class GroupChatViewModel : ViewModel() {
             return
         }
 
-        if (listeningGroupId == groupId) {
+        // Group IDs are not account-scoped. Restart listeners when the
+        // authenticated owner changes even if the same group remains open.
+        if (listeningGroupId == groupId && listeningUserId == currentUserId) {
             return
         }
 
         listeningGroupId = groupId
+        listeningUserId = currentUserId
         hasRequestedOlderMessages = false
         _hasOlderMessages.value = false
         _isLoadingOlderMessages.value = false
@@ -214,6 +218,9 @@ class GroupChatViewModel : ViewModel() {
                 groupRepository
                     .observeGroup(groupId)
                     .collect { group ->
+                        if (listeningGroupId != groupId || listeningUserId != currentUserId) {
+                            return@collect
+                        }
                         _group.value = group
 
                         if (group != null) {
@@ -244,9 +251,11 @@ class GroupChatViewModel : ViewModel() {
                                                     memberId = memberId
                                                 )
                                                 .collect { timestamp ->
-                                                    _groupReadTimestamps.value =
+                                                    if (listeningGroupId == groupId && listeningUserId == currentUserId) {
+                                                        _groupReadTimestamps.value =
                                                         _groupReadTimestamps.value +
                                                                 (memberId to timestamp)
+                                                    }
                                                 }
                                         } catch (
                                             e: kotlinx.coroutines.CancellationException
@@ -328,14 +337,14 @@ class GroupChatViewModel : ViewModel() {
                         },
                     )
                     .collect { encrypted ->
-                        if (listeningGroupId == groupId) {
+                        if (listeningGroupId == groupId && listeningUserId == currentUserId) {
                             _encryptedMessages.value = encrypted
                         }
                     }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (listeningGroupId == groupId) {
+                if (listeningGroupId == groupId && listeningUserId == currentUserId) {
                     _encryptedMessages.value = emptyList()
                 }
                 Log.e(
@@ -361,6 +370,7 @@ class GroupChatViewModel : ViewModel() {
                     .collect { pending ->
                         if (
                             listeningGroupId == groupId &&
+                            listeningUserId == currentUserId &&
                             FirebaseAuth.getInstance().currentUser?.uid == currentUserId
                         ) {
                             _pendingEncryptedMessages.value = pending
@@ -372,7 +382,7 @@ class GroupChatViewModel : ViewModel() {
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (listeningGroupId == groupId) {
+                if (listeningGroupId == groupId && listeningUserId == currentUserId) {
                     _pendingEncryptedMessages.value = emptyList()
                     _pendingMessageIds.value = emptySet()
                 }
@@ -392,7 +402,7 @@ class GroupChatViewModel : ViewModel() {
                     .observeAcknowledgementChanges(currentUserId)
                     .distinctUntilChanged()
                     .collect {
-                        if (listeningGroupId != groupId ||
+                        if (listeningGroupId != groupId || listeningUserId != currentUserId ||
                             FirebaseAuth.getInstance().currentUser?.uid != currentUserId
                         ) return@collect
                         try {
@@ -424,7 +434,7 @@ class GroupChatViewModel : ViewModel() {
                 TrustedDeviceRepository(InChatApplication.instance)
                     .observeTrustChanges()
                     .collect {
-                        if (listeningGroupId != groupId ||
+                        if (listeningGroupId != groupId || listeningUserId != currentUserId ||
                             FirebaseAuth.getInstance().currentUser?.uid != currentUserId
                         ) return@collect
                         try {
@@ -458,6 +468,9 @@ class GroupChatViewModel : ViewModel() {
                     .getMessagesFlow(groupId)
                     .distinctUntilChanged()
                     .collect { messageList ->
+                        if (listeningGroupId != groupId || listeningUserId != currentUserId) {
+                            return@collect
+                        }
                         _messages.value = messageList
                         _messagesLoaded.value = true
                         if (!hasRequestedOlderMessages) {
@@ -493,7 +506,7 @@ class GroupChatViewModel : ViewModel() {
      * Every attempt revalidates the exact Megolm session, membership and device roster.
      */
     private suspend fun retryPendingOutgoingIntents(groupId: String, ownerUserId: String) {
-        if (listeningGroupId != groupId ||
+        if (listeningGroupId != groupId || listeningUserId != ownerUserId ||
             FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
         ) return
         val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId) ?: return
@@ -514,7 +527,7 @@ class GroupChatViewModel : ViewModel() {
                 .filter { it.groupId == groupId }
         }
         for (intent in pending) {
-            if (listeningGroupId != groupId ||
+            if (listeningGroupId != groupId || listeningUserId != ownerUserId ||
                 FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
             ) return
             try {
@@ -789,7 +802,7 @@ class GroupChatViewModel : ViewModel() {
                                 localCopyError,
                             )
                         }
-                        if (listeningGroupId == groupId) {
+                        if (listeningGroupId == groupId && listeningUserId == currentUserId) {
                             _replyingTo.value = null
                         }
                         // The coordinator returns only after ciphertext-only
@@ -860,6 +873,7 @@ class GroupChatViewModel : ViewModel() {
                 .onSuccess {
                     if (
                         listeningGroupId == editGroupId &&
+                        listeningUserId == currentUserId &&
                         _editingMessage.value?.id == editingMessageId
                     ) {
                         _editingMessage.value = null
@@ -867,7 +881,7 @@ class GroupChatViewModel : ViewModel() {
                     }
                 }
                 .onFailure { error ->
-                    if (listeningGroupId == editGroupId) {
+                    if (listeningGroupId == editGroupId && listeningUserId == currentUserId) {
                         onResult(
                             false,
                             error.message ?: "Could not edit message."

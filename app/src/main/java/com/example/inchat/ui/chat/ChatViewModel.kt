@@ -301,7 +301,13 @@ class ChatViewModel : ViewModel() {
     private var initializedChatId =
         ""
 
+    private var initializedChatOwnerUserId =
+        ""
+
     private var initializingChatId =
+        ""
+
+    private var initializingChatOwnerUserId =
         ""
 
     private var lastMarkedReadTimestamp =
@@ -414,9 +420,12 @@ class ChatViewModel : ViewModel() {
                 otherUserId
             )
 
+        // A conversation ID is shared by both participants. Include the
+        // authenticated owner in the listener identity so switching accounts
+        // cannot reuse the previous account's initialized chat state.
         if (
-            initializedChatId == chatId ||
-            initializingChatId == chatId
+            (initializedChatId == chatId && initializedChatOwnerUserId == currentUserId) ||
+            (initializingChatId == chatId && initializingChatOwnerUserId == currentUserId)
         ) {
             return
         }
@@ -469,7 +478,9 @@ class ChatViewModel : ViewModel() {
         }
 
         initializedChatId = ""
+        initializedChatOwnerUserId = ""
         initializingChatId = chatId
+        initializingChatOwnerUserId = currentUserId
         _chatReady.value = false
         _readyChatId.value = ""
         _chatInitializationError.value = null
@@ -540,14 +551,19 @@ class ChatViewModel : ViewModel() {
                             )
                     }
 
-                    if (initializingChatId != chatId) {
+                    if (
+                        initializingChatId != chatId ||
+                        initializingChatOwnerUserId != currentUserId
+                    ) {
                         return@launch
                     }
 
                     // The Firebase chat node now exists, so participant-only
                     // message, receipt, typing and theme reads are authorized.
                     initializedChatId = chatId
+                    initializedChatOwnerUserId = currentUserId
                     initializingChatId = ""
+                    initializingChatOwnerUserId = ""
 
                     // Preference listeners below deliver these settings asynchronously.
                     // They must not delay the chat becoming send-ready.
@@ -614,24 +630,38 @@ class ChatViewModel : ViewModel() {
                         e
                     )
 
-                    if (initializingChatId == chatId) {
+                    // A cancelled/late initialization from the previous account
+                    // must not overwrite the new account's chat-ready state.
+                    val stillOwnsInitialization =
+                        initializingChatId == chatId &&
+                            initializingChatOwnerUserId == currentUserId
+                    if (stillOwnsInitialization) {
                         initializingChatId = ""
-                    }
+                        initializingChatOwnerUserId = ""
 
-                    if (initializedChatId == chatId) {
-                        initializedChatId = ""
-                    }
+                        if (
+                            initializedChatId == chatId &&
+                            initializedChatOwnerUserId == currentUserId
+                        ) {
+                            initializedChatId = ""
+                            initializedChatOwnerUserId = ""
+                        }
 
-                    if (_readyChatId.value == chatId) {
-                        _readyChatId.value = ""
+                        if (_readyChatId.value == chatId) {
+                            _readyChatId.value = ""
+                        }
+                        _chatReady.value = false
+                        _chatInitializationError.value =
+                            e.localizedMessage ?: "Could not initialize this conversation."
+                        _messagesLoaded.value = true
                     }
-                    _chatReady.value = false
-                    _chatInitializationError.value =
-                        e.localizedMessage ?: "Could not initialize this conversation."
-                    _messagesLoaded.value = true
                 } finally {
-                    if (initializingChatId == chatId) {
+                    if (
+                        initializingChatId == chatId &&
+                        initializingChatOwnerUserId == currentUserId
+                    ) {
                         initializingChatId = ""
+                        initializingChatOwnerUserId = ""
                     }
                 }
             }
