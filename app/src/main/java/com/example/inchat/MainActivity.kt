@@ -30,6 +30,7 @@ import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
+import com.example.inchat.data.worker.EncryptedOlmInboxWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
