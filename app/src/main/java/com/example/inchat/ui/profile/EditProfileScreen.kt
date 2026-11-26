@@ -75,7 +75,7 @@ fun EditProfileScreen(
                 title = {
                     Text(
                         text = "Edit profile",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -108,33 +108,6 @@ fun EditProfileScreen(
                 .padding(top = 18.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "INCHAT / PROFILE",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = GoogleSansFlex,
-                        fontSize = 10.sp,
-                        letterSpacing = 1.15.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    text = "Make it yours",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontSize = 27.sp,
-                        lineHeight = 33.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    text = "Choose how people see you across InChat.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -154,7 +127,7 @@ fun EditProfileScreen(
                             fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 0.9.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -188,7 +161,7 @@ fun EditProfileScreen(
                             fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 0.9.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -234,7 +207,7 @@ fun EditProfileScreen(
                             fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
                             letterSpacing = 0.9.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -242,7 +215,7 @@ fun EditProfileScreen(
                     Text(
                         text = "@$username",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -316,7 +289,7 @@ fun EditProfileScreen(
                 } else {
                     Text(
                         text = "Save changes",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
