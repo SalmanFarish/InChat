@@ -30,18 +30,9 @@ import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
-import com.example.inchat.data.worker.EncryptedOlmInboxWorker
+import com.example.inchat.data.worker.EncryptedOlmForegroundInboxMonitor
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.ChildEventListener
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.DatabaseReference
-import com.google.firebase.database.FirebaseDatabase
-import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.inchat.data.repository.PresenceRepository
@@ -74,19 +65,18 @@ class MainActivity :
 
     private var isActivityStarted = false
     private var presenceUid: String? = null
-    private var encryptedInboxSetupJob: Job? = null
-    private var encryptedInboxWakeJob: Job? = null
-    private var encryptedInboxReference: DatabaseReference? = null
-    private var encryptedInboxChildListener: ChildEventListener? = null
-
     private val encryptedInboxAuthListener = FirebaseAuth.AuthStateListener { auth ->
-        restartForegroundEncryptedInboxMonitor(auth.currentUser?.uid)
+        EncryptedOlmForegroundInboxMonitor.setAccount(
+            context = applicationContext,
+            ownerUserId = auth.currentUser?.uid,
+        )
     }
 
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
         ActiveConversationTracker.setAppInForeground(true)
+        EncryptedOlmForegroundInboxMonitor.setForeground(this, true)
         FirebaseAuth.getInstance().addAuthStateListener(encryptedInboxAuthListener)
         presenceUid?.let(PresenceRepository::startPresence)
     }
@@ -94,96 +84,12 @@ class MainActivity :
     override fun onStop() {
         isActivityStarted = false
         FirebaseAuth.getInstance().removeAuthStateListener(encryptedInboxAuthListener)
-        stopForegroundEncryptedInboxMonitor()
+        EncryptedOlmForegroundInboxMonitor.setForeground(this, false)
         if (!isChangingConfigurations) {
             PresenceRepository.stopPresence()
         }
         ActiveConversationTracker.setAppInForeground(false)
         super.onStop()
-    }
-
-    /**
-     * Foreground RTDB events wake the durable encrypted inbox worker immediately.
-     * The listener never reads or decrypts payloads and never changes ACK state.
-     */
-    private fun restartForegroundEncryptedInboxMonitor(ownerUserId: String?) {
-        stopForegroundEncryptedInboxMonitor()
-        if (!isActivityStarted || ownerUserId.isNullOrBlank()) return
-
-        encryptedInboxSetupJob = lifecycleScope.launch {
-            val deviceId = try {
-                withContext(Dispatchers.IO) {
-                    if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
-                        return@withContext null
-                    }
-                    DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Log.w("InChatInboxMonitor", "Could not resolve the active encrypted inbox device.", failure)
-                null
-            } ?: return@launch
-
-            if (!isActivityStarted || FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
-                return@launch
-            }
-
-            val reference = FirebaseDatabase.getInstance().reference
-                .child("olmInbox")
-                .child(ownerUserId)
-                .child(deviceId)
-            val listener = object : ChildEventListener {
-                private fun wakeInbox() {
-                    if (!isActivityStarted || FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
-                        return
-                    }
-                    // ChildEventListener replays each existing child when it first
-                    // attaches. Coalesce that initial burst (and rapid message bursts)
-                    // into one durable inbox pass instead of queuing N empty workers.
-                    if (encryptedInboxWakeJob?.isActive == true) return
-                    encryptedInboxWakeJob = lifecycleScope.launch {
-                        delay(100L)
-                        if (isActivityStarted && FirebaseAuth.getInstance().currentUser?.uid == ownerUserId) {
-                            EncryptedOlmInboxWorker.wake(
-                                context = applicationContext,
-                                ownerUserId = ownerUserId,
-                                recipientDeviceId = deviceId,
-                            )
-                        }
-                    }
-                }
-
-                override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) = wakeInbox()
-                override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) = wakeInbox()
-                override fun onChildRemoved(snapshot: DataSnapshot) = Unit
-                override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) = Unit
-                override fun onCancelled(error: DatabaseError) {
-                    Log.w("InChatInboxMonitor", "Foreground encrypted inbox listener was cancelled: ${error.code}")
-                }
-            }
-
-            // Fence account changes both before and after the asynchronous identity lookup.
-            if (isActivityStarted && FirebaseAuth.getInstance().currentUser?.uid == ownerUserId) {
-                encryptedInboxReference = reference
-                encryptedInboxChildListener = listener
-                reference.addChildEventListener(listener)
-            }
-        }
-    }
-
-    private fun stopForegroundEncryptedInboxMonitor() {
-        encryptedInboxSetupJob?.cancel()
-        encryptedInboxSetupJob = null
-        encryptedInboxWakeJob?.cancel()
-        encryptedInboxWakeJob = null
-        val reference = encryptedInboxReference
-        val listener = encryptedInboxChildListener
-        if (reference != null && listener != null) {
-            reference.removeEventListener(listener)
-        }
-        encryptedInboxReference = null
-        encryptedInboxChildListener = null
     }
 
     override fun onCreate(

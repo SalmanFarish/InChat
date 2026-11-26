@@ -322,6 +322,11 @@ class EncryptedOlmInboxWorker(
 
         /** Schedule the startup poll and the durable, network-constrained recovery poll. */
         fun schedule(context: Context, ownerUserId: String, recipientDeviceId: String) {
+            EncryptedOlmForegroundInboxMonitor.setDeviceScope(
+                context = context,
+                ownerUserId = ownerUserId,
+                deviceId = recipientDeviceId,
+            )
             wake(context, ownerUserId, recipientDeviceId)
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmInboxWorker>(
                 PERIODIC_INTERVAL_MINUTES,
