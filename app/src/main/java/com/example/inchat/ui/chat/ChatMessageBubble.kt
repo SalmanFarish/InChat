@@ -205,7 +205,7 @@ fun SwipeableMessageBubble(
          * bubble's trailing edge. This keeps times readable and
          * prevents the bubble or time from being clipped.
          */
-        Row(
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -217,21 +217,12 @@ fun SwipeableMessageBubble(
                                 replySwipeOffsetPx
                             }
                     }
-                    .zIndex(
-                        1f
-                    ),
-            horizontalArrangement =
-                if (isMe) {
-                    Arrangement.End
-                } else {
-                    Arrangement.Start
-                },
-            verticalAlignment =
-                Alignment.Top
+                    .zIndex(1f)
         ) {
             Column(
                 modifier =
                     Modifier
+                        .align(if (isMe) Alignment.CenterEnd else Alignment.CenterStart)
                         .widthIn(max = maxBubbleWidth)
                         .animateContentSize()
             ) {
@@ -346,8 +337,8 @@ fun SwipeableMessageBubble(
 
                 Row(
                     modifier = Modifier
-                        .align(Alignment.End)
-                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp, end = 4.dp),
+                        .align(if (isMe) Alignment.End else Alignment.Start)
+                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp, horizontal = 4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
