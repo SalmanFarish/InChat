@@ -86,7 +86,7 @@ fun DaySeparator(
                     ),
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme.colorScheme.primary
