@@ -205,12 +205,16 @@ fun InChatApp(
 
     val context = LocalContext.current
 
+    var backNavigationInProgress by remember { mutableStateOf(false) }
+
     /*
      * Keep the NavHost start destination alive. A rapid second Back press
      * after leaving a conversation must exit from Home, never pop Home itself
      * and leave an empty NavHost (the black-screen failure).
      */
     fun handleBack() {
+        if (backNavigationInProgress) return
+
         val activeRoute = navController.currentDestination?.route
         if (activeRoute == "home") {
             if (
@@ -223,8 +227,12 @@ fun InChatApp(
             } else {
                 context.findActivity()?.finish()
             }
-        } else if (!navController.popBackStack()) {
-            context.findActivity()?.finish()
+        } else {
+            backNavigationInProgress = true
+            if (!navController.popBackStack()) {
+                backNavigationInProgress = false
+                context.findActivity()?.finish()
+            }
         }
     }
 
@@ -242,6 +250,7 @@ fun InChatApp(
     LaunchedEffect(
         currentRoute
     ) {
+        backNavigationInProgress = false
 
         if (
             currentRoute?.startsWith(
