@@ -40,6 +40,7 @@ import com.google.firebase.database.FirebaseDatabase
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -74,6 +75,7 @@ class MainActivity :
     private var isActivityStarted = false
     private var presenceUid: String? = null
     private var encryptedInboxSetupJob: Job? = null
+    private var encryptedInboxWakeJob: Job? = null
     private var encryptedInboxReference: DatabaseReference? = null
     private var encryptedInboxChildListener: ChildEventListener? = null
 
@@ -133,12 +135,22 @@ class MainActivity :
                 .child(deviceId)
             val listener = object : ChildEventListener {
                 private fun wakeInbox() {
-                    if (isActivityStarted && FirebaseAuth.getInstance().currentUser?.uid == ownerUserId) {
-                        EncryptedOlmInboxWorker.wake(
-                            context = applicationContext,
-                            ownerUserId = ownerUserId,
-                            recipientDeviceId = deviceId,
-                        )
+                    if (!isActivityStarted || FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
+                        return
+                    }
+                    // ChildEventListener replays each existing child when it first
+                    // attaches. Coalesce that initial burst (and rapid message bursts)
+                    // into one durable inbox pass instead of queuing N empty workers.
+                    if (encryptedInboxWakeJob?.isActive == true) return
+                    encryptedInboxWakeJob = lifecycleScope.launch {
+                        delay(100L)
+                        if (isActivityStarted && FirebaseAuth.getInstance().currentUser?.uid == ownerUserId) {
+                            EncryptedOlmInboxWorker.wake(
+                                context = applicationContext,
+                                ownerUserId = ownerUserId,
+                                recipientDeviceId = deviceId,
+                            )
+                        }
                     }
                 }
 
@@ -163,6 +175,8 @@ class MainActivity :
     private fun stopForegroundEncryptedInboxMonitor() {
         encryptedInboxSetupJob?.cancel()
         encryptedInboxSetupJob = null
+        encryptedInboxWakeJob?.cancel()
+        encryptedInboxWakeJob = null
         val reference = encryptedInboxReference
         val listener = encryptedInboxChildListener
         if (reference != null && listener != null) {
