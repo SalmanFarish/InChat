@@ -171,7 +171,7 @@ fun ChatMessageActionsDialog(
                                 "Delete this message for everyone?"
                             },
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
@@ -323,7 +323,7 @@ private fun MessageActionRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (destructive) {
                     MaterialTheme.colorScheme.error
                 } else {
@@ -376,7 +376,7 @@ private fun MessageInfoContent(
                     .weight(1f)
                     .padding(start = 7.dp),
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             )
             IconButton(
                 onClick = onDismiss,
@@ -495,7 +495,7 @@ private fun MessageInfoRow(
             Text(
                 text = value.ifBlank { "—" },
                 style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (highlighted) {
                     MaterialTheme.colorScheme.primary
                 } else {
