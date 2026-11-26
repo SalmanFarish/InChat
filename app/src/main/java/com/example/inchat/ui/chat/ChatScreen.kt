@@ -502,9 +502,6 @@ fun ChatScreen(
                 otherUserPresence =
                     otherUserPresence,
 
-                otherUserTyping =
-                    otherUserTyping,
-
                 blockState =
                     blockState,
 
@@ -665,6 +662,9 @@ fun ChatScreen(
 
                 readReceiptsEnabled =
                     readReceiptsEnabled,
+
+                isOtherUserTyping =
+                    otherUserTyping,
 
                 chatTheme =
                     chatTheme,
