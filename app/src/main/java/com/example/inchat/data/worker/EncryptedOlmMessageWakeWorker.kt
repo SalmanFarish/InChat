@@ -247,7 +247,7 @@ class EncryptedOlmMessageWakeWorker(
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
 
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
