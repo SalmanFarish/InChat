@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -276,6 +277,14 @@ fun ChatScreen(
             selectedMessageIds - message.id
         } else {
             selectedMessageIds + message.id
+        }
+    }
+
+    BackHandler {
+        if (selectedMessageIds.isNotEmpty()) {
+            selectedMessageIds = emptySet()
+        } else {
+            onBackClick()
         }
     }
 
