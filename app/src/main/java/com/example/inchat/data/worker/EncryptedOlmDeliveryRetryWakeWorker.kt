@@ -64,6 +64,7 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
             require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
             require(delayMillis >= 0L) { "Retry delay must not be negative" }
 
+            val scheduledAtSecond = (System.currentTimeMillis() + delayMillis) / 1_000L
             val request = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryRetryWakeWorker>()
                 .setInputData(
                     workDataOf(
@@ -73,6 +74,7 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
                 )
                 .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
                 .addTag(WORK_TAG)
+                .addTag(scopeTag(ownerUserId, senderDeviceId))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -81,8 +83,9 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                workName(ownerUserId, senderDeviceId),
-                ExistingWorkPolicy.REPLACE,
+                workName(ownerUserId, senderDeviceId, scheduledAtSecond),
+                // Preserve earlier wake-ups when another pass schedules a later retry.
+                ExistingWorkPolicy.KEEP,
                 request,
             )
         }
@@ -91,14 +94,17 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
             require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
             require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
             WorkManager.getInstance(context.applicationContext)
-                .cancelUniqueWork(workName(ownerUserId, senderDeviceId))
+                .cancelAllWorkByTag(scopeTag(ownerUserId, senderDeviceId))
         }
 
         fun cancelAll(context: Context) {
             WorkManager.getInstance(context.applicationContext).cancelAllWorkByTag(WORK_TAG)
         }
 
-        private fun workName(ownerUserId: String, senderDeviceId: String) =
-            "encrypted-olm-delivery-retry-$ownerUserId-$senderDeviceId"
+        internal fun workName(ownerUserId: String, senderDeviceId: String, scheduledAtSecond: Long) =
+            "encrypted-olm-delivery-retry-$ownerUserId-$senderDeviceId-$scheduledAtSecond"
+
+        private fun scopeTag(ownerUserId: String, senderDeviceId: String) =
+            "encrypted_olm_delivery_retry_${ownerUserId}_${senderDeviceId}"
     }
 }
