@@ -116,7 +116,7 @@ fun LoginScreen(
                         fontSize = 29.sp,
                         lineHeight = 35.sp
                     ),
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
@@ -248,7 +248,7 @@ fun LoginScreen(
                                     Text(
                                         text = "Forgot password?",
                                         color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
@@ -357,7 +357,7 @@ fun LoginScreen(
                                     AuthMode.Recover -> "Send reset link"
                                 },
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -453,7 +453,7 @@ fun LoginScreen(
                     Text(
                         text = "Continue with Google",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -480,7 +480,7 @@ fun LoginScreen(
                             "Already have an account? Log in"
                         },
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -556,7 +556,7 @@ private fun AuthBrandHeader() {
             text = "INCHAT",
             style = MaterialTheme.typography.titleMedium.copy(
                 fontFamily = GoogleSansFlex,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 letterSpacing = 2.2.sp
             ),
             color = MaterialTheme.colorScheme.primary
@@ -586,7 +586,7 @@ private fun AuthFieldLabel(
             fontFamily = GoogleSansFlex,
             fontSize = 9.sp,
             letterSpacing = 0.85.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
