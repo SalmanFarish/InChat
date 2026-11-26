@@ -288,46 +288,59 @@ class EncryptedOlmInboxWorker(
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
 
-        /** Schedule an immediate inbox poll and a network-constrained recovery poll. */
-        fun schedule(context: Context, ownerUserId: String, recipientDeviceId: String) {
+        /**
+         * Enqueue an immediate account/device-scoped inbox pass. Foreground RTDB
+         * events and FCM both use this same durable path, preserving the Room
+         * receipt ledger, Olm authentication, and acknowledgement ordering.
+         */
+        fun wake(context: Context, ownerUserId: String, recipientDeviceId: String) {
             require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
             require(recipientDeviceId.matches(DEVICE_ID_PATTERN)) { "Recipient device ID has an invalid format" }
 
-            val appContext = context.applicationContext
-            val data = workDataOf(
-                KEY_OWNER_USER_ID to ownerUserId,
-                KEY_RECIPIENT_DEVICE_ID to recipientDeviceId,
-            )
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-
-            val immediate = OneTimeWorkRequestBuilder<EncryptedOlmInboxWorker>()
+            val request = OneTimeWorkRequestBuilder<EncryptedOlmInboxWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setInputData(data)
+                .setInputData(
+                    workDataOf(
+                        KEY_OWNER_USER_ID to ownerUserId,
+                        KEY_RECIPIENT_DEVICE_ID to recipientDeviceId,
+                    ),
+                )
                 .addTag(WORK_TAG)
-                .setConstraints(constraints)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+                )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
+
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                immediateWorkName(ownerUserId, recipientDeviceId),
+                // Preserve a wake-up that arrives after the active worker's inbox snapshot.
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                request,
+            )
+        }
+
+        /** Schedule the startup poll and the durable, network-constrained recovery poll. */
+        fun schedule(context: Context, ownerUserId: String, recipientDeviceId: String) {
+            wake(context, ownerUserId, recipientDeviceId)
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmInboxWorker>(
                 PERIODIC_INTERVAL_MINUTES,
                 TimeUnit.MINUTES,
             )
-                .setInputData(data)
+                .setInputData(
+                    workDataOf(
+                        KEY_OWNER_USER_ID to ownerUserId,
+                        KEY_RECIPIENT_DEVICE_ID to recipientDeviceId,
+                    ),
+                )
                 .addTag(WORK_TAG)
-                .setConstraints(constraints)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+                )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
                 .build()
 
-            val workManager = WorkManager.getInstance(appContext)
-            workManager.enqueueUniqueWork(
-                immediateWorkName(ownerUserId, recipientDeviceId),
-                // A push wake-up must not be dropped when the startup/periodic
-                // inbox pass is already running. Queue this pass behind it.
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
-                immediate,
-            )
-            workManager.enqueueUniquePeriodicWork(
+            WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
                 periodicWorkName(ownerUserId, recipientDeviceId),
                 ExistingPeriodicWorkPolicy.KEEP,
                 periodic,
