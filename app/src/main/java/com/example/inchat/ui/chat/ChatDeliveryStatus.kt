@@ -1,5 +1,15 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Done
@@ -143,28 +153,59 @@ fun MessageDeliveryIndicator(
     status: MessageDeliveryStatus,
     tint: androidx.compose.ui.graphics.Color
 ) {
-    when (status) {
-        MessageDeliveryStatus.SENT -> Icon(
-            imageVector = Icons.Filled.Done,
-            contentDescription = "Sent",
-            modifier = Modifier.size(14.dp),
-            tint = tint
-        )
-        MessageDeliveryStatus.DELIVERED -> Icon(
-            imageVector = Icons.Filled.DoneAll,
-            contentDescription = "Delivered",
-            modifier = Modifier.size(14.dp),
-            tint = tint
-        )
-        MessageDeliveryStatus.SEEN_JUST_NOW,
-        MessageDeliveryStatus.SEEN -> Icon(
-            imageVector = Icons.Filled.DoneAll,
-            contentDescription = "Read",
-            modifier = Modifier.size(14.dp),
-            tint = tint
-        )
-        MessageDeliveryStatus.SENDING -> Text(text = "…", fontSize = 12.sp, color = tint, maxLines = 1)
-        MessageDeliveryStatus.WAITING_FOR_CONNECTION -> Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
-        MessageDeliveryStatus.NONE -> Unit
+    AnimatedContent(
+        targetState = status,
+        transitionSpec = {
+            (fadeIn(tween(170)) + scaleIn(initialScale = 0.72f)) togetherWith
+                fadeOut(tween(110))
+        },
+        label = "message-delivery-state"
+    ) { current ->
+        when (current) {
+            MessageDeliveryStatus.SENT -> Icon(
+                imageVector = Icons.Filled.Done,
+                contentDescription = "Sent",
+                modifier = Modifier.size(14.dp),
+                tint = tint
+            )
+            MessageDeliveryStatus.DELIVERED -> Icon(
+                imageVector = Icons.Filled.DoneAll,
+                contentDescription = "Delivered",
+                modifier = Modifier.size(14.dp),
+                tint = tint
+            )
+            MessageDeliveryStatus.SEEN_JUST_NOW,
+            MessageDeliveryStatus.SEEN -> Icon(
+                imageVector = Icons.Filled.DoneAll,
+                contentDescription = "Read",
+                modifier = Modifier.size(14.dp),
+                tint = tint
+            )
+            MessageDeliveryStatus.SENDING -> DeliveryPulse(tint)
+            MessageDeliveryStatus.WAITING_FOR_CONNECTION ->
+                Text(text = "!", fontSize = 11.sp, color = tint, maxLines = 1)
+            MessageDeliveryStatus.NONE -> Unit
+        }
     }
+}
+
+@Composable
+internal fun DeliveryPulse(tint: androidx.compose.ui.graphics.Color) {
+    val transition = rememberInfiniteTransition(label = "delivery-pulse")
+    val alpha = transition.animateFloat(
+        initialValue = 0.32f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(520),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "delivery-pulse-alpha"
+    ).value
+
+    Text(
+        text = "•••",
+        fontSize = 9.sp,
+        color = tint.copy(alpha = alpha),
+        maxLines = 1
+    )
 }
