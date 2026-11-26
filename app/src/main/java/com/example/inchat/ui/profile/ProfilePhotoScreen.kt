@@ -251,7 +251,7 @@ fun ProfilePhotoScreen(
                             screenTitle,
 
                         fontWeight =
-                            FontWeight.SemiBold,
+                            FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 },
@@ -316,7 +316,7 @@ fun ProfilePhotoScreen(
                         .headlineSmall,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 color = MaterialTheme.colorScheme.onSurface,
 
@@ -368,7 +368,7 @@ fun ProfilePhotoScreen(
                         .labelMedium,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme
