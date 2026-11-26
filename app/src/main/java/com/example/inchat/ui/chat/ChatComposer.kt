@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -669,9 +670,9 @@ internal fun ComposerSendButton(
     )
     val activeColor = MaterialTheme.colorScheme.primary
 
-    Box(
+    Surface(
         modifier = Modifier
-            .size(40.dp)
+            .size(42.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -682,19 +683,25 @@ internal fun ComposerSendButton(
                 enabled = enabled,
                 onClick = onClick
             ),
-        contentAlignment = Alignment.Center
+        shape = CircleShape,
+        color = if (enabled) {
+            activeColor.copy(alpha = 0.86f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onPrimary.copy(
+                alpha = if (enabled) 0.32f else 0.12f
+            )
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = if (enabled) 4.dp else 0.dp
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .background(
-                    color = if (enabled) {
-                        activeColor
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    shape = CircleShape
-                ),
+                .fillMaxSize()
+                .padding(1.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
