@@ -64,7 +64,7 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
             require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
             require(delayMillis >= 0L) { "Retry delay must not be negative" }
 
-            val scheduledAtSecond = (System.currentTimeMillis() + delayMillis) / 1_000L
+            val scheduledAtMillis = System.currentTimeMillis() + delayMillis
             val request = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryRetryWakeWorker>()
                 .setInputData(
                     workDataOf(
@@ -83,7 +83,7 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                workName(ownerUserId, senderDeviceId, scheduledAtSecond),
+                workName(ownerUserId, senderDeviceId, scheduledAtMillis),
                 // Preserve earlier wake-ups when another pass schedules a later retry.
                 ExistingWorkPolicy.KEEP,
                 request,
@@ -101,8 +101,8 @@ internal class EncryptedOlmDeliveryRetryWakeWorker(
             WorkManager.getInstance(context.applicationContext).cancelAllWorkByTag(WORK_TAG)
         }
 
-        internal fun workName(ownerUserId: String, senderDeviceId: String, scheduledAtSecond: Long) =
-            "encrypted-olm-delivery-retry-$ownerUserId-$senderDeviceId-$scheduledAtSecond"
+        internal fun workName(ownerUserId: String, senderDeviceId: String, scheduledAtMillis: Long) =
+            "encrypted-olm-delivery-retry-$ownerUserId-$senderDeviceId-$scheduledAtMillis"
 
         private fun scopeTag(ownerUserId: String, senderDeviceId: String) =
             "encrypted_olm_delivery_retry_${ownerUserId}_${senderDeviceId}"

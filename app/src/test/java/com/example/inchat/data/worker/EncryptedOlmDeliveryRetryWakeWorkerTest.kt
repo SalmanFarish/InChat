@@ -7,7 +7,7 @@ import org.junit.Test
 class EncryptedOlmDeliveryRetryWakeWorkerTest {
 
     @Test
-    fun retryDeadlinesHaveIndependentUniqueWorkNames() {
+    fun retryDeadlinesWithinTheSameSecondHaveIndependentUniqueWorkNames() {
         val earlier = EncryptedOlmDeliveryRetryWakeWorker.workName("alice", "device-a", 1_000L)
         val later = EncryptedOlmDeliveryRetryWakeWorker.workName("alice", "device-a", 1_030L)
 
