@@ -168,7 +168,7 @@ fun ReplyMessagePreview(
                         .labelSmall,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 maxLines =
                     1,
@@ -307,7 +307,7 @@ fun ReplyComposerPreview(
                             .labelSmall,
 
                     fontWeight =
-                        FontWeight.SemiBold,
+                        FontWeight.Medium,
 
                     maxLines =
                         1,
@@ -427,7 +427,7 @@ fun EditComposerPreview(
                         .labelSmall,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme
