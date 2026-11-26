@@ -237,7 +237,7 @@ fun DeviceTransferScreen(
                     Text(
                         "Transfer device identity",
                         fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                     )
                 },
                 navigationIcon = {
@@ -725,7 +725,7 @@ private fun ActionCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                 Text(buttonText)
@@ -752,7 +752,7 @@ private fun InfoCard(message: String) {
 
 @Composable
 private fun StepLabel(value: String) {
-    Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
 }
 
 @Composable
@@ -771,7 +771,7 @@ private fun SasPanel(code: String) {
             Text(
                 code.chunked(3).joinToString(" "),
                 fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 letterSpacing = 5.sp,
                 textAlign = TextAlign.Center,
             )
