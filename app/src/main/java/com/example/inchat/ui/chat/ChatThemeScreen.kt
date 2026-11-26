@@ -93,7 +93,7 @@ fun ChatThemeScreen(
                 title = {
                     Text(
                         text = screenTitle,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -128,7 +128,7 @@ fun ChatThemeScreen(
                 Text(
                     text = sectionTitle,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
 
                 Text(
