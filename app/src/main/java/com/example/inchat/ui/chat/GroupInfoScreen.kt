@@ -203,7 +203,7 @@ fun GroupInfoScreen(
                             Column(
                                 modifier = Modifier.weight(1f).padding(start = 10.dp)
                             ) {
-                                Text(text = "@" + user.username, fontWeight = FontWeight.SemiBold)
+                                Text(text = "@" + user.username, fontWeight = FontWeight.Medium)
                                 if (user.displayName.isNotBlank()) {
                                     Text(
                                         text = user.displayName,
@@ -406,7 +406,7 @@ fun GroupInfoScreen(
                 title = {
                     Text(
                         text = "Group info",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -538,7 +538,7 @@ private fun GroupInfoContent(
                                         fontSize = 21.sp,
                                         lineHeight = 26.sp
                                     ),
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 2
                         )
 
@@ -765,7 +765,7 @@ private fun GroupMemberRow(
                     } else {
                         username
                     },
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
 
@@ -804,7 +804,7 @@ private fun GroupMemberRow(
                             vertical = 5.dp
                         ),
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color =
                         MaterialTheme
                             .colorScheme
@@ -835,7 +835,7 @@ private fun GroupInfoSectionLabel(
             fontFamily = GoogleSansFlex,
             letterSpacing = 1.sp
         ),
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         color =
             MaterialTheme
                 .colorScheme
@@ -903,7 +903,7 @@ private fun GroupInfoActionRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
 
                 Text(
