@@ -35,12 +35,12 @@ val GoogleSansFlex = FontFamily(
     ),
     Font(
         googleFont = googleSansFlexFont,
-        weight = FontWeight.SemiBold,
+        weight = FontWeight.Medium,
         variationSettings = FontVariation.Settings(FontVariation.weight(600))
     ),
     Font(
         googleFont = googleSansFlexFont,
-        weight = FontWeight.Bold,
+        weight = FontWeight.Medium,
         variationSettings = FontVariation.Settings(FontVariation.weight(700))
     )
 )
@@ -59,7 +59,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     40.sp,
@@ -77,7 +77,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     34.sp,
@@ -95,7 +95,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     30.sp,
@@ -118,7 +118,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     28.sp,
@@ -136,7 +136,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     24.sp,
@@ -154,7 +154,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     21.sp,
@@ -177,7 +177,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     20.sp,
@@ -195,7 +195,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     17.sp,
@@ -213,7 +213,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     15.sp,
@@ -295,7 +295,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     14.sp,
@@ -313,7 +313,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Medium,
+                    FontWeight.Normal,
 
                 fontSize =
                     12.sp,
@@ -331,7 +331,7 @@ val Typography =
                     GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Medium,
+                    FontWeight.Normal,
 
                 fontSize =
                     11.sp,
