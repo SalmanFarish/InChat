@@ -197,6 +197,12 @@ internal class RoomOlmDeliveryQueueStore(
             ) == 1
         })
 
+    override fun nextScheduledRetryAtMillis(
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+    ): Long? = dao.findNextScheduledRetryAtMillis(ownerUserId, senderDeviceId, nowMillis)
+
     override fun claimNextDue(
         ownerUserId: String,
         senderDeviceId: String,

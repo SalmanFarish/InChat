@@ -143,6 +143,7 @@ class EncryptedOlmDeliveryWorker(
 
         var groupKeyRecoveryRetryRequired = false
         var directPendingRetryRequired = false
+        var groupPendingRetryRequired = false
         return try {
             val database = LocalChatDatabase.getInstance(applicationContext)
             val queue = OlmDeliveryQueue(
@@ -481,20 +482,66 @@ class EncryptedOlmDeliveryWorker(
 
             // Acknowledgement receipts are durable now. Retry waiting group
             // intents in the background even when no GroupChatViewModel exists.
-            val retriedGroupMessages = retryPendingGroupMessages(
-                database = database,
-                ownerUserId = ownerUserId,
-                senderDeviceId = senderDeviceId,
-            )
+            val retriedGroupMessages = try {
+                retryPendingGroupMessages(
+                    database = database,
+                    ownerUserId = ownerUserId,
+                    senderDeviceId = senderDeviceId,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                groupPendingRetryRequired = true
+                Log.w(TAG, "Pending encrypted group messages need another recovery pass.", error)
+                0
+            }
             if (retriedGroupMessages > 0) {
                 Log.i(TAG, "Automatically queued " + retriedGroupMessages + " pending encrypted group messages.")
             }
-            if (result.retryRequired || groupKeyRecoveryRetryRequired || directPendingRetryRequired) Result.retry() else Result.success()
+
+            // Keep batch continuation and delayed retries in separate WorkManager
+            // chains. A failed delivery's backoff must never sit in front of a
+            // newly committed local-first message in the immediate sender chain.
+            if (result.followUpRequired) {
+                scheduleAfterCurrentPass(applicationContext, ownerUserId, senderDeviceId)
+            }
+            val now = System.currentTimeMillis().coerceAtLeast(0L)
+            val queueRetryDelay = queue.nextScheduledRetryAtMillis(
+                ownerUserId = ownerUserId,
+                senderDeviceId = senderDeviceId,
+                nowMillis = now,
+            )?.let { dueAt -> (dueAt - now).coerceAtLeast(0L) }
+            val recoveryRetryRequired = groupKeyRecoveryRetryRequired ||
+                directPendingRetryRequired || groupPendingRetryRequired
+            val fallbackRetryDelay = if (recoveryRetryRequired ||
+                (result.retryRequired && queueRetryDelay == null)
+            ) DEFAULT_RETRY_DELAY_MILLIS else null
+            val retryDelay = listOfNotNull(queueRetryDelay, fallbackRetryDelay).minOrNull()
+            if (retryDelay != null) {
+                EncryptedOlmDeliveryRetryWakeWorker.schedule(
+                    context = applicationContext,
+                    ownerUserId = ownerUserId,
+                    senderDeviceId = senderDeviceId,
+                    delayMillis = retryDelay,
+                )
+            }
+            Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            Log.w(TAG, "Encrypted relay delivery will be retried.", error)
-            Result.retry()
+            Log.w(TAG, "Encrypted relay delivery will be scheduled for recovery.", error)
+            try {
+                EncryptedOlmDeliveryRetryWakeWorker.schedule(
+                    context = applicationContext,
+                    ownerUserId = ownerUserId,
+                    senderDeviceId = senderDeviceId,
+                    delayMillis = DEFAULT_RETRY_DELAY_MILLIS,
+                )
+                Result.success()
+            } catch (scheduleError: Exception) {
+                Log.w(TAG, "Could not schedule encrypted relay recovery; WorkManager will retry this pass.", scheduleError)
+                Result.retry()
+            }
         }
     }
 
@@ -721,6 +768,7 @@ class EncryptedOlmDeliveryWorker(
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_SENDER_DEVICE_ID = "sender_device_id"
         private const val PERIODIC_INTERVAL_MINUTES = 15L
+        private const val DEFAULT_RETRY_DELAY_MILLIS = 30_000L
         private const val WORK_TAG = "encrypted_olm_delivery"
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
@@ -742,13 +790,7 @@ class EncryptedOlmDeliveryWorker(
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            val immediate = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setInputData(data)
-                .addTag(WORK_TAG)
-                .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
-                .build()
+            scheduleImmediate(appContext, ownerUserId, senderDeviceId)
 
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmDeliveryWorker>(
                 PERIODIC_INTERVAL_MINUTES,
@@ -761,17 +803,35 @@ class EncryptedOlmDeliveryWorker(
                 .build()
 
             val workManager = WorkManager.getInstance(appContext)
-            // A new outbox row may commit while a delivery pass is already running.
-            // Queue a follow-up pass so its final empty snapshot cannot lose this wake-up.
-            workManager.enqueueUniqueWork(
-                immediateWorkName(ownerUserId, senderDeviceId),
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
-                immediate,
-            )
             workManager.enqueueUniquePeriodicWork(
                 periodicWorkName(ownerUserId, senderDeviceId),
                 ExistingPeriodicWorkPolicy.KEEP,
                 periodic,
+            )
+        }
+
+        /** Schedule an immediate sender pass independently of delayed retry wake-ups. */
+        fun scheduleImmediate(context: Context, ownerUserId: String, senderDeviceId: String) {
+            require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
+            require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
+            val request = OneTimeWorkRequestBuilder<EncryptedOlmDeliveryWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInputData(
+                    workDataOf(
+                        KEY_OWNER_USER_ID to ownerUserId,
+                        KEY_SENDER_DEVICE_ID to senderDeviceId,
+                    ),
+                )
+                .addTag(WORK_TAG)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+                )
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                immediateWorkName(ownerUserId, senderDeviceId),
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                request,
             )
         }
 
@@ -832,11 +892,13 @@ class EncryptedOlmDeliveryWorker(
             val workManager = WorkManager.getInstance(context.applicationContext)
             workManager.cancelUniqueWork(immediateWorkName(ownerUserId, senderDeviceId))
             workManager.cancelUniqueWork(periodicWorkName(ownerUserId, senderDeviceId))
+            EncryptedOlmDeliveryRetryWakeWorker.cancel(context, ownerUserId, senderDeviceId)
         }
 
         /** Cancel only encrypted delivery jobs when the Firebase auth scope changes. */
         fun cancelAll(context: Context) {
             WorkManager.getInstance(context.applicationContext).cancelAllWorkByTag(WORK_TAG)
+            EncryptedOlmDeliveryRetryWakeWorker.cancelAll(context)
         }
 
         private fun immediateWorkName(ownerUserId: String, senderDeviceId: String): String =

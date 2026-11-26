@@ -816,6 +816,42 @@ class RoomOlmDeliveryQueueStoreTest {
         }
     }
 
+    @Test
+    fun nextScheduledRetryUsesTheEarliestScopedQueuedRetryOrInFlightLease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-next-retry-time-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(db, db.olmDeliveryQueueDao()),
+                leaseDurationMillis = 100L,
+            )
+            queue.enqueue("alice", "sender-device", "retry-time-uploaded", listOf(prepared("phone-uploaded")))
+            queue.enqueue("alice", "sender-device", "retry-time-queued", listOf(prepared("phone-queued")))
+            queue.enqueue("alice", "sender-device", "retry-time-inflight", listOf(prepared("phone-inflight")))
+
+            repeat(3) {
+                val claim = queue.claimNext("alice", "sender-device", 1_000L)!!
+                when (claim.messageId) {
+                    "retry-time-uploaded" -> assertTrue(queue.markUploaded(claim, 1_000L))
+                    "retry-time-queued" -> assertTrue(queue.retry(claim, 1_000L, "temporary_failure"))
+                    "retry-time-inflight" -> Unit
+                    else -> throw AssertionError("Unexpected claimed row: " + claim.messageId)
+                }
+            }
+
+            assertEquals(1_100L, queue.nextScheduledRetryAtMillis("alice", "sender-device", 1_000L))
+            assertEquals(3_000L, queue.nextScheduledRetryAtMillis("alice", "sender-device", 1_100L))
+            assertNull(queue.nextScheduledRetryAtMillis("alice", "sender-device", 3_000L))
+            assertNull(queue.nextScheduledRetryAtMillis("alice", "another-device", 1_000L))
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun prepared(deviceId: String, senderDeviceId: String = "sender-device"): PreparedOlmDelivery {
         val envelope = JSONObject()
             .put("encryptionVersion", 1)

@@ -10,6 +10,7 @@ internal data class OlmDeliveryWorkerRunResult(
     val acknowledged: Int,
     val unmatchedAcknowledgements: Int,
     val retryRequired: Boolean,
+    val followUpRequired: Boolean = false,
     val notificationDispatchFailures: Int = 0,
 )
 
@@ -52,8 +53,9 @@ internal class OlmDeliveryWorkerRunner(
 
         var uploaded = 0
         var retryRequired = false
+        var followUpRequired = false
         var notificationDispatchFailures = 0
-        repeat(maxDeliveriesPerRun) {
+        repeat(maxDeliveriesPerRun) { batchIndex ->
             val delivery = withContext(ioDispatcher) {
                 queue.claimNext(senderUserId, senderDeviceId, clock().coerceAtLeast(0L))
             } ?: return OlmDeliveryWorkerRunResult(
@@ -63,6 +65,11 @@ internal class OlmDeliveryWorkerRunner(
                 retryRequired = retryRequired,
                 notificationDispatchFailures = notificationDispatchFailures,
             )
+
+            if (batchIndex == maxDeliveriesPerRun - 1) {
+                // Continue draining full batches without placing the sender chain in retry backoff.
+                followUpRequired = true
+            }
 
             try {
                 // A committed Megolm fan-out is bound to the exact membership
@@ -199,7 +206,8 @@ internal class OlmDeliveryWorkerRunner(
             uploaded = uploaded,
             acknowledged = acknowledgements.removed,
             unmatchedAcknowledgements = acknowledgements.unmatched,
-            retryRequired = retryRequired || uploaded > 0,
+            retryRequired = retryRequired,
+            followUpRequired = followUpRequired,
             notificationDispatchFailures = notificationDispatchFailures,
         )
     }

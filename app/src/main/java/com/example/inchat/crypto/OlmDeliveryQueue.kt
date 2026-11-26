@@ -129,6 +129,9 @@ internal interface OlmDeliveryQueueStore {
      */
     fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
+    /** Earliest future QUEUED retry or IN_FLIGHT lease expiry for this sender scope. */
+    fun nextScheduledRetryAtMillis(ownerUserId: String, senderDeviceId: String, nowMillis: Long): Long? = null
+
     /** Explicitly requeue a terminal row without changing its immutable ciphertext identity. */
     fun retryFailed(
         deliveryId: String,
@@ -288,6 +291,14 @@ internal class OlmDeliveryQueue(
     /** Remove an exactly matched row after its remote acknowledgement has been deleted. */
     fun removeAcknowledgedDelivery(acknowledgement: OlmDeliveryAcknowledgement): Boolean =
         store.removeAcknowledgedDelivery(acknowledgement)
+
+    /** Earliest future retry/lease time; uploaded ACK polling remains on the periodic safety worker. */
+    fun nextScheduledRetryAtMillis(ownerUserId: String, senderDeviceId: String, nowMillis: Long): Long? {
+        require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
+        require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
+        require(nowMillis >= 0L) { "nowMillis must not be negative" }
+        return store.nextScheduledRetryAtMillis(ownerUserId, senderDeviceId, nowMillis)
+    }
 
     /** Claim one due row. The caller must send the returned ciphertext envelope. */
     fun claimNext(ownerUserId: String, senderDeviceId: String, nowMillis: Long): QueuedOlmDeviceDelivery? {

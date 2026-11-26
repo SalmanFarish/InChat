@@ -159,6 +159,18 @@ interface OlmDeliveryQueueDao {
     ): Flow<List<OlmMessageDeliveryStatusState>>
 
     @Query(
+        "SELECT MIN(CASE WHEN status = 'IN_FLIGHT' THEN leaseUntilMillis ELSE nextAttemptAtMillis END) " +
+            "FROM olm_device_deliveries WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND status IN ('QUEUED', 'IN_FLIGHT') " +
+            "AND (CASE WHEN status = 'IN_FLIGHT' THEN leaseUntilMillis ELSE nextAttemptAtMillis END) > :nowMillis"
+    )
+    fun findNextScheduledRetryAtMillis(
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+    ): Long?
+
+    @Query(
         "SELECT * FROM olm_device_deliveries " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId AND " +
             "((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) " +

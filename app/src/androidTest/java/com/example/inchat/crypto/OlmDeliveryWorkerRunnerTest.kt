@@ -473,7 +473,8 @@ class OlmDeliveryWorkerRunnerTest {
         ).run()
 
         assertEquals(2, firstPass.uploaded)
-        assertTrue(firstPass.retryRequired)
+        assertFalse(firstPass.retryRequired)
+        assertTrue(firstPass.followUpRequired)
         assertEquals(
             listOf("read-acks", "upload:batch-first", "upload:batch-second"),
             firstPassEvents,
@@ -497,6 +498,7 @@ class OlmDeliveryWorkerRunnerTest {
 
         assertEquals(1, secondPass.uploaded)
         assertFalse(secondPass.retryRequired)
+        assertFalse(secondPass.followUpRequired)
         assertEquals(
             listOf("read-acks", "upload:batch-third"),
             secondPassEvents,
