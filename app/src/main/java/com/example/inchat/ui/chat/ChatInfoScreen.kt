@@ -259,7 +259,7 @@ fun ChatInfoScreen(
                 title = {
                     Text(
                         text = "Chat info",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -291,39 +291,6 @@ fun ChatInfoScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 2.dp)
-                ) {
-                    Text(
-                        text = "INCHAT / CONVERSATION",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = GoogleSansFlex,
-                            fontSize = 10.sp,
-                            letterSpacing = 1.1.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "Details and controls",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = 23.sp,
-                            lineHeight = 29.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Manage this conversation and its shared appearance.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
             item {
                 ChatInfoProfileCard(
                     nickname = otherUserNickname,
@@ -469,7 +436,7 @@ private fun ChatInfoProfileCard(
                         fontSize = 17.sp,
                         lineHeight = 22.sp
                     ),
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -511,7 +478,7 @@ private fun ChatInfoSectionLabel(text: String) {
             fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -585,7 +552,7 @@ private fun ChatInfoActionRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
@@ -653,7 +620,7 @@ private fun ChatInfoPlaceholderRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(3.dp))
