@@ -859,12 +859,14 @@ private fun GroupInfoActionRow(
                     vertical = 4.dp
                 )
                 .clickableForGroupInfo(onClick),
-        shape = RoundedCornerShape(17.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
         border = BorderStroke(
             width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)
+        ),
+        shadowElevation = 2.dp,
+        tonalElevation = 0.dp
     ) {
         Row(
             modifier =
@@ -878,7 +880,11 @@ private fun GroupInfoActionRow(
         ) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                border = BorderStroke(
+                    width = 0.7.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                )
             ) {
                 Box(
                     modifier = Modifier.size(40.dp),
