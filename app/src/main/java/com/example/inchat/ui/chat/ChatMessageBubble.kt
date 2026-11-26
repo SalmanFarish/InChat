@@ -338,7 +338,8 @@ fun SwipeableMessageBubble(
                 Row(
                     modifier = Modifier
                         .align(if (isMe) Alignment.End else Alignment.Start)
-                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp, horizontal = 4.dp),
+                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp)
+                        .padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
