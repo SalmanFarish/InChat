@@ -35,7 +35,7 @@ fun GroupAvatar(
                 text = initial,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontFamily = GoogleSansFlex,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 fontSize = fontSize,
                 maxLines = 1
             )
