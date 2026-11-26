@@ -336,6 +336,7 @@ class OlmOutboundDeliveryCoordinatorTest {
 
         override suspend fun prepareFirstMessage(
             payload: OlmAuthenticatedMessagePayload,
+            remoteDevice: PublicDeviceKeyBundle,
         ): PreparedOlmDelivery {
             payloads += payload
             if (payload.recipientDeviceId == failOnDeviceId) {
