@@ -5,9 +5,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
@@ -194,6 +200,12 @@ fun InChatApp(
         )
     }
 
+    // Selection mode is owned by the navigation host so it can coordinate
+    // the Home inbox actions with the app-level bottom navigation dock.
+    var isHomeSelectionMode by remember {
+        mutableStateOf(false)
+    }
+
     val backStackEntry by
     navController
         .currentBackStackEntryAsState()
@@ -251,6 +263,9 @@ fun InChatApp(
         currentRoute
     ) {
         backNavigationInProgress = false
+        if (currentRoute != "home") {
+            isHomeSelectionMode = false
+        }
 
         if (
             currentRoute?.startsWith(
@@ -347,24 +362,22 @@ fun InChatApp(
             ),
 
         bottomBar = {
-
-            if (
-                showBottomBar
+            AnimatedVisibility(
+                visible = showBottomBar && !isHomeSelectionMode,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
+                ) + fadeIn(animationSpec = tween(160)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
+                ) + fadeOut(animationSpec = tween(130))
             ) {
-
                 InChatBottomBar(
-
-                    pagerState =
-                        pagerState,
-
+                    pagerState = pagerState,
                     onPageSelected = { page ->
-
                         navigationScope.launch {
-
-                            pagerState
-                                .animateScrollToPage(
-                                    page
-                                )
+                            pagerState.animateScrollToPage(page)
                         }
                     }
                 )
@@ -426,7 +439,14 @@ fun InChatApp(
                         navController,
 
                     searchFocusRequest =
-                        searchFocusRequest
+                        searchFocusRequest,
+
+                    homeSelectionMode =
+                        isHomeSelectionMode,
+
+                    onHomeSelectionModeChange = { enabled ->
+                        isHomeSelectionMode = enabled
+                    }
                 )
             }
 
@@ -1150,7 +1170,13 @@ private fun MainTabPager(
         NavHostController,
 
     searchFocusRequest:
-        Int
+        Int,
+
+    homeSelectionMode:
+        Boolean,
+
+    onHomeSelectionModeChange:
+        (Boolean) -> Unit
 ) {
 
     val searchViewModel:
@@ -1165,8 +1191,10 @@ private fun MainTabPager(
         modifier =
             Modifier.fillMaxSize(),
 
+        // Selection mode is a focused inbox task; prevent tab swipes while
+        // its navigation dock is intentionally collapsed.
         userScrollEnabled =
-            true,
+            !homeSelectionMode,
 
         beyondViewportPageCount =
             1,
@@ -1223,12 +1251,11 @@ private fun MainTabPager(
                     },
 
                     onCreateGroupClick = {
-
-                        navController.navigate(
-                            "create_group"
-                        )
+                        navController.navigate("create_group")
                     },
 
+                    homeSelectionMode = homeSelectionMode,
+                    onSelectionModeChange = onHomeSelectionModeChange
                 )
             }
 
