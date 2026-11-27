@@ -3601,7 +3601,7 @@ mod tests {
         let bob_identity = bob.curve25519_key();
         let bob_identity_key = bob_identity.to_base64();
         let bob_one_time_key = *bob.one_time_keys().values().next().expect("Bob prekey exists");
-        let mut alice_session = alice
+        let alice_session = alice
             .create_outbound_session(SessionConfig::version_1(), bob_identity, bob_one_time_key)
             .expect("Alice creates an outbound session");
         let session_id = alice_session.session_id();
@@ -3635,7 +3635,7 @@ mod tests {
             OlmMessage::Normal(_) => panic!("the first message must be a prekey message"),
         };
         bob.mark_keys_as_published();
-        let inbound = bob
+        let mut inbound = bob
             .create_inbound_session(SessionConfig::version_1(), unestablished.account.curve25519_key(), &pre_key)
             .expect("Bob establishes the matching inbound session");
         let reply = inbound.session.encrypt("reply").expect("Bob reply encrypts");
