@@ -273,9 +273,19 @@ class EncryptedOlmInboxWorker(
                     ", rejected=" + handoffResult.rejected +
                     ", failures=" + handoffResult.failed,
             )
-            // Retry promptly when native/Room handoff failed. Trust-deferred and
-            // missing-device receipts remain durable and are revisited by the next
-            // wake-up or periodic pass without keeping this work request in retry.
+            // Each pass is bounded to 50 receipts. If untouched rows remain in
+            // Room, enqueue a follow-up now instead of waiting for another push or
+            // the 15-minute fallback poll. Attempt timestamps stop failed/deferred
+            // rows from creating an endless continuation loop.
+            if (database.olmInboundReceiptDao().hasUnattemptedReceipts(ownerUserId)) {
+                EncryptedOlmInboxWorker.wake(
+                    context = applicationContext,
+                    ownerUserId = ownerUserId,
+                    recipientDeviceId = recipientDeviceId,
+                )
+                Log.i(TAG, "Queued another encrypted inbox pass for untouched durable receipts.")
+            }
+            // Native/Room handoff failures retain the existing bounded retry policy.
             if (handoffResult.failed > 0) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

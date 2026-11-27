@@ -21,6 +21,10 @@ interface OlmInboundReceiptDao {
     @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'WAITING_FOR_DEVICE' ORDER BY CASE WHEN lastAttemptAtMillis IS NULL THEN 0 ELSE 1 END ASC, lastAttemptAtMillis ASC, receivedAtMillis ASC, receiptId ASC LIMIT :limit")
     fun getWaitingForDevice(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
+    /** True only while this account still has new rows that have never been attempted. */
+    @Query("SELECT EXISTS(SELECT 1 FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PENDING' AND lastAttemptAtMillis IS NULL) OR EXISTS(SELECT 1 FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'WAITING_FOR_DEVICE' AND lastAttemptAtMillis IS NULL)")
+    fun hasUnattemptedReceipts(recipientUserId: String): Boolean
+
     @Query("UPDATE olm_inbound_receipts SET lastAttemptAtMillis = :attemptedAtMillis WHERE receiptId = :receiptId AND status IN ('PENDING', 'WAITING_FOR_DEVICE')")
     fun markAttempted(receiptId: String, attemptedAtMillis: Long): Int
 

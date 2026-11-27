@@ -354,6 +354,17 @@ class OlmPendingReceiptProcessorConcurrencyTest {
                 .take(limit)
 
         @Synchronized
+        override fun hasUnattemptedReceipts(recipientUserId: String): Boolean =
+            rows.values.any {
+                it.recipientUserId == recipientUserId &&
+                    it.status in setOf(
+                        OlmInboundReceiptStatus.PENDING.name,
+                        OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name,
+                    ) &&
+                    it.lastAttemptAtMillis == null
+            }
+
+        @Synchronized
         override fun markAttempted(receiptId: String, attemptedAtMillis: Long): Int {
             val row = rows[receiptId] ?: return 0
             if (row.status != OlmInboundReceiptStatus.PENDING.name &&

@@ -621,6 +621,65 @@ class OlmPendingReceiptProcessorTest {
         }
     }
 
+
+    @Test
+    fun unattemptedReceiptQueryTracksOnlyUntouchedPendingAndDeferredRows() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-unattempted-test.db"
+        context.deleteDatabase(databaseName)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
+
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register(
+                    "alice",
+                    "unattempted-one",
+                    envelope("sender-device", "recipient-device", 1),
+                    10L,
+                ),
+            )
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register(
+                    "alice",
+                    "unattempted-two",
+                    envelope("sender-device", "recipient-device", 1),
+                    20L,
+                ),
+            )
+            assertTrue(dao.hasUnattemptedReceipts("recipient"))
+
+            val firstId = receiptId("alice", "sender-device", "unattempted-one", "recipient-device")
+            val secondId = receiptId("alice", "sender-device", "unattempted-two", "recipient-device")
+            assertEquals(1, dao.markAttempted(firstId, 100L))
+            assertTrue(dao.hasUnattemptedReceipts("recipient"))
+
+            assertEquals(1, dao.markWaitingForDevice(secondId))
+            assertEquals(1, dao.markAttempted(secondId, 101L))
+            assertEquals(false, dao.hasUnattemptedReceipts("recipient"))
+
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register(
+                    "alice",
+                    "unattempted-three",
+                    envelope("sender-device", "recipient-device", 1),
+                    30L,
+                ),
+            )
+            assertTrue(dao.hasUnattemptedReceipts("recipient"))
+            assertEquals(false, dao.hasUnattemptedReceipts("another-account"))
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     @Test
     fun processedReceiptRetriesNativeFinalizationWithoutRepeatingHandoff() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
