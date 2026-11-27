@@ -80,6 +80,7 @@ fun GroupChatComposer(
     }
 
     Surface(
+        shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
@@ -158,7 +159,7 @@ fun GroupChatComposer(
                                 vertical = 13.dp
                             ),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = androidx.compose.ui.graphics.Color.White
                         ),
                         cursorBrush = SolidColor(
                             MaterialTheme.colorScheme.primary
