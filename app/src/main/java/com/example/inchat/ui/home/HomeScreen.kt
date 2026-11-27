@@ -8,8 +8,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -991,17 +989,22 @@ private fun HomeInboxFilterChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         filters.forEach { filter ->
             val selected = selectedFilter == filter
+            val interactionSource = remember(filter) { MutableInteractionSource() }
+
             Surface(
                 modifier = Modifier
                     .height(32.dp)
-                    .clickable { onFilterSelected(filter) },
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null
+                    ) { onFilterSelected(filter) },
                 shape = CircleShape,
                 color = if (selected) {
                     MaterialTheme.colorScheme.primaryContainer
