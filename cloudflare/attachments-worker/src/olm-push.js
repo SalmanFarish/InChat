@@ -12,6 +12,10 @@ const CHAT_PATTERN = /^[A-Za-z0-9_-]{3,257}$/;
 const MAX_CIPHERTEXT_BYTES = 1024 * 1024;
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024;
 const PUSH_LEASE_MILLIS = 30_000;
+// Re-dispatch still-unacknowledged deliveries on later sender recovery passes.
+// The sender retries uploaded rows every 15 minutes; this cooldown avoids push storms
+// while preventing one FCM acceptance from suppressing all future wake-ups forever.
+const PUSH_REDISPATCH_INTERVAL_MILLIS = 10 * 60 * 1000;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -237,11 +241,16 @@ async function claimPushDispatch(
   const existing = isRecord(snapshot.value) ? snapshot.value : null;
 
   if (existing?.status === "sent") {
-    return {
-      alreadyProcessed: true,
-      notificationSent: existing.status === "sent",
-      status: existing.status,
-    };
+    const sentAt = Number(existing.sentAt);
+    // Legacy receipts without a trustworthy timestamp remain suppressed.
+    if (!Number.isSafeInteger(sentAt) || sentAt <= 0 || now - sentAt < PUSH_REDISPATCH_INTERVAL_MILLIS) {
+      return {
+        alreadyProcessed: true,
+        notificationSent: true,
+        status: existing.status,
+      };
+    }
+    // The durable mailbox ACK check above still blocks pushes after staging.
   }
 
   if (
@@ -284,6 +293,7 @@ async function finishPushDispatch(
   claimId,
   status,
   fetchImpl,
+  now,
 ) {
   const snapshot = await readWithEtag(env, adminToken, path, fetchImpl);
   const current = snapshot.value;
@@ -300,7 +310,7 @@ async function finishPushDispatch(
       notificationSent: status === "sent",
       leaseUntil: 0,
       updatedAt: { ".sv": "timestamp" },
-      ...(status === "sent" ? { sentAt: { ".sv": "timestamp" } } : {}),
+      ...(status === "sent" ? { sentAt: now } : {}),
     },
     fetchImpl,
   );
@@ -588,6 +598,7 @@ export async function processEncryptedOlmPush({
       claim.claimId,
       "failed",
       fetchImpl,
+      now,
     );
     if (!completed) {
       return result(503, {
@@ -630,6 +641,7 @@ export async function processEncryptedOlmPush({
     claim.claimId,
     finalStatus,
     fetchImpl,
+    now,
   );
   if (!completed) {
     return result(503, {
@@ -868,6 +880,7 @@ export async function processEncryptedOlmAcknowledgementPush({
       claim.claimId,
       "failed",
       fetchImpl,
+      now,
     );
     if (!completed) {
       return result(503, {
@@ -909,6 +922,7 @@ export async function processEncryptedOlmAcknowledgementPush({
     claim.claimId,
     finalStatus,
     fetchImpl,
+    now,
   );
   if (!completed) {
     return result(503, {

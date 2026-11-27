@@ -385,6 +385,33 @@ test("an exact retry does not send a second FCM wake-up", async () => {
   assert.equal(state.sentMessages.length, 1);
 });
 
+
+test("re-dispatches a still-unacknowledged delivery after the push cooldown", async () => {
+  const state = fixture();
+  const first = await state.dispatch(baseRequest, "alice", 1_000_000);
+  const withinCooldown = await state.dispatch(
+    baseRequest,
+    "alice",
+    1_000_000 + 10 * 60 * 1000 - 1,
+  );
+  const afterCooldown = await state.dispatch(
+    baseRequest,
+    "alice",
+    1_000_000 + 10 * 60 * 1000,
+  );
+
+  assert.equal(first.payload.notificationSent, true);
+  assert.equal(withinCooldown.payload.alreadyProcessed, true);
+  assert.equal(afterCooldown.payload.notificationSent, true);
+  assert.equal(state.sentMessages.length, 2);
+  const receipt = state.database.get(
+    "olmPushDispatch/bob/bob-device/" + deliveryId,
+  );
+  assert.equal(receipt.status, "sent");
+  assert.equal(receipt.attempt, 2);
+  assert.equal(receipt.sentAt, 1_000_000 + 10 * 60 * 1000);
+});
+
 test("does not steal an unexpired push-dispatch lease", async () => {
   const state = fixture({
     existingReceipt: {
