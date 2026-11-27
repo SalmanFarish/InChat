@@ -1045,26 +1045,34 @@ private fun BulkSelectionBar(
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // Keep the actions visually grouped as a floating control rather than
+    // turning the bottom edge of the inbox into a full-width navigation bar.
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 3.dp,
+        shadowElevation = 16.dp,
         border = BorderStroke(
-            width = 0.75.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.76f)
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.82f)
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = 7.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(
                 onClick = onToggleHidden,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
             ) {
                 Icon(
                     imageVector = if (hideLabel == "Show") {
@@ -1083,7 +1091,7 @@ private fun BulkSelectionBar(
                 onClick = onToggleFavorite,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
             ) {
                 Icon(
                     imageVector = if (favoriteLabel == "Unfavorite") {
@@ -1102,7 +1110,7 @@ private fun BulkSelectionBar(
                 onClick = onDelete,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
@@ -1122,11 +1130,6 @@ private fun BulkSelectionBar(
     }
 }
 
-/*
- * ============================================================
- * SEARCH BAR
- * ============================================================
- */
 @Composable
 private fun HomeSearchBar(
     query: String,
