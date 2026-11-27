@@ -29,30 +29,32 @@ internal class OlmDeliveryAckProcessor(
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
         val semaphore = Semaphore(MAX_CONCURRENT_ACKNOWLEDGEMENTS)
 
-        suspend fun reconcile(acknowledgement: OlmDeliveryAcknowledgement): AckOutcome = try {
-            if (acknowledgement.senderUserId != senderUserId ||
-                acknowledgement.senderDeviceId != senderDeviceId ||
-                !queue.hasMatchingDelivery(acknowledgement)
-            ) {
-                return AckOutcome(unmatched = true)
+        suspend fun reconcile(acknowledgement: OlmDeliveryAcknowledgement): AckOutcome {
+            return try {
+                if (acknowledgement.senderUserId != senderUserId ||
+                    acknowledgement.senderDeviceId != senderDeviceId ||
+                    !queue.hasMatchingDelivery(acknowledgement)
+                ) {
+                    AckOutcome(unmatched = true)
+                } else {
+                    // This delivery's sequence remains strict even though independent
+                    // acknowledgements can progress concurrently:
+                    // remote ACK delete -> durable Room receipt -> exact outbox row delete.
+                    transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
+                    recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
+                    if (queue.removeAcknowledgedDelivery(acknowledgement)) {
+                        AckOutcome(removed = true)
+                    } else {
+                        // Another exact reconciliation may have completed first (for
+                        // example, a duplicate ACK in the same relay snapshot).
+                        AckOutcome(unmatched = true)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AckOutcome(failure = failure)
             }
-
-            // This delivery's sequence remains strict even though independent
-            // acknowledgements can progress concurrently:
-            // remote ACK delete -> durable Room receipt -> exact outbox row delete.
-            transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
-            recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
-            if (queue.removeAcknowledgedDelivery(acknowledgement)) {
-                AckOutcome(removed = true)
-            } else {
-                // Another exact reconciliation may have completed first (for
-                // example, a duplicate ACK in the same relay snapshot).
-                AckOutcome(unmatched = true)
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            AckOutcome(failure = failure)
         }
 
         // Each recipient-device ACK is independent. A slow relay delete for one
