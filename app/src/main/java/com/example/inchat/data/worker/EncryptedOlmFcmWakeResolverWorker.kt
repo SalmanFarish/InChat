@@ -25,6 +25,47 @@ internal enum class EncryptedOlmFcmWakeKind(val value: String) {
     }
 }
 
+internal enum class EncryptedOlmFcmWakeAuthDecision { RESOLVED, WAIT_FOR_AUTH, RETIRE }
+
+internal data class EncryptedOlmFcmWakeAuthResolution(
+    val decision: EncryptedOlmFcmWakeAuthDecision,
+    val ownerUserId: String? = null,
+)
+
+/** Resolves cold-start account scope only from the restored Firebase session. */
+internal fun resolveEncryptedOlmFcmWakeOwner(
+    scheduledOwnerUserId: String?,
+    authenticatedUserId: String?,
+    resolveOwnerFromAuthenticatedSession: Boolean,
+): EncryptedOlmFcmWakeAuthResolution {
+    val idPattern = Regex("[A-Za-z0-9_-]{1,128}")
+    if (resolveOwnerFromAuthenticatedSession) {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH)
+        }
+        if (!authenticatedUserId.matches(idPattern)) {
+            return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.RETIRE)
+        }
+        return EncryptedOlmFcmWakeAuthResolution(
+            EncryptedOlmFcmWakeAuthDecision.RESOLVED,
+            authenticatedUserId,
+        )
+    }
+    if (scheduledOwnerUserId?.matches(idPattern) != true) {
+        return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.RETIRE)
+    }
+    if (authenticatedUserId.isNullOrBlank()) {
+        return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH)
+    }
+    if (authenticatedUserId != scheduledOwnerUserId) {
+        return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.RETIRE)
+    }
+    return EncryptedOlmFcmWakeAuthResolution(
+        EncryptedOlmFcmWakeAuthDecision.RESOLVED,
+        scheduledOwnerUserId,
+    )
+}
+
 /** Validate the account/device fence after a resolver has read local identity state. */
 internal fun isValidEncryptedOlmFcmWakeScope(
     ownerUserId: String,
@@ -61,11 +102,14 @@ internal class EncryptedOlmFcmWakeResolverWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        val ownerUserId = inputData.getString(KEY_OWNER_USER_ID).orEmpty()
+        val scheduledOwnerUserId = inputData.getString(KEY_OWNER_USER_ID)
+        val resolveOwnerFromAuth = inputData.getBoolean(KEY_RESOLVE_OWNER_FROM_AUTH, false)
         val wakeKind = EncryptedOlmFcmWakeKind.from(inputData.getString(KEY_WAKE_KIND).orEmpty())
         val expectedSenderDeviceId = inputData.getString(KEY_EXPECTED_DEVICE_ID)
 
-        if (!ownerUserId.matches(USER_ID_PATTERN) || wakeKind == null ||
+        if ((!resolveOwnerFromAuth && scheduledOwnerUserId?.matches(USER_ID_PATTERN) != true) ||
+            (resolveOwnerFromAuth && !scheduledOwnerUserId.isNullOrBlank()) ||
+            wakeKind == null ||
             (wakeKind == EncryptedOlmFcmWakeKind.INBOX && expectedSenderDeviceId != null) ||
             (wakeKind == EncryptedOlmFcmWakeKind.ACKNOWLEDGEMENT &&
                 expectedSenderDeviceId?.matches(DEVICE_ID_PATTERN) != true)
@@ -74,14 +118,21 @@ internal class EncryptedOlmFcmWakeResolverWorker(
             return Result.failure()
         }
 
-        val authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid
-        if (authenticatedUserId.isNullOrBlank()) {
-            Log.i(TAG, "Deferring encrypted FCM wake resolution until Firebase auth is restored.")
-            return Result.retry()
-        }
-        if (authenticatedUserId != ownerUserId) {
-            Log.i(TAG, "Retiring encrypted FCM wake after the signed-in account changed.")
-            return Result.success()
+        val authResolution = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = scheduledOwnerUserId,
+            authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid,
+            resolveOwnerFromAuthenticatedSession = resolveOwnerFromAuth,
+        )
+        val ownerUserId = when (authResolution.decision) {
+            EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH -> {
+                Log.i(TAG, "Keeping encrypted FCM wake durable until Firebase auth is restored.")
+                return Result.retry()
+            }
+            EncryptedOlmFcmWakeAuthDecision.RETIRE -> {
+                Log.i(TAG, "Retiring encrypted FCM wake because its account scope is no longer valid.")
+                return Result.success()
+            }
+            EncryptedOlmFcmWakeAuthDecision.RESOLVED -> requireNotNull(authResolution.ownerUserId)
         }
 
         val deviceLookup: kotlin.Result<String?> = try {
@@ -128,6 +179,7 @@ internal class EncryptedOlmFcmWakeResolverWorker(
                     context = applicationContext,
                     ownerUserId = ownerUserId,
                     recipientDeviceId = localDeviceId,
+                    wakeReceivedAtMillis = inputData.getLong(KEY_WAKE_RECEIVED_AT, 0L).takeIf { it > 0L },
                 )
                 EncryptedOlmFcmWakeKind.ACKNOWLEDGEMENT ->
                     EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
@@ -150,12 +202,22 @@ internal class EncryptedOlmFcmWakeResolverWorker(
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_WAKE_KIND = "wake_kind"
         private const val KEY_EXPECTED_DEVICE_ID = "expected_sender_device_id"
+        private const val KEY_RESOLVE_OWNER_FROM_AUTH = "resolve_owner_from_auth"
+        private const val KEY_WAKE_RECEIVED_AT = "wake_received_at_millis"
         private const val WORK_TAG = "encrypted_olm_fcm_wake_resolver"
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
 
-        fun scheduleInbox(context: Context, ownerUserId: String) {
-            enqueue(context, ownerUserId, EncryptedOlmFcmWakeKind.INBOX, null)
+        fun scheduleInbox(
+            context: Context,
+            ownerUserId: String,
+            wakeReceivedAtMillis: Long? = null,
+        ) {
+            enqueue(context, ownerUserId, EncryptedOlmFcmWakeKind.INBOX, null, wakeReceivedAtMillis)
+        }
+
+        fun scheduleInboxAfterAuth(context: Context, wakeReceivedAtMillis: Long? = null) {
+            enqueueAfterAuth(context, EncryptedOlmFcmWakeKind.INBOX, null, wakeReceivedAtMillis)
         }
 
         fun scheduleAcknowledgement(
@@ -167,13 +229,46 @@ internal class EncryptedOlmFcmWakeResolverWorker(
             enqueue(context, ownerUserId, EncryptedOlmFcmWakeKind.ACKNOWLEDGEMENT, expectedSenderDeviceId)
         }
 
+        fun scheduleAcknowledgementAfterAuth(
+            context: Context,
+            expectedSenderDeviceId: String,
+            wakeReceivedAtMillis: Long? = null,
+        ) {
+            require(expectedSenderDeviceId.matches(DEVICE_ID_PATTERN))
+            enqueueAfterAuth(context, EncryptedOlmFcmWakeKind.ACKNOWLEDGEMENT, expectedSenderDeviceId, wakeReceivedAtMillis)
+        }
+
         private fun enqueue(
             context: Context,
             ownerUserId: String,
             wakeKind: EncryptedOlmFcmWakeKind,
             expectedSenderDeviceId: String?,
+            wakeReceivedAtMillis: Long? = null,
         ) {
             require(ownerUserId.matches(USER_ID_PATTERN))
+            enqueueRequest(context, ownerUserId, wakeKind, expectedSenderDeviceId, false, wakeReceivedAtMillis,
+                ExistingWorkPolicy.APPEND_OR_REPLACE)
+        }
+
+        private fun enqueueAfterAuth(
+            context: Context,
+            wakeKind: EncryptedOlmFcmWakeKind,
+            expectedSenderDeviceId: String?,
+            wakeReceivedAtMillis: Long?,
+        ) {
+            enqueueRequest(context, null, wakeKind, expectedSenderDeviceId, true, wakeReceivedAtMillis,
+                ExistingWorkPolicy.KEEP)
+        }
+
+        private fun enqueueRequest(
+            context: Context,
+            ownerUserId: String?,
+            wakeKind: EncryptedOlmFcmWakeKind,
+            expectedSenderDeviceId: String?,
+            resolveOwnerFromAuth: Boolean,
+            wakeReceivedAtMillis: Long?,
+            policy: ExistingWorkPolicy,
+        ) {
             val request = OneTimeWorkRequestBuilder<EncryptedOlmFcmWakeResolverWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(
@@ -181,21 +276,25 @@ internal class EncryptedOlmFcmWakeResolverWorker(
                         KEY_OWNER_USER_ID to ownerUserId,
                         KEY_WAKE_KIND to wakeKind.value,
                         KEY_EXPECTED_DEVICE_ID to expectedSenderDeviceId,
+                        KEY_RESOLVE_OWNER_FROM_AUTH to resolveOwnerFromAuth,
+                        KEY_WAKE_RECEIVED_AT to (wakeReceivedAtMillis ?: 0L),
                     ),
                 )
                 .addTag(WORK_TAG)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                workName(ownerUserId, wakeKind),
-                // A repeated push arriving while resolution is active must leave
-                // another reconciliation behind it; inbox work itself coalesces.
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                workName(ownerUserId, wakeKind, expectedSenderDeviceId),
+                policy,
                 request,
             )
         }
 
-        private fun workName(ownerUserId: String, wakeKind: EncryptedOlmFcmWakeKind) =
-            "encrypted-olm-fcm-wake-$ownerUserId-${wakeKind.value}"
+        private fun workName(
+            ownerUserId: String?,
+            wakeKind: EncryptedOlmFcmWakeKind,
+            expectedSenderDeviceId: String?,
+        ) = ownerUserId?.let { "encrypted-olm-fcm-wake-" + it + "-" + wakeKind.value }
+            ?: ("encrypted-olm-fcm-wake-auth-" + wakeKind.value + "-" + (expectedSenderDeviceId ?: "inbox"))
     }
 }
