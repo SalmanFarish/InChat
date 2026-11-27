@@ -34,7 +34,7 @@ import com.example.inchat.crypto.SasVerificationMessageEntity
 
 @Database(
     entities = [CachedMessageEntity::class, OlmDeviceDeliveryEntity::class, OlmDeliveryReceiptEntity::class, OlmInboundReceiptEntity::class, SasVerificationMessageEntity::class, EncryptedOlmMessageEntity::class, EncryptedGroupMessageEntity::class, EncryptedGroupMessageReceiptEntity::class, EncryptedGroupPendingMessageEntity::class, OlmGroupKeyDistributionEntity::class, EncryptedGroupOutgoingCommitEntity::class, EncryptedDirectOutgoingCommitEntity::class, EncryptedDirectPendingMessageEntity::class],
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 abstract class LocalChatDatabase : RoomDatabase() {
@@ -627,13 +627,24 @@ abstract class LocalChatDatabase : RoomDatabase() {
             }
         }
 
+        /** Failed inbound receipts rotate behind untouched ciphertext so later dependencies are not starved. */
+        internal val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE olm_inbound_receipts ADD COLUMN lastAttemptAtMillis INTEGER")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_olm_inbound_receipts_status_lastAttemptAtMillis_receivedAtMillis " +
+                        "ON olm_inbound_receipts(status, lastAttemptAtMillis, receivedAtMillis)",
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LocalChatDatabase? = null
 
         fun getInstance(context: Context): LocalChatDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext, LocalChatDatabase::class.java, "inchat-local.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
                     .build().also { INSTANCE = it }
             }
     }

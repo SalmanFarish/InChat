@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["recipientUserId", "senderUserId", "senderDeviceId", "messageId", "recipientDeviceId"], unique = true),
         Index(value = ["status", "receivedAtMillis"]),
+        Index(value = ["status", "lastAttemptAtMillis", "receivedAtMillis"]),
     ],
 )
 data class OlmInboundReceiptEntity(
@@ -25,6 +26,8 @@ data class OlmInboundReceiptEntity(
     val status: String,
     val receivedAtMillis: Long,
     val processedAtMillis: Long?,
+    /** Latest failed processing attempt; null means never attempted. */
+    val lastAttemptAtMillis: Long? = null,
 )
 
 /** FINALIZED means Room commit and native staged-plaintext cleanup both completed. */

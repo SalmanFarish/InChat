@@ -52,6 +52,7 @@ internal class OlmPendingReceiptProcessor(
     private val authenticatedLocalUserId: () -> String?,
     private val expectedLocalUserId: String? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun processPending(limit: Int = DEFAULT_BATCH_LIMIT): OlmPendingReceiptProcessingResult =
         withContext(ioDispatcher) {
@@ -217,8 +218,15 @@ internal class OlmPendingReceiptProcessor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
-                        // Keep the immutable receipt recoverable. Transient crypto,
-                        // Keystore, Room, and mapping errors are retried on a later pass.
+                        // Keep immutable ciphertext recoverable, but rotate failed rows
+                        // behind receipts that have not yet been attempted. Otherwise a
+                        // permanently blocked first batch can starve a later key receipt.
+                        if (authenticatedLocalUserId() == localUserId) {
+                            receiptDao.markRetryAttempted(
+                                receiptId = receipt.receiptId,
+                                attemptedAtMillis = clock().coerceAtLeast(0L),
+                            )
+                        }
                         failed++
                     }
                 }

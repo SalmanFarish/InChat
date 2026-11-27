@@ -184,6 +184,81 @@ class OlmPendingReceiptProcessorTest {
     }
 
     @Test
+    fun failedFirstBatchRotatesBehindUntouchedReceiptsOnNextPass() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-fair-retry-${UUID.randomUUID()}.db"
+        context.deleteDatabase(databaseName)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
+            val trustedDevice = device("sender-device", "sender-identity")
+            repeat(51) { index ->
+                val messageId = if (index == 50) "later-key-receipt" else "blocked-message-$index"
+                assertEquals(
+                    OlmInboundRegistration.NEW,
+                    ledger.register(
+                        "alice",
+                        messageId,
+                        envelope("sender-device", "recipient-device", 1),
+                        100L + index,
+                    ),
+                )
+            }
+
+            var handoffCalls = 0
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = { listOf(trustedDevice) },
+                trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                    userId == "alice" &&
+                        deviceId == trustedDevice.deviceId &&
+                        identityKey == trustedDevice.ed25519IdentityKey
+                },
+                handoff = OlmInboundReceiptHandoff { receiptId, _, _, _, _ ->
+                    handoffCalls++
+                    val messageId = requireNotNull(dao.getByReceiptId(receiptId)).messageId
+                    if (messageId != "later-key-receipt") {
+                        error("Simulated missing Megolm dependency")
+                    }
+                    assertEquals(1, dao.markProcessed(receiptId, 20_000L))
+                    assertEquals(1, dao.markFinalized(receiptId))
+                    OlmInboundHandoffResult.COMMITTED
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
+                    dao.markFinalized(receiptId) == 1
+                },
+                authenticatedLocalUserId = { "recipient" },
+                clock = { 10_000L },
+            )
+
+            val firstPass = processor.processPending(limit = 50)
+            assertEquals(50, firstPass.pendingScanned)
+            assertEquals(50, firstPass.failed)
+            assertEquals(50, handoffCalls)
+
+            // The untouched receipt must rotate ahead of the 50 failed attempts.
+            val secondPass = processor.processPending(limit = 50)
+            assertEquals(1, secondPass.pendingScanned)
+            assertEquals(1, secondPass.committed)
+            assertEquals(0, secondPass.failed)
+            assertEquals(51, handoffCalls)
+            assertEquals(
+                OlmInboundReceiptStatus.FINALIZED.name,
+                dao.getByReceiptId(
+                    receiptId("alice", "sender-device", "later-key-receipt", "recipient-device"),
+                )?.status,
+            )
+            assertEquals(50, dao.getPending("recipient", 100).size)
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun wireTypeClassifierRejectsUnknownAndTruncatedMessages() {
         assertEquals(
             OlmInboundCiphertextKind.PRE_KEY,
