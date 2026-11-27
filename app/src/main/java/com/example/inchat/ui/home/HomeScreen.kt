@@ -3,6 +3,7 @@ package com.example.inchat.ui.home
 import com.example.inchat.ui.components.CompactSearchField
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -64,6 +65,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -810,17 +813,31 @@ private fun HomeHeader(
                 onClick = onNewChatClick,
                 modifier = Modifier.size(42.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "New chat",
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.onPrimary
-                )
+                val plusColor = MaterialTheme.colorScheme.onPrimary
+                Canvas(modifier = Modifier.size(18.dp)) {
+                    val arm = 6.5.dp.toPx()
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val stroke = 2.dp.toPx()
+                    drawLine(
+                        color = plusColor,
+                        start = Offset(centerX - arm, centerY),
+                        end = Offset(centerX + arm, centerY),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = plusColor,
+                        start = Offset(centerX, centerY - arm),
+                        end = Offset(centerX, centerY + arm),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
     }
 }
-
 /*
  * ============================================================
  * SEARCH BAR
@@ -974,7 +991,7 @@ private fun HomeInboxFilterChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -990,15 +1007,7 @@ private fun HomeInboxFilterChips(
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                },
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.48f)
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
-                    }
-                )
+                }
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 13.dp),
