@@ -43,6 +43,8 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -308,51 +310,18 @@ fun HomeScreen(
      * ACTION MESSAGE
      * =========================================================
      */
-    if (
-        actionMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                actionMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "InChat"
-                )
-            },
-
-            text = {
-
-                Text(
-                    actionMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        actionMessage =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "OK"
-                    )
-                }
-            }
+    actionMessage?.let { message ->
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
-
     /*
      * =========================================================
      * HOME
