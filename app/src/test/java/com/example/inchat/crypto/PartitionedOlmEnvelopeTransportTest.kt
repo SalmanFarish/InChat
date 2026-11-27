@@ -202,17 +202,20 @@ class PartitionedOlmEnvelopeTransportTest {
 
     @Test
     fun enabledRelaysReadInboxAndAcknowledgementsConcurrently() = runBlocking {
+        // Each pair must share one gate: it releases only after both relay calls start.
+        val inboxReadGate = concurrentReadGate()
+        val ackReadGate = concurrentReadGate()
         val firebase = RecordingRelay(
             inbox = listOf(directInbox("firebase-inbox")),
             acks = listOf(deliveryAck("firebase-ack")),
-            beforeInboxRead = concurrentReadGate(),
-            beforeAckRead = concurrentReadGate(),
+            beforeInboxRead = inboxReadGate,
+            beforeAckRead = ackReadGate,
         )
         val cloudflare = RecordingRelay(
             inbox = listOf(directInbox("cloudflare-inbox")),
             acks = listOf(deliveryAck("cloudflare-ack")),
-            beforeInboxRead = concurrentReadGate(),
-            beforeAckRead = concurrentReadGate(),
+            beforeInboxRead = inboxReadGate,
+            beforeAckRead = ackReadGate,
         )
         val transport = PartitionedOlmEnvelopeTransport(
             firebase = firebase,
