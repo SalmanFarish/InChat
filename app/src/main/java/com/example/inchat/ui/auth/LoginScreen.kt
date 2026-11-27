@@ -1,5 +1,7 @@
 package com.example.inchat.ui.auth
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -151,6 +153,7 @@ fun LoginScreen(
                     verticalArrangement = Arrangement.spacedBy(13.dp)
                 ) {
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = emailInput,
                         onValueChange = {
                             emailInput = it
@@ -167,6 +170,7 @@ fun LoginScreen(
 
                     if (mode == AuthMode.Register) {
                         OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                             value = usernameInput,
                             onValueChange = {
                                 usernameInput = it
@@ -181,6 +185,7 @@ fun LoginScreen(
 
                     if (mode != AuthMode.Recover) {
                         OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                             value = passwordInput,
                             onValueChange = {
                                 passwordInput = it
