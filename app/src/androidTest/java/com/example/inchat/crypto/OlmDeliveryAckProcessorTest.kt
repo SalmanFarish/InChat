@@ -231,6 +231,54 @@ class OlmDeliveryAckProcessorTest {
     }
 
     @Test
+    fun largeAcknowledgementSnapshotUsesFixedConcurrencyAndReconcilesEveryItem() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        repeat(24) { index ->
+            queue.enqueue("alice", "sender-device", "bounded-ack-$index", listOf(prepared()))
+        }
+        val rows = store.rows.values.toList()
+        assertEquals(24, rows.size)
+
+        val activeDeletes = AtomicInteger()
+        val peakDeletes = AtomicInteger()
+        val completedDeletes = AtomicInteger()
+        val transport = FakeAckTransport(
+            acknowledgements = rows.map { it.toAcknowledgement() },
+            beforeRemoval = {
+                val active = activeDeletes.incrementAndGet()
+                peakDeletes.updateAndGet { previous -> maxOf(previous, active) }
+                try {
+                    // Keep each remote delete suspended long enough for all
+                    // available workers to become active together.
+                    yield()
+                    completedDeletes.incrementAndGet()
+                } finally {
+                    activeDeletes.decrementAndGet()
+                }
+            },
+        )
+
+        val result = withTimeout(5_000L) {
+            OlmDeliveryAckProcessor(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ -> },
+            ).processPending()
+        }
+
+        assertEquals(24, result.removed)
+        assertEquals(0, result.unmatched)
+        assertEquals(8, peakDeletes.get())
+        assertEquals(24, completedDeletes.get())
+        assertEquals(24, transport.removedDeliveryIds.size)
+        assertTrue(store.rows.isEmpty())
+        assertFalse(transport.hasPendingAcknowledgements())
+    }
+
+    @Test
     fun mismatchedAcknowledgementDoesNotDeleteRemoteAckOrLocalRow() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)

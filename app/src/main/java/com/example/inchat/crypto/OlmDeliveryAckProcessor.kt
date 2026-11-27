@@ -1,13 +1,11 @@
 package com.example.inchat.crypto
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Applies sender-side relay acknowledgements only after matching the exact
@@ -27,8 +25,6 @@ internal class OlmDeliveryAckProcessor(
 ) {
     suspend fun processPending(): OlmDeliveryAckProcessingResult = PROCESSOR_MUTEX.withLock {
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
-        val semaphore = Semaphore(MAX_CONCURRENT_ACKNOWLEDGEMENTS)
-
         suspend fun reconcile(acknowledgement: OlmDeliveryAcknowledgement): AckOutcome {
             return try {
                 if (acknowledgement.senderUserId != senderUserId ||
@@ -57,21 +53,32 @@ internal class OlmDeliveryAckProcessor(
             }
         }
 
-        // Each recipient-device ACK is independent. A slow relay delete for one
-        // item must not hold up unrelated receipts in the same bounded snapshot.
-        // Keep the fan-out small for low-memory phones and relay rate limits.
-        val outcomes = coroutineScope {
-            acknowledgements.map { acknowledgement ->
-                async {
-                    semaphore.withPermit { reconcile(acknowledgement) }
+        // Use a fixed worker pool rather than creating one coroutine per ACK.
+        // The atomic cursor lets each worker claim the next independent item as
+        // soon as its current network/Room work completes, without an unbounded
+        // number of suspended jobs on devices with a large relay mailbox.
+        val outcomes = arrayOfNulls<AckOutcome>(acknowledgements.size)
+        val nextIndex = AtomicInteger()
+        val workerCount = minOf(MAX_CONCURRENT_ACKNOWLEDGEMENTS, acknowledgements.size)
+        coroutineScope {
+            repeat(workerCount) {
+                launch {
+                    while (true) {
+                        val index = nextIndex.getAndIncrement()
+                        if (index >= acknowledgements.size) break
+                        outcomes[index] = reconcile(acknowledgements[index])
+                    }
                 }
-            }.awaitAll()
+            }
         }
 
         var removed = 0
         var unmatched = 0
         var firstFailure: Exception? = null
-        for (outcome in outcomes) {
+        for (outcomeOrNull in outcomes) {
+            val outcome = checkNotNull(outcomeOrNull) {
+                "ACK worker pool completed without reconciling every snapshot item"
+            }
             if (outcome.removed) removed++
             if (outcome.unmatched) unmatched++
             if (firstFailure == null) firstFailure = outcome.failure
