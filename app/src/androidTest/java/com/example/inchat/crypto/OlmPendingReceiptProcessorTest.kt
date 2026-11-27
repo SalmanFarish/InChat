@@ -259,6 +259,92 @@ class OlmPendingReceiptProcessorTest {
     }
 
     @Test
+    fun oneSendersDirectoryFailureDoesNotAbortOtherReceiptsInTheBatch() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-directory-fairness-${UUID.randomUUID()}.db"
+        context.deleteDatabase(databaseName)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val aliceLedger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
+            val bobLedger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
+            val bobDevice = device("bob-device", "bob-identity")
+            repeat(50) { index ->
+                assertEquals(
+                    OlmInboundRegistration.NEW,
+                    aliceLedger.register(
+                        "alice",
+                        "directory-blocked-$index",
+                        envelope("alice-device", "recipient-device", 1),
+                        100L + index,
+                    ),
+                )
+            }
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                bobLedger.register(
+                    "bob",
+                    "later-bob-key",
+                    envelope("bob-device", "recipient-device", 1),
+                    1_000L,
+                ),
+            )
+
+            var aliceDirectoryReads = 0
+            var bobHandoffs = 0
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = { userId ->
+                    if (userId == "alice") {
+                        aliceDirectoryReads++
+                        error("Simulated temporary Alice device-directory outage")
+                    }
+                    listOf(bobDevice)
+                },
+                trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                    userId == "bob" &&
+                        deviceId == bobDevice.deviceId &&
+                        identityKey == bobDevice.ed25519IdentityKey
+                },
+                handoff = OlmInboundReceiptHandoff { receiptId, _, _, _, _ ->
+                    bobHandoffs++
+                    assertEquals("later-bob-key", dao.getByReceiptId(receiptId)?.messageId)
+                    assertEquals(1, dao.markProcessed(receiptId, 20_000L))
+                    assertEquals(1, dao.markFinalized(receiptId))
+                    OlmInboundHandoffResult.COMMITTED
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
+                    dao.markFinalized(receiptId) == 1
+                },
+                authenticatedLocalUserId = { "recipient" },
+                clock = { 10_000L },
+            )
+
+            val firstPass = processor.processPending(limit = 50)
+            assertEquals(50, firstPass.pendingScanned)
+            assertEquals(50, firstPass.failed)
+            assertEquals(1, aliceDirectoryReads)
+            assertEquals(0, bobHandoffs)
+
+            val secondPass = processor.processPending(limit = 50)
+            assertEquals(1, secondPass.pendingScanned)
+            assertEquals(1, secondPass.committed)
+            assertEquals(1, bobHandoffs)
+            assertEquals(
+                OlmInboundReceiptStatus.FINALIZED.name,
+                dao.getByReceiptId(
+                    receiptId("bob", "bob-device", "later-bob-key", "recipient-device"),
+                )?.status,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun wireTypeClassifierRejectsUnknownAndTruncatedMessages() {
         assertEquals(
             OlmInboundCiphertextKind.PRE_KEY,

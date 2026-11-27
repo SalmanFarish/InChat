@@ -116,13 +116,22 @@ internal class OlmPendingReceiptProcessor(
                 pendingScanned = pendingReceipts.size
                 deferredScanned = deferredReceipts.size
                 val deviceDirectoryCache = mutableMapOf<String, List<PublicDeviceKeyBundle>>()
+                val failedDeviceDirectoryLookups = mutableSetOf<String>()
 
                 suspend fun resolveDevices(senderUserId: String): List<PublicDeviceKeyBundle> {
                     val cached = deviceDirectoryCache[senderUserId]
                     if (cached != null) return cached
-                    val loaded = remoteDevicesForUser(senderUserId)
-                    deviceDirectoryCache[senderUserId] = loaded
-                    return loaded
+                    check(senderUserId !in failedDeviceDirectoryLookups) {
+                        "Sender device directory lookup already failed during this pass"
+                    }
+                    return try {
+                        remoteDevicesForUser(senderUserId).also { deviceDirectoryCache[senderUserId] = it }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        failedDeviceDirectoryLookups += senderUserId
+                        throw error
+                    }
                 }
 
                 suspend fun processReceipt(
@@ -158,9 +167,23 @@ internal class OlmPendingReceiptProcessor(
                         return
                     }
 
-                    // Let directory/network failures escape to WorkManager so the whole
-                    // pass can retry. Missing entries are a normal deferred condition.
-                    val devices = resolveDevices(receipt.senderUserId)
+                    // A directory outage for one sender must not abort this entire
+                    // bounded batch and starve receipts from other senders. Cache the
+                    // failure for this pass, rotate the affected receipt, and continue.
+                    val devices = try {
+                        resolveDevices(receipt.senderUserId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        if (authenticatedLocalUserId() == localUserId) {
+                            receiptDao.markRetryAttempted(
+                                receiptId = receipt.receiptId,
+                                attemptedAtMillis = clock().coerceAtLeast(0L),
+                            )
+                        }
+                        failed++
+                        return
+                    }
                     // Directory resolution can suspend while Firebase auth changes.
                     // Do not mutate even deferred-receipt state under a stale account scope.
                     if (authenticatedLocalUserId() != localUserId) return
