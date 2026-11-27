@@ -10,7 +10,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -995,22 +994,30 @@ private fun HomeInboxFilterChips(
     ) {
         filters.forEach { filter ->
             val selected = selectedFilter == filter
-            val interactionSource = remember(filter) { MutableInteractionSource() }
+            val chipBackground by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                },
+                label = "inboxFilterBackground"
+            )
+            val chipContent by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                label = "inboxFilterContent"
+            )
 
             Surface(
                 modifier = Modifier
                     .height(32.dp)
                     .clip(CircleShape)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null
-                    ) { onFilterSelected(filter) },
+                    .clickable { onFilterSelected(filter) },
                 shape = CircleShape,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                }
+                color = chipBackground
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 13.dp),
@@ -1018,11 +1025,7 @@ private fun HomeInboxFilterChips(
                 ) {
                     Text(
                         text = filter,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = chipContent,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Normal
                     )
