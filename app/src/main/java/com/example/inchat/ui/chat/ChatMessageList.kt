@@ -109,41 +109,6 @@ fun ChatMessageList(
             .collect { showScrollToLatest = it }
     }
 
-    // Keep the typing bubble visible at the live edge. Adding a lazy-list item
-    // does not itself scroll the list, so follow it only when the reader was
-    // already at the bottom; never pull someone away from older messages.
-    LaunchedEffect(listState, messagesLoaded) {
-        var wasAtBottom = false
-        var previousTypingState = false
-
-        snapshotFlow {
-            val layoutInfo = listState.layoutInfo
-            Triple(
-                isOtherUserTyping,
-                layoutInfo.totalItemsCount,
-                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            )
-        }.collect { (typing, totalItems, lastVisibleIndex) ->
-            val typingJustStarted = typing && !previousTypingState
-            if (typingJustStarted && wasAtBottom && messagesLoaded) {
-                withFrameNanos { }
-                val latestIndex = listState.layoutInfo.totalItemsCount - 1
-                if (latestIndex >= 0) {
-                    listState.scrollToItem(latestIndex)
-                }
-            }
-
-            if (typingJustStarted && wasAtBottom) {
-                // Preserve the pre-insertion live-edge state until the
-                // post-scroll layout reports the typing row as visible.
-                wasAtBottom = true
-            } else {
-                wasAtBottom = totalItems > 0 && lastVisibleIndex >= totalItems - 1
-            }
-            previousTypingState = typing
-        }
-    }
-
     val density = LocalDensity.current
 
     // Read IME insets during composition; coroutine effects use this snapshot.
@@ -281,9 +246,11 @@ fun ChatMessageList(
             !initialMessagesPositioned
         ) {
 
-            listState.scrollToItem(
-                targetIndex
-            )
+            withFrameNanos { }
+            val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+            if (latestItemIndex >= 0) {
+                listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+            }
 
             keepBottomDuringIme = true
 
@@ -384,9 +351,18 @@ fun ChatMessageList(
             if (newOwnMessage || imeVisible) {
                 // Avoid competing animations while the keyboard is moving
                 // or when the user sends a message and the IME is dismissed.
-                listState.scrollToItem(targetIndex)
+                withFrameNanos { }
+                val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+                if (latestItemIndex >= 0) {
+                    listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+                }
             } else {
-                listState.animateScrollToItem(targetIndex)
+                val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+                if (latestItemIndex >= 0) {
+                    listState.animateScrollToItem(latestItemIndex)
+                    withFrameNanos { }
+                    listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+                }
             }
         }
 
@@ -574,7 +550,7 @@ fun ChatMessageList(
                     contentPadding =
                         PaddingValues(
                             top = 14.dp,
-                            bottom = 14.dp
+                            bottom = if (isOtherUserTyping && !messagingBlocked) 64.dp else 14.dp
                         )
                 ) {
 
@@ -972,20 +948,23 @@ fun ChatMessageList(
                         }
                     }
 
-                    if (isOtherUserTyping && messagesLoaded && !messagingBlocked) {
-                        item(key = "typing_indicator", contentType = "typing_indicator") {
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn(animationSpec = tween(180)) +
-                                    scaleIn(initialScale = 0.92f) +
-                                    slideInVertically(
-                                        animationSpec = tween(240),
-                                        initialOffsetY = { it / 3 }
-                                    )
-                            ) {
-                                TypingIndicator(chatTheme = chatTheme)
-                            }
-                        }
+                }
+
+                if (isOtherUserTyping && messagesLoaded && !messagingBlocked) {
+                    AnimatedVisibility(
+                        visible = true,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 12.dp, bottom = 10.dp),
+                        enter = fadeIn(animationSpec = tween(180)) +
+                            scaleIn(initialScale = 0.92f) +
+                            slideInVertically(
+                                animationSpec = tween(240),
+                                initialOffsetY = { it / 3 }
+                            ),
+                        exit = fadeOut(animationSpec = tween(120))
+                    ) {
+                        TypingIndicator(chatTheme = chatTheme)
                     }
                 }
 
