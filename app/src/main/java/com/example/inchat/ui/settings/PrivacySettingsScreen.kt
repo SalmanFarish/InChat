@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -551,53 +553,18 @@ fun PrivacySettingsScreen(
         }
     }
 
-    if (
-        errorMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                errorMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "Privacy"
-                )
-            },
-
-            text = {
-
-                Text(
-                    errorMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                androidx.compose
-                    .material3
-                    .TextButton(
-
-                        onClick = {
-
-                            errorMessage =
-                                null
-                        }
-                    ) {
-
-                        Text(
-                            "OK"
-                        )
-                    }
-            }
+    errorMessage?.let { message ->
+        InChatActionDialog(
+            title = "Privacy",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { errorMessage = null },
+            onDismiss = { errorMessage = null }
         )
-    }
-}
+    }}
 
 @Composable
 private fun PrivacyIntro() {
