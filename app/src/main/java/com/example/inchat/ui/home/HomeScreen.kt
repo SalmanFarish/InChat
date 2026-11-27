@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,11 +91,13 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     onConversationClick: (Conversation) -> Unit,
+    onNewMessageClick: () -> Unit,
     onCreateGroupClick: () -> Unit
 ) {
 
@@ -152,6 +157,10 @@ fun HomeScreen(
     var searchQuery by
     rememberSaveable {
         mutableStateOf("")
+    }
+
+    var showNewChatOptions by rememberSaveable {
+        mutableStateOf(false)
     }
 
     var selectedConversation by remember {
@@ -345,7 +354,7 @@ fun HomeScreen(
                     )
         ) {
 
-            HomeHeader(onCreateGroupClick = onCreateGroupClick)
+            HomeHeader(onNewChatClick = { showNewChatOptions = true })
 
             HomeSearchBar(
 
@@ -382,8 +391,7 @@ fun HomeScreen(
             ) {
 
                 EmptyConversationState(
-                    onCreateGroupClick =
-                        onCreateGroupClick
+                    onNewChatClick = { showNewChatOptions = true }
                 )
 
             } else if (
@@ -580,6 +588,128 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showNewChatOptions) {
+        NewChatOptionsSheet(
+            onDismiss = { showNewChatOptions = false },
+            onNewMessage = {
+                showNewChatOptions = false
+                onNewMessageClick()
+            },
+            onNewGroup = {
+                showNewChatOptions = false
+                onCreateGroupClick()
+            }
+        )
+    }
+}
+
+/*
+ * ============================================================
+ * NEW CHAT OPTIONS
+ * ============================================================*/
+@Composable
+private fun NewChatOptionsSheet(
+    onDismiss: () -> Unit,
+    onNewMessage: () -> Unit,
+    onNewGroup: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "New chat",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Choose how you want to start a conversation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            NewChatOptionRow(
+                icon = Icons.Default.Person,
+                title = "New message",
+                subtitle = "Start a private conversation",
+                onClick = onNewMessage
+            )
+            NewChatOptionRow(
+                icon = Icons.Default.GroupAdd,
+                title = "New group",
+                subtitle = "Create a chat with multiple people",
+                onClick = onNewGroup
+            )
+        }
+    }
+}
+
+@Composable
+private fun NewChatOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
+        border = BorderStroke(
+            width = 0.75.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 13.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 /*
@@ -589,7 +719,7 @@ fun HomeScreen(
  */
 @Composable
 private fun HomeHeader(
-    onCreateGroupClick: () -> Unit
+    onNewChatClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -607,19 +737,25 @@ private fun HomeHeader(
             modifier = Modifier.weight(1f)
         )
 
-        IconButton(
-            onClick = onCreateGroupClick,
-            modifier = Modifier
-                .size(43.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-        ) {
-            Icon(
-                imageVector = Icons.Default.GroupAdd,
-                contentDescription = "Create group",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onPrimary
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                width = 0.85.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
             )
+        ) {
+            IconButton(
+                onClick = onNewChatClick,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "New chat",
+                    modifier = Modifier.size(25.dp),
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
@@ -906,7 +1042,7 @@ private fun HomeConversationLoadingState() {
  */
 @Composable
 private fun EmptyConversationState(
-    onCreateGroupClick: () -> Unit
+    onNewChatClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -962,7 +1098,7 @@ private fun EmptyConversationState(
         Spacer(Modifier.height(20.dp))
 
         OutlinedButton(
-            onClick = onCreateGroupClick,
+            onClick = onNewChatClick,
             shape = RoundedCornerShape(14.dp),
             border = BorderStroke(
                 width = 1.dp,
@@ -974,7 +1110,7 @@ private fun EmptyConversationState(
             )
         ) {
             Icon(
-                imageVector = Icons.Default.GroupAdd,
+                imageVector = Icons.Default.Add,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -982,7 +1118,7 @@ private fun EmptyConversationState(
             Spacer(Modifier.width(8.dp))
 
             Text(
-                text = "Create a group",
+                text = "Start a conversation",
                 color = MaterialTheme.colorScheme.primary
             )
         }
