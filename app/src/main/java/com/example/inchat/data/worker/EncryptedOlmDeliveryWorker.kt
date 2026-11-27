@@ -676,7 +676,12 @@ class EncryptedOlmDeliveryWorker(
                         plaintext = intent.plaintext,
                         sentAtMillis = intent.sentAtMillis,
                     )) {
-                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> Unit
+                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                            // Keep this durable local intent on an active retry schedule.
+                            // Otherwise it waits for the 15-minute periodic safety poll
+                            // unless a separate acknowledgement wake happens to arrive.
+                            retryRequired = true
+                        }
                         is MegolmGroupMessageSendOutcome.Queued -> {
                             requireActiveIdentity()
                             require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
