@@ -101,9 +101,10 @@ fun ChatMessageList(
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex =
                 layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val lastItemIndex = layoutInfo.totalItemsCount - 1
+            val lastContentItemIndex =
+                layoutInfo.totalItemsCount - if (isOtherUserTyping) 2 else 1
 
-            lastItemIndex >= 0 && lastVisibleIndex < lastItemIndex
+            lastContentItemIndex >= 0 && lastVisibleIndex < lastContentItemIndex
         }
             .distinctUntilChanged()
             .collect { showScrollToLatest = it }
@@ -372,6 +373,28 @@ fun ChatMessageList(
 
         previousLastMessageId =
             currentLastMessageId
+    }
+
+    /*
+     * When typing starts, the indicator is appended as the final LazyColumn
+     * item. If the reader was at the latest message immediately beforehand,
+     * move to that new final row. Do not pull someone away from older history.
+     */
+    LaunchedEffect(isOtherUserTyping, messagesLoaded) {
+        if (isOtherUserTyping && messagesLoaded && messages.isNotEmpty()) {
+            withFrameNanos { }
+            val layoutInfo = listState.layoutInfo
+            val typingItemIndex = layoutInfo.totalItemsCount - 1
+            val lastMessageItemIndex = typingItemIndex - 1
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val wasAtLiveEdge = lastVisibleIndex >= lastMessageItemIndex
+
+            if (typingItemIndex >= 0 && wasAtLiveEdge) {
+                listState.animateScrollToItem(typingItemIndex)
+                withFrameNanos { }
+                listState.scrollToItem(typingItemIndex, Int.MAX_VALUE)
+            }
+        }
     }
 
     /*
