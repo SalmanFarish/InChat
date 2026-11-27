@@ -19,6 +19,10 @@ import kotlinx.coroutines.launch
  * Owns exactly one foreground listener for the authenticated account/device.
  * RTDB callbacks only wake the existing durable worker; ciphertext handling,
  * deduplication, decryption, and acknowledgements stay in the worker pipeline.
+ *
+ * A cancelled RTDB listener is removed by Firebase. Keeping its old reference
+ * would make attachIfReady believe a live listener still exists forever, silently
+ * degrading foreground delivery to the much slower background recovery poll.
  */
 internal object EncryptedOlmForegroundInboxMonitor {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -30,6 +34,8 @@ internal object EncryptedOlmForegroundInboxMonitor {
     private var reference: DatabaseReference? = null
     private var listener: ChildEventListener? = null
     private var wakeJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var reconnectFailureCount = 0
 
     fun setForeground(context: Context, isForeground: Boolean) {
         scope.launch {
@@ -65,7 +71,7 @@ internal object EncryptedOlmForegroundInboxMonitor {
     }
 
     private fun attachIfReady() {
-        if (!foreground || reference != null) return
+        if (!foreground || reference != null || reconnectJob?.isActive == true) return
         val context = appContext ?: return
         val uid = ownerUserId ?: return
         val localDeviceId = deviceId ?: return
@@ -75,13 +81,18 @@ internal object EncryptedOlmForegroundInboxMonitor {
             .child("olmInbox")
             .child(uid)
             .child(localDeviceId)
-        val inboxListener = object : ChildEventListener {
+        lateinit var inboxListener: ChildEventListener
+        inboxListener = object : ChildEventListener {
             private fun wakeInbox() {
                 if (!foreground ||
                     ownerUserId != uid ||
                     deviceId != localDeviceId ||
                     FirebaseAuth.getInstance().currentUser?.uid != uid
                 ) return
+
+                // A live callback proves the listener is healthy; start future
+                // cancellation recovery from its shortest delay.
+                reconnectFailureCount = 0
 
                 // Firebase replays existing children individually on attach.
                 // Coalesce that initial burst and rapid sends into one inbox pass.
@@ -105,6 +116,36 @@ internal object EncryptedOlmForegroundInboxMonitor {
 
             override fun onCancelled(error: DatabaseError) {
                 Log.w("InChatInboxMonitor", "Foreground encrypted inbox listener was cancelled: ${error.code}")
+                scope.launch {
+                    // Ignore late callbacks from listeners already replaced or
+                    // deliberately detached during an account/lifecycle change.
+                    if (reference !== inboxReference || listener !== inboxListener) return@launch
+
+                    inboxReference.removeEventListener(inboxListener)
+                    reference = null
+                    listener = null
+                    wakeJob?.cancel()
+                    wakeJob = null
+
+                    val attempt = ++reconnectFailureCount
+                    val delayMillis = foregroundInboxReconnectDelayMillis(attempt)
+                    Log.i(
+                        "InChatInboxMonitor",
+                        "Reconnecting foreground encrypted inbox listener in ${delayMillis}ms (attempt ${attempt}).",
+                    )
+                    reconnectJob?.cancel()
+                    reconnectJob = scope.launch {
+                        delay(delayMillis)
+                        reconnectJob = null
+                        if (foreground &&
+                            ownerUserId == uid &&
+                            deviceId == localDeviceId &&
+                            FirebaseAuth.getInstance().currentUser?.uid == uid
+                        ) {
+                            attachIfReady()
+                        }
+                    }
+                }
             }
         }
 
@@ -114,6 +155,9 @@ internal object EncryptedOlmForegroundInboxMonitor {
     }
 
     private fun detach() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectFailureCount = 0
         wakeJob?.cancel()
         wakeJob = null
         val activeReference = reference
@@ -124,4 +168,10 @@ internal object EncryptedOlmForegroundInboxMonitor {
         reference = null
         listener = null
     }
+}
+
+/** Exponential listener-reconnect delay, capped to keep foreground recovery responsive. */
+internal fun foregroundInboxReconnectDelayMillis(failureCount: Int): Long {
+    val exponent = (failureCount.coerceAtLeast(1) - 1).coerceAtMost(5)
+    return (1_000L shl exponent).coerceAtMost(30_000L)
 }
