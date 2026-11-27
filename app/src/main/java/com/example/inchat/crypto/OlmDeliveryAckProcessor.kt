@@ -1,8 +1,9 @@
 package com.example.inchat.crypto
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
@@ -61,15 +62,15 @@ internal class OlmDeliveryAckProcessor(
         val nextIndex = AtomicInteger()
         val workerCount = minOf(MAX_CONCURRENT_ACKNOWLEDGEMENTS, acknowledgements.size)
         coroutineScope {
-            repeat(workerCount) {
-                launch {
+            List(workerCount) {
+                async {
                     while (true) {
                         val index = nextIndex.getAndIncrement()
                         if (index >= acknowledgements.size) break
                         outcomes[index] = reconcile(acknowledgements[index])
                     }
                 }
-            }
+            }.awaitAll()
         }
 
         var removed = 0

@@ -3,8 +3,9 @@ package com.example.inchat.crypto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,8 +50,8 @@ internal class FirebaseOlmInboxReceiver(
         val nextIndex = AtomicInteger()
         val workerCount = minOf(MAX_CONCURRENT_ITEM_HANDOFFS, items.size)
         coroutineScope {
-            repeat(workerCount) {
-                launch {
+            List(workerCount) {
+                async {
                     while (true) {
                         val index = nextIndex.getAndIncrement()
                         if (index >= items.size) break
@@ -83,7 +84,7 @@ internal class FirebaseOlmInboxReceiver(
                         }
                     }
                 }
-            }
+            }.awaitAll()
         }
 
         var stored = 0

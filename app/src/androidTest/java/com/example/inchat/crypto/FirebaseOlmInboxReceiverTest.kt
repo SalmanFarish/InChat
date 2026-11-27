@@ -623,6 +623,7 @@ class FirebaseOlmInboxReceiverTest {
             val activeCallbacks = AtomicInteger()
             val peakCallbacks = AtomicInteger()
             val completedCallbacks = AtomicInteger()
+            val allWorkersAtHandoff = CompletableDeferred<Unit>()
             val receiver = FirebaseOlmInboxReceiver(
                 transport = transport,
                 ledger = ledger,
@@ -632,9 +633,11 @@ class FirebaseOlmInboxReceiverTest {
                     val active = activeCallbacks.incrementAndGet()
                     peakCallbacks.updateAndGet { previous -> maxOf(previous, active) }
                     try {
-                        // Suspend all current workers together so the test can
-                        // observe the maximum handoff concurrency deterministically.
-                        yield()
+                        // Hold the first eight callbacks until every worker has
+                        // reached the handoff point; this proves the concurrency
+                        // cap without relying on scheduler timing or yield().
+                        if (active == 8) allWorkersAtHandoff.complete(Unit)
+                        withTimeout(5_000L) { allWorkersAtHandoff.await() }
                         completedCallbacks.incrementAndGet()
                     } finally {
                         activeCallbacks.decrementAndGet()
