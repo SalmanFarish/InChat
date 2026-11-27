@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.ui.components.InChatActionDialog
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.GoogleSansFlex
 
@@ -93,95 +94,83 @@ fun ChatInfoScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
 
     if (showBlockDialog) {
-        AlertDialog(
-            onDismissRequest = { showBlockDialog = false },
-            title = {
-                Text(
-                    when (blockState) {
-                        BlockState.NONE -> "Block $otherUserNickname?"
-                        BlockState.I_BLOCKED_THEM -> "Unblock $otherUserNickname?"
-                        BlockState.THEY_BLOCKED_ME -> "You can't unblock this user"
-                    }
-                )
+        InChatActionDialog(
+            title = when (blockState) {
+                BlockState.NONE -> "Block $otherUserNickname?"
+                BlockState.I_BLOCKED_THEM -> "Unblock $otherUserNickname?"
+                BlockState.THEY_BLOCKED_ME -> "You can't unblock this user"
             },
-            text = {
-                Text(
-                    when (blockState) {
-                        BlockState.NONE ->
-                            "They won't be able to message you, and you won't receive their chat activity."
-                        BlockState.I_BLOCKED_THEM ->
-                            "This will allow messages from this person again."
-                        BlockState.THEY_BLOCKED_ME ->
-                            "This person has blocked you. Only they can change that."
-                    }
-                )
+            description = when (blockState) {
+                BlockState.NONE ->
+                    "They won't be able to message you, and you won't receive their chat activity."
+                BlockState.I_BLOCKED_THEM ->
+                    "This will allow messages from this person again."
+                BlockState.THEY_BLOCKED_ME ->
+                    "This person has blocked you. Only they can change that."
             },
-            confirmButton = {
+            titleIcon = Icons.Outlined.Block,
+            confirmLabel = when (blockState) {
+                BlockState.NONE -> "Block"
+                BlockState.I_BLOCKED_THEM -> "Unblock"
+                BlockState.THEY_BLOCKED_ME -> "OK"
+            },
+            confirmIcon = Icons.Outlined.Block,
+            confirmDestructive = blockState == BlockState.NONE,
+            showCancel = blockState != BlockState.THEY_BLOCKED_ME,
+            onConfirm = {
                 when (blockState) {
-                    BlockState.NONE -> {
-                        TextButton(
-                            onClick = {
-                                chatViewModel.blockUser(
-                                    currentUserId = currentUserId,
-                                    otherUserId = otherUserId,
-                                    otherUsername = otherUserNickname
-                                ) { success, error ->
-                                    actionMessage = if (success) {
-                                        "User blocked"
-                                    } else {
-                                        error ?: "Could not block user"
-                                    }
-                                }
-                                showBlockDialog = false
-                            }
-                        ) {
-                            Text("Block", color = MaterialTheme.colorScheme.error)
-                        }
+                    BlockState.NONE -> chatViewModel.blockUser(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUserId,
+                        otherUsername = otherUserNickname
+                    ) { success, error ->
+                        actionMessage = if (success) "User blocked" else error ?: "Could not block user"
                     }
 
-                    BlockState.I_BLOCKED_THEM -> {
-                        TextButton(
-                            onClick = {
-                                chatViewModel.unblockUser(
-                                    currentUserId = currentUserId,
-                                    otherUserId = otherUserId
-                                ) { success, error ->
-                                    actionMessage = if (success) {
-                                        "User unblocked"
-                                    } else {
-                                        error ?: "Could not unblock user"
-                                    }
-                                }
-                                showBlockDialog = false
-                            }
-                        ) {
-                            Text("Unblock")
-                        }
+                    BlockState.I_BLOCKED_THEM -> chatViewModel.unblockUser(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUserId
+                    ) { success, error ->
+                        actionMessage = if (success) "User unblocked" else error ?: "Could not unblock user"
                     }
 
                     BlockState.THEY_BLOCKED_ME -> Unit
                 }
+                showBlockDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showBlockDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { showBlockDialog = false }
         )
     }
 
     if (showReportDialog) {
-        AlertDialog(
-            onDismissRequest = { showReportDialog = false },
-            title = { Text("Report $otherUserNickname") },
-            text = {
+        InChatActionDialog(
+            title = "Report $otherUserNickname",
+            description = "Choose the reason that best describes the issue.",
+            titleIcon = Icons.Outlined.Flag,
+            confirmLabel = "Submit report",
+            confirmIcon = Icons.Outlined.Flag,
+            confirmEnabled = reportReason.isNotBlank(),
+            onConfirm = {
+                chatViewModel.reportUser(
+                    reporterId = currentUserId,
+                    reportedUserId = otherUserId,
+                    reason = reportReason
+                ) { success, error ->
+                    actionMessage = if (success) {
+                        "Report submitted"
+                    } else {
+                        error ?: "Could not submit report"
+                    }
+                }
+                reportReason = ""
+                showReportDialog = false
+            },
+            onDismiss = {
+                reportReason = ""
+                showReportDialog = false
+            },
+            content = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "Choose the reason that best describes the issue.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(7.dp))
                     ChatReportReason(
                         label = "Spam",
                         selected = reportReason == "Spam",
@@ -203,52 +192,20 @@ fun ChatInfoScreen(
                         onClick = { reportReason = "Other" }
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = reportReason.isNotBlank(),
-                    onClick = {
-                        chatViewModel.reportUser(
-                            reporterId = currentUserId,
-                            reportedUserId = otherUserId,
-                            reason = reportReason
-                        ) { success, error ->
-                            actionMessage = if (success) {
-                                "Report submitted"
-                            } else {
-                                error ?: "Could not submit report"
-                            }
-                        }
-                        reportReason = ""
-                        showReportDialog = false
-                    }
-                ) {
-                    Text("Submit report", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        reportReason = ""
-                        showReportDialog = false
-                    }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
 
     actionMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionMessage = null },
-            title = { Text("InChat") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { actionMessage = null }) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Flag,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
 
