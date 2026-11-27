@@ -8,14 +8,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Info
 import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -406,51 +405,18 @@ fun ChatScreen(
      * ACTION MESSAGE
      * =========================================================
      */
-    if (
-        actionMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                actionMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "InChat"
-                )
-            },
-
-            text = {
-
-                Text(
-                    actionMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        actionMessage =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "OK"
-                    )
-                }
-            }
+    actionMessage?.let { message ->
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
-
     /*
      * =========================================================
      * MAIN SCREEN
