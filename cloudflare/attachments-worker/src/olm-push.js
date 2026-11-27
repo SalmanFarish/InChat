@@ -13,8 +13,8 @@ const MAX_CIPHERTEXT_BYTES = 1024 * 1024;
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024;
 const PUSH_LEASE_MILLIS = 30_000;
 // Re-dispatch still-unacknowledged deliveries on later sender recovery passes.
-// The sender retries uploaded rows every 15 minutes; this cooldown avoids push storms
-// while preventing one FCM acceptance from suppressing all future wake-ups forever.
+// The sender retries uploaded rows every 10 minutes to match this cooldown. This
+// avoids push storms while preventing one FCM acceptance from suppressing all later wake-ups.
 const PUSH_REDISPATCH_INTERVAL_MILLIS = 10 * 60 * 1000;
 
 function isRecord(value) {

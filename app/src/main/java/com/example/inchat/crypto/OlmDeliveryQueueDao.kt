@@ -161,7 +161,7 @@ interface OlmDeliveryQueueDao {
     @Query(
         "SELECT MIN(CASE WHEN status = 'IN_FLIGHT' THEN leaseUntilMillis ELSE nextAttemptAtMillis END) " +
             "FROM olm_device_deliveries WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
-            "AND status IN ('QUEUED', 'IN_FLIGHT') " +
+            "AND status IN ('QUEUED', 'UPLOADED', 'IN_FLIGHT') " +
             "AND (CASE WHEN status = 'IN_FLIGHT' THEN leaseUntilMillis ELSE nextAttemptAtMillis END) > :nowMillis"
     )
     fun findNextScheduledRetryAtMillis(

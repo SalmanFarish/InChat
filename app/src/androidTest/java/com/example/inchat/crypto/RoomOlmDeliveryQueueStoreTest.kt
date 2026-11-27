@@ -112,7 +112,11 @@ class RoomOlmDeliveryQueueStoreTest {
             assertTrue(firstQueue.markUploaded(claimed, 10_000L))
             val uploaded = firstDatabase.olmDeliveryQueueDao().getByDeliveryId(deliveryId)
             assertEquals(OlmDeliveryStatus.UPLOADED.name, uploaded?.status)
-            assertEquals(910_000L, uploaded?.nextAttemptAtMillis)
+            assertEquals(610_000L, uploaded?.nextAttemptAtMillis)
+            assertEquals(
+                610_000L,
+                firstQueue.nextScheduledRetryAtMillis("alice", "sender-device", 10_000L),
+            )
             assertEquals(0L, uploaded?.leaseUntilMillis)
         } finally {
             firstDatabase.close()
@@ -124,8 +128,12 @@ class RoomOlmDeliveryQueueStoreTest {
             val reopenedQueue = OlmDeliveryQueue(
                 RoomOlmDeliveryQueueStore(reopenedDatabase, reopenedDatabase.olmDeliveryQueueDao()),
             )
-            assertNull(reopenedQueue.claimNext("alice", "sender-device", 909_999L))
-            val retry = reopenedQueue.claimNext("alice", "sender-device", 910_000L)
+            assertEquals(
+                610_000L,
+                reopenedQueue.nextScheduledRetryAtMillis("alice", "sender-device", 10_000L),
+            )
+            assertNull(reopenedQueue.claimNext("alice", "sender-device", 609_999L))
+            val retry = reopenedQueue.claimNext("alice", "sender-device", 610_000L)
             assertEquals(deliveryId, retry?.deliveryId)
             assertEquals(2, retry?.attemptCount)
             assertEquals(OlmDeliveryStatus.IN_FLIGHT, retry?.status)
