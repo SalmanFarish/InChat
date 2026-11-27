@@ -171,19 +171,15 @@ fun ChatComposer(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp)
                 .border(
-                    width = 0.7.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = 0.dp,
-                        bottomEnd = 0.dp
-                    )
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
+                    shape = RoundedCornerShape(28.dp)
                 )
                 /*
-                 * The screen Scaffold owns IME insets. The composer
-                 * only applies navigation-bar spacing here.
+                 * The Scaffold owns IME insets; this inset pill floats
+                 * above the keyboard and navigation bar.
                  */
                 .navigationBarsPadding()
     ) {
@@ -382,7 +378,7 @@ fun ChatComposer(
                             onMessageTextChange,
 
                         enabled =
-                            !messagingBlocked && !sendingMessage && !savingEdit,
+                            !messagingBlocked && !savingEdit,
 
                         modifier =
                             Modifier
@@ -457,7 +453,7 @@ fun ChatComposer(
                                                 "You can't message this user"
 
                                             else ->
-                                                "Message..."
+                                                "Type a message"
                                         },
 
                                     style =
@@ -616,7 +612,6 @@ fun ChatComposer(
                                     // callback; the timeline observes that copy.
                                     sendingMessage = false
                                     onMessageSent()
-                                    keyboardController?.hide()
                                 },
 
                                 onResult = { success, error ->
