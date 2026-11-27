@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -23,30 +24,44 @@ internal class OlmDeliveryAckProcessor(
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
         var removed = 0
         var unmatched = 0
+        var firstFailure: Exception? = null
 
         for (acknowledgement in acknowledgements) {
-            if (acknowledgement.senderUserId != senderUserId ||
-                acknowledgement.senderDeviceId != senderDeviceId ||
-                !queue.hasMatchingDelivery(acknowledgement)
-            ) {
-                unmatched++
-                continue
-            }
+            try {
+                if (acknowledgement.senderUserId != senderUserId ||
+                    acknowledgement.senderDeviceId != senderDeviceId ||
+                    !queue.hasMatchingDelivery(acknowledgement)
+                ) {
+                    unmatched++
+                    continue
+                }
 
-            // Remove the relay ack first, then persist a metadata-only delivery
-            // receipt before deleting the ciphertext outbox row. If the process
-            // stops after receipt persistence, the retained row is safe to retry:
-            // the recipient's durable receipt ledger will acknowledge it again.
-            transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
-            recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
-            if (queue.removeAcknowledgedDelivery(acknowledgement)) {
-                removed++
-            } else {
-                // Another processor may have removed the exact row concurrently.
-                unmatched++
+                // Remove the relay ack first, then persist a metadata-only delivery
+                // receipt before deleting the ciphertext outbox row. If the process
+                // stops after receipt persistence, the retained row is safe to retry:
+                // the recipient's durable receipt ledger will acknowledge it again.
+                transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
+                recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
+                if (queue.removeAcknowledgedDelivery(acknowledgement)) {
+                    removed++
+                } else {
+                    // Another processor may have removed the exact row concurrently.
+                    unmatched++
+                }
+            } catch (cancelled: CancellationException) {
+                // Cancellation is a process/lifecycle boundary, not an item failure.
+                // Preserve it immediately so the durable ACK/outbox recovery path runs.
+                throw cancelled
+            } catch (failure: Exception) {
+                // One relay delete or Room receipt failure must not head-of-line
+                // block later independent ACKs in this bounded snapshot. Continue
+                // reconciling the rest, then surface the first error so WorkManager
+                // retries the incomplete item(s) on the next pass.
+                if (firstFailure == null) firstFailure = failure
             }
         }
 
+        firstFailure?.let { throw it }
         OlmDeliveryAckProcessingResult(removed = removed, unmatched = unmatched)
     }
 
