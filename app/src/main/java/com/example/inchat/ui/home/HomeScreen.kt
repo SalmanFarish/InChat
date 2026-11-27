@@ -608,6 +608,7 @@ fun HomeScreen(
  * ============================================================
  * NEW CHAT OPTIONS
  * ============================================================*/
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewChatOptionsSheet(
     onDismiss: () -> Unit,
