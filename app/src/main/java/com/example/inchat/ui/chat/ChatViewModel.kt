@@ -2339,6 +2339,7 @@ class ChatViewModel : ViewModel() {
                 // remains the crash-recovery boundary until its full Olm fan-out commits.
                 val appContext = InChatApplication.instance
                 var resolvedSenderDeviceId: String? = null
+                var recoveryWorkScheduled = false
                 try {
                     resolvedSenderDeviceId = withContext(Dispatchers.IO) {
                         val identity = DeviceIdentityRepository(appContext)
@@ -2351,6 +2352,24 @@ class ChatViewModel : ViewModel() {
                         }
                     }
                     val activeSenderDeviceId = requireNotNull(resolvedSenderDeviceId)
+
+                    // Persist the recovery trigger before starting network work so
+                    // process death during the fast path cannot strand the message.
+                    runCatching {
+                        EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                            context = appContext,
+                            ownerUserId = currentUserId,
+                            senderDeviceId = activeSenderDeviceId,
+                        )
+                    }.onSuccess {
+                        recoveryWorkScheduled = true
+                    }.onFailure { schedulingError ->
+                        Log.w(
+                            "ChatViewModel",
+                            "Could not queue encrypted recovery before foreground send: $messageId",
+                            schedulingError,
+                        )
+                    }
 
                     // The same mutex protects the WorkManager pending-intent recovery
                     // path. Only one producer may create the immutable ciphertext
@@ -2415,23 +2434,39 @@ class ChatViewModel : ViewModel() {
                             "uploaded=${dispatchResult.uploaded}, retryRequired=${dispatchResult.retryRequired}",
                     )
 
-                    // Always keep the durable worker queued for ACK collection,
-                    // future retries, and work remaining after this bounded pass.
-                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
-                        context = appContext,
-                        ownerUserId = currentUserId,
-                        senderDeviceId = activeSenderDeviceId,
-                    )
+                    // Retry scheduling after the foreground pass if the initial
+                    // durable recovery trigger could not be persisted.
+                    if (!recoveryWorkScheduled) {
+                        runCatching {
+                            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                context = appContext,
+                                ownerUserId = currentUserId,
+                                senderDeviceId = activeSenderDeviceId,
+                            )
+                        }.onSuccess {
+                            recoveryWorkScheduled = true
+                        }.onFailure { schedulingError ->
+                            Log.w(
+                                "ChatViewModel",
+                                "Encrypted recovery scheduling still needs startup/network recovery: $messageId",
+                                schedulingError,
+                            )
+                        }
+                    }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     // A pending intent or committed Room ciphertext survives this
                     // cancellation. Restore the sender recovery trigger before exit.
-                    resolvedSenderDeviceId?.let { deviceId ->
-                        runCatching {
-                            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
-                                appContext,
-                                currentUserId,
-                                deviceId,
-                            )
+                    if (!recoveryWorkScheduled) {
+                        resolvedSenderDeviceId?.let { deviceId ->
+                            runCatching {
+                                EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                    appContext,
+                                    currentUserId,
+                                    deviceId,
+                                )
+                            }.onSuccess {
+                                recoveryWorkScheduled = true
+                            }
                         }
                     }
                     throw cancelled
@@ -2439,19 +2474,23 @@ class ChatViewModel : ViewModel() {
                     // Never fall back to plaintext. Whether the intent is still
                     // pending or its ciphertext fan-out committed, the background
                     // worker can resume from the durable Room state.
-                    resolvedSenderDeviceId?.let { deviceId ->
-                        runCatching {
-                            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
-                                appContext,
-                                currentUserId,
-                                deviceId,
-                            )
-                        }.onFailure { schedulingError ->
-                            Log.w(
-                                "ChatViewModel",
-                                "Encrypted sender recovery trigger could not be queued: $messageId",
-                                schedulingError,
-                            )
+                    if (!recoveryWorkScheduled) {
+                        resolvedSenderDeviceId?.let { deviceId ->
+                            runCatching {
+                                EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                    appContext,
+                                    currentUserId,
+                                    deviceId,
+                                )
+                            }.onSuccess {
+                                recoveryWorkScheduled = true
+                            }.onFailure { schedulingError ->
+                                Log.w(
+                                    "ChatViewModel",
+                                    "Encrypted sender recovery trigger could not be queued: $messageId",
+                                    schedulingError,
+                                )
+                            }
                         }
                     }
                     Log.w(
