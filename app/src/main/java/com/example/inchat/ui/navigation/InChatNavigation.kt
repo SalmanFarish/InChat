@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -1322,14 +1321,12 @@ private fun InChatBottomBar(
             // Every destination keeps one fixed-width slot. Only the
             // selection pill moves, so the other icons never get pushed.
             val slotWidth = maxWidth / bottomNavItems.size
-            val indicatorOffset by animateDpAsState(
-                targetValue = slotWidth * pagerState.currentPage,
-                animationSpec = spring(
-                    dampingRatio = 0.82f,
-                    stiffness = 440f
-                ),
-                label = "bottomNavIndicatorOffset"
-            )
+            // Track the pager continuously during finger swipes and tab animations.
+            val pagerPosition = (
+                pagerState.currentPage.toFloat() +
+                    pagerState.currentPageOffsetFraction
+                ).coerceIn(0f, bottomNavItems.lastIndex.toFloat())
+            val indicatorOffset = slotWidth * pagerPosition
 
             Box(
                 modifier = Modifier
@@ -1349,7 +1346,7 @@ private fun InChatBottomBar(
                 bottomNavItems.forEachIndexed { index, item ->
                     BottomNavigationItem(
                         item = item,
-                        selected = pagerState.currentPage == index,
+                        selected = pagerState.settledPage == index,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxSize(),
