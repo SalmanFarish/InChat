@@ -7,6 +7,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,7 +35,9 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -159,6 +163,10 @@ fun HomeScreen(
         mutableStateOf("")
     }
 
+    var selectedInboxFilter by rememberSaveable {
+        mutableStateOf("All")
+    }
+
     var showNewChatOptions by rememberSaveable {
         mutableStateOf(false)
     }
@@ -268,14 +276,27 @@ fun HomeScreen(
             }
         }
 
+    val conversationsMatchingInboxFilter = remember(
+        filteredConversations,
+        selectedInboxFilter
+    ) {
+        when (selectedInboxFilter) {
+            "Unread" -> filteredConversations.filter { it.unreadCount > 0L }
+            "Favorites" -> filteredConversations.filter { it.isFavorite }
+            "Groups" -> filteredConversations.filter { it.chatType == "group" }
+            "Pinned" -> filteredConversations.filter { it.isPinned }
+            else -> filteredConversations
+        }
+    }
+
     val visibleFilteredConversations =
-        remember(filteredConversations) {
-            filteredConversations.filterNot { it.isHidden }
+        remember(conversationsMatchingInboxFilter) {
+            conversationsMatchingInboxFilter.filterNot { it.isHidden }
         }
 
     val hiddenFilteredConversations =
-        remember(filteredConversations) {
-            filteredConversations.filter { it.isHidden }
+        remember(conversationsMatchingInboxFilter) {
+            conversationsMatchingInboxFilter.filter { it.isHidden }
         }
 
     /*
@@ -375,6 +396,11 @@ fun HomeScreen(
                 }
             )
 
+            HomeInboxFilterChips(
+                selectedFilter = selectedInboxFilter,
+                onFilterSelected = { selectedInboxFilter = it }
+            )
+
             /*
              * =================================================
              * CONTENT
@@ -422,6 +448,17 @@ fun HomeScreen(
                         Arrangement.spacedBy(2.dp)
                 ) {
 
+                    if (visibleFilteredConversations.isEmpty()) {
+                        item(
+                            key = "inbox_filter_empty_state",
+                            contentType = "inbox_filter_empty_state"
+                        ) {
+                            HomeInboxFilterEmptyState(
+                                selectedFilter = selectedInboxFilter,
+                                onShowAll = { selectedInboxFilter = "All" }
+                            )
+                        }
+                    } else {
                     items(
                         items = visibleFilteredConversations,
                         key = { it.chatId },
@@ -453,6 +490,18 @@ fun HomeScreen(
                             onDismissActions = {
                                 pendingDeleteConversation = null
                                 selectedConversation = null
+                            },
+                            onToggleFavorite = {
+                                homeViewModel.setConversationFavorite(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    favorite = !conversation.isFavorite
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update favorites."
+                                    }
+                                }
                             },
                             onTogglePin = {
                                 homeViewModel.setConversationPinned(
@@ -493,6 +542,8 @@ fun HomeScreen(
                             },
                             onDelete = { pendingDeleteConversation = conversation }
                         )
+                    }
+
                     }
 
                     if (hiddenFilteredConversations.isNotEmpty()) {
@@ -542,7 +593,19 @@ fun HomeScreen(
                                         pendingDeleteConversation = null
                                         selectedConversation = null
                                     },
-                                    onTogglePin = {
+                                    onToggleFavorite = {
+                                homeViewModel.setConversationFavorite(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    favorite = !conversation.isFavorite
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update favorites."
+                                    }
+                                }
+                            },
+                            onTogglePin = {
                                         homeViewModel.setConversationPinned(
                                             currentUserId = currentUserId,
                                             chatId = conversation.chatId,
@@ -904,6 +967,92 @@ private fun NoSearchResults(
 }
 
 
+@Composable
+private fun HomeInboxFilterChips(
+    selectedFilter: String,
+    onFilterSelected: (String) -> Unit
+) {
+    val filters = listOf("All", "Unread", "Favorites", "Groups", "Pinned")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        filters.forEach { filter ->
+            val selected = selectedFilter == filter
+            Surface(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clickable { onFilterSelected(filter) },
+                shape = CircleShape,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                },
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.48f)
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
+                    }
+                )
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = filter,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeInboxFilterEmptyState(
+    selectedFilter: String,
+    onShowAll: () -> Unit
+) {
+    val message = when (selectedFilter) {
+        "Unread" -> "No unread conversations"
+        "Favorites" -> "No favorite conversations yet"
+        "Groups" -> "No group conversations yet"
+        "Pinned" -> "No pinned conversations yet"
+        else -> "No conversations"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 42.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp
+        )
+        TextButton(onClick = onShowAll) {
+            Text("Show all chats")
+        }
+    }
+}
+
 /*
  * ============================================================
  * INITIAL LOAD STATE
@@ -1136,6 +1285,7 @@ private fun ConversationActionsPopup(
     conversation: Conversation,
     popupOnLeft: Boolean,
     onDismiss: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
     confirmingDelete: Boolean,
@@ -1211,6 +1361,11 @@ private fun ConversationActionsPopup(
                         onClick = onConfirmDelete
                     )
                 } else {
+                    ConversationActionRow(
+                        icon = if (conversation.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                        title = if (conversation.isFavorite) "Remove from Favorites" else "Add to Favorites",
+                        onClick = onToggleFavorite
+                    )
                     ConversationActionRow(
                         icon = Icons.Outlined.PushPin,
                         title = if (conversation.isPinned) "Unpin" else "Pin",
@@ -1392,6 +1547,7 @@ private fun ConversationItem(
     showActions: Boolean,
     popupOnLeft: Boolean,
     onDismissActions: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
     confirmingDelete: Boolean,
@@ -1684,6 +1840,7 @@ private fun ConversationItem(
                 conversation = conversation,
                 popupOnLeft = popupOnLeft,
                 onDismiss = onDismissActions,
+                onToggleFavorite = onToggleFavorite,
                 onTogglePin = onTogglePin,
                 onToggleHidden = onToggleHidden,
                 confirmingDelete = confirmingDelete,
