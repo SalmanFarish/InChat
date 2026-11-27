@@ -203,7 +203,7 @@ class OlmPendingReceiptProcessorTest {
                         "alice",
                         messageId,
                         envelope("sender-device", "recipient-device", 1),
-                        100L + index,
+                        if (index == 50) 20_000L else 100L + index,
                     ),
                 )
             }
@@ -288,7 +288,7 @@ class OlmPendingReceiptProcessorTest {
                     "bob",
                     "later-bob-key",
                     envelope("bob-device", "recipient-device", 1),
-                    1_000L,
+                    20_000L,
                 ),
             )
 

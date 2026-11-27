@@ -14,7 +14,7 @@ interface OlmInboundReceiptDao {
     fun getByReceiptId(receiptId: String): OlmInboundReceiptEntity?
 
     /** Oldest ciphertext receipts belonging only to the authenticated local account. */
-    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PENDING' ORDER BY COALESCE(lastAttemptAtMillis, receivedAtMillis) ASC, receivedAtMillis ASC, receiptId ASC LIMIT :limit")
+    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PENDING' ORDER BY CASE WHEN lastAttemptAtMillis IS NULL THEN 0 ELSE 1 END ASC, lastAttemptAtMillis ASC, receivedAtMillis ASC, receiptId ASC LIMIT :limit")
     fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
     /** Deferred receipts remain account-scoped while waiting for device publication or SAS trust. */
