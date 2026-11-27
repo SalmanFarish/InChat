@@ -503,7 +503,7 @@ fun LoginScreen(
             description = message,
             titleIcon = Icons.Outlined.Info,
             confirmLabel = "OK",
-            confirmIcon = Icons.Outlined.MarkEmailRead,
+            confirmIcon = Icons.Outlined.Info,
             confirmDestructive = false,
             showCancel = false,
             onConfirm = { successMessage = null },
