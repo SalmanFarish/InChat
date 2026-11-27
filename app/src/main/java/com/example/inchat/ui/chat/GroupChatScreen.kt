@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material3.AlertDialog
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -475,57 +476,41 @@ fun GroupChatScreen(
         }
 
             if (showDeleteSelectedForMeConfirmation) {
-            AlertDialog(
-                onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
-                title = { Text("Delete selected messages for you?") },
-                text = {
-                    Text("These messages will disappear only from your view. Other group members will keep them.")
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showDeleteSelectedForMeConfirmation = false
-                            val ids = selectedMessageIds
-                            groupViewModel.deleteMessagesForMe(ids) { success, error ->
-                                selectedMessageIds = emptySet()
-                                if (!success) actionMessage = error ?: "Could not delete selected messages."
-                            }
-                        }
-                    ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
-                        Text("Cancel")
+            InChatActionDialog(
+                title = "Delete selected messages for you?",
+                description = "These messages will disappear only from your view. Other group members will keep them.",
+                titleIcon = Icons.Outlined.DeleteSweep,
+                confirmLabel = "Delete for me",
+                confirmIcon = Icons.Outlined.DeleteSweep,
+                onConfirm = {
+                    showDeleteSelectedForMeConfirmation = false
+                    val ids = selectedMessageIds
+                    groupViewModel.deleteMessagesForMe(ids) { success, error ->
+                        selectedMessageIds = emptySet()
+                        if (!success) actionMessage = error ?: "Could not delete selected messages."
                     }
-                }
+                },
+                onDismiss = { showDeleteSelectedForMeConfirmation = false }
             )
         }
 
     if (showDeleteSelectedForEveryoneConfirmation) {
-            AlertDialog(
-                onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
-                title = { Text("Delete selected messages?") },
-                text = {
-                    Text("These messages will be removed for all group members. This cannot be undone.")
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showDeleteSelectedForEveryoneConfirmation = false
-                            val ids = selectedMessageIds
-                            groupViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
-                                selectedMessageIds = emptySet()
-                                if (!success) actionMessage = error ?: "Could not delete selected messages."
-                            }
-                        }
-                    ) { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteSelectedForEveryoneConfirmation = false }) {
-                        Text("Cancel")
-                    }
+        InChatActionDialog(
+            title = "Delete selected messages?",
+            description = "These messages will be removed for all group members. This cannot be undone.",
+            titleIcon = Icons.Outlined.DeleteSweep,
+            confirmLabel = "Delete for everyone",
+            confirmIcon = Icons.Outlined.DeleteSweep,
+            onConfirm = {
+                showDeleteSelectedForEveryoneConfirmation = false
+                val ids = selectedMessageIds
+                groupViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
+                    selectedMessageIds = emptySet()
+                    if (!success) actionMessage = error ?: "Could not delete selected messages."
                 }
-            )
-        }
+            },
+            onDismiss = { showDeleteSelectedForEveryoneConfirmation = false }
+        )
+    }
     }
 }
