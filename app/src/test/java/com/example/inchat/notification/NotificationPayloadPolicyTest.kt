@@ -68,6 +68,23 @@ class NotificationPayloadPolicyTest {
     }
 
     @Test
+    fun encryptedWakeupNotificationIdentityIsStableOpaqueAndAccountScoped() {
+        val firstTag = NotificationPayloadPolicy.encryptedWakeupNotificationTag("account-one")
+        val secondTag = NotificationPayloadPolicy.encryptedWakeupNotificationTag("account-two")
+        val firstId = NotificationPayloadPolicy.encryptedWakeupNotificationId("account-one", 1002)
+        val secondId = NotificationPayloadPolicy.encryptedWakeupNotificationId("account-two", 1002)
+
+        assertEquals(64, firstTag.length)
+        assertTrue(firstTag != secondTag)
+        assertTrue(firstId > 0)
+        assertTrue(secondId > 0)
+        assertTrue(firstId != secondId)
+        assertEquals(firstTag, NotificationPayloadPolicy.encryptedWakeupNotificationTag("account-one"))
+        assertEquals(firstId, NotificationPayloadPolicy.encryptedWakeupNotificationId("account-one", 1002))
+        assertFalse(firstTag.contains("account-one"))
+    }
+
+    @Test
     fun notificationHistoryKeysAreStableOpaqueAndAccountScoped() {
         val first = NotificationPayloadPolicy.notificationHistoryKey("account-one", "shared-chat")
         val second = NotificationPayloadPolicy.notificationHistoryKey("account-two", "shared-chat")

@@ -34,6 +34,18 @@ internal object NotificationPayloadPolicy {
     const val ROUTE_CHAT = "chat_message"
     const val ROUTE_GROUP = "group_message"
 
+    private const val ENCRYPTED_WAKEUP_NOTIFICATION_KEY = "inchat_encrypted_wakeup"
+
+    fun encryptedWakeupNotificationTag(recipientUserId: String): String =
+        notificationTagForChat(ENCRYPTED_WAKEUP_NOTIFICATION_KEY, recipientUserId)
+
+    fun encryptedWakeupNotificationId(recipientUserId: String, fallbackId: Int): Int =
+        notificationIdForChat(
+            chatId = ENCRYPTED_WAKEUP_NOTIFICATION_KEY,
+            fallbackId = fallbackId,
+            recipientUserId = recipientUserId,
+        )
+
     /**
      * Derives a repeatable per-conversation Android notification ID without
      * relying on collision-prone String.hashCode(). The digest keeps IDs stable

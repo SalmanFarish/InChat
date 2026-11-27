@@ -20,6 +20,8 @@ object ActiveConversationTracker {
         appInForeground = foreground
     }
 
+    fun isAppInForeground(): Boolean = appInForeground
+
     fun setActiveChat(chatId: String, recipientUserId: String) {
         if (chatId.isBlank() || recipientUserId.isBlank()) return
         activeConversation = ActiveConversation(chatId, recipientUserId)

@@ -64,6 +64,15 @@ class ActiveConversationTrackerTest {
     }
 
     @Test
+    fun foregroundStateCanBeReadSafelyByThePushCallback() {
+        ActiveConversationTracker.setAppInForeground(true)
+        assertTrue(ActiveConversationTracker.isAppInForeground())
+
+        ActiveConversationTracker.setAppInForeground(false)
+        assertFalse(ActiveConversationTracker.isAppInForeground())
+    }
+
+    @Test
     fun backgroundNotificationsAreNeverSuppressed() {
         ActiveConversationTracker.setActiveChat("shared-chat", "account-one")
         ActiveConversationTracker.setAppInForeground(false)

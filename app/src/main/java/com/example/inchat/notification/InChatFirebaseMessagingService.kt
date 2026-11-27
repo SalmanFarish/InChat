@@ -166,6 +166,13 @@ class InChatFirebaseMessagingService :
         }
 
         runCatching {
+            EncryptedMessageNotificationPublisher(applicationContext).notifyEncryptedWakeup(uid)
+        }.onFailure { error ->
+            // Notification display must never prevent the durable inbox wake-up.
+            Log.w("InChatFCM", "Could not display the privacy-safe encrypted wake-up notification.", error)
+        }
+
+        runCatching {
             EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
                 context = applicationContext,
                 ownerUserId = uid,

@@ -306,16 +306,21 @@ class EncryptedOlmInboxWorker(
             // Room, enqueue a follow-up now instead of waiting for another push or
             // the 15-minute fallback poll. Attempt timestamps stop failed/deferred
             // rows from creating an endless continuation loop.
-            if (database.olmInboundReceiptDao().hasUnattemptedReceipts(ownerUserId) ||
-                directMessageDao.hasPendingNotifications(ownerUserId) ||
-                groupMessageDao.hasPendingNotifications(ownerUserId)
-            ) {
+            val hasUnattemptedReceipts =
+                database.olmInboundReceiptDao().hasUnattemptedReceipts(ownerUserId)
+            val hasPendingDirectNotifications = directMessageDao.hasPendingNotifications(ownerUserId)
+            val hasPendingGroupNotifications = groupMessageDao.hasPendingNotifications(ownerUserId)
+            if (hasUnattemptedReceipts || hasPendingDirectNotifications || hasPendingGroupNotifications) {
                 EncryptedOlmInboxWorker.wake(
                     context = applicationContext,
                     ownerUserId = ownerUserId,
                     recipientDeviceId = recipientDeviceId,
                 )
                 Log.i(TAG, "Queued another encrypted inbox pass for untouched durable receipts.")
+            } else if (handoffResult.failed == 0) {
+                // Keep the immediate FCM placeholder visible across transient
+                // receive/decrypt/notification failures; clear it after a clean drain.
+                encryptedNotifications.clearEncryptedWakeup(ownerUserId)
             }
             // Native/Room handoff failures retain the existing bounded retry policy.
             if (handoffResult.failed > 0) Result.retry() else Result.success()

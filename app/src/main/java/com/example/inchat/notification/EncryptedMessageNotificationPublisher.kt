@@ -19,6 +19,72 @@ import com.google.firebase.auth.FirebaseAuth
 internal class EncryptedMessageNotificationPublisher(context: Context) {
     private val appContext = context.applicationContext
 
+    /**
+     * Immediately acknowledge a background high-priority FCM wake-up with a
+     * privacy-safe, silent notification. The inbox worker removes it only after
+     * encrypted messages and their conversation notifications are reconciled.
+     */
+    fun notifyEncryptedWakeup(recipientUserId: String) {
+        if (recipientUserId.isBlank() || ActiveConversationTracker.isAppInForeground()) return
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val notifications = NotificationManagerCompat.from(appContext)
+        if (!notifications.areNotificationsEnabled()) return
+
+        val manager = appContext.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ENCRYPTED_WAKEUP_CHANNEL_ID,
+                "Encrypted message sync",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "A new encrypted message is being received securely"
+            },
+        )
+
+        val tag = NotificationPayloadPolicy.encryptedWakeupNotificationTag(recipientUserId)
+        val notificationId = NotificationPayloadPolicy.encryptedWakeupNotificationId(
+            recipientUserId = recipientUserId,
+            fallbackId = ENCRYPTED_WAKEUP_NOTIFICATION_ID,
+        )
+        val intent = Intent(appContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            data = Uri.parse("inchat://encrypted-wakeup/$tag")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            appContext,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(appContext, ENCRYPTED_WAKEUP_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_inchat)
+            .setContentTitle("InChat")
+            .setContentText("New encrypted message")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notifications.notify(tag, notificationId, notification)
+    }
+
+    /** Remove the temporary wake-up after the durable inbox/notification outboxes are drained. */
+    fun clearEncryptedWakeup(recipientUserId: String) {
+        if (recipientUserId.isBlank()) return
+        val tag = NotificationPayloadPolicy.encryptedWakeupNotificationTag(recipientUserId)
+        val notificationId = NotificationPayloadPolicy.encryptedWakeupNotificationId(
+            recipientUserId = recipientUserId,
+            fallbackId = ENCRYPTED_WAKEUP_NOTIFICATION_ID,
+        )
+        NotificationManagerCompat.from(appContext).cancel(tag, notificationId)
+    }
+
     fun notifyDirectMessage(conversationId: String, senderUserId: String) {
         post(conversationId, senderUserId, "InChat", "New encrypted message",
             InChatFirebaseMessagingService.NOTIFICATION_TYPE_CHAT)
@@ -88,5 +154,7 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
     private companion object {
         const val CHANNEL_ID = "inchat_messages"
         const val DEFAULT_NOTIFICATION_ID = 1001
+        const val ENCRYPTED_WAKEUP_CHANNEL_ID = "inchat_encrypted_wakeup"
+        const val ENCRYPTED_WAKEUP_NOTIFICATION_ID = 1002
     }
 }
