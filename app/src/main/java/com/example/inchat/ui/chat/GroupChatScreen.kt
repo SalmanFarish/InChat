@@ -19,7 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.DeleteSweep
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.Info
 import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -248,20 +247,17 @@ fun GroupChatScreen(
     }
 
     actionMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionMessage = null },
-            title = { Text("InChat") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(
-                    onClick = { actionMessage = null }
-                ) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
-
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
