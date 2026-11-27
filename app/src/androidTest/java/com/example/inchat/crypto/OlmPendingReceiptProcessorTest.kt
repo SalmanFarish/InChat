@@ -345,6 +345,88 @@ class OlmPendingReceiptProcessorTest {
     }
 
     @Test
+    fun untrustedDeferredBatchCannotStarveLaterTrustedReceipt() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "olm-pending-deferred-fairness-${UUID.randomUUID()}.db"
+        context.deleteDatabase(databaseName)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.olmInboundReceiptDao()
+            val ledger = OlmInboundDeliveryLedger(dao, "recipient", "recipient-device")
+            val aliceDevice = device("alice-device", "alice-identity")
+            val bobDevice = device("bob-device", "bob-identity")
+            repeat(50) { index ->
+                assertEquals(
+                    OlmInboundRegistration.NEW,
+                    ledger.register(
+                        "alice",
+                        "untrusted-deferred-$index",
+                        envelope("alice-device", "recipient-device", 1),
+                        100L + index,
+                    ),
+                )
+                val id = receiptId("alice", "alice-device", "untrusted-deferred-$index", "recipient-device")
+                assertEquals(1, dao.markWaitingForDevice(id))
+            }
+            assertEquals(
+                OlmInboundRegistration.NEW,
+                ledger.register(
+                    "bob",
+                    "later-trusted-receipt",
+                    envelope("bob-device", "recipient-device", 1),
+                    20_000L,
+                ),
+            )
+            val bobReceiptId = receiptId("bob", "bob-device", "later-trusted-receipt", "recipient-device")
+            assertEquals(1, dao.markWaitingForDevice(bobReceiptId))
+
+            var bobHandoffs = 0
+            val processor = OlmPendingReceiptProcessor(
+                receiptDao = dao,
+                remoteDevicesForUser = { userId ->
+                    if (userId == "alice") listOf(aliceDevice) else listOf(bobDevice)
+                },
+                trustVerifier = OlmDeviceTrustVerifier { userId, deviceId, identityKey ->
+                    userId == "bob" &&
+                        deviceId == bobDevice.deviceId &&
+                        identityKey == bobDevice.ed25519IdentityKey
+                },
+                handoff = OlmInboundReceiptHandoff { receiptId, _, _, _, _ ->
+                    bobHandoffs++
+                    assertEquals(bobReceiptId, receiptId)
+                    assertEquals(1, dao.markProcessed(receiptId, 30_000L))
+                    assertEquals(1, dao.markFinalized(receiptId))
+                    OlmInboundHandoffResult.COMMITTED
+                },
+                finalizer = OlmCommittedReceiptFinalizer { receiptId, _ ->
+                    dao.markFinalized(receiptId) == 1
+                },
+                authenticatedLocalUserId = { "recipient" },
+                clock = { 10_000L },
+            )
+
+            val firstPass = processor.processPending(limit = 50)
+            assertEquals(50, firstPass.deferredScanned)
+            assertEquals(50, firstPass.waitingForTrust)
+            assertEquals(0, bobHandoffs)
+
+            val secondPass = processor.processPending(limit = 50)
+            assertEquals(1, secondPass.deferredScanned)
+            assertEquals(1, secondPass.committed)
+            assertEquals(1, bobHandoffs)
+            assertEquals(
+                OlmInboundReceiptStatus.FINALIZED.name,
+                dao.getByReceiptId(bobReceiptId)?.status,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun wireTypeClassifierRejectsUnknownAndTruncatedMessages() {
         assertEquals(
             OlmInboundCiphertextKind.PRE_KEY,

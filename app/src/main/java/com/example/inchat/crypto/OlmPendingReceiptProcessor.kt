@@ -176,7 +176,7 @@ internal class OlmPendingReceiptProcessor(
                         throw cancelled
                     } catch (_: Exception) {
                         if (authenticatedLocalUserId() == localUserId) {
-                            receiptDao.markRetryAttempted(
+                            receiptDao.markAttempted(
                                 receiptId = receipt.receiptId,
                                 attemptedAtMillis = clock().coerceAtLeast(0L),
                             )
@@ -193,6 +193,10 @@ internal class OlmPendingReceiptProcessor(
                         }
                         if (remoteDevice == null) {
                             if (!isDeferred) receiptDao.markWaitingForDevice(receipt.receiptId)
+                            receiptDao.markAttempted(
+                                receiptId = receipt.receiptId,
+                                attemptedAtMillis = clock().coerceAtLeast(0L),
+                            )
                             missingRemoteDevice++
                             return
                         }
@@ -208,6 +212,10 @@ internal class OlmPendingReceiptProcessor(
                         if (authenticatedLocalUserId() != localUserId) return
                         if (!isTrusted) {
                             if (!isDeferred) receiptDao.markWaitingForDevice(receipt.receiptId)
+                            receiptDao.markAttempted(
+                                receiptId = receipt.receiptId,
+                                attemptedAtMillis = clock().coerceAtLeast(0L),
+                            )
                             waitingForTrust++
                             return
                         }

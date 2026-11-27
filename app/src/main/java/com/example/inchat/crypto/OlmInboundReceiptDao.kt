@@ -18,11 +18,11 @@ interface OlmInboundReceiptDao {
     fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
     /** Deferred receipts remain account-scoped while waiting for device publication or SAS trust. */
-    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'WAITING_FOR_DEVICE' ORDER BY receivedAtMillis ASC, receiptId ASC LIMIT :limit")
+    @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'WAITING_FOR_DEVICE' ORDER BY CASE WHEN lastAttemptAtMillis IS NULL THEN 0 ELSE 1 END ASC, lastAttemptAtMillis ASC, receivedAtMillis ASC, receiptId ASC LIMIT :limit")
     fun getWaitingForDevice(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
 
-    @Query("UPDATE olm_inbound_receipts SET lastAttemptAtMillis = :attemptedAtMillis WHERE receiptId = :receiptId AND status = 'PENDING'")
-    fun markRetryAttempted(receiptId: String, attemptedAtMillis: Long): Int
+    @Query("UPDATE olm_inbound_receipts SET lastAttemptAtMillis = :attemptedAtMillis WHERE receiptId = :receiptId AND status IN ('PENDING', 'WAITING_FOR_DEVICE')")
+    fun markAttempted(receiptId: String, attemptedAtMillis: Long): Int
 
     @Query("UPDATE olm_inbound_receipts SET status = 'WAITING_FOR_DEVICE' WHERE receiptId = :receiptId AND status = 'PENDING'")
     fun markWaitingForDevice(receiptId: String): Int
