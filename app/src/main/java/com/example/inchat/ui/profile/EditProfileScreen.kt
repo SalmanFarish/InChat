@@ -1,5 +1,7 @@
 package com.example.inchat.ui.profile
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -132,6 +134,7 @@ fun EditProfileScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = displayName,
                         onValueChange = {
                             if (it.length <= 30) {
@@ -166,6 +169,7 @@ fun EditProfileScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = bio,
                         onValueChange = {
                             if (it.length <= 160) {
