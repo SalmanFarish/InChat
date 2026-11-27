@@ -11,11 +11,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -111,7 +116,9 @@ fun HomeScreen(
     homeViewModel: HomeViewModel,
     onConversationClick: (Conversation) -> Unit,
     onNewMessageClick: () -> Unit,
-    onCreateGroupClick: () -> Unit
+    onCreateGroupClick: () -> Unit,
+    homeSelectionMode: Boolean,
+    onSelectionModeChange: (Boolean) -> Unit
 ) {
 
     val currentUserId by
@@ -196,9 +203,7 @@ fun HomeScreen(
         mutableStateOf(false)
     }
 
-    var isSelectionMode by remember {
-        mutableStateOf(false)
-    }
+    val isSelectionMode = homeSelectionMode
 
     var selectedChatIds by remember {
         mutableStateOf<Set<String>>(emptySet())
@@ -345,8 +350,16 @@ fun HomeScreen(
     }
 
     val exitSelection: () -> Unit = {
-        isSelectionMode = false
         selectedChatIds = emptySet()
+        onSelectionModeChange(false)
+    }
+
+    // If the navigation host ends selection mode (for example, when a
+    // notification opens another destination), clear the local selection too.
+    LaunchedEffect(isSelectionMode) {
+        if (!isSelectionMode && selectedChatIds.isNotEmpty()) {
+            selectedChatIds = emptySet()
+        }
     }
     val toggleChatSelection: (String) -> Unit = { chatId ->
         selectedChatIds = if (chatId in selectedChatIds) {
@@ -554,7 +567,7 @@ fun HomeScreen(
                                 selectedConversation = null
                                 pendingDeleteConversation = null
                                 selectedChatIds = setOf(conversation.chatId)
-                                isSelectionMode = true
+                                onSelectionModeChange(true)
                             },
                             onClick = {
                                 if (isSelectionMode) {
@@ -672,7 +685,7 @@ fun HomeScreen(
                                         selectedConversation = null
                                         pendingDeleteConversation = null
                                         selectedChatIds = setOf(conversation.chatId)
-                                        isSelectionMode = true
+                                        onSelectionModeChange(true)
                                     },
                                     onClick = {
                                 if (isSelectionMode) {
@@ -755,7 +768,29 @@ fun HomeScreen(
                 }
             }
 
-            if (isSelectionMode) {
+            AnimatedVisibility(
+                visible = isSelectionMode,
+                enter = slideInVertically(
+                    initialOffsetY = { it / 2 },
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
+                ) + expandVertically(
+                    expandFrom = Alignment.Bottom,
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
+                ) + fadeIn(animationSpec = tween(150)) + scaleIn(
+                    initialScale = 0.97f,
+                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
+                ),
+                exit = slideOutVertically(
+                    targetOffsetY = { it / 2 },
+                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
+                ) + shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
+                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
+                ) + fadeOut(animationSpec = tween(120)) + scaleOut(
+                    targetScale = 0.985f,
+                    animationSpec = tween(150)
+                )
+            ) {
                 val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
                     selectedConversations.all { it.isHidden }
                 val allSelectedAreFavorite = selectedConversations.isNotEmpty() &&
@@ -1976,6 +2011,29 @@ private fun ConversationItem(
     // Firebase inbox metadata remains a non-sensitive fallback for uncached messages.
     val previewText = visibleLocalPreview?.text ?: conversation.safeInboxPreview()
 
+    val rowSurfaceColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+        } else if (hasUnread) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        animationSpec = tween(180),
+        label = "conversationSelectionSurface"
+    )
+    val rowBorderColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        } else if (hasUnread) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
+        },
+        animationSpec = tween(180),
+        label = "conversationSelectionBorder"
+    )
+
     Box {
         Surface(
             modifier = Modifier
@@ -1988,22 +2046,10 @@ private fun ConversationItem(
                     onLongClick = onLongClick
                 ),
             shape = RoundedCornerShape(18.dp),
-            color = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
-            } else if (hasUnread) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
+            color = rowSurfaceColor,
             border = BorderStroke(
                 width = 0.75.dp,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
-                } else if (hasUnread) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
-                }
+                color = rowBorderColor
             )
         ) {
             Row(
@@ -2020,24 +2066,43 @@ private fun ConversationItem(
                         scaleOut(targetScale = 0.72f, animationSpec = tween(120))
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(25.dp),
-                            shape = CircleShape,
-                            color = if (isSelected) {
+                        val selectorFill by animateColorAsState(
+                            targetValue = if (isSelected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surface
                             },
+                            animationSpec = tween(150),
+                            label = "conversationSelectorFill"
+                        )
+                        val selectorBorder by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.82f)
+                            },
+                            animationSpec = tween(150),
+                            label = "conversationSelectorBorder"
+                        )
+                        Surface(
+                            modifier = Modifier.size(25.dp),
+                            shape = CircleShape,
+                            color = selectorFill,
                             border = BorderStroke(
                                 width = 1.25.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.82f)
-                                }
+                                color = selectorBorder
                             )
                         ) {
-                            if (isSelected) {
+                            AnimatedVisibility(
+                                visible = isSelected,
+                                enter = fadeIn(animationSpec = tween(100)) +
+                                    scaleIn(
+                                        initialScale = 0.58f,
+                                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f)
+                                    ),
+                                exit = fadeOut(animationSpec = tween(90)) +
+                                    scaleOut(targetScale = 0.58f, animationSpec = tween(100))
+                            ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Default.Check,
