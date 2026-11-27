@@ -2353,24 +2353,6 @@ class ChatViewModel : ViewModel() {
                     }
                     val activeSenderDeviceId = requireNotNull(resolvedSenderDeviceId)
 
-                    // Persist the recovery trigger before starting network work so
-                    // process death during the fast path cannot strand the message.
-                    runCatching {
-                        EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
-                            context = appContext,
-                            ownerUserId = currentUserId,
-                            senderDeviceId = activeSenderDeviceId,
-                        )
-                    }.onSuccess {
-                        recoveryWorkScheduled = true
-                    }.onFailure { schedulingError ->
-                        Log.w(
-                            "ChatViewModel",
-                            "Could not queue encrypted recovery before foreground send: $messageId",
-                            schedulingError,
-                        )
-                    }
-
                     // The same mutex protects the WorkManager pending-intent recovery
                     // path. Only one producer may create the immutable ciphertext
                     // fan-out for this local intent at a time.
@@ -2382,6 +2364,24 @@ class ChatViewModel : ViewModel() {
                                 messageId = messageId,
                             )
                             if (stillPending) {
+                                // Persist crash recovery while holding the same
+                                // mutex used by the worker. The worker cannot race
+                                // ahead and drain older pending intents first.
+                                runCatching {
+                                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                        context = appContext,
+                                        ownerUserId = currentUserId,
+                                        senderDeviceId = activeSenderDeviceId,
+                                    )
+                                }.onSuccess {
+                                    recoveryWorkScheduled = true
+                                }.onFailure { schedulingError ->
+                                    Log.w(
+                                        "ChatViewModel",
+                                        "Could not queue encrypted recovery before message preparation: $messageId",
+                                        schedulingError,
+                                    )
+                                }
                                 OlmDirectMessageSendCoordinatorFactory(
                                     context = appContext,
                                     database = localChatDatabase,
