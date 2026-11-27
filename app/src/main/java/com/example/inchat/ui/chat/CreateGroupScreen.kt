@@ -1,5 +1,9 @@
 package com.example.inchat.ui.chat
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
+import com.example.inchat.ui.components.CompactSearchField
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -203,6 +207,7 @@ fun CreateGroupScreen(
         ) {
 
             OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                 value = groupName,
                 onValueChange = { groupName = it.take(50) },
                 modifier = Modifier
@@ -212,42 +217,13 @@ fun CreateGroupScreen(
                 singleLine = true
             )
 
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        decorationBox = { innerTextField ->
-                            if (query.isBlank()) {
-                                Text("Search people")
-                            }
-                            innerTextField()
-                        }
-                    )
-                }
-            }
+            CompactSearchField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "Search people",
+                modifier = Modifier.padding(horizontal = 18.dp),
+                onClear = { query = "" }
+            )
 
             Text(
                 text = (selectedUsers.size + 1).toString() +
