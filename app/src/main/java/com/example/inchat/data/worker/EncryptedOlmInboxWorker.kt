@@ -87,12 +87,13 @@ class EncryptedOlmInboxWorker(
             kotlin.Result.failure(error)
         }
 
-        when (evaluateEncryptedOlmDeviceScope(
+        val deviceScopeDecision = evaluateEncryptedOlmDeviceScope(
             scheduledSenderDeviceId = recipientDeviceId,
             activeDeviceId = identityLookup.getOrNull(),
             lookupFailed = identityLookup.isFailure,
-        )) {
-            EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> {
+        )
+        when (encryptedOlmDeviceScopeAction(deviceScopeDecision)) {
+            EncryptedOlmDeviceScopeAction.RETRY -> {
                 // Keep the one-time inbox wake alive when local storage/Keystore
                 // access fails transiently; otherwise this message waits for polling.
                 Log.w(
@@ -102,12 +103,12 @@ class EncryptedOlmInboxWorker(
                 )
                 return Result.retry()
             }
-            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> {
+            EncryptedOlmDeviceScopeAction.RETIRE -> {
                 Log.i(TAG, "Retiring encrypted inbox polling for a missing or inactive device identity.")
                 cancel(applicationContext, ownerUserId, recipientDeviceId)
                 return Result.success()
             }
-            EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> Unit
+            EncryptedOlmDeviceScopeAction.CONTINUE -> Unit
         }
 
         // A stale worker must never redirect itself to a newly signed-in account.

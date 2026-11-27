@@ -103,8 +103,8 @@ class EncryptedOlmDeliveryWorker(
             activeDeviceId = identityLookup.getOrNull(),
             lookupFailed = identityLookup.isFailure,
         )
-        when (deviceScopeDecision) {
-            EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> {
+        when (encryptedOlmDeviceScopeAction(deviceScopeDecision)) {
+            EncryptedOlmDeviceScopeAction.RETRY -> {
                 // A one-shot wake must not be consumed by a transient identity-store
                 // failure. Retry with WorkManager backoff; permanent missing/retired
                 // identities are handled by RETIRE_STALE_SCOPE below.
@@ -115,14 +115,14 @@ class EncryptedOlmDeliveryWorker(
                 )
                 return Result.retry()
             }
-            EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> {
+            EncryptedOlmDeviceScopeAction.RETIRE -> {
                 // A missing/retired native identity cannot ever service this schedule.
                 // Cancel only its WorkManager jobs; keep durable Room deliveries intact.
                 Log.i(TAG, "Retiring encrypted delivery for a missing or inactive device identity.")
                 cancel(applicationContext, ownerUserId, senderDeviceId)
                 return Result.success()
             }
-            EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> Unit
+            EncryptedOlmDeviceScopeAction.CONTINUE -> Unit
         }
 
         // The device identity read can suspend while Firebase auth changes. Recheck
