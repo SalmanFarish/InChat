@@ -865,7 +865,10 @@ export async function processEncryptedOlmAcknowledgementPush({
             senderDeviceId: input.senderDeviceId,
           },
           android: {
-            priority: "high",
+            // ACK is a background sync hint, not a user-visible alert. Keep
+            // it normal priority so it cannot undermine FCM's high-priority
+            // budget reserved for incoming messages that show a notification.
+            priority: "normal",
             ttl: "86400s",
           },
         },

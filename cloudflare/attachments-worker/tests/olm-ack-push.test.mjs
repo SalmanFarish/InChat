@@ -90,7 +90,7 @@ test("sends an exact metadata-only acknowledgement wake-up to the sender device"
     deliveryId,
     senderDeviceId: "alice-device",
   });
-  assert.deepEqual(message.android, { priority: "high", ttl: "86400s" });
+  assert.deepEqual(message.android, { priority: "normal", ttl: "86400s" });
   assert.equal("notification" in message, false);
   assert.equal(
     state.database.get("olmAckPushDispatch/alice/alice-device/" + deliveryId).status,
