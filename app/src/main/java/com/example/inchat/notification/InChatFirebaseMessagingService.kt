@@ -70,16 +70,12 @@ class InChatFirebaseMessagingService :
         super.onDeletedMessages()
 
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid.isNullOrBlank()) {
-            Log.i("InChatFCM", "FCM backlog was deleted before account restoration.")
-            return
-        }
-
         runCatching {
-            EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
-                context = applicationContext,
-                ownerUserId = uid,
-            )
+            if (uid.isNullOrBlank()) {
+                EncryptedOlmFcmWakeResolverWorker.scheduleInboxAfterAuth(applicationContext)
+            } else {
+                EncryptedOlmFcmWakeResolverWorker.scheduleInbox(applicationContext, uid)
+            }
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule full encrypted inbox reconciliation.", error)
         }
@@ -92,7 +88,8 @@ class InChatFirebaseMessagingService :
         // be discarded, never reinterpreted as a legacy plaintext notification.
         if (NotificationPayloadPolicy.isEncryptedOlmWakeupType(remoteMessage.data)) {
             if (NotificationPayloadPolicy.isEncryptedOlmWakeup(remoteMessage.data)) {
-                scheduleEncryptedInboxWake(remoteMessage.data)
+                logEncryptedWakePriority("message", remoteMessage)
+                scheduleEncryptedInboxWake(remoteMessage.data, remoteMessage.sentTime)
             } else {
                 Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
             }
@@ -103,7 +100,8 @@ class InChatFirebaseMessagingService :
         // user-visible notification or carry message content.
         if (NotificationPayloadPolicy.isEncryptedOlmAckWakeupType(remoteMessage.data)) {
             if (NotificationPayloadPolicy.isEncryptedOlmAckWakeup(remoteMessage.data)) {
-                scheduleEncryptedSenderWake(remoteMessage.data)
+                logEncryptedWakePriority("acknowledgement", remoteMessage)
+                scheduleEncryptedSenderWake(remoteMessage.data, remoteMessage.sentTime)
             } else {
                 Log.w("InChatFCM", "Ignored an invalid encrypted acknowledgement wake-up.")
             }
@@ -153,33 +151,59 @@ class InChatFirebaseMessagingService :
         )
     }
 
-    private fun scheduleEncryptedInboxWake(data: Map<String, String>) {
+    private fun scheduleEncryptedInboxWake(data: Map<String, String>, fcmSentAtMillis: Long) {
         if (!NotificationPayloadPolicy.isEncryptedOlmWakeup(data)) {
             Log.w("InChatFCM", "Ignored an invalid encrypted message wake-up.")
             return
         }
 
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid.isNullOrBlank()) {
-            Log.i("InChatFCM", "Encrypted message wake-up arrived before account restoration.")
-            return
-        }
-
+        val receivedAtMillis = System.currentTimeMillis()
         runCatching {
-            EncryptedMessageNotificationPublisher(applicationContext).notifyEncryptedWakeup(uid)
+            val publisher = EncryptedMessageNotificationPublisher(applicationContext)
+            if (uid.isNullOrBlank()) {
+                publisher.notifyEncryptedWakeupWithoutResolvedAccount()
+            } else {
+                publisher.notifyEncryptedWakeup(uid)
+            }
         }.onFailure { error ->
-            // Notification display must never prevent the durable inbox wake-up.
             Log.w("InChatFCM", "Could not display the privacy-safe encrypted wake-up notification.", error)
         }
 
         runCatching {
-            EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
-                context = applicationContext,
-                ownerUserId = uid,
-            )
+            if (uid.isNullOrBlank()) {
+                EncryptedOlmFcmWakeResolverWorker.scheduleInboxAfterAuth(
+                    context = applicationContext,
+                    wakeReceivedAtMillis = receivedAtMillis,
+                )
+            } else {
+                EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
+                    context = applicationContext,
+                    ownerUserId = uid,
+                    wakeReceivedAtMillis = receivedAtMillis,
+                )
+            }
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule encrypted inbox recovery.", error)
         }
+        logEncryptedFcmTransit("message", fcmSentAtMillis, receivedAtMillis)
+    }
+
+    private fun logEncryptedWakePriority(kind: String, remoteMessage: RemoteMessage) {
+        Log.i(
+            "InChatFCM",
+            "Encrypted " + kind + " wake priority: original=" + remoteMessage.originalPriority +
+                ", delivered=" + remoteMessage.priority + ".",
+        )
+    }
+
+    private fun logEncryptedFcmTransit(kind: String, sentAtMillis: Long, receivedAtMillis: Long) {
+        val transitMillis = if (sentAtMillis > 0L) {
+            (receivedAtMillis - sentAtMillis).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+        Log.i("InChatFCM", "Encrypted " + kind + " FCM transit ms=" + transitMillis + ".")
     }
 
     /*
@@ -224,23 +248,29 @@ class InChatFirebaseMessagingService :
         }
     }
 
-    private fun scheduleEncryptedSenderWake(data: Map<String, String>) {
+    private fun scheduleEncryptedSenderWake(data: Map<String, String>, fcmSentAtMillis: Long) {
         if (!NotificationPayloadPolicy.isEncryptedOlmAckWakeup(data)) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid.isNullOrBlank()) {
-            Log.i("InChatFCM", "Encrypted acknowledgement wake-up arrived before account restoration.")
-            return
-        }
         val expectedDeviceId = data["senderDeviceId"].orEmpty()
+        val receivedAtMillis = System.currentTimeMillis()
         runCatching {
-            EncryptedOlmFcmWakeResolverWorker.scheduleAcknowledgement(
-                context = applicationContext,
-                ownerUserId = uid,
-                expectedSenderDeviceId = expectedDeviceId,
-            )
+            if (uid.isNullOrBlank()) {
+                EncryptedOlmFcmWakeResolverWorker.scheduleAcknowledgementAfterAuth(
+                    context = applicationContext,
+                    expectedSenderDeviceId = expectedDeviceId,
+                    wakeReceivedAtMillis = receivedAtMillis,
+                )
+            } else {
+                EncryptedOlmFcmWakeResolverWorker.scheduleAcknowledgement(
+                    context = applicationContext,
+                    ownerUserId = uid,
+                    expectedSenderDeviceId = expectedDeviceId,
+                )
+            }
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule encrypted sender acknowledgement recovery.", error)
         }
+        logEncryptedFcmTransit("acknowledgement", fcmSentAtMillis, receivedAtMillis)
     }
 
     private fun showNotification(
