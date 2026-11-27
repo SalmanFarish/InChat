@@ -43,11 +43,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.model.User
+import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
@@ -59,8 +68,11 @@ fun NewMessageScreen(
     onUserClick: (User) -> Unit
 ) {
     val userRepository = remember { UserRepository() }
+    val chatRepository = remember { ChatRepository() }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<User>>(emptyList()) }
+    var recentUsers by remember { mutableStateOf<List<User>>(emptyList()) }
+    var isLoadingRecentUsers by remember { mutableStateOf(true) }
     var isSearching by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
@@ -93,6 +105,50 @@ fun NewMessageScreen(
         }
 
         isSearching = false
+    }
+
+    // Show the same recent direct-chat partners used by group creation.
+    // The inbox index is already ordered by last activity and updates live.
+    LaunchedEffect(currentUserId) {
+        if (currentUserId.isBlank()) {
+            isLoadingRecentUsers = false
+            return@LaunchedEffect
+        }
+
+        isLoadingRecentUsers = true
+        chatRepository.getConversationsFlow(currentUserId)
+            .map { conversations ->
+                conversations.asSequence()
+                    .filter { conversation ->
+                        conversation.chatType != "group" &&
+                            conversation.lastTimestamp > 0L &&
+                            conversation.otherUserId.isNotBlank() &&
+                            conversation.otherUsername.isNotBlank()
+                    }
+                    .sortedByDescending(Conversation::lastTimestamp)
+                    .distinctBy(Conversation::otherUserId)
+                    .take(20)
+                    .toList()
+            }
+            .distinctUntilChanged()
+            .catch {
+                recentUsers = emptyList()
+                isLoadingRecentUsers = false
+            }
+            .collectLatest { recentConversations ->
+                recentUsers = coroutineScope {
+                    recentConversations.map { conversation ->
+                        async(Dispatchers.IO) {
+                            userRepository.getUserByIdFast(conversation.otherUserId)
+                                ?: User(
+                                    uid = conversation.otherUserId,
+                                    username = conversation.otherUsername
+                                )
+                        }
+                    }.awaitAll()
+                }
+                isLoadingRecentUsers = false
+            }
     }
 
     Scaffold(
@@ -160,11 +216,55 @@ fun NewMessageScreen(
                     )
                 }
 
-                query.isBlank() -> {
+                query.isBlank() && isLoadingRecentUsers -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 42.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                }
+
+                query.isBlank() && recentUsers.isEmpty() -> {
                     NewMessageEmptyState(
                         title = "Find someone to message",
                         description = "Search by username to start a private conversation."
                     )
+                }
+
+                query.isBlank() -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        item(key = "recent_messages_header") {
+                            Text(
+                                text = "Recently chatted",
+                                modifier = Modifier.padding(
+                                    start = 20.dp,
+                                    top = 8.dp,
+                                    bottom = 8.dp
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        items(
+                            items = recentUsers,
+                            key = { it.uid }
+                        ) { user ->
+                            NewMessageUserRow(
+                                user = user,
+                                onClick = { onUserClick(user) }
+                            )
+                        }
+                    }
                 }
 
                 results.isEmpty() -> {
@@ -187,49 +287,58 @@ fun NewMessageScreen(
                             items = results,
                             key = { it.uid }
                         ) { user ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onUserClick(user) }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                InChatProfileAvatar(
-                                    profilePhotoUrl = user.profilePhotoData.ifBlank {
-                                        user.profilePhotoUrl
-                                    },
-                                    modifier = Modifier.size(48.dp),
-                                    iconSize = 25.dp,
-                                    contentDescription = "Profile picture"
-                                )
-
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 12.dp)
-                                ) {
-                                    Text(
-                                        text = user.displayName.ifBlank { user.username },
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "@${user.username}",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 12.sp
-                                        ),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
+                            NewMessageUserRow(
+                                user = user,
+                                onClick = { onUserClick(user) }
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NewMessageUserRow(
+    user: User,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InChatProfileAvatar(
+            profilePhotoUrl = user.profilePhotoData.ifBlank {
+                user.profilePhotoUrl
+            },
+            modifier = Modifier.size(48.dp),
+            iconSize = 25.dp,
+            contentDescription = "Profile picture"
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+        ) {
+            Text(
+                text = user.displayName.ifBlank { user.username },
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "@${user.username}",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
