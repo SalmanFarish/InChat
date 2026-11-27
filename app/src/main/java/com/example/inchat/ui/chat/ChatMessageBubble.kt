@@ -254,6 +254,10 @@ fun SwipeableMessageBubble(
                 Column(
                     modifier =
                         Modifier
+                            // Align the bubble independently from the timestamp footer.
+                            // Short messages can have a wider footer than text; without
+                            // this, outgoing bubbles inherit the footer's left edge.
+                            .align(if (isMe) Alignment.End else Alignment.Start)
                             .combinedClickable(
                                 interactionSource = null,
                                 indication = null,
