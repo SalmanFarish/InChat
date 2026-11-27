@@ -129,6 +129,18 @@ internal interface OlmDeliveryQueueStore {
      */
     fun claimNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long, leaseDurationMillis: Long, maxAttempts: Int): QueuedOlmDeviceDelivery?
 
+    /** Atomically claim only a due delivery belonging to one message. */
+    fun claimNextDueForMessage(
+        ownerUserId: String,
+        senderDeviceId: String,
+        messageId: String,
+        nowMillis: Long,
+        leaseDurationMillis: Long,
+        maxAttempts: Int,
+    ): QueuedOlmDeviceDelivery? = throw UnsupportedOperationException(
+        "Queue store must implement message-scoped delivery claims",
+    )
+
     /** Earliest future QUEUED/UPLOADED retry or IN_FLIGHT lease expiry for this sender scope. */
     fun nextScheduledRetryAtMillis(ownerUserId: String, senderDeviceId: String, nowMillis: Long): Long? = null
 
@@ -301,11 +313,24 @@ internal class OlmDeliveryQueue(
     }
 
     /** Claim one due row. The caller must send the returned ciphertext envelope. */
-    fun claimNext(ownerUserId: String, senderDeviceId: String, nowMillis: Long): QueuedOlmDeviceDelivery? {
+    fun claimNext(
+        ownerUserId: String,
+        senderDeviceId: String,
+        nowMillis: Long,
+        messageId: String? = null,
+    ): QueuedOlmDeviceDelivery? {
         require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender user ID has an invalid format" }
         require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
         require(nowMillis >= 0) { "nowMillis must not be negative" }
-        return store.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
+        if (messageId == null) {
+            return store.claimNextDue(ownerUserId, senderDeviceId, nowMillis, leaseDurationMillis, maxAttempts)
+        }
+        require(messageId.isNotBlank() && messageId.length <= MAX_MESSAGE_ID_LENGTH) {
+            "Message ID has an invalid format"
+        }
+        return store.claimNextDueForMessage(
+            ownerUserId, senderDeviceId, messageId, nowMillis, leaseDurationMillis, maxAttempts,
+        )
     }
 
     /**

@@ -181,6 +181,39 @@ interface OlmDeliveryQueueDao {
     fun findNextDue(ownerUserId: String, senderDeviceId: String, nowMillis: Long): OlmDeviceDeliveryEntity?
 
     @Query(
+        "SELECT * FROM olm_device_deliveries " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :messageId AND " +
+            "((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) " +
+            "OR (status = 'IN_FLIGHT' AND leaseUntilMillis <= :nowMillis)) " +
+            "ORDER BY CASE WHEN status IN ('QUEUED', 'UPLOADED') THEN nextAttemptAtMillis ELSE leaseUntilMillis END ASC, deliveryId ASC " +
+            "LIMIT 1"
+    )
+    fun findNextDueForMessage(
+        ownerUserId: String,
+        senderDeviceId: String,
+        messageId: String,
+        nowMillis: Long,
+    ): OlmDeviceDeliveryEntity?
+
+    @Query(
+        "UPDATE olm_device_deliveries SET status = 'FAILED', leaseUntilMillis = 0, " +
+            "lastError = 'attempt_limit_reached' " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :messageId " +
+            "AND status IN ('QUEUED', 'UPLOADED', 'IN_FLIGHT') AND attemptCount >= :maxAttempts " +
+            "AND ((status IN ('QUEUED', 'UPLOADED') AND nextAttemptAtMillis <= :nowMillis) OR " +
+            "(status = 'IN_FLIGHT' AND leaseUntilMillis <= :nowMillis))"
+    )
+    fun failExhaustedDueForMessage(
+        ownerUserId: String,
+        senderDeviceId: String,
+        messageId: String,
+        nowMillis: Long,
+        maxAttempts: Int,
+    ): Int
+
+    @Query(
         "UPDATE olm_device_deliveries SET status = 'IN_FLIGHT', " +
             "attemptCount = attemptCount + 1, leaseUntilMillis = :leaseUntilMillis " +
             "WHERE deliveryId = :deliveryId AND ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +

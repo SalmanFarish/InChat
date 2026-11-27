@@ -34,6 +34,8 @@ internal class OlmDeliveryWorkerRunner(
     private val syncEncryptedGroupPreview: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
     private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
     private val onTiming: (stage: String, durationMillis: Long) -> Unit = { _, _ -> },
+    private val messageIdFilter: String? = null,
+    private val processAcknowledgements: Boolean = true,
 ) {
     init {
         require(senderUserId.matches(USER_ID_PATTERN)) { "Sender user ID has an invalid format" }
@@ -45,15 +47,21 @@ internal class OlmDeliveryWorkerRunner(
         // Acknowledgements are applied first. The processor deletes the relay ack
         // before deleting the exact matching Room row, making interruption safe.
         val acknowledgementStartedAt = System.nanoTime()
-        val acknowledgements = OlmDeliveryAckProcessor(
-            queue = queue,
-            transport = transport,
-            senderUserId = senderUserId,
-            senderDeviceId = senderDeviceId,
-            recordAcknowledgement = recordAcknowledgement,
-            clock = clock,
-        ).processPending()
-        reportTiming("acknowledgement_reconciliation", acknowledgementStartedAt)
+        val acknowledgements = if (processAcknowledgements) {
+            OlmDeliveryAckProcessor(
+                queue = queue,
+                transport = transport,
+                senderUserId = senderUserId,
+                senderDeviceId = senderDeviceId,
+                recordAcknowledgement = recordAcknowledgement,
+                clock = clock,
+            ).processPending()
+        } else {
+            null
+        }
+        if (processAcknowledgements) {
+            reportTiming("acknowledgement_reconciliation", acknowledgementStartedAt)
+        }
 
         var uploaded = 0
         var retryRequired = false
@@ -61,11 +69,16 @@ internal class OlmDeliveryWorkerRunner(
         var notificationDispatchFailures = 0
         repeat(maxDeliveriesPerRun) { batchIndex ->
             val delivery = withContext(ioDispatcher) {
-                queue.claimNext(senderUserId, senderDeviceId, clock().coerceAtLeast(0L))
+                queue.claimNext(
+                    senderUserId,
+                    senderDeviceId,
+                    clock().coerceAtLeast(0L),
+                    messageIdFilter,
+                )
             } ?: return OlmDeliveryWorkerRunResult(
                 uploaded = uploaded,
-                acknowledged = acknowledgements.removed,
-                unmatchedAcknowledgements = acknowledgements.unmatched,
+                acknowledged = acknowledgements?.removed ?: 0,
+                unmatchedAcknowledgements = acknowledgements?.unmatched ?: 0,
                 retryRequired = retryRequired,
                 notificationDispatchFailures = notificationDispatchFailures,
             )
@@ -219,8 +232,8 @@ internal class OlmDeliveryWorkerRunner(
         // collected promptly and larger queues continue in bounded chunks.
         return OlmDeliveryWorkerRunResult(
             uploaded = uploaded,
-            acknowledged = acknowledgements.removed,
-            unmatchedAcknowledgements = acknowledgements.unmatched,
+            acknowledged = acknowledgements?.removed ?: 0,
+            unmatchedAcknowledgements = acknowledgements?.unmatched ?: 0,
             retryRequired = retryRequired,
             followUpRequired = followUpRequired,
             notificationDispatchFailures = notificationDispatchFailures,

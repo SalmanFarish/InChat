@@ -12,6 +12,7 @@ import com.example.inchat.crypto.EncryptedMessageDeliveryStatusRepository
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
 import com.example.inchat.crypto.EncryptedMessageContentCodec
 import com.example.inchat.crypto.EncryptedDirectPendingMessageRepository
+import com.example.inchat.crypto.EncryptedDirectPendingMessageRetryLock
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
 import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
@@ -19,6 +20,7 @@ import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.toDelivery
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmForegroundDeliveryDispatcher
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.Presence
 import com.example.inchat.data.model.ReplyTo
@@ -44,6 +46,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class BlockState {
@@ -2331,37 +2334,130 @@ class ChatViewModel : ViewModel() {
                 _replyingTo.value = null
                 onResult(true, null)
 
-                // WorkManager is the single network sender for pending direct
-                // intents. Its connected-network constraint and retry policy keep
-                // this coroutine and the compose input independent of Firebase.
+                // Start encrypted delivery in this foreground process instead of
+                // waiting for Android to schedule WorkManager. The Room pending intent
+                // remains the crash-recovery boundary until its full Olm fan-out commits.
+                val appContext = InChatApplication.instance
+                var resolvedSenderDeviceId: String? = null
                 try {
-                    val senderDeviceId = withContext(Dispatchers.IO) {
-                        val identity = DeviceIdentityRepository(InChatApplication.instance)
+                    resolvedSenderDeviceId = withContext(Dispatchers.IO) {
+                        val identity = DeviceIdentityRepository(appContext)
                         identity.existingDeviceIdForDelivery() ?: try {
                             DeviceKeyDirectoryRepository().ensureMyDevicePublished(identity).deviceId
                         } catch (provisioningError: Exception) {
-                            // A failed Firebase publication can happen after the
-                            // local Keystore identity was created. Schedule the worker
-                            // with that stable identity so it can retry publication.
+                            // The Keystore identity may exist even when publication
+                            // failed. Keep its stable scope for background recovery.
                             identity.existingDeviceIdForDelivery() ?: throw provisioningError
                         }
                     }
-                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
-                        context = InChatApplication.instance,
-                        ownerUserId = currentUserId,
-                        senderDeviceId = senderDeviceId,
-                    )
-                    Log.d(
+                    val activeSenderDeviceId = requireNotNull(resolvedSenderDeviceId)
+
+                    // The same mutex protects the WorkManager pending-intent recovery
+                    // path. Only one producer may create the immutable ciphertext
+                    // fan-out for this local intent at a time.
+                    withContext(Dispatchers.IO) {
+                        EncryptedDirectPendingMessageRetryLock.mutex.withLock {
+                            val stillPending = encryptedDirectPendingMessageRepository.isPendingOutgoingIntent(
+                                ownerUserId = currentUserId,
+                                conversationId = chatId,
+                                messageId = messageId,
+                            )
+                            if (stillPending) {
+                                OlmDirectMessageSendCoordinatorFactory(
+                                    context = appContext,
+                                    database = localChatDatabase,
+                                    auth = FirebaseAuth.getInstance(),
+                                ).create(scheduleCommittedDelivery = false).sendTextMessage(
+                                    senderUserId = currentUserId,
+                                    recipientUserId = otherUserId,
+                                    conversationId = chatId,
+                                    messageId = messageId,
+                                    sentAtMillis = sentAtMillis,
+                                    text = encryptedContent,
+                                )
+
+                                check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                                    "Authenticated account changed during foreground encrypted send"
+                                }
+                                check(
+                                    DeviceIdentityRepository(appContext).existingDeviceIdForDelivery() ==
+                                        activeSenderDeviceId
+                                ) {
+                                    "The active encrypted sender device changed during foreground send"
+                                }
+                                check(
+                                    encryptedDirectPendingMessageRepository.deletePendingOutgoingIntent(
+                                        ownerUserId = currentUserId,
+                                        conversationId = chatId,
+                                        messageId = messageId,
+                                    ) == 1
+                                ) {
+                                    "The encrypted pending message could not be retired after its outbox commit"
+                                }
+                            }
+                        }
+                    }
+
+                    // Use the same durable sender runner and Room lease mechanism,
+                    // but claim only this message. The normal worker remains the sole
+                    // ACK reconciler and handles all unrelated/group outbox rows.
+                    val dispatchResult = withContext(Dispatchers.IO) {
+                        EncryptedOlmForegroundDeliveryDispatcher.dispatch(
+                            context = appContext,
+                            ownerUserId = currentUserId,
+                            senderDeviceId = activeSenderDeviceId,
+                            messageId = messageId,
+                        )
+                    }
+                    Log.i(
                         "ChatViewModel",
-                        "Encrypted direct message saved locally and background delivery scheduled: $messageId",
+                        "Foreground encrypted delivery completed: message=$messageId, " +
+                            "uploaded=${dispatchResult.uploaded}, retryRequired=${dispatchResult.retryRequired}",
                     )
-                } catch (scheduleError: Exception) {
-                    // The intent remains encrypted and durable. Authentication
-                    // startup and the periodic delivery worker remain recovery paths.
+
+                    // Always keep the durable worker queued for ACK collection,
+                    // future retries, and work remaining after this bounded pass.
+                    EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                        context = appContext,
+                        ownerUserId = currentUserId,
+                        senderDeviceId = activeSenderDeviceId,
+                    )
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    // A pending intent or committed Room ciphertext survives this
+                    // cancellation. Restore the sender recovery trigger before exit.
+                    resolvedSenderDeviceId?.let { deviceId ->
+                        runCatching {
+                            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                appContext,
+                                currentUserId,
+                                deviceId,
+                            )
+                        }
+                    }
+                    throw cancelled
+                } catch (dispatchError: Exception) {
+                    // Never fall back to plaintext. Whether the intent is still
+                    // pending or its ciphertext fan-out committed, the background
+                    // worker can resume from the durable Room state.
+                    resolvedSenderDeviceId?.let { deviceId ->
+                        runCatching {
+                            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+                                appContext,
+                                currentUserId,
+                                deviceId,
+                            )
+                        }.onFailure { schedulingError ->
+                            Log.w(
+                                "ChatViewModel",
+                                "Encrypted sender recovery trigger could not be queued: $messageId",
+                                schedulingError,
+                            )
+                        }
+                    }
                     Log.w(
                         "ChatViewModel",
-                        "Encrypted direct message is saved locally; immediate worker scheduling will be retried: $messageId",
-                        scheduleError,
+                        "Message remains in the encrypted local outbox and will be retried: $messageId",
+                        dispatchError,
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {

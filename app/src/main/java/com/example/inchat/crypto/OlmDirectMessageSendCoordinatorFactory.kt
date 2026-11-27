@@ -25,7 +25,7 @@ internal class OlmDirectMessageSendCoordinatorFactory(
 ) {
     private val appContext = context.applicationContext
 
-    fun create(): OlmDirectMessageSendCoordinator {
+    fun create(scheduleCommittedDelivery: Boolean = true): OlmDirectMessageSendCoordinator {
         val identity = DeviceIdentityRepository(appContext)
         val directory = DeviceKeyDirectoryRepository(auth = auth)
         val trust = TrustedDeviceRepository(appContext)
@@ -55,15 +55,22 @@ internal class OlmDirectMessageSendCoordinatorFactory(
             dao = database.encryptedOlmMessageDao(),
             authenticatedUserId = { auth.currentUser?.uid },
         )
-        val scheduleDelivery: (String, String) -> Unit = { ownerUserId, senderDeviceId ->
-            // The durable transaction has already committed when this is called.
-            // A WorkManager scheduling failure must not tell the composer that
-            // its message was not queued; periodic/startup recovery can retry it.
-            runCatching {
-                EncryptedOlmDeliveryWorker.schedule(appContext, ownerUserId, senderDeviceId)
-            }.onFailure { error ->
-                Log.e(TAG, "Encrypted direct-message delivery was committed but scheduling failed.", error)
+        val scheduleDelivery: (String, String) -> Unit = if (scheduleCommittedDelivery) {
+            { ownerUserId, senderDeviceId ->
+                // The durable transaction has already committed when this is called.
+                // A WorkManager scheduling failure must not tell the composer that
+                // its message was not queued; periodic/startup recovery can retry it.
+                runCatching {
+                    EncryptedOlmDeliveryWorker.schedule(appContext, ownerUserId, senderDeviceId)
+                }.onFailure { error ->
+                    Log.e(TAG, "Encrypted direct-message delivery was committed but scheduling failed.", error)
+                }
             }
+        } else {
+            // The foreground dispatcher or the current recovery worker already owns
+            // the next delivery pass. Appending one job per pending message would
+            // build a long chain of redundant WorkManager runs.
+            { _, _ -> }
         }
         val outbound = OlmOutboundDeliveryCoordinator(
             preparer = OlmOutboundDeliveryPreparer(

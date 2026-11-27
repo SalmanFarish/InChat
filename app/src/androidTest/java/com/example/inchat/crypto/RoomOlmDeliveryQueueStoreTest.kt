@@ -15,6 +15,38 @@ import org.junit.Test
 
 class RoomOlmDeliveryQueueStoreTest {
     @Test
+    fun messageScopedClaimDoesNotLeaseAnotherMessageFromTheSameDeviceQueue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-queue-message-scoped-claim-test.db"
+        context.deleteDatabase(name)
+        val database = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val queue = OlmDeliveryQueue(
+                RoomOlmDeliveryQueueStore(database, database.olmDeliveryQueueDao()),
+            )
+            queue.enqueue("alice", "sender-device", "foreground-message", listOf(prepared("device-foreground")))
+            queue.enqueue("alice", "sender-device", "unrelated-message", listOf(prepared("device-unrelated")))
+
+            val foreground = queue.claimNext(
+                ownerUserId = "alice",
+                senderDeviceId = "sender-device",
+                nowMillis = 10_000L,
+                messageId = "foreground-message",
+            )
+            assertEquals("foreground-message", foreground?.messageId)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT, foreground?.status)
+
+            val background = queue.claimNext("alice", "sender-device", 10_000L)
+            assertEquals("unrelated-message", background?.messageId)
+            assertEquals(OlmDeliveryStatus.IN_FLIGHT, background?.status)
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun ciphertextOutboxSurvivesDatabaseReopen() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val databaseName = "olm-queue-persistence-test.db"

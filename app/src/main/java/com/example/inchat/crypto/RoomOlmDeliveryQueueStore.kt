@@ -219,6 +219,24 @@ internal class RoomOlmDeliveryQueueStore(
         dao.getByDeliveryId(candidate.deliveryId)?.toDelivery()
     })
 
+    override fun claimNextDueForMessage(
+        ownerUserId: String,
+        senderDeviceId: String,
+        messageId: String,
+        nowMillis: Long,
+        leaseDurationMillis: Long,
+        maxAttempts: Int,
+    ): QueuedOlmDeviceDelivery? = database.runInTransaction(Callable {
+        dao.failExhaustedDueForMessage(ownerUserId, senderDeviceId, messageId, nowMillis, maxAttempts)
+        val candidate = dao.findNextDueForMessage(ownerUserId, senderDeviceId, messageId, nowMillis)
+            ?: return@Callable null
+        val leaseUntil = safeAdd(nowMillis, leaseDurationMillis)
+        if (dao.leaseIfDue(candidate.deliveryId, ownerUserId, senderDeviceId, nowMillis, leaseUntil, maxAttempts) != 1) {
+            return@Callable null
+        }
+        dao.getByDeliveryId(candidate.deliveryId)?.toDelivery()
+    })
+
     override fun retryFailed(
         deliveryId: String,
         messageId: String,

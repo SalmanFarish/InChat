@@ -11,6 +11,39 @@ import org.junit.Test
 
 class OlmDeliveryWorkerRunnerTest {
     @Test
+    fun foregroundPassClaimsOnlyItsMessageAndLeavesAcknowledgementReconciliationToWorker() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "foreground-target", listOf(prepared("sender-device", "phone")))
+        queue.enqueue("alice", "sender-device", "unrelated-message", listOf(prepared("sender-device", "tablet")))
+
+        val events = mutableListOf<String>()
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(events, mutableListOf()),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+            messageIdFilter = "foreground-target",
+            processAcknowledgements = false,
+        ).run()
+
+        assertEquals(1, result.uploaded)
+        assertFalse(result.retryRequired)
+        assertEquals(0, result.acknowledged)
+        assertEquals(listOf("upload:foreground-target"), events)
+        assertEquals(
+            OlmDeliveryStatus.UPLOADED,
+            store.rows.values.single { it.messageId == "foreground-target" }.status,
+        )
+        assertEquals(
+            OlmDeliveryStatus.QUEUED,
+            store.rows.values.single { it.messageId == "unrelated-message" }.status,
+        )
+    }
+
+    @Test
     fun processesExactAcknowledgementsBeforeUploadingOnlyTheActiveAccountDevice() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store)
@@ -1526,6 +1559,41 @@ class OlmDeliveryWorkerRunnerTest {
                 )
                 return null
             }
+            return candidate.copy(
+                status = OlmDeliveryStatus.IN_FLIGHT,
+                attemptCount = candidate.attemptCount + 1,
+                leaseUntilMillis = nowMillis + leaseDurationMillis,
+            ).also { rows[it.deliveryId] = it }
+        }
+
+        override fun claimNextDueForMessage(
+            ownerUserId: String,
+            senderDeviceId: String,
+            messageId: String,
+            nowMillis: Long,
+            leaseDurationMillis: Long,
+            maxAttempts: Int,
+        ): QueuedOlmDeviceDelivery? {
+            rows.values.filter {
+                it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
+                    it.messageId == messageId && it.attemptCount >= maxAttempts &&
+                    ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.UPLOADED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
+            }.forEach { exhausted ->
+                rows[exhausted.deliveryId] = exhausted.copy(
+                    status = OlmDeliveryStatus.FAILED,
+                    leaseUntilMillis = 0L,
+                    lastError = "attempt_limit_reached",
+                )
+            }
+            val candidate = rows.values.filter {
+                it.ownerUserId == ownerUserId && it.senderDeviceId == senderDeviceId &&
+                    it.messageId == messageId && it.attemptCount < maxAttempts &&
+                    ((it.status == OlmDeliveryStatus.QUEUED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.UPLOADED && it.nextAttemptAtMillis <= nowMillis) ||
+                        (it.status == OlmDeliveryStatus.IN_FLIGHT && it.leaseUntilMillis <= nowMillis))
+            }.minByOrNull { it.nextAttemptAtMillis } ?: return null
             return candidate.copy(
                 status = OlmDeliveryStatus.IN_FLIGHT,
                 attemptCount = candidate.attemptCount + 1,

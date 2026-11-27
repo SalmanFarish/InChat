@@ -547,11 +547,13 @@ class EncryptedOlmDeliveryWorker(
         val pending = repository.pendingOutgoingIntents(ownerUserId)
         if (pending.isEmpty()) return@withLock 0 to false
 
+        // This worker already owns the active sender pass; do not append a
+        // redundant unique-work request for each local intent it commits.
         val sender = OlmDirectMessageSendCoordinatorFactory(
             context = applicationContext,
             database = database,
             auth = auth,
-        ).create()
+        ).create(scheduleCommittedDelivery = false)
         var committedCount = 0
         var retryRequired = false
 
