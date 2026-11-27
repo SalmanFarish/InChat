@@ -243,13 +243,8 @@ fun SwipeableMessageBubble(
                     )
                 }
 
-                val bubbleShape =
-                    RoundedCornerShape(
-                        topStart = if (!isMe && !isFirstInGroup) 8.dp else 20.dp,
-                        topEnd = if (isMe && !isFirstInGroup) 8.dp else 20.dp,
-                        bottomStart = if (!isMe && isLastInGroup) 7.dp else 20.dp,
-                        bottomEnd = if (isMe && isLastInGroup) 7.dp else 20.dp
-                    )
+                // Keep all message corners consistently rounded across group boundaries.
+                val bubbleShape = RoundedCornerShape(20.dp)
 
                 Column(
                     modifier =
@@ -306,11 +301,7 @@ fun SwipeableMessageBubble(
                             lineHeight = 22.sp,
                             letterSpacing = 0.sp
                         ),
-                        color = if (isMe) {
-                            chatTheme.outgoingTextColor
-                        } else {
-                            chatTheme.incomingTextColor
-                        }
+                        color = androidx.compose.ui.graphics.Color.White
                     )
                 }
 
