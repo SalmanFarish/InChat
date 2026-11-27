@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
 
 import com.example.inchat.ui.components.CompactSearchField
+import com.example.inchat.ui.components.InChatActionDialog
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -287,50 +288,34 @@ fun GroupInfoScreen(
     }
 
     if (showLeaveDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showLeaveDialog = false
-            },
-            title = { Text("Leave group?") },
-            text = {
-                Text(
-                    "You will no longer receive messages from this group."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = {
-                        isActionRunning = true
-                        actionScope.launch {
-                            groupRepository
-                                .leaveGroup(
-                                        currentUserId = currentUserId,
-                                        groupId = groupId
-                                    )
-                                    .onSuccess {
-                                        showLeaveDialog = false
-                                        onGroupLeft()
-                                    }
-                                .onFailure {
-                                    actionError =
-                                        it.message ?: "Could not leave group."
-                                }
-                            isActionRunning = false
+        InChatActionDialog(
+            title = "Leave group?",
+            description = "You will no longer receive messages from this group.",
+            titleIcon = Icons.Filled.ExitToApp,
+            confirmLabel = "Leave",
+            confirmIcon = Icons.Filled.ExitToApp,
+            confirmEnabled = !isActionRunning,
+            dismissEnabled = !isActionRunning,
+            isLoading = isActionRunning,
+            onConfirm = {
+                isActionRunning = true
+                actionScope.launch {
+                    groupRepository
+                        .leaveGroup(
+                            currentUserId = currentUserId,
+                            groupId = groupId
+                        )
+                        .onSuccess {
+                            showLeaveDialog = false
+                            onGroupLeft()
                         }
-                    }
-                ) {
-                    Text("Leave")
+                        .onFailure {
+                            actionError = it.message ?: "Could not leave group."
+                        }
+                    isActionRunning = false
                 }
             },
-            dismissButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showLeaveDialog = false }
-                ) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { showLeaveDialog = false }
         )
     }
 
