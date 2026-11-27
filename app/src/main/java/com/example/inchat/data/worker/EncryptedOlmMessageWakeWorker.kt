@@ -1,6 +1,7 @@
 package com.example.inchat.data.worker
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -128,6 +129,7 @@ class EncryptedOlmMessageWakeWorker(
         }
 
         return try {
+            val dispatchStartedAt = SystemClock.elapsedRealtime()
             val notifications = CloudflareNotificationRepository()
             val dispatch = if (groupId != null) {
                 notifications.notifyEncryptedGroupDelivery(
@@ -152,6 +154,12 @@ class EncryptedOlmMessageWakeWorker(
                 )
             }
             val failure = dispatch.exceptionOrNull()
+            Log.i(
+                TAG,
+                "Encrypted FCM dispatch duration ms=" +
+                    (SystemClock.elapsedRealtime() - dispatchStartedAt).coerceAtLeast(0L) +
+                    ", accepted=" + (failure == null),
+            )
             when {
                 failure == null -> Result.success()
                 notifications.isRetryableNotificationFailure(failure) -> {

@@ -1,6 +1,7 @@
 package com.example.inchat.data.worker
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -57,6 +58,7 @@ class EncryptedOlmInboxWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        val workerStartedAtMillis = SystemClock.elapsedRealtime()
         val wakeReceivedAtMillis = inputData.getLong(KEY_WAKE_RECEIVED_AT, 0L)
         if (wakeReceivedAtMillis > 0L) {
             Log.i(
@@ -166,7 +168,13 @@ class EncryptedOlmInboxWorker(
                     }
                 },
             )
+            val mailboxReceiveStartedAt = SystemClock.elapsedRealtime()
             val result = receiver.receivePending()
+            Log.i(
+                TAG,
+                "Encrypted mailbox receive duration ms=" +
+                    (SystemClock.elapsedRealtime() - mailboxReceiveStartedAt).coerceAtLeast(0L),
+            )
             // Inbox polling can suspend while Firebase auth changes. Do not build
             // a receipt processor under a different account than this worker owns.
             if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
@@ -247,11 +255,18 @@ class EncryptedOlmInboxWorker(
                     handoffCoordinator.finalizePreviouslyCommitted(receiptId, localUid)
                 },
             )
+            val handoffStartedAt = SystemClock.elapsedRealtime()
             val handoffResult = processor.processPending()
+            Log.i(
+                TAG,
+                "Encrypted decrypt and handoff duration ms=" +
+                    (SystemClock.elapsedRealtime() - handoffStartedAt).coerceAtLeast(0L),
+            )
 
             // Reconcile encrypted-message notification intents committed in Room.
             // If Android killed this process after message commit but before notify,
             // the next inbox pass will publish the same stable conversation alert.
+            val notificationStartedAt = SystemClock.elapsedRealtime()
             val encryptedNotifications = EncryptedMessageNotificationPublisher(applicationContext)
             val directMessageDao = database.encryptedOlmMessageDao()
             for (message in directMessageDao.getPendingNotificationMessages(
@@ -290,6 +305,11 @@ class EncryptedOlmInboxWorker(
                     messageId = message.messageId,
                 )
             }
+            Log.i(
+                TAG,
+                "Encrypted notification outbox publish duration ms=" +
+                    (SystemClock.elapsedRealtime() - notificationStartedAt).coerceAtLeast(0L),
+            )
             Log.i(
                 TAG,
                 "Encrypted inbox pass completed: stored=" + result.stored +
@@ -332,6 +352,11 @@ class EncryptedOlmInboxWorker(
                 encryptedNotifications.clearPendingAuthEncryptedWakeup()
             }
             // Native/Room handoff failures retain the existing bounded retry policy.
+            Log.i(
+                TAG,
+                "Encrypted inbox worker total duration ms=" +
+                    (SystemClock.elapsedRealtime() - workerStartedAtMillis).coerceAtLeast(0L),
+            )
             if (handoffResult.failed > 0) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

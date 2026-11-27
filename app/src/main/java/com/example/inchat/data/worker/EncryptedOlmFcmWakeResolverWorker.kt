@@ -40,6 +40,9 @@ internal fun resolveEncryptedOlmFcmWakeOwner(
 ): EncryptedOlmFcmWakeAuthResolution {
     val idPattern = Regex("[A-Za-z0-9_-]{1,128}")
     if (resolveOwnerFromAuthenticatedSession) {
+        if (!scheduledOwnerUserId.isNullOrBlank()) {
+            return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.RETIRE)
+        }
         if (authenticatedUserId.isNullOrBlank()) {
             return EncryptedOlmFcmWakeAuthResolution(EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH)
         }

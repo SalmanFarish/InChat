@@ -335,6 +335,9 @@ class EncryptedOlmDeliveryWorker(
                         conversationPeerUserId = delivery.conversationPeerUserId,
                     )
                 },
+                onTiming = { stage, durationMillis ->
+                    Log.i(TAG, "Encrypted sender " + stage + " duration ms=" + durationMillis)
+                },
             ).run()
 
             // Drain the current durable outbox before doing group-specific recovery.

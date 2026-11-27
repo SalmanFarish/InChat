@@ -33,6 +33,7 @@ internal class OlmDeliveryWorkerRunner(
     private val syncEncryptedDirectPreview: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
     private val syncEncryptedGroupPreview: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
     private val notifyEncryptedRecipient: suspend (QueuedOlmDeviceDelivery) -> Unit = {},
+    private val onTiming: (stage: String, durationMillis: Long) -> Unit = { _, _ -> },
 ) {
     init {
         require(senderUserId.matches(USER_ID_PATTERN)) { "Sender user ID has an invalid format" }
@@ -43,6 +44,7 @@ internal class OlmDeliveryWorkerRunner(
     suspend fun run(): OlmDeliveryWorkerRunResult {
         // Acknowledgements are applied first. The processor deletes the relay ack
         // before deleting the exact matching Room row, making interruption safe.
+        val acknowledgementStartedAt = System.nanoTime()
         val acknowledgements = OlmDeliveryAckProcessor(
             queue = queue,
             transport = transport,
@@ -51,6 +53,7 @@ internal class OlmDeliveryWorkerRunner(
             recordAcknowledgement = recordAcknowledgement,
             clock = clock,
         ).processPending()
+        reportTiming("acknowledgement_reconciliation", acknowledgementStartedAt)
 
         var uploaded = 0
         var retryRequired = false
@@ -91,7 +94,12 @@ internal class OlmDeliveryWorkerRunner(
                 // The relay write is the durable source of truth. Notify only
                 // the other account's devices; sender-owned secondary devices
                 // recover through their own scheduled inbox poll.
-                transport.upload(delivery, senderDeviceId)
+                val relayUploadStartedAt = System.nanoTime()
+                try {
+                    transport.upload(delivery, senderDeviceId)
+                } finally {
+                    reportTiming("relay_upload", relayUploadStartedAt)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: OlmMailboxHttpException) {
@@ -133,6 +141,7 @@ internal class OlmDeliveryWorkerRunner(
             // transient enqueue failure once; this callback only persists the
             // wake worker, so repeating it is idempotent and never re-uploads
             // or mutates the immutable ciphertext delivery.
+            val wakeEnqueueStartedAt = System.nanoTime()
             var wakeEnqueueFailed = true
             for (attempt in 1..MAX_WAKE_ENQUEUE_ATTEMPTS) {
                 try {
@@ -150,6 +159,7 @@ internal class OlmDeliveryWorkerRunner(
                     }
                 }
             }
+            reportTiming("recipient_fcm_wake_enqueue", wakeEnqueueStartedAt)
             if (wakeEnqueueFailed) notificationDispatchFailures++
 
             if (delivery.recipientUserId != senderUserId && delivery.groupId == null) {
@@ -215,6 +225,11 @@ internal class OlmDeliveryWorkerRunner(
             followUpRequired = followUpRequired,
             notificationDispatchFailures = notificationDispatchFailures,
         )
+    }
+
+    private fun reportTiming(stage: String, startedAtNanos: Long) {
+        val durationMillis = ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+        runCatching { onTiming(stage, durationMillis) }
     }
 
     private companion object {
