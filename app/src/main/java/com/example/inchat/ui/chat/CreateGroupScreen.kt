@@ -37,7 +37,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.graphics.Color
+import com.example.inchat.data.model.Conversation
+import com.example.inchat.data.repository.ChatRepository
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,8 +67,15 @@ import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,12 +86,15 @@ fun CreateGroupScreen(
     onGroupCreated: (String) -> Unit
 ) {
     val userRepository = remember { UserRepository() }
+    val chatRepository = remember { ChatRepository() }
     val groupRepository = remember { GroupChatRepository() }
 
     var showDetailsStep by rememberSaveable { mutableStateOf(false) }
     var groupName by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<List<User>>(emptyList()) }
+    var recentUsers by remember { mutableStateOf<List<User>>(emptyList()) }
+    var isLoadingRecentUsers by remember { mutableStateOf(true) }
     val selectedUsers = remember { mutableStateListOf<User>() }
     var isSearching by remember { mutableStateOf(false) }
     var isCreating by remember { mutableStateOf(false) }
@@ -126,6 +140,52 @@ fun CreateGroupScreen(
         }
 
         isSearching = false
+    }
+
+    // Keep the default participant list aligned with the user's recent direct chats.
+    // The existing per-user inbox index supplies the ordering; group conversations
+    // and unopened/empty chats are excluded.
+    LaunchedEffect(currentUserId, showDetailsStep) {
+        if (showDetailsStep || currentUserId.isBlank()) {
+            isLoadingRecentUsers = false
+            return@LaunchedEffect
+        }
+
+        isLoadingRecentUsers = true
+        chatRepository.getConversationsFlow(currentUserId)
+            .map { conversations ->
+                conversations.asSequence()
+                    .filter { conversation ->
+                        conversation.chatType != "group" &&
+                            conversation.lastTimestamp > 0L &&
+                            conversation.otherUserId.isNotBlank() &&
+                            conversation.otherUsername.isNotBlank()
+                    }
+                    .sortedByDescending(Conversation::lastTimestamp)
+                    .distinctBy(Conversation::otherUserId)
+                    .take(20)
+                    .toList()
+            }
+            .distinctUntilChanged()
+            .catch {
+                recentUsers = emptyList()
+                isLoadingRecentUsers = false
+            }
+            .collectLatest { recentConversations ->
+                val resolvedUsers = coroutineScope {
+                    recentConversations.map { conversation ->
+                        async(Dispatchers.IO) {
+                            userRepository.getUserByIdFast(conversation.otherUserId)
+                                ?: User(
+                                    uid = conversation.otherUserId,
+                                    username = conversation.otherUsername
+                                )
+                        }
+                    }.awaitAll()
+                }
+                recentUsers = resolvedUsers
+                isLoadingRecentUsers = false
+            }
     }
 
     LaunchedEffect(isCreating) {
@@ -262,6 +322,8 @@ fun CreateGroupScreen(
                 query = query,
                 onQueryChange = { query = it },
                 results = results,
+                recentUsers = recentUsers,
+                isLoadingRecentUsers = isLoadingRecentUsers,
                 selectedUsers = selectedUsers,
                 isSearching = isSearching,
                 searchError = searchError,
@@ -292,6 +354,8 @@ private fun ParticipantSelectionStep(
     query: String,
     onQueryChange: (String) -> Unit,
     results: List<User>,
+    recentUsers: List<User>,
+    isLoadingRecentUsers: Boolean,
     selectedUsers: List<User>,
     isSearching: Boolean,
     searchError: String?,
@@ -360,6 +424,20 @@ private fun ParticipantSelectionStep(
         }
 
         when {
+            query.isBlank() && isLoadingRecentUsers -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+
             isSearching -> {
                 Box(
                     modifier = Modifier
@@ -383,7 +461,7 @@ private fun ParticipantSelectionStep(
                 )
             }
 
-            query.isBlank() -> {
+            query.isBlank() && recentUsers.isEmpty() -> {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -391,10 +469,41 @@ private fun ParticipantSelectionStep(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Search for people to add",
+                        text = "No recent chats yet. Search for people to add.",
+                        modifier = Modifier.padding(horizontal = 28.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            query.isBlank() -> {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(top = 2.dp, bottom = 16.dp)
+                ) {
+                    item(key = "recent_participants_header") {
+                        Text(
+                            text = "Recently chatted",
+                            modifier = Modifier.padding(
+                                start = 20.dp,
+                                top = 5.dp,
+                                bottom = 8.dp
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    items(
+                        items = recentUsers,
+                        key = { it.uid }
+                    ) { user ->
+                        ParticipantUserRow(
+                            user = user,
+                            selected = selectedUsers.any { it.uid == user.uid },
+                            onClick = { onToggleUser(user) }
+                        )
+                    }
                 }
             }
 
@@ -422,69 +531,82 @@ private fun ParticipantSelectionStep(
                         items = results,
                         key = { it.uid }
                     ) { user ->
-                        val selected = selectedUsers.any { it.uid == user.uid }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onToggleUser(user) }
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            InChatProfileAvatar(
-                                profilePhotoUrl = user.profilePhotoData.ifBlank {
-                                    user.profilePhotoUrl
-                                },
-                                modifier = Modifier.size(46.dp),
-                                iconSize = 24.dp,
-                                contentDescription = null
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 12.dp)
-                            ) {
-                                Text(
-                                    text = user.displayName.ifBlank { user.username },
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "@${user.username}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Surface(
-                                modifier = Modifier.size(28.dp),
-                                shape = CircleShape,
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                },
-                                border = if (selected) null else androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outline
-                                )
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (selected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            modifier = Modifier.size(17.dp),
-                                            tint = MaterialTheme.colorScheme.onPrimary
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        ParticipantUserRow(
+                            user = user,
+                            selected = selectedUsers.any { it.uid == user.uid },
+                            onClick = { onToggleUser(user) }
+                        )
                     }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun ParticipantUserRow(
+    user: User,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InChatProfileAvatar(
+            profilePhotoUrl = user.profilePhotoData.ifBlank {
+                user.profilePhotoUrl
+            },
+            modifier = Modifier.size(46.dp),
+            iconSize = 24.dp,
+            contentDescription = null
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+        ) {
+            Text(
+                text = user.displayName.ifBlank { user.username },
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "@${user.username}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Surface(
+            modifier = Modifier.size(28.dp),
+            shape = CircleShape,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            border = if (selected) null else androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outline
+            )
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        modifier = Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
                 }
             }
         }
@@ -575,15 +697,23 @@ private fun GroupDetailsStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        OutlinedTextField(
+        TextField(
             value = groupName,
             onValueChange = onGroupNameChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Group name") },
-            placeholder = { Text("Enter a group name") },
+            placeholder = { Text("Group name") },
             singleLine = true,
             enabled = !isCreating,
-            colors = inChatOutlinedTextFieldColors(),
+            shape = RoundedCornerShape(20.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences
             ),
