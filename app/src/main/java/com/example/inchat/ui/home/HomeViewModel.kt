@@ -289,7 +289,8 @@ class HomeViewModel : ViewModel() {
                         lastSenderNickname = if (historyWasCleared) "" else conversation.lastSenderNickname,
                         unreadCount = if (historyWasCleared) 0L else conversation.unreadCount,
                         isPinned = preference?.isPinned ?: false,
-                        isHidden = preference?.isHidden ?: false
+                        isHidden = preference?.isHidden ?: false,
+                        isFavorite = preference?.isFavorite ?: false
                     )
                 }
                 .sortedWith(
@@ -483,6 +484,32 @@ class HomeViewModel : ViewModel() {
                     onResult(
                         false,
                         error.message ?: "Could not update the pin."
+                    )
+                }
+        }
+    }
+
+    fun setConversationFavorite(
+        currentUserId: String,
+        chatId: String,
+        favorite: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            conversationPreferencesRepository
+                .setFavorite(currentUserId, chatId, favorite)
+                .onSuccess {
+                    val updated = _conversationPreferences.value.toMutableMap()
+                    val current = updated[chatId] ?: ConversationPreference()
+                    updated[chatId] = current.copy(isFavorite = favorite)
+                    _conversationPreferences.value = updated
+                    publishConversations()
+                    onResult(true, null)
+                }
+                .onFailure { error ->
+                    onResult(
+                        false,
+                        error.message ?: "Could not update favorites."
                     )
                 }
         }
