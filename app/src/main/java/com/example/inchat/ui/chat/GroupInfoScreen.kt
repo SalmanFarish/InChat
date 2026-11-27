@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -376,15 +377,15 @@ fun GroupInfoScreen(
     }
 
     actionError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionError = null },
-            title = { Text("Group") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { actionError = null }) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "Group",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionError = null },
+            onDismiss = { actionError = null }
         )
     }
 
