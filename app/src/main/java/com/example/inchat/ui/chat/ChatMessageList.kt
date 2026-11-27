@@ -550,7 +550,7 @@ fun ChatMessageList(
                     contentPadding =
                         PaddingValues(
                             top = 14.dp,
-                            bottom = if (isOtherUserTyping && !messagingBlocked) 64.dp else 14.dp
+                            bottom = 14.dp
                         )
                 ) {
 
@@ -947,26 +947,24 @@ fun ChatMessageList(
                             }
                         }
                     }
-
-                }
-
-                if (isOtherUserTyping && messagesLoaded && !messagingBlocked) {
-                    AnimatedVisibility(
-                        visible = true,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 12.dp, bottom = 10.dp),
-                        enter = fadeIn(animationSpec = tween(180)) +
-                            scaleIn(initialScale = 0.92f) +
-                            slideInVertically(
-                                animationSpec = tween(240),
-                                initialOffsetY = { it / 3 }
-                            ),
-                        exit = fadeOut(animationSpec = tween(120))
-                    ) {
-                        TypingIndicator(chatTheme = chatTheme)
+                    if (isOtherUserTyping && !messagingBlocked) {
+                        item(
+                            key = "typing_indicator",
+                            contentType = "typing_indicator"
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 8.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                TypingIndicator(chatTheme = chatTheme)
+                            }
+                        }
                     }
                 }
+
+
 
                 AnimatedVisibility(
                     visible = showScrollToLatest && initialMessagesPositioned,
@@ -988,6 +986,11 @@ fun ChatMessageList(
                                 if (latestIndex >= 0) {
                                     coroutineScope.launch {
                                         listState.animateScrollToItem(latestIndex)
+                                        withFrameNanos { }
+                                        val settledLastIndex = listState.layoutInfo.totalItemsCount - 1
+                                        if (settledLastIndex >= 0) {
+                                            listState.scrollToItem(settledLastIndex, Int.MAX_VALUE)
+                                        }
                                     }
                                 }
                             }
