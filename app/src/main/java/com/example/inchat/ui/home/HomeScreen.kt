@@ -9,7 +9,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1322,6 +1326,11 @@ private fun ConversationActionsPopup(
             dismissOnClickOutside = true
         )
     ) {
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(animationSpec = tween(120)) +
+                scaleIn(initialScale = 0.94f, animationSpec = tween(150))
+        ) {
         Surface(
             modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
             shape = RoundedCornerShape(14.dp),
@@ -1364,6 +1373,7 @@ private fun ConversationActionsPopup(
                     ConversationActionRow(
                         icon = Icons.Default.Clear,
                         title = "Cancel",
+                        destructive = true,
                         onClick = onCancelDelete
                     )
                     ConversationActionRow(
@@ -1396,6 +1406,7 @@ private fun ConversationActionsPopup(
                     )
                 }
             }
+        }
         }
     }
 }
