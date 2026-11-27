@@ -334,14 +334,34 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         @Synchronized
         override fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity> =
             rows.values.filter { it.recipientUserId == recipientUserId && it.status == OlmInboundReceiptStatus.PENDING.name }
-                .sortedWith(compareBy<OlmInboundReceiptEntity> { it.receivedAtMillis }.thenBy { it.receiptId })
+                .sortedWith(
+                    compareBy<OlmInboundReceiptEntity> { it.lastAttemptAtMillis != null }
+                        .thenBy { it.lastAttemptAtMillis ?: Long.MIN_VALUE }
+                        .thenBy { it.receivedAtMillis }
+                        .thenBy { it.receiptId },
+                )
                 .take(limit)
 
         @Synchronized
         override fun getWaitingForDevice(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity> =
             rows.values.filter { it.recipientUserId == recipientUserId && it.status == OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name }
-                .sortedWith(compareBy<OlmInboundReceiptEntity> { it.receivedAtMillis }.thenBy { it.receiptId })
+                .sortedWith(
+                    compareBy<OlmInboundReceiptEntity> { it.lastAttemptAtMillis != null }
+                        .thenBy { it.lastAttemptAtMillis ?: Long.MIN_VALUE }
+                        .thenBy { it.receivedAtMillis }
+                        .thenBy { it.receiptId },
+                )
                 .take(limit)
+
+        @Synchronized
+        override fun markAttempted(receiptId: String, attemptedAtMillis: Long): Int {
+            val row = rows[receiptId] ?: return 0
+            if (row.status != OlmInboundReceiptStatus.PENDING.name &&
+                row.status != OlmInboundReceiptStatus.WAITING_FOR_DEVICE.name
+            ) return 0
+            rows[receiptId] = row.copy(lastAttemptAtMillis = attemptedAtMillis)
+            return 1
+        }
 
         @Synchronized
         override fun markWaitingForDevice(receiptId: String): Int =
