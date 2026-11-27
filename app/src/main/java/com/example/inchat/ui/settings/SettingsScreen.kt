@@ -28,7 +28,6 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -493,29 +492,70 @@ fun SettingsScreen(
     }
 
     if (showAddPasswordDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!addPasswordLoading) {
-                    showAddPasswordDialog = false
-                    newPassword = ""
-                    confirmNewPassword = ""
-                    newPasswordVisible = false
-                    confirmNewPasswordVisible = false
-                    addPasswordError = null
+        InChatActionDialog(
+            title = "Add a password",
+            description = "Add a password to your existing Google account. Your InChat username, chats, messages, and account ID will stay the same.",
+            titleIcon = Icons.Outlined.Lock,
+            confirmLabel = if (addPasswordLoading) "Please wait" else "Confirm & add",
+            confirmIcon = Icons.Outlined.Lock,
+            confirmDestructive = false,
+            confirmEnabled = !addPasswordLoading,
+            dismissEnabled = !addPasswordLoading,
+            isLoading = addPasswordLoading,
+            onConfirm = {
+                when {
+                    newPassword.length < 6 -> {
+                        addPasswordError = "Password must be at least 6 characters."
+                    }
+
+                    newPassword != confirmNewPassword -> {
+                        addPasswordError = "The passwords do not match."
+                    }
+
+                    else -> {
+                        addPasswordLoading = true
+                        addPasswordError = null
+
+                        coroutineScope.launch {
+                            try {
+                                val googleIdToken = GoogleSignInHelper.getIdToken(context)
+                                authViewModel.addPasswordToGoogleAccount(
+                                    googleIdToken = googleIdToken,
+                                    password = newPassword
+                                ) { success, message ->
+                                    addPasswordLoading = false
+                                    if (success) {
+                                        hasPasswordSignIn = true
+                                        showAddPasswordDialog = false
+                                        newPassword = ""
+                                        confirmNewPassword = ""
+                                        newPasswordVisible = false
+                                        confirmNewPasswordVisible = false
+                                        passwordAddedMessage = message
+                                    } else {
+                                        addPasswordError = message
+                                            ?: "Could not add your password. Please try again."
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                addPasswordLoading = false
+                                addPasswordError = e.message
+                                    ?: "Google confirmation failed. Please try again."
+                            }
+                        }
+                    }
                 }
             },
-            title = {
-                Text("Add a password")
+            onDismiss = {
+                showAddPasswordDialog = false
+                newPassword = ""
+                confirmNewPassword = ""
+                newPasswordVisible = false
+                confirmNewPasswordVisible = false
+                addPasswordError = null
             },
-            text = {
+            content = {
                 Column {
-                    Text(
-                        text = "Add a password to your existing Google account. Your InChat username, chats, messages, and account ID will stay the same.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Spacer(Modifier.height(14.dp))
-
                     OutlinedTextField(
                         colors = inChatOutlinedTextFieldColors(),
                         value = newPassword,
@@ -534,9 +574,7 @@ fun SettingsScreen(
                         },
                         trailingIcon = {
                             IconButton(
-                                onClick = {
-                                    newPasswordVisible = !newPasswordVisible
-                                },
+                                onClick = { newPasswordVisible = !newPasswordVisible },
                                 enabled = !addPasswordLoading
                             ) {
                                 Icon(
@@ -605,7 +643,6 @@ fun SettingsScreen(
                     )
 
                     Spacer(Modifier.height(9.dp))
-
                     Text(
                         text = "At least 6 characters. You will confirm ownership of your Google account before the password is linked.",
                         style = MaterialTheme.typography.bodySmall,
@@ -621,114 +658,20 @@ fun SettingsScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !addPasswordLoading,
-                    onClick = {
-                        when {
-                            newPassword.length < 6 -> {
-                                addPasswordError = "Password must be at least 6 characters."
-                            }
-
-                            newPassword != confirmNewPassword -> {
-                                addPasswordError = "The passwords do not match."
-                            }
-
-                            else -> {
-                                addPasswordLoading = true
-                                addPasswordError = null
-
-                                coroutineScope.launch {
-                                    try {
-                                        val googleIdToken =
-                                            GoogleSignInHelper.getIdToken(context)
-
-                                        authViewModel.addPasswordToGoogleAccount(
-                                            googleIdToken = googleIdToken,
-                                            password = newPassword
-                                        ) { success, message ->
-                                            addPasswordLoading = false
-
-                                            if (success) {
-                                                hasPasswordSignIn = true
-                                                showAddPasswordDialog = false
-                                                newPassword = ""
-                                                confirmNewPassword = ""
-                                                newPasswordVisible = false
-                                                confirmNewPasswordVisible = false
-                                                passwordAddedMessage = message
-                                            } else {
-                                                addPasswordError = message
-                                                    ?: "Could not add your password. Please try again."
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        addPasswordLoading = false
-                                        addPasswordError = e.message
-                                            ?: "Google confirmation failed. Please try again."
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    if (addPasswordLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-
-                    Text(
-                        if (addPasswordLoading) {
-                            "Please wait"
-                        } else {
-                            "Confirm & add"
-                        }
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !addPasswordLoading,
-                    onClick = {
-                        showAddPasswordDialog = false
-                        newPassword = ""
-                        confirmNewPassword = ""
-                        newPasswordVisible = false
-                        confirmNewPasswordVisible = false
-                        addPasswordError = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
 
     if (passwordAddedMessage != null) {
-        AlertDialog(
-            onDismissRequest = {
-                passwordAddedMessage = null
-            },
-            title = {
-                Text("Password added")
-            },
-            text = {
-                Text(passwordAddedMessage.orEmpty())
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        passwordAddedMessage = null
-                    }
-                ) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "Password added",
+            description = passwordAddedMessage.orEmpty(),
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Lock,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { passwordAddedMessage = null },
+            onDismiss = { passwordAddedMessage = null }
         )
     }
 
