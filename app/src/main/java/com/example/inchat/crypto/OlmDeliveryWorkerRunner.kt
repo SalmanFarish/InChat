@@ -3,6 +3,7 @@ package com.example.inchat.crypto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal data class OlmDeliveryWorkerRunResult(
@@ -128,24 +129,28 @@ internal class OlmDeliveryWorkerRunner(
                 return@repeat
             }
 
-            // Dispatch the recipient wake-up immediately after the ciphertext
-            // is durably accepted by the relay. The generic inbox-preview HTTP
-            // update is independent and must not delay the FCM wake-up.
-            try {
-                // Every remote device needs a wake-up, including a companion
-                // device owned by the sending account. It must stage the exact
-                // ciphertext and ACK group-key distributions before group send.
-                notifyEncryptedRecipient(delivery)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                notificationDispatchFailures++
-                // Push is only a wake-up hint. The relay already durably
-                // accepted this immutable delivery, and the recipient's
-                // inbox poll is the recovery path if push dispatch fails.
-                // Do not spend the ciphertext upload retry budget or
-                // re-upload a delivery solely because a notification failed.
+            // Dispatch immediately after durable relay acceptance. Retry a
+            // transient enqueue failure once; this callback only persists the
+            // wake worker, so repeating it is idempotent and never re-uploads
+            // or mutates the immutable ciphertext delivery.
+            var wakeEnqueueFailed = true
+            for (attempt in 1..MAX_WAKE_ENQUEUE_ATTEMPTS) {
+                try {
+                    // Every remote device needs a wake-up, including a sender-owned
+                    // companion. It must stage the exact ciphertext and ACK any
+                    // group-key delivery before subsequent group messages proceed.
+                    notifyEncryptedRecipient(delivery)
+                    wakeEnqueueFailed = false
+                    break
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (attempt < MAX_WAKE_ENQUEUE_ATTEMPTS) {
+                        delay(WAKE_ENQUEUE_RETRY_DELAY_MILLIS)
+                    }
+                }
             }
+            if (wakeEnqueueFailed) notificationDispatchFailures++
 
             if (delivery.recipientUserId != senderUserId && delivery.groupId == null) {
                 try {
@@ -213,6 +218,8 @@ internal class OlmDeliveryWorkerRunner(
     }
 
     private companion object {
+        const val MAX_WAKE_ENQUEUE_ATTEMPTS = 2
+        const val WAKE_ENQUEUE_RETRY_DELAY_MILLIS = 250L
         const val DEFAULT_BATCH_SIZE = 25
         const val RELAY_UPLOAD_ERROR = "relay_upload_failed"
         const val STALE_GROUP_MEMBERSHIP = "group_membership_epoch_stale"

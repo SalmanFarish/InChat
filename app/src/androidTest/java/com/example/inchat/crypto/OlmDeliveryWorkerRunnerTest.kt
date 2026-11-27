@@ -1236,12 +1236,55 @@ class OlmDeliveryWorkerRunnerTest {
         val stored = store.rows.values.single()
         assertEquals(1, result.uploaded)
         assertFalse(result.retryRequired)
-        assertEquals(1, pushAttempts)
+        assertEquals(2, pushAttempts)
         assertEquals(1, result.notificationDispatchFailures)
         assertEquals(listOf(stored.deliveryId), uploadedIds)
         assertEquals(1, stored.attemptCount)
         assertEquals(OlmDeliveryStatus.UPLOADED, stored.status)
         assertEquals(null, stored.lastError)
+    }
+
+
+    @Test
+    fun transientPushEnqueueFailureRetriesWakeWithoutReuploadingCiphertext() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue(
+            ownerUserId = "alice",
+            senderDeviceId = "sender-device",
+            messageId = "retry-wake-enqueue",
+            prepared = listOf(prepared("sender-device", "bob-phone")),
+        )
+
+        var pushAttempts = 0
+        val uploadedIds = mutableListOf<String>()
+        val result = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = FakeTransport(
+                events = mutableListOf(),
+                acknowledgements = mutableListOf(),
+                uploadedDeliveryIds = uploadedIds,
+            ),
+            senderUserId = "alice",
+            senderDeviceId = "sender-device",
+            recordAcknowledgement = { _, _ -> },
+            clock = { 10_000L },
+            notifyEncryptedRecipient = {
+                pushAttempts++
+                if (pushAttempts == 1) {
+                    throw IllegalStateException("temporary WorkManager enqueue failure")
+                }
+            },
+        ).run()
+
+        val stored = store.rows.values.single()
+        assertEquals(1, result.uploaded)
+        assertFalse(result.retryRequired)
+        assertEquals(0, result.notificationDispatchFailures)
+        assertEquals(2, pushAttempts)
+        assertEquals(listOf(stored.deliveryId), uploadedIds)
+        assertEquals(1, stored.attemptCount)
+        assertEquals(OlmDeliveryStatus.UPLOADED, stored.status)
     }
 
     @Test
