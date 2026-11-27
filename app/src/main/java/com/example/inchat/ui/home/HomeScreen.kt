@@ -1,5 +1,7 @@
 package com.example.inchat.ui.home
 
+import com.example.inchat.ui.components.CompactSearchField
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -631,80 +633,14 @@ private fun HomeSearchBar(
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
-        },
-        label = "home_search_border"
-    )
-
-    TextField(
+    CompactSearchField(
         value = query,
         onValueChange = onQueryChange,
-        interactionSource = interactionSource,
+        placeholder = "Search conversations",
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = 18.dp,
-                end = 18.dp,
-                bottom = 16.dp
-            )
-            .border(
-                width = if (isFocused) 1.25.dp else 0.8.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(17.dp)
-            ),
-        singleLine = true,
-        shape = RoundedCornerShape(17.dp),
-        textStyle = MaterialTheme.typography.bodyMedium.copy(
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface
-        ),
-        placeholder = {
-            Text(
-                text = "Search conversations",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search chats",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(19.dp)
-            )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        },
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            cursorColor = MaterialTheme.colorScheme.primary,
-            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
-        )
+            .padding(start = 18.dp, end = 18.dp, bottom = 16.dp),
+        onClear = onClear
     )
 }
 
