@@ -9,6 +9,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.node.DelegatableNode
@@ -72,7 +73,7 @@ private class PressScaleNode(
     override fun ContentDrawScope.draw() {
         scale(
             scale = animatedScale.value,
-            pivot = size.center
+            pivot = Offset(size.width / 2f, size.height / 2f)
         ) {
             this@draw.drawContent()
         }
