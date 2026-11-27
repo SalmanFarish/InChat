@@ -173,7 +173,8 @@ fun ChatComposer(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
@@ -183,7 +184,6 @@ fun ChatComposer(
                  * The Scaffold owns IME insets; this inset pill floats
                  * above the keyboard and navigation bar.
                  */
-                .navigationBarsPadding()
     ) {
 
         Column {
