@@ -16,9 +16,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Owns exactly one foreground listener for the authenticated account/device.
- * RTDB callbacks only wake the existing durable worker; ciphertext handling,
- * deduplication, decryption, and acknowledgements stay in the worker pipeline.
+ * Owns the foreground encrypted-inbox listener for the authenticated account/device.
+ * A companion monitor watches the sender's device-scoped durable ACK path. RTDB
+ * callbacks only wake existing durable workers; all validation and processing
+ * stays in the ciphertext and acknowledgement worker pipelines.
  *
  * A cancelled RTDB listener is removed by Firebase. Keeping its old reference
  * would make attachIfReady believe a live listener still exists forever, silently
@@ -41,6 +42,10 @@ internal object EncryptedOlmForegroundInboxMonitor {
         scope.launch {
             appContext = context.applicationContext
             foreground = isForeground
+            EncryptedOlmForegroundAcknowledgementMonitor.setForeground(
+                context.applicationContext,
+                isForeground,
+            )
             if (foreground) attachIfReady() else detach()
         }
     }
@@ -48,6 +53,10 @@ internal object EncryptedOlmForegroundInboxMonitor {
     fun setAccount(context: Context, accountUserId: String?) {
         scope.launch {
             appContext = context.applicationContext
+            EncryptedOlmForegroundAcknowledgementMonitor.setAccount(
+                context.applicationContext,
+                accountUserId,
+            )
             if (ownerUserId != accountUserId) {
                 ownerUserId = accountUserId
                 deviceId = null
@@ -60,6 +69,11 @@ internal object EncryptedOlmForegroundInboxMonitor {
     fun setDeviceScope(context: Context, accountUserId: String, localDeviceId: String) {
         scope.launch {
             appContext = context.applicationContext
+            EncryptedOlmForegroundAcknowledgementMonitor.setDeviceScope(
+                context.applicationContext,
+                accountUserId,
+                localDeviceId,
+            )
             if (ownerUserId != accountUserId) {
                 ownerUserId = accountUserId
                 deviceId = null

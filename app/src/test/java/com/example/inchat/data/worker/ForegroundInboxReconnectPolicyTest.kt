@@ -5,6 +5,50 @@ import org.junit.Test
 
 class ForegroundInboxReconnectPolicyTest {
     @Test
+    fun acknowledgementWakeRequiresExactForegroundAccountAndDeviceScope() {
+        assertTrue(
+            isForegroundAcknowledgementWakeInScope(
+                isForeground = true,
+                activeOwnerUserId = "alice",
+                expectedOwnerUserId = "alice",
+                activeDeviceId = "alice-phone",
+                expectedDeviceId = "alice-phone",
+                authenticatedUserId = "alice",
+            ),
+        )
+        assertFalse(
+            isForegroundAcknowledgementWakeInScope(
+                isForeground = false,
+                activeOwnerUserId = "alice",
+                expectedOwnerUserId = "alice",
+                activeDeviceId = "alice-phone",
+                expectedDeviceId = "alice-phone",
+                authenticatedUserId = "alice",
+            ),
+        )
+        assertFalse(
+            isForegroundAcknowledgementWakeInScope(
+                isForeground = true,
+                activeOwnerUserId = "alice",
+                expectedOwnerUserId = "alice",
+                activeDeviceId = "alice-tablet",
+                expectedDeviceId = "alice-phone",
+                authenticatedUserId = "alice",
+            ),
+        )
+        assertFalse(
+            isForegroundAcknowledgementWakeInScope(
+                isForeground = true,
+                activeOwnerUserId = "alice",
+                expectedOwnerUserId = "alice",
+                activeDeviceId = "alice-phone",
+                expectedDeviceId = "alice-phone",
+                authenticatedUserId = "bob",
+            ),
+        )
+    }
+
+    @Test
     fun reconnectDelayStartsQuicklyAndDoubles() {
         assertEquals(1_000L, foregroundInboxReconnectDelayMillis(1))
         assertEquals(2_000L, foregroundInboxReconnectDelayMillis(2))
