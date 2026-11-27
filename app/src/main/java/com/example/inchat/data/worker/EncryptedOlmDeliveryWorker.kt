@@ -784,6 +784,14 @@ class EncryptedOlmDeliveryWorker(
             require(senderDeviceId.matches(DEVICE_ID_PATTERN)) { "Sender device ID has an invalid format" }
 
             val appContext = context.applicationContext
+            // The shared scheduler is the authoritative point where an account
+            // and usable device identity are both known. Register this scope for
+            // foreground inbox and ACK listeners as well as durable workers.
+            EncryptedOlmForegroundInboxMonitor.setDeviceScope(
+                context = appContext,
+                accountUserId = ownerUserId,
+                localDeviceId = senderDeviceId,
+            )
             val data = workDataOf(
                 KEY_OWNER_USER_ID to ownerUserId,
                 KEY_SENDER_DEVICE_ID to senderDeviceId,
