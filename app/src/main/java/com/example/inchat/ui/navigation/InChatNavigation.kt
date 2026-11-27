@@ -76,6 +76,7 @@ import com.example.inchat.ui.chat.ChatViewModel
 import com.example.inchat.ui.chat.CreateGroupScreen
 import com.example.inchat.ui.chat.GroupChatScreen
 import com.example.inchat.ui.chat.GroupInfoScreen
+import com.example.inchat.ui.chat.NewMessageScreen
 import com.example.inchat.ui.chat.GroupChatViewModel
 import com.example.inchat.ui.home.HomeScreen
 import com.example.inchat.ui.home.HomeViewModel
@@ -835,6 +836,33 @@ fun InChatApp(
 
             /*
              * ==================================================
+             * NEW MESSAGE
+             * ==================================================
+             */
+
+            composable(
+                "new_message"
+            ) {
+                NewMessageScreen(
+                    currentUserId = uid,
+                    onBackClick = {
+                        navController.popBackStack()
+                    },
+                    onUserClick = { user ->
+                        val encodedName = Uri.encode(user.username)
+                        navController.navigate(
+                            "chat/${user.uid}?otherUserNickname=$encodedName"
+                        ) {
+                            popUpTo("new_message") {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
+            }
+
+            /*
+             * ==================================================
              * CREATE GROUP
              * ==================================================
              */
@@ -1188,6 +1216,10 @@ private fun MainTabPager(
                                         encodedUsername
                             )
                         }
+                    },
+
+                    onNewMessageClick = {
+                        navController.navigate("new_message")
                     },
 
                     onCreateGroupClick = {
