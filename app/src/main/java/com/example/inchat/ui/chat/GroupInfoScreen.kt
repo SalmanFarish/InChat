@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -161,12 +162,17 @@ fun GroupInfoScreen(
     val actionScope = rememberCoroutineScope()
 
     if (showAddMembersDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showAddMembersDialog = false
-            },
-            title = { Text("Add members") },
-            text = {
+        InChatActionDialog(
+            title = "Add members",
+            titleIcon = Icons.Filled.PersonAdd,
+            confirmLabel = "Done",
+            confirmIcon = Icons.Filled.PersonAdd,
+            confirmDestructive = false,
+            confirmEnabled = !isActionRunning,
+            dismissEnabled = !isActionRunning,
+            onConfirm = { showAddMembersDialog = false },
+            onDismiss = { if (!isActionRunning) showAddMembersDialog = false },
+            content = {
                 Column {
                     CompactSearchField(
                         value = memberSearch,
@@ -225,65 +231,47 @@ fun GroupInfoScreen(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showAddMembersDialog = false }
-                ) { Text("Done") }
             }
         )
     }
 
     if (showRenameDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showRenameDialog = false
+        InChatActionDialog(
+            title = "Rename group",
+            titleIcon = Icons.Filled.Edit,
+            confirmLabel = "Save",
+            confirmIcon = Icons.Filled.Edit,
+            confirmDestructive = false,
+            confirmEnabled = !isActionRunning && renameText.trim().isNotBlank(),
+            dismissEnabled = !isActionRunning,
+            isLoading = isActionRunning,
+            onConfirm = {
+                val name = renameText.trim()
+                isActionRunning = true
+                actionScope.launch {
+                    groupRepository
+                        .renameGroup(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            newName = name
+                        )
+                        .onSuccess { showRenameDialog = false }
+                        .onFailure {
+                            actionError = it.message ?: "Could not rename group."
+                        }
+                    isActionRunning = false
+                }
             },
-            title = { Text("Rename group") },
-            text = {
+            onDismiss = { showRenameDialog = false },
+            content = {
                 OutlinedTextField(
-                        colors = inChatOutlinedTextFieldColors(),
+                    colors = inChatOutlinedTextFieldColors(),
                     value = renameText,
                     onValueChange = { renameText = it.take(50) },
                     singleLine = true,
-                    label = { Text("Group name") }
+                    label = { Text("Group name") },
+                    modifier = Modifier.fillMaxWidth()
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning && renameText.trim().isNotBlank(),
-                    onClick = {
-                        val name = renameText.trim()
-                        isActionRunning = true
-                        actionScope.launch {
-                            groupRepository
-                                .renameGroup(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    newName = name
-                                )
-                                .onSuccess {
-                                    showRenameDialog = false
-                                }
-                                .onFailure {
-                                    actionError =
-                                        it.message ?: "Could not rename group."
-                                }
-                            isActionRunning = false
-                        }
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showRenameDialog = false }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
@@ -328,50 +316,50 @@ fun GroupInfoScreen(
                 target.uid != currentUserId
 
         if (canManageTarget) {
-            AlertDialog(
-                onDismissRequest = { memberActionTarget = null },
-                title = { Text("@" + target.username) },
-                text = { Text("Choose a member action.") },
-                confirmButton = {
-                    TextButton(
-                        enabled = !isActionRunning,
-                        onClick = {
-                            val newRole = if (targetRole == "admin") "member" else "admin"
-                            isActionRunning = true
-                            actionScope.launch {
-                                groupRepository.setMemberRole(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    memberId = target.uid,
-                                    role = newRole
-                                ).onFailure {
-                                    actionError = it.message ?: "Could not change member role."
-                                }
-                                isActionRunning = false
-                                memberActionTarget = null
-                            }
+            InChatActionDialog(
+                title = "@" + target.username,
+                description = "Choose a member action.",
+                titleIcon = Icons.Filled.Edit,
+                confirmLabel = if (targetRole == "admin") "Remove admin" else "Make admin",
+                confirmIcon = Icons.Filled.Edit,
+                confirmDestructive = false,
+                confirmEnabled = !isActionRunning,
+                showCancel = false,
+                secondaryActionLabel = "Remove member",
+                secondaryActionIcon = Icons.Outlined.DeleteOutline,
+                secondaryActionDestructive = true,
+                secondaryActionEnabled = !isActionRunning,
+                onSecondaryAction = {
+                    isActionRunning = true
+                    actionScope.launch {
+                        groupRepository.removeMember(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            memberId = target.uid
+                        ).onFailure {
+                            actionError = it.message ?: "Could not remove member."
                         }
-                    ) { Text(if (targetRole == "admin") "Remove admin" else "Make admin") }
+                        isActionRunning = false
+                        memberActionTarget = null
+                    }
                 },
-                dismissButton = {
-                    TextButton(
-                        enabled = !isActionRunning,
-                        onClick = {
-                            isActionRunning = true
-                            actionScope.launch {
-                                groupRepository.removeMember(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    memberId = target.uid
-                                ).onFailure {
-                                    actionError = it.message ?: "Could not remove member."
-                                }
-                                isActionRunning = false
-                                memberActionTarget = null
-                            }
+                onConfirm = {
+                    val newRole = if (targetRole == "admin") "member" else "admin"
+                    isActionRunning = true
+                    actionScope.launch {
+                        groupRepository.setMemberRole(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            memberId = target.uid,
+                            role = newRole
+                        ).onFailure {
+                            actionError = it.message ?: "Could not change member role."
                         }
-                    ) { Text("Remove") }
-                }
+                        isActionRunning = false
+                        memberActionTarget = null
+                    }
+                },
+                onDismiss = { memberActionTarget = null }
             )
         }
     }
