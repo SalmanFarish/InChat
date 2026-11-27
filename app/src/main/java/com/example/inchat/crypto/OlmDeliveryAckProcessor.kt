@@ -1,8 +1,13 @@
 package com.example.inchat.crypto
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * Applies sender-side relay acknowledgements only after matching the exact
@@ -22,53 +27,71 @@ internal class OlmDeliveryAckProcessor(
 ) {
     suspend fun processPending(): OlmDeliveryAckProcessingResult = PROCESSOR_MUTEX.withLock {
         val acknowledgements = transport.readMyDeliveryAcknowledgements(senderDeviceId)
+        val semaphore = Semaphore(MAX_CONCURRENT_ACKNOWLEDGEMENTS)
+
+        suspend fun reconcile(acknowledgement: OlmDeliveryAcknowledgement): AckOutcome = try {
+            if (acknowledgement.senderUserId != senderUserId ||
+                acknowledgement.senderDeviceId != senderDeviceId ||
+                !queue.hasMatchingDelivery(acknowledgement)
+            ) {
+                return AckOutcome(unmatched = true)
+            }
+
+            // This delivery's sequence remains strict even though independent
+            // acknowledgements can progress concurrently:
+            // remote ACK delete -> durable Room receipt -> exact outbox row delete.
+            transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
+            recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
+            if (queue.removeAcknowledgedDelivery(acknowledgement)) {
+                AckOutcome(removed = true)
+            } else {
+                // Another exact reconciliation may have completed first (for
+                // example, a duplicate ACK in the same relay snapshot).
+                AckOutcome(unmatched = true)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AckOutcome(failure = failure)
+        }
+
+        // Each recipient-device ACK is independent. A slow relay delete for one
+        // item must not hold up unrelated receipts in the same bounded snapshot.
+        // Keep the fan-out small for low-memory phones and relay rate limits.
+        val outcomes = coroutineScope {
+            acknowledgements.map { acknowledgement ->
+                async {
+                    semaphore.withPermit { reconcile(acknowledgement) }
+                }
+            }.awaitAll()
+        }
+
         var removed = 0
         var unmatched = 0
         var firstFailure: Exception? = null
-
-        for (acknowledgement in acknowledgements) {
-            try {
-                if (acknowledgement.senderUserId != senderUserId ||
-                    acknowledgement.senderDeviceId != senderDeviceId ||
-                    !queue.hasMatchingDelivery(acknowledgement)
-                ) {
-                    unmatched++
-                    continue
-                }
-
-                // Remove the relay ack first, then persist a metadata-only delivery
-                // receipt before deleting the ciphertext outbox row. If the process
-                // stops after receipt persistence, the retained row is safe to retry:
-                // the recipient's durable receipt ledger will acknowledge it again.
-                transport.removeMyDeliveryAcknowledgement(senderDeviceId, acknowledgement)
-                recordAcknowledgement(acknowledgement, clock().coerceAtLeast(0L))
-                if (queue.removeAcknowledgedDelivery(acknowledgement)) {
-                    removed++
-                } else {
-                    // Another processor may have removed the exact row concurrently.
-                    unmatched++
-                }
-            } catch (cancelled: CancellationException) {
-                // Cancellation is a process/lifecycle boundary, not an item failure.
-                // Preserve it immediately so the durable ACK/outbox recovery path runs.
-                throw cancelled
-            } catch (failure: Exception) {
-                // One relay delete or Room receipt failure must not head-of-line
-                // block later independent ACKs in this bounded snapshot. Continue
-                // reconciling the rest, then surface the first error so WorkManager
-                // retries the incomplete item(s) on the next pass.
-                if (firstFailure == null) firstFailure = failure
-            }
+        for (outcome in outcomes) {
+            if (outcome.removed) removed++
+            if (outcome.unmatched) unmatched++
+            if (firstFailure == null) firstFailure = outcome.failure
         }
 
+        // Do not suppress retry signaling: all later independent ACKs get their
+        // chance, then WorkManager retries any item whose exact sequence failed.
         firstFailure?.let { throw it }
         OlmDeliveryAckProcessingResult(removed = removed, unmatched = unmatched)
     }
 
+    private data class AckOutcome(
+        val removed: Boolean = false,
+        val unmatched: Boolean = false,
+        val failure: Exception? = null,
+    )
+
     private companion object {
-        // WorkManager can overlap workers in one process. Serialize the remote-ack
-        // delete -> durable receipt -> local outbox delete sequence across instances.
+        // WorkManager can overlap workers in one process. Serialize snapshots
+        // across instances, while independent ACKs within one snapshot are bounded.
         val PROCESSOR_MUTEX = Mutex()
+        const val MAX_CONCURRENT_ACKNOWLEDGEMENTS = 8
     }
 }
 

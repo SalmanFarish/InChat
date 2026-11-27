@@ -6,12 +6,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class OlmDeliveryAckProcessorTest {
     @Test
@@ -83,6 +85,49 @@ class OlmDeliveryAckProcessorTest {
         assertNull(store.rows[second.deliveryId])
         assertTrue(transport.hasPendingAcknowledgements())
         assertEquals(listOf(second.deliveryId), transport.removedDeliveryIds)
+    }
+
+    @Test
+    fun independentAcknowledgementsAreReconciledConcurrently() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "parallel-ack-1", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "parallel-ack-2", listOf(prepared()))
+        val rows = store.rows.values.toList()
+        assertEquals(2, rows.size)
+
+        val bothDeletesStarted = CompletableDeferred<Unit>()
+        val deleteCount = AtomicInteger()
+        val receiptCount = AtomicInteger()
+        val transport = FakeAckTransport(
+            acknowledgements = rows.map { it.toAcknowledgement() },
+            beforeRemoval = {
+                if (deleteCount.incrementAndGet() == 2) {
+                    bothDeletesStarted.complete(Unit)
+                }
+                // Sequential ACK reconciliation cannot release its first delete
+                // until a second independent delete has started.
+                withTimeout(2_000L) { bothDeletesStarted.await() }
+            },
+        )
+
+        val result = withTimeout(5_000L) {
+            OlmDeliveryAckProcessor(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ -> receiptCount.incrementAndGet() },
+            ).processPending()
+        }
+
+        assertEquals(2, result.removed)
+        assertEquals(0, result.unmatched)
+        assertEquals(2, deleteCount.get())
+        assertEquals(2, receiptCount.get())
+        assertEquals(rows.map { it.deliveryId }.sorted(), transport.removedDeliveryIds.sorted())
+        assertTrue(store.rows.isEmpty())
+        assertFalse(transport.hasPendingAcknowledgements())
     }
 
     @Test
@@ -380,6 +425,7 @@ class OlmDeliveryAckProcessorTest {
         private val failRemoval: Boolean = false,
         private val failAfterRemovalOnce: Boolean = false,
         private val failRemovalDeliveryIds: Set<String> = emptySet(),
+        private val beforeRemoval: suspend (String) -> Unit = {},
     ) : OlmDeliveryAckTransport {
         private val acknowledgements = acknowledgements.toMutableList()
         val removedDeliveryIds = mutableListOf<String>()
@@ -401,6 +447,7 @@ class OlmDeliveryAckProcessorTest {
         }
 
         override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
+            beforeRemoval(deliveryId)
             if (failRemoval || deliveryId in failRemovalDeliveryIds) {
                 throw IllegalStateException("temporary ack deletion failure")
             }
