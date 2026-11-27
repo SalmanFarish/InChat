@@ -78,6 +78,7 @@ internal class EncryptedOlmMessageVault(
                             ciphertext,
                             BASE64_FLAGS,
                         ),
+                        notificationPending = !message.isOutgoing,
                     )
                 } finally {
                     nonce.fill(0)

@@ -80,9 +80,9 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
             .setContentIntent(pendingIntent)
             .build()
 
-        runCatching {
-            NotificationManagerCompat.from(appContext).notify(tag, notificationId, notification)
-        }
+        // Propagate transient notification-manager failures so the durable
+        // Room notification outbox can retry on the next inbox worker pass.
+        NotificationManagerCompat.from(appContext).notify(tag, notificationId, notification)
     }
 
     private companion object {

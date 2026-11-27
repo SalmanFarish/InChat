@@ -21,10 +21,13 @@ class EncryptedGroupMessageVaultTest {
             val second = vault.encrypt(plaintext)
 
             assertEquals(EncryptedGroupMessageVault.CONTENT_VERSION, encrypted.contentEncryptionVersion)
+            assertTrue("A received encrypted group message must retain a durable notification intent", encrypted.notificationPending)
             assertNotEquals(encrypted.textNonceBase64, second.textNonceBase64)
             assertFalse(encrypted.textCiphertextBase64.contains(plaintext.text))
             assertFalse(encrypted.toString().contains(plaintext.text))
             assertEquals(plaintext, EncryptedGroupMessageVault(alias).decrypt(encrypted))
+            val outgoing = plaintext.copy(ownerUserId = "bob", senderUserId = "bob")
+            assertFalse("A sender-owned group echo must not notify its owner", EncryptedGroupMessageVault(alias).encrypt(outgoing).notificationPending)
         } finally {
             deleteKey(alias)
         }

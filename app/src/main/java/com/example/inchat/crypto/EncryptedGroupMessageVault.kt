@@ -55,6 +55,7 @@ internal class EncryptedGroupMessageVault(
                         contentEncryptionVersion = CONTENT_VERSION,
                         textNonceBase64 = Base64.encodeToString(nonce, BASE64_FLAGS),
                         textCiphertextBase64 = Base64.encodeToString(ciphertext, BASE64_FLAGS),
+                        notificationPending = message.senderUserId != message.ownerUserId,
                     )
                 } finally {
                     nonce.fill(0)

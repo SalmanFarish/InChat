@@ -21,12 +21,15 @@ class EncryptedOlmMessageVaultTest {
             val secondEncrypted = firstVault.encrypt(plaintext)
 
             assertEquals(EncryptedOlmMessageVault.CONTENT_ENCRYPTION_VERSION, encrypted.contentEncryptionVersion)
+            assertTrue("A received encrypted direct message must retain a durable notification intent", encrypted.notificationPending)
             assertNotEquals(encrypted.textNonceBase64, secondEncrypted.textNonceBase64)
             assertFalse(encrypted.textCiphertextBase64.contains(plaintext.text))
             assertFalse(encrypted.toString().contains(plaintext.text))
 
             val reopenedVault = EncryptedOlmMessageVault(alias)
             assertEquals(plaintext, reopenedVault.decrypt(encrypted))
+            val outgoing = plaintext.copy(ownerUserId = "alice", senderUserId = "alice")
+            assertFalse("A sender-owned local echo must not notify its owner", reopenedVault.encrypt(outgoing).notificationPending)
         } finally {
             deleteKey(alias)
         }

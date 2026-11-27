@@ -1,5 +1,6 @@
 package com.example.inchat.crypto
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -22,6 +23,7 @@ data class EncryptedGroupMessageEntity(
     val contentEncryptionVersion: Int,
     val textNonceBase64: String,
     val textCiphertextBase64: String,
+    @ColumnInfo(defaultValue = "0") val notificationPending: Boolean = false,
 )
 
 /** Receipt/replay ledger committed atomically with its encrypted message. */

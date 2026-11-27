@@ -172,7 +172,6 @@ class EncryptedOlmInboxWorker(
                 FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
             }
             val groupRepository = GroupChatRepository()
-            val encryptedNotifications = EncryptedMessageNotificationPublisher(applicationContext)
             val groupMessageHandoff = DefaultOlmInboundGroupMessageHandoff(
                 membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
                 sessionRepository = megolmSessionRepository,
@@ -183,12 +182,6 @@ class EncryptedOlmInboxWorker(
                     FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 },
                 trustVerifier = trustRepository,
-                onMessageCommitted = { message ->
-                    encryptedNotifications.notifyGroupMessage(
-                        groupId = message.groupId,
-                        senderUserId = message.senderUserId,
-                    )
-                },
             )
             val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
                 membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
@@ -210,12 +203,6 @@ class EncryptedOlmInboxWorker(
                 groupMessageHandoff = groupMessageHandoff,
                 groupSessionKeyHandoff = groupSessionKeyHandoff,
                 megolmSessionRepository = megolmSessionRepository,
-                onDirectMessageCommitted = { message ->
-                    encryptedNotifications.notifyDirectMessage(
-                        conversationId = message.conversationId,
-                        senderUserId = message.senderUserId,
-                    )
-                },
             )
             val deviceDirectory = DeviceKeyDirectoryRepository()
             val processor = OlmPendingReceiptProcessor(
@@ -253,6 +240,48 @@ class EncryptedOlmInboxWorker(
                 },
             )
             val handoffResult = processor.processPending()
+
+            // Reconcile encrypted-message notification intents committed in Room.
+            // If Android killed this process after message commit but before notify,
+            // the next inbox pass will publish the same stable conversation alert.
+            val encryptedNotifications = EncryptedMessageNotificationPublisher(applicationContext)
+            val directMessageDao = database.encryptedOlmMessageDao()
+            for (message in directMessageDao.getPendingNotificationMessages(
+                ownerUserId = ownerUserId,
+                limit = MAX_NOTIFICATION_BATCH_SIZE,
+            )) {
+                if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
+                    return Result.success()
+                }
+                encryptedNotifications.notifyDirectMessage(
+                    conversationId = message.conversationId,
+                    senderUserId = message.senderUserId,
+                )
+                directMessageDao.markNotificationPublished(
+                    ownerUserId = ownerUserId,
+                    conversationId = message.conversationId,
+                    messageId = message.messageId,
+                )
+            }
+
+            val groupMessageDao = database.encryptedGroupMessageDao()
+            for (message in groupMessageDao.getPendingNotificationMessages(
+                ownerUserId = ownerUserId,
+                limit = MAX_NOTIFICATION_BATCH_SIZE,
+            )) {
+                if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
+                    return Result.success()
+                }
+                encryptedNotifications.notifyGroupMessage(
+                    groupId = message.groupId,
+                    senderUserId = message.senderUserId,
+                )
+                groupMessageDao.markNotificationPublished(
+                    ownerUserId = ownerUserId,
+                    groupId = message.groupId,
+                    messageId = message.messageId,
+                )
+            }
             Log.i(
                 TAG,
                 "Encrypted inbox pass completed: stored=" + result.stored +
@@ -277,7 +306,10 @@ class EncryptedOlmInboxWorker(
             // Room, enqueue a follow-up now instead of waiting for another push or
             // the 15-minute fallback poll. Attempt timestamps stop failed/deferred
             // rows from creating an endless continuation loop.
-            if (database.olmInboundReceiptDao().hasUnattemptedReceipts(ownerUserId)) {
+            if (database.olmInboundReceiptDao().hasUnattemptedReceipts(ownerUserId) ||
+                directMessageDao.hasPendingNotifications(ownerUserId) ||
+                groupMessageDao.hasPendingNotifications(ownerUserId)
+            ) {
                 EncryptedOlmInboxWorker.wake(
                     context = applicationContext,
                     ownerUserId = ownerUserId,
@@ -300,6 +332,7 @@ class EncryptedOlmInboxWorker(
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_RECIPIENT_DEVICE_ID = "recipient_device_id"
         private const val PERIODIC_INTERVAL_MINUTES = 15L
+        private const val MAX_NOTIFICATION_BATCH_SIZE = 50
         private const val WORK_TAG = "encrypted_olm_inbox"
         private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")

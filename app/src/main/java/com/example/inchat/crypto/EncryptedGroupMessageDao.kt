@@ -223,6 +223,19 @@ abstract class EncryptedGroupMessageDao {
         groupId: String,
     ): Flow<List<EncryptedGroupMessageEntity>>
 
+    /** Durable local notification outbox for newly committed incoming group messages. */
+    @Query("SELECT * FROM encrypted_group_messages WHERE ownerUserId = :ownerUserId AND notificationPending = 1 ORDER BY sentAtMillis ASC, messageId ASC LIMIT :limit")
+    abstract suspend fun getPendingNotificationMessages(
+        ownerUserId: String,
+        limit: Int,
+    ): List<EncryptedGroupMessageEntity>
+
+    @Query("UPDATE encrypted_group_messages SET notificationPending = 0 WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId AND notificationPending = 1")
+    abstract suspend fun markNotificationPublished(ownerUserId: String, groupId: String, messageId: String): Int
+
+    @Query("SELECT EXISTS(SELECT 1 FROM encrypted_group_messages WHERE ownerUserId = :ownerUserId AND notificationPending = 1)")
+    abstract suspend fun hasPendingNotifications(ownerUserId: String): Boolean
+
     @Query(
         "SELECT * FROM encrypted_group_messages " +
             "WHERE ownerUserId = :ownerUserId AND groupId = :groupId AND messageId = :messageId LIMIT 1"
