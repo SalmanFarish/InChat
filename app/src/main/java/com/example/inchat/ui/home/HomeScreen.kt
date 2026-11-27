@@ -427,6 +427,7 @@ fun HomeScreen(
                     ) { conversation ->
                         ConversationItem(
                             conversation = conversation,
+                            homeViewModel = homeViewModel,
                             userRepository = userRepository,
                             currentUserId = currentUserId,
                             onClick = {
@@ -514,6 +515,7 @@ fun HomeScreen(
                             ) { conversation ->
                                 ConversationItem(
                                     conversation = conversation,
+                                    homeViewModel = homeViewModel,
                                     userRepository = userRepository,
                                     currentUserId = currentUserId,
                                     onClick = {
@@ -1245,6 +1247,7 @@ private fun HiddenChatsToggle(
 @Composable
 private fun ConversationItem(
     conversation: Conversation,
+    homeViewModel: HomeViewModel,
     userRepository: UserRepository,
     currentUserId: String,
     onClick: () -> Unit,
@@ -1259,6 +1262,16 @@ private fun ConversationItem(
     onConfirmDelete: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val localPreviewFlow = remember(
+        currentUserId,
+        conversation.chatId,
+        conversation.chatType,
+        conversation.otherUserId
+    ) {
+        homeViewModel.observeLocalPreview(currentUserId, conversation)
+    }
+    val localPreview by localPreviewFlow.collectAsState(initial = null)
+
     var otherUserProfilePhoto by remember(conversation.otherUserId) {
         mutableStateOf(
             userRepository.getCachedUser(conversation.otherUserId)?.let { cachedUser ->
@@ -1320,23 +1333,37 @@ private fun ConversationItem(
             MaterialTheme.colorScheme.outline.copy(alpha = 0.72f)
         }
 
+    // Worker metadata timestamps match the authenticated sentAtMillis value.
+    // Use local plaintext only for the latest item (or a newer queued send).
+    val visibleLocalPreview = localPreview?.takeIf {
+        it.timestamp >= conversation.lastTimestamp
+    }
+    val previewSenderId = visibleLocalPreview?.senderUserId ?: conversation.lastSenderId
+    val previewTimestamp = maxOf(
+        conversation.lastTimestamp,
+        visibleLocalPreview?.timestamp ?: 0L
+    )
     val messagePrefix =
         if (conversation.chatType == "group") {
             when {
-                conversation.lastSenderId == currentUserId -> "You: "
-                conversation.lastSenderNickname.isNotBlank() ->
-                    conversation.lastSenderNickname + ": "
+                previewSenderId == currentUserId -> "You: "
+                visibleLocalPreview == null ||
+                    visibleLocalPreview.timestamp == conversation.lastTimestamp ->
+                    conversation.lastSenderNickname
+                        .takeIf { it.isNotBlank() }
+                        ?.plus(": ")
+                        .orEmpty()
                 else -> ""
             }
-        } else if (conversation.lastSenderId == currentUserId) {
+        } else if (previewSenderId == currentUserId) {
             "You: "
         } else {
             ""
         }
 
-    // Legacy inbox rows may still contain pre-E2EE plaintext previews.
-    // Never render or search that untrusted historical field.
-    val previewText = conversation.safeInboxPreview()
+    // Decrypted text is read only from this account's encrypted local store.
+    // Firebase inbox metadata remains a non-sensitive fallback for uncached messages.
+    val previewText = visibleLocalPreview?.text ?: conversation.safeInboxPreview()
 
     Box {
         Surface(
@@ -1469,7 +1496,7 @@ private fun ConversationItem(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = formatConversationTime(conversation.lastTimestamp),
+                        text = formatConversationTime(previewTimestamp),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
