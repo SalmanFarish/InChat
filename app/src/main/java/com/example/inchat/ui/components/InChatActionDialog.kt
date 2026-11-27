@@ -55,6 +55,11 @@ fun InChatActionDialog(
     confirmDestructive: Boolean = true,
     showCancel: Boolean = true,
     cancelLabel: String = "Cancel",
+    secondaryActionLabel: String? = null,
+    secondaryActionIcon: ImageVector? = null,
+    secondaryActionDestructive: Boolean = true,
+    secondaryActionEnabled: Boolean = true,
+    onSecondaryAction: (() -> Unit)? = null,
     isLoading: Boolean = false,
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -132,6 +137,20 @@ fun InChatActionDialog(
                             destructive = true,
                             enabled = dismissEnabled,
                             onClick = onDismiss
+                        )
+                    }
+
+                    if (
+                        secondaryActionLabel != null &&
+                        secondaryActionIcon != null &&
+                        onSecondaryAction != null
+                    ) {
+                        ActionDialogRow(
+                            icon = secondaryActionIcon,
+                            title = secondaryActionLabel,
+                            destructive = secondaryActionDestructive,
+                            enabled = secondaryActionEnabled,
+                            onClick = onSecondaryAction
                         )
                     }
 
