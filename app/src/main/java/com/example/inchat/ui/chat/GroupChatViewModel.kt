@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.inchat.InChatApplication
 import com.example.inchat.crypto.DecryptedGroupMessage
+import com.example.inchat.crypto.EncryptedMessageContentCodec
 import com.example.inchat.crypto.EncryptedGroupMessageRepository
 import com.example.inchat.crypto.MegolmGroupMessageSendCoordinatorFactory
 import com.example.inchat.crypto.MegolmPendingGroupIntentRetryLock
@@ -580,11 +581,6 @@ class GroupChatViewModel : ViewModel() {
 
     fun setReplyingTo(message: Message) {
         if (
-            isEncryptedGroupMessage(message.id)
-        ) {
-            return
-        }
-        if (
             message.id.isBlank() ||
             message.senderId.isBlank() ||
             message.senderNickname.isBlank() ||
@@ -642,17 +638,26 @@ class GroupChatViewModel : ViewModel() {
             onResult(false, "The signed-in account changed. Reopen the group and try again.")
             return
         }
-        if (_replyingTo.value != null) {
-            onResult(false, "Replies in encrypted group chats are not supported yet.")
-            return
-        }
-
         val messageId = chatRepository.generateMessageId(groupId)
         if (messageId == null) {
             onResult(false, "Could not generate message ID.")
             return
         }
         val sentAtMillis = System.currentTimeMillis()
+        val replyTarget = _replyingTo.value?.let { message ->
+            ReplyTo(
+                messageId = message.id,
+                senderId = message.senderId,
+                senderNickname = message.senderNickname,
+                text = message.text,
+            )
+        }
+        val encryptedContent = EncryptedMessageContentCodec.encode(
+            text = cleanText,
+            replyTo = replyTarget,
+            currentUserId = currentUserId,
+            currentUserNickname = senderNickname,
+        )
 
         // Group content is sent only through Megolm. In particular, do not
         // create a plaintext Room pending row: the legacy retry worker would
@@ -747,7 +752,7 @@ class GroupChatViewModel : ViewModel() {
                         groupId = groupId,
                         messageId = messageId,
                         sentAtMillis = sentAtMillis,
-                        plaintext = cleanText,
+                        plaintext = encryptedContent,
                     )
                 }
                 // A persisted encrypted intent is now safely accepted by this
@@ -755,13 +760,14 @@ class GroupChatViewModel : ViewModel() {
                 // Clear the composer now so a tap/retry cannot create a duplicate ID.
                 pendingIntentPersisted = true
                 onQueued()
+                _replyingTo.value = null
 
                 when (
                     val outcome = withContext(Dispatchers.IO) {
                         encryptedGroupMessageSendCoordinator.send(
                             groupId = groupId,
                             messageId = messageId,
-                            plaintext = cleanText,
+                            plaintext = encryptedContent,
                             sentAtMillis = sentAtMillis,
                         )
                     }
@@ -790,7 +796,7 @@ class GroupChatViewModel : ViewModel() {
                                     megolmSessionId = queued.megolmSessionId,
                                     messageIndex = queued.messageIndex,
                                     sentAtMillis = queued.sentAtMillis,
-                                    text = cleanText,
+                                    text = encryptedContent,
                                 )
                             )
                         } catch (e: kotlinx.coroutines.CancellationException) {

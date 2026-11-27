@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
+import com.example.inchat.crypto.EncryptedMessageContentCodec
 import com.example.inchat.ui.theme.Black
 import com.example.inchat.ui.theme.JetBrainsMono
 
@@ -104,8 +105,9 @@ fun GroupChatScreen(
                     id = encrypted.messageId,
                     senderId = encrypted.senderUserId,
                     senderNickname = "🔒 ${encrypted.senderUserId}",
-                    text = encrypted.text,
+                    text = EncryptedMessageContentCodec.decode(encrypted.text).text,
                     timestamp = encrypted.sentAtMillis,
+                    replyTo = EncryptedMessageContentCodec.decode(encrypted.text).replyTo,
                 )
             }
         // A pending local intent is shown immediately while key distribution
@@ -120,8 +122,9 @@ fun GroupChatScreen(
                     id = pending.messageId,
                     senderId = currentUserId,
                     senderNickname = "🔒 $currentNickname",
-                    text = pending.plaintext,
+                    text = EncryptedMessageContentCodec.decode(pending.plaintext).text,
                     timestamp = pending.sentAtMillis,
+                    replyTo = EncryptedMessageContentCodec.decode(pending.plaintext).replyTo,
                 )
             }
         (messages + encryptedRows + pendingRows).sortedWith(

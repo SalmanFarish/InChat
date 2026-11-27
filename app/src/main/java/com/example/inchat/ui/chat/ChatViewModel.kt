@@ -10,6 +10,7 @@ import com.example.inchat.crypto.DeviceKeyDirectoryRepository
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatusRepository
 import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.crypto.EncryptedMessageContentCodec
 import com.example.inchat.crypto.EncryptedDirectPendingMessageRepository
 import com.example.inchat.crypto.OlmDeliveryQueue
 import com.example.inchat.crypto.OlmDirectMessageSendCoordinatorFactory
@@ -880,8 +881,9 @@ class ChatViewModel : ViewModel() {
                                     id = pending.messageId,
                                     senderId = currentUserId,
                                     senderNickname = "You",
-                                    text = pending.plaintext,
+                                    text = EncryptedMessageContentCodec.decode(pending.plaintext).text,
                                     timestamp = pending.sentAtMillis,
+                                    replyTo = EncryptedMessageContentCodec.decode(pending.plaintext).replyTo,
                                 )
                             }
                         val hiddenLegacyIds = encryptedIds + pendingIds
@@ -2272,13 +2274,6 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        // Reply metadata is not part of the authenticated Olm text schema yet.
-        // Refuse the action instead of leaking reply text through the legacy RTDB path.
-        if (_replyingTo.value != null) {
-            onResult(false, "Replies are not available in encrypted direct messages yet.")
-            return
-        }
-
         onTypingChanged(
             currentUserId = currentUserId,
             isTyping = false
@@ -2292,6 +2287,20 @@ class ChatViewModel : ViewModel() {
         }
 
         val sentAtMillis = System.currentTimeMillis()
+        val replyTarget = _replyingTo.value?.let { message ->
+            com.example.inchat.data.model.ReplyTo(
+                messageId = message.id,
+                senderId = message.senderId,
+                senderNickname = message.senderNickname,
+                text = message.text,
+            )
+        }
+        val encryptedContent = EncryptedMessageContentCodec.encode(
+            text = cleanText,
+            replyTo = replyTarget,
+            currentUserId = currentUserId,
+            currentUserNickname = senderNickname,
+        )
 
         viewModelScope.launch {
             var locallySaved = false
@@ -2306,7 +2315,7 @@ class ChatViewModel : ViewModel() {
                         peerUserId = otherUserId,
                         messageId = messageId,
                         sentAtMillis = sentAtMillis,
-                        plaintext = cleanText,
+                        plaintext = encryptedContent,
                     )
                 }
                 locallySaved = true
@@ -2319,6 +2328,7 @@ class ChatViewModel : ViewModel() {
                 // The local encrypted outbox is the send-acceptance boundary.
                 // Release the composer before any optional device provisioning.
                 onQueued()
+                _replyingTo.value = null
                 onResult(true, null)
 
                 // WorkManager is the single network sender for pending direct
@@ -2512,13 +2522,17 @@ class ChatViewModel : ViewModel() {
     private fun DecryptedOlmMessage.toTimelineMessage(
         currentUserId: String,
         otherUserNickname: String
-    ): Message = Message(
-        id = messageId,
-        senderId = senderUserId,
-        senderNickname = if (senderUserId == currentUserId) "You" else otherUserNickname,
-        text = text,
-        timestamp = sentAtMillis
-    )
+    ): Message {
+        val content = EncryptedMessageContentCodec.decode(text)
+        return Message(
+            id = messageId,
+            senderId = senderUserId,
+            senderNickname = if (senderUserId == currentUserId) "You" else otherUserNickname,
+            text = content.text,
+            timestamp = sentAtMillis,
+            replyTo = content.replyTo,
+        )
+    }
 
     /*
      * =========================================================

@@ -221,14 +221,6 @@ fun GroupChatComposer(
                                 }
                             }
                         } else {
-                            // The Megolm payload currently carries text only.
-                            // Do not silently discard the selected reply target.
-                            if (replyingTo != null) {
-                                onActionMessage(
-                                    "Replies in encrypted group chats are not supported yet. Cancel the reply and send a normal message."
-                                )
-                                return@ComposerSendButton
-                            }
                             sendingMessage = true
                             groupViewModel.sendMessage(
                                 text = text,

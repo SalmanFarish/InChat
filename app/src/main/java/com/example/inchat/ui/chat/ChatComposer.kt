@@ -565,18 +565,6 @@ fun ChatComposer(
                         }
 
                         /*
-                         * Reply metadata is not part of the authenticated
-                         * Olm text payload yet. Never silently send a reply
-                         * as an unrelated standalone message.
-                         */
-                        if (replyingTo != null) {
-                            onActionMessage(
-                                "Replies to encrypted messages are not supported yet. Cancel the reply and send a normal message."
-                            )
-                            return@ComposerSendButton
-                        }
-
-                        /*
                          * =================================================
                          * SEND MESSAGE
                          * =================================================
