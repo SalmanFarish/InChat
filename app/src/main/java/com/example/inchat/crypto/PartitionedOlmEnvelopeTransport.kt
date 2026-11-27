@@ -1,5 +1,8 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
 /**
  * Phased encrypted relay migration: direct messages may use Cloudflare while
  * group deliveries can be migrated independently. Both inboxes are polled during
@@ -33,25 +36,35 @@ internal class PartitionedOlmEnvelopeTransport(
         }
     }
 
-    override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
-        val firebaseItems = firebase.readMyDeviceInbox(deviceId)
-            .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
-        if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) return firebaseItems
-
-        val cloudflareItems = cloudflare.readMyDeviceInbox(deviceId).map { item ->
-            val isDirect = item.conversationType == "direct" &&
-                item.groupId == null && item.membershipEpoch == null &&
-                item.conversationPeerUserId != null
-            val isGroup = item.conversationType == "group" &&
-                item.groupId != null && item.membershipEpoch != null &&
-                item.conversationId == item.groupId && item.conversationPeerUserId == null
-            require((cloudflareDirectEnabled && isDirect) || (cloudflareGroupEnabled && isGroup)) {
-                "Cloudflare mailbox returned a delivery outside its enabled conversation scope."
+    override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> =
+        coroutineScope {
+            // The legacy and migrated mailboxes are independent network reads.
+            // Start both before awaiting either so latency is bounded by the
+            // slower relay rather than the sum of their round trips.
+            val firebaseRead = async {
+                firebase.readMyDeviceInbox(deviceId)
+                    .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
             }
-            item.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE)
+            if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) {
+                return@coroutineScope firebaseRead.await()
+            }
+
+            val cloudflareRead = async {
+                cloudflare.readMyDeviceInbox(deviceId).map { item ->
+                    val isDirect = item.conversationType == "direct" &&
+                        item.groupId == null && item.membershipEpoch == null &&
+                        item.conversationPeerUserId != null
+                    val isGroup = item.conversationType == "group" &&
+                        item.groupId != null && item.membershipEpoch != null &&
+                        item.conversationId == item.groupId && item.conversationPeerUserId == null
+                    require((cloudflareDirectEnabled && isDirect) || (cloudflareGroupEnabled && isGroup)) {
+                        "Cloudflare mailbox returned a delivery outside its enabled conversation scope."
+                    }
+                    item.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE)
+                }
+            }
+            mergeInboxItems(firebaseRead.await(), cloudflareRead.await())
         }
-        return mergeInboxItems(firebaseItems, cloudflareItems)
-    }
 
     override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) {
         when (item.relayOrigin) {
@@ -82,13 +95,21 @@ internal class PartitionedOlmEnvelopeTransport(
 
     override suspend fun readMyDeliveryAcknowledgements(
         senderDeviceId: String,
-    ): List<OlmDeliveryAcknowledgement> {
-        val firebaseAcks = firebase.readMyDeliveryAcknowledgements(senderDeviceId)
-            .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
-        if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) return firebaseAcks
-        val cloudflareAcks = cloudflare.readMyDeliveryAcknowledgements(senderDeviceId)
-            .map { it.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE) }
-        return mergeAcknowledgements(firebaseAcks, cloudflareAcks)
+    ): List<OlmDeliveryAcknowledgement> = coroutineScope {
+        // ACK polling has the same dual-relay shape as inbox polling. Do not let
+        // one relay's HTTP/Firebase latency postpone discovery of ACKs on the other.
+        val firebaseRead = async {
+            firebase.readMyDeliveryAcknowledgements(senderDeviceId)
+                .map { it.copy(relayOrigin = OlmRelayOrigin.FIREBASE) }
+        }
+        if (!cloudflareDirectEnabled && !cloudflareGroupEnabled) {
+            return@coroutineScope firebaseRead.await()
+        }
+        val cloudflareRead = async {
+            cloudflare.readMyDeliveryAcknowledgements(senderDeviceId)
+                .map { it.copy(relayOrigin = OlmRelayOrigin.CLOUDFLARE) }
+        }
+        mergeAcknowledgements(firebaseRead.await(), cloudflareRead.await())
     }
 
     override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
