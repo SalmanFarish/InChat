@@ -1,13 +1,16 @@
 package com.example.inchat
 
+import android.app.Activity
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.os.Bundle
 import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.PendingMessageDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
+import com.example.inchat.data.worker.EncryptedOlmForegroundInboxMonitor
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.example.inchat.data.worker.isEncryptedOlmAuthResolutionCurrent
 import com.example.inchat.crypto.DeviceIdentityRepository
@@ -20,7 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class InChatApplication : Application() {
+class InChatApplication : Application(), Application.ActivityLifecycleCallbacks {
+
+    private var startedActivityCount = 0
 
     companion object {
 
@@ -71,6 +76,7 @@ class InChatApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        registerActivityLifecycleCallbacks(this)
 
         /*
          * Enable Firebase Realtime Database disk persistence
@@ -91,6 +97,7 @@ class InChatApplication : Application() {
          */
         FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
             val ownerUserId = firebaseAuth.currentUser?.uid
+            EncryptedOlmForegroundInboxMonitor.setAccount(applicationContext, ownerUserId)
             val generation = synchronized(encryptedDeliveryWorkLock) {
                 encryptedDeliveryAuthGeneration += 1
                 if (ownerUserId == null) {
@@ -266,6 +273,26 @@ class InChatApplication : Application() {
          */
         createMessageNotificationChannel()
     }
+
+    override fun onActivityStarted(activity: Activity) {
+        startedActivityCount += 1
+        if (startedActivityCount == 1) {
+            EncryptedOlmForegroundInboxMonitor.setForeground(applicationContext, true)
+        }
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+        startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
+        if (startedActivityCount == 0) {
+            EncryptedOlmForegroundInboxMonitor.setForeground(applicationContext, false)
+        }
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+    override fun onActivityResumed(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    override fun onActivityDestroyed(activity: Activity) = Unit
 
     private fun createMessageNotificationChannel() {
 
