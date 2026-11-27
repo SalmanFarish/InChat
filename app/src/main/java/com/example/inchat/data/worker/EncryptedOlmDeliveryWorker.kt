@@ -186,6 +186,13 @@ class EncryptedOlmDeliveryWorker(
                 cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
                 cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
             )
+            val acknowledgementFollowUp = EncryptedOlmAcknowledgementFollowUp {
+                scheduleAfterCurrentPass(
+                    applicationContext,
+                    ownerUserId,
+                    senderDeviceId,
+                )
+            }
             val result = OlmDeliveryWorkerRunner(
                 queue = queue,
                 transport = transport,
@@ -262,15 +269,10 @@ class EncryptedOlmDeliveryWorker(
                         database = database,
                         dao = database.olmDeliveryReceiptDao(),
                     ).record(acknowledgement, acknowledgedAtMillis)
-                    // Key-distribution acknowledgements can make a previously
-                    // blocked Megolm send ready. Queue a distinct follow-up pass
-                    // behind this running worker so recovery runs immediately
-                    // instead of waiting for the 15-minute safety poll.
-                    scheduleAfterCurrentPass(
-                        applicationContext,
-                        ownerUserId,
-                        senderDeviceId,
-                    )
+                    // A batch can contain many independent ACKs. Coalesce their
+                    // follow-up into one durable sender pass, while allowing another
+                    // callback to retry if WorkManager enqueue throws.
+                    acknowledgementFollowUp.scheduleOnce()
                 },
                 syncEncryptedDirectPreview = { delivery ->
                     if (delivery.groupId == null && delivery.recipientUserId != ownerUserId) {
