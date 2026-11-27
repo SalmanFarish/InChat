@@ -253,7 +253,7 @@ internal class OlmPendingReceiptProcessor(
                         // behind receipts that have not yet been attempted. Otherwise a
                         // permanently blocked first batch can starve a later key receipt.
                         if (authenticatedLocalUserId() == localUserId) {
-                            receiptDao.markRetryAttempted(
+                            receiptDao.markAttempted(
                                 receiptId = receipt.receiptId,
                                 attemptedAtMillis = clock().coerceAtLeast(0L),
                             )
