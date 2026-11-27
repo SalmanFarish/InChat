@@ -1,5 +1,7 @@
 package com.example.inchat.ui.search
 
+import com.example.inchat.ui.components.CompactSearchField
+
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.animateColorAsState
@@ -240,87 +242,17 @@ private fun SearchInput(
     onClear: () -> Unit,
     onSearch: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
-        },
-        label = "people_search_border"
-    )
-
-    Surface(
+    CompactSearchField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = "Search username",
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(
-            width = if (isFocused) 1.25.dp else 0.8.dp,
-            color = borderColor
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 15.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(21.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(Modifier.width(12.dp))
-
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                interactionSource = interactionSource,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium
-                ),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (value.isBlank()) {
-                            Text(
-                                text = "Search username",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-
-            if (value.isNotBlank()) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                Spacer(Modifier.width(8.dp))
-            }
-        }
-    }
-
+        focusRequester = focusRequester,
+        onClear = onClear,
+        onSearch = onSearch
+    )
 }
 
 @Composable
