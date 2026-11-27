@@ -2,19 +2,39 @@ package com.example.inchat.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.inchat.InChatApplication
+import com.example.inchat.crypto.EncryptedDirectPendingMessageRepository
+import com.example.inchat.crypto.EncryptedGroupMessageRepository
+import com.example.inchat.crypto.EncryptedOlmMessageRepository
+import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.ConversationPreference
 import com.example.inchat.data.repository.ConversationPreferencesRepository
 import com.example.inchat.data.repository.GroupChatRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/**
+ * A message preview decrypted from this account's local encrypted message store.
+ * The text is held only in memory for rendering; it is never written to Firebase.
+ */
+data class LocalConversationPreview(
+    val text: String,
+    val senderUserId: String,
+    val timestamp: Long
+)
 
 class HomeViewModel : ViewModel() {
 
@@ -26,6 +46,24 @@ class HomeViewModel : ViewModel() {
 
     private val conversationPreferencesRepository =
         ConversationPreferencesRepository()
+
+    private val localChatDatabase by lazy {
+        LocalChatDatabase.getInstance(InChatApplication.instance)
+    }
+
+    private val encryptedOlmMessageRepository by lazy {
+        EncryptedOlmMessageRepository(localChatDatabase.encryptedOlmMessageDao())
+    }
+
+    private val encryptedDirectPendingMessageRepository by lazy {
+        EncryptedDirectPendingMessageRepository(
+            localChatDatabase.encryptedDirectPendingMessageDao()
+        )
+    }
+
+    private val encryptedGroupMessageRepository by lazy {
+        EncryptedGroupMessageRepository(localChatDatabase.encryptedGroupMessageDao())
+    }
 
     private val _conversationPreferences =
         MutableStateFlow<Map<String, ConversationPreference>>(emptyMap())
@@ -275,6 +313,118 @@ class HomeViewModel : ViewModel() {
                                 _directConversations.value.isNotEmpty()
                         )
     }
+
+    /**
+     * Observe the newest locally available E2EE message for one inbox row.
+     *
+     * Direct and group content is decrypted from the existing account-scoped,
+     * AES-GCM-protected Room stores. No plaintext preview is sent to Firebase
+     * or copied into the legacy cached_messages table.
+     */
+    fun observeLocalPreview(
+        currentUserId: String,
+        conversation: Conversation
+    ): Flow<LocalConversationPreview?> {
+        if (currentUserId.isBlank() || conversation.chatId.isBlank()) {
+            return flowOf(null)
+        }
+
+        return if (conversation.chatType == "group") {
+            observeGroupLocalPreview(currentUserId, conversation.chatId)
+        } else {
+            observeDirectLocalPreview(
+                currentUserId = currentUserId,
+                conversationId = conversation.chatId,
+                peerUserId = conversation.otherUserId
+            )
+        }
+    }
+
+    private fun observeDirectLocalPreview(
+        currentUserId: String,
+        conversationId: String,
+        peerUserId: String
+    ): Flow<LocalConversationPreview?> {
+        if (peerUserId.isBlank()) return flowOf(null)
+
+        val committedMessages = encryptedOlmMessageRepository
+            .observeMessages(currentUserId, conversationId)
+            .catch { emit(emptyList()) }
+        val pendingMessages = encryptedDirectPendingMessageRepository
+            .observePendingOutgoingIntents(
+                ownerUserId = currentUserId,
+                conversationId = conversationId,
+                peerUserId = peerUserId
+            )
+            .catch { emit(emptyList()) }
+
+        return combine(committedMessages, pendingMessages) { committed, pending ->
+            val committedPreview = committed.maxByOrNull { it.sentAtMillis }
+                ?.let { LocalConversationPreview(it.text, it.senderUserId, it.sentAtMillis) }
+            val pendingPreview = pending.maxByOrNull { it.sentAtMillis }
+                ?.let { LocalConversationPreview(it.plaintext, currentUserId, it.sentAtMillis) }
+
+            newestPreview(committedPreview, pendingPreview)
+        }.distinctUntilChanged()
+    }
+
+    private fun observeGroupLocalPreview(
+        currentUserId: String,
+        groupId: String
+    ): Flow<LocalConversationPreview?> {
+        // Share the membership listener between the authorized message stream and
+        // the pending-send stream. A removed member must never see a stale local preview.
+        val membershipSnapshots = groupChatRepository
+            .observeGroupCryptoMembership(groupId)
+            .catch { emit(null) }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000L),
+                initialValue = null
+            )
+
+        val committedMessages = encryptedGroupMessageRepository
+            .observeMessagesForMember(
+                ownerUserId = currentUserId,
+                groupId = groupId,
+                membershipSnapshots = membershipSnapshots
+            )
+            .catch { emit(emptyList()) }
+        val pendingMessages = encryptedGroupMessageRepository
+            .observePendingOutgoingIntents(currentUserId, groupId)
+            .catch { emit(emptyList()) }
+
+        return combine(
+            membershipSnapshots,
+            committedMessages,
+            pendingMessages
+        ) { membership, committed, pending ->
+            val canViewMessages = membership?.let {
+                it.isValid() &&
+                    it.groupId == groupId &&
+                    currentUserId in it.memberUserIds
+            } == true
+
+            if (!canViewMessages) {
+                null
+            } else {
+                val committedPreview = committed.maxByOrNull { it.sentAtMillis }
+                    ?.let { LocalConversationPreview(it.text, it.senderUserId, it.sentAtMillis) }
+                val pendingPreview = pending.maxByOrNull { it.sentAtMillis }
+                    ?.let { LocalConversationPreview(it.plaintext, currentUserId, it.sentAtMillis) }
+
+                newestPreview(committedPreview, pendingPreview)
+            }
+        }.distinctUntilChanged()
+    }
+
+    private fun newestPreview(
+        first: LocalConversationPreview?,
+        second: LocalConversationPreview?
+    ): LocalConversationPreview? =
+        listOfNotNull(first, second)
+            .filter { it.text.isNotBlank() }
+            .maxByOrNull { it.timestamp }
 
     /*
      * =========================================================
