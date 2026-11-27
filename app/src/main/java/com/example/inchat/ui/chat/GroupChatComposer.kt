@@ -85,15 +85,11 @@ fun GroupChatComposer(
         shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 6.dp)
             .border(
-                width = 0.7.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(
-                    topStart = 18.dp,
-                    topEnd = 18.dp,
-                    bottomStart = 0.dp,
-                    bottomEnd = 0.dp
-                )
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
+                shape = RoundedCornerShape(28.dp)
             )
             .navigationBarsPadding()
     ) {
@@ -153,7 +149,7 @@ fun GroupChatComposer(
                     BasicTextField(
                         value = messageText,
                         onValueChange = onMessageTextChange,
-                        enabled = !savingEdit && !sendingMessage,
+                        enabled = !savingEdit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -180,7 +176,7 @@ fun GroupChatComposer(
                                     text = if (editingMessage != null) {
                                         "Edit your message..."
                                     } else {
-                                        "Message..."
+                                        "Type a message"
                                     },
                                     color = MaterialTheme
                                         .colorScheme
@@ -244,7 +240,6 @@ fun GroupChatComposer(
                                     // message is safely stored on this phone.
                                     sendingMessage = false
                                     onMessageSent()
-                                    keyboardController?.hide()
                                 }
                             ) { success, error ->
                                 if (!success) {
