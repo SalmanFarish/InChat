@@ -23,9 +23,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.MarkEmailRead
+import androidx.compose.material.icons.outlined.Info
 import com.example.inchat.ui.components.InChatActionDialog
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -502,7 +501,7 @@ fun LoginScreen(
         InChatActionDialog(
             title = "Check your email",
             description = message,
-            titleIcon = Icons.Outlined.MarkEmailRead,
+            titleIcon = Icons.Outlined.Info,
             confirmLabel = "OK",
             confirmIcon = Icons.Outlined.MarkEmailRead,
             confirmDestructive = false,
