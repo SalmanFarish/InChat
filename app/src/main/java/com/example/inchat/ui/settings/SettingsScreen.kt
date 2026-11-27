@@ -1,6 +1,7 @@
 package com.example.inchat.ui.settings
 
 import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+import com.example.inchat.ui.components.InChatActionDialog
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -91,6 +92,8 @@ fun SettingsScreen(
     var addPasswordLoading by remember { mutableStateOf(false) }
     var addPasswordError by remember { mutableStateOf<String?>(null) }
     var passwordAddedMessage by remember { mutableStateOf<String?>(null) }
+
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
@@ -439,7 +442,7 @@ fun SettingsScreen(
                         subtitle = "Sign out of this InChat account.",
                         destructive = false,
                         onClick = {
-                            authViewModel.logout()
+                            showLogoutDialog = true
                         }
                     )
 
@@ -472,6 +475,21 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showLogoutDialog) {
+        InChatActionDialog(
+            title = "Log out?",
+            description = "You will be signed out of this InChat account on this device.",
+            titleIcon = Icons.Outlined.Logout,
+            confirmLabel = "Log out",
+            confirmIcon = Icons.Outlined.Logout,
+            onConfirm = {
+                showLogoutDialog = false
+                authViewModel.logout()
+            },
+            onDismiss = { showLogoutDialog = false }
+        )
     }
 
     if (showAddPasswordDialog) {
