@@ -1,9 +1,12 @@
 package com.example.inchat.crypto
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class PartitionedOlmEnvelopeTransportTest {
     @Test
@@ -197,6 +200,54 @@ class PartitionedOlmEnvelopeTransportTest {
         assertTrue(failure is IllegalArgumentException)
     }
 
+    @Test
+    fun enabledRelaysReadInboxAndAcknowledgementsConcurrently() = runBlocking {
+        val firebase = RecordingRelay(
+            inbox = listOf(directInbox("firebase-inbox")),
+            acks = listOf(deliveryAck("firebase-ack")),
+            beforeInboxRead = concurrentReadGate(),
+            beforeAckRead = concurrentReadGate(),
+        )
+        val cloudflare = RecordingRelay(
+            inbox = listOf(directInbox("cloudflare-inbox")),
+            acks = listOf(deliveryAck("cloudflare-ack")),
+            beforeInboxRead = concurrentReadGate(),
+            beforeAckRead = concurrentReadGate(),
+        )
+        val transport = PartitionedOlmEnvelopeTransport(
+            firebase = firebase,
+            cloudflare = cloudflare,
+            cloudflareDirectEnabled = true,
+        )
+
+        val inbox = withTimeout(2_000L) {
+            transport.readMyDeviceInbox("recipient-device")
+        }
+        val acknowledgements = withTimeout(2_000L) {
+            transport.readMyDeliveryAcknowledgements("sender-device")
+        }
+
+        assertEquals(listOf("cloudflare-inbox", "firebase-inbox"), inbox.map { it.deliveryId })
+        assertEquals(listOf("cloudflare-ack", "firebase-ack"), acknowledgements.map { it.deliveryId })
+        assertEquals(1, firebase.inboxReads)
+        assertEquals(1, cloudflare.inboxReads)
+        assertEquals(1, firebase.ackReads)
+        assertEquals(1, cloudflare.ackReads)
+    }
+
+    private fun concurrentReadGate(): suspend () -> Unit {
+        val bothReadersStarted = CompletableDeferred<Unit>()
+        val startedCount = AtomicInteger()
+        return {
+            if (startedCount.incrementAndGet() == 2) {
+                bothReadersStarted.complete(Unit)
+            }
+            withTimeout(1_000L) {
+                bothReadersStarted.await()
+            }
+        }
+    }
+
     private fun directDelivery() = QueuedOlmDeviceDelivery(
         messageId = "direct-message",
         deliveryId = "a".repeat(64),
@@ -256,6 +307,8 @@ class PartitionedOlmEnvelopeTransportTest {
     private class RecordingRelay(
         var inbox: List<FirebaseOlmInboxItem> = emptyList(),
         var acks: List<OlmDeliveryAcknowledgement> = emptyList(),
+        private val beforeInboxRead: suspend () -> Unit = {},
+        private val beforeAckRead: suspend () -> Unit = {},
     ) : OlmEnvelopeRelayTransport {
         val uploads = mutableListOf<QueuedOlmDeviceDelivery>()
         val acknowledgementsCreated = mutableListOf<String>()
@@ -274,6 +327,7 @@ class PartitionedOlmEnvelopeTransportTest {
 
         override suspend fun readMyDeviceInbox(deviceId: String): List<FirebaseOlmInboxItem> {
             inboxReads++
+            beforeInboxRead()
             return inbox
         }
 
@@ -289,6 +343,7 @@ class PartitionedOlmEnvelopeTransportTest {
             senderDeviceId: String,
         ): List<OlmDeliveryAcknowledgement> {
             ackReads++
+            beforeAckRead()
             return acks
         }
 
