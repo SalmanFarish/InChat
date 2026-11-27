@@ -3,6 +3,10 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -129,6 +133,11 @@ fun ChatMessageActionsDialog(
             dismissOnClickOutside = true
         )
     ) {
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(animationSpec = tween(120)) +
+                scaleIn(initialScale = 0.94f, animationSpec = tween(150))
+        ) {
         Surface(
             modifier = Modifier.widthIn(
                 min = if (showInfoState.value) 220.dp else 190.dp,
@@ -191,6 +200,7 @@ fun ChatMessageActionsDialog(
                     MessageActionRow(
                         icon = Icons.Default.Clear,
                         title = "Cancel",
+                        destructive = true,
                         onClick = {
                             confirmingDeleteState.value = false
                             confirmingDeleteForMeState.value = false
@@ -257,6 +267,7 @@ fun ChatMessageActionsDialog(
                     }
                 }
             }
+        }
         }
     }
 }
