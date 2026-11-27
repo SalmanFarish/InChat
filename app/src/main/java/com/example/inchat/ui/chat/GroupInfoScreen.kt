@@ -1,5 +1,9 @@
 package com.example.inchat.ui.chat
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
+import com.example.inchat.ui.components.CompactSearchField
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -162,12 +166,12 @@ fun GroupInfoScreen(
             title = { Text("Add members") },
             text = {
                 Column {
-                    OutlinedTextField(
+                    CompactSearchField(
                         value = memberSearch,
                         onValueChange = { memberSearch = it },
+                        placeholder = "Search username",
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Search username") }
+                        onClear = { memberSearch = "" }
                     )
                     Spacer(Modifier.height(10.dp))
                     memberSearchResults.forEach { user ->
@@ -237,6 +241,7 @@ fun GroupInfoScreen(
             title = { Text("Rename group") },
             text = {
                 OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                     value = renameText,
                     onValueChange = { renameText = it.take(50) },
                     singleLine = true,
