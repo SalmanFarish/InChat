@@ -1,10 +1,57 @@
 package com.example.inchat.data.worker
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EncryptedOlmFcmWakeResolverScopeTest {
+    @Test
+    fun coldStartWakeWaitsForAuthThenUsesOnlyRestoredAccount() {
+        val waiting = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = null,
+            authenticatedUserId = null,
+            resolveOwnerFromAuthenticatedSession = true,
+        )
+        assertEquals(EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH, waiting.decision)
+        assertEquals(null, waiting.ownerUserId)
+
+        val resolved = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = null,
+            authenticatedUserId = "alice",
+            resolveOwnerFromAuthenticatedSession = true,
+        )
+        assertEquals(EncryptedOlmFcmWakeAuthDecision.RESOLVED, resolved.decision)
+        assertEquals("alice", resolved.ownerUserId)
+    }
+
+    @Test
+    fun coldStartWakeRejectsAnyPayloadSuppliedAccount() {
+        val invalid = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = "attacker",
+            authenticatedUserId = "alice",
+            resolveOwnerFromAuthenticatedSession = true,
+        )
+        assertEquals(EncryptedOlmFcmWakeAuthDecision.RETIRE, invalid.decision)
+        assertEquals(null, invalid.ownerUserId)
+    }
+
+    @Test
+    fun accountScopedWakeWaitsForAuthAndRetiresAfterAccountSwitch() {
+        val waiting = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = "alice",
+            authenticatedUserId = null,
+            resolveOwnerFromAuthenticatedSession = false,
+        )
+        assertEquals(EncryptedOlmFcmWakeAuthDecision.WAIT_FOR_AUTH, waiting.decision)
+
+        val stale = resolveEncryptedOlmFcmWakeOwner(
+            scheduledOwnerUserId = "alice",
+            authenticatedUserId = "bob",
+            resolveOwnerFromAuthenticatedSession = false,
+        )
+        assertEquals(EncryptedOlmFcmWakeAuthDecision.RETIRE, stale.decision)
+    }
     @Test
     fun acceptsInboxWakeForTheAuthenticatedAccountAndExistingDevice() {
         assertTrue(

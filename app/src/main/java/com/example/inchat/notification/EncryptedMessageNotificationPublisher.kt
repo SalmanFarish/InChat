@@ -25,7 +25,29 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
      * encrypted messages and their conversation notifications are reconciled.
      */
     fun notifyEncryptedWakeup(recipientUserId: String) {
-        if (recipientUserId.isBlank() || ActiveConversationTracker.isAppInForeground()) return
+        if (recipientUserId.isBlank()) return
+        postEncryptedWakeup(
+            tag = NotificationPayloadPolicy.encryptedWakeupNotificationTag(recipientUserId),
+            notificationId = NotificationPayloadPolicy.encryptedWakeupNotificationId(
+                recipientUserId = recipientUserId,
+                fallbackId = ENCRYPTED_WAKEUP_NOTIFICATION_ID,
+            ),
+            intentUri = "inchat://encrypted-wakeup/" +
+                NotificationPayloadPolicy.encryptedWakeupNotificationTag(recipientUserId),
+        )
+    }
+
+    /** Cold-start callbacks can precede Firebase Auth restoring the account. */
+    fun notifyEncryptedWakeupWithoutResolvedAccount() {
+        postEncryptedWakeup(
+            tag = AUTH_PENDING_WAKEUP_TAG,
+            notificationId = AUTH_PENDING_WAKEUP_NOTIFICATION_ID,
+            intentUri = "inchat://encrypted-wakeup/pending-auth",
+        )
+    }
+
+    private fun postEncryptedWakeup(tag: String, notificationId: Int, intentUri: String) {
+        if (ActiveConversationTracker.isAppInForeground()) return
         if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
@@ -43,15 +65,9 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
                 description = "A new encrypted message is being received securely"
             },
         )
-
-        val tag = NotificationPayloadPolicy.encryptedWakeupNotificationTag(recipientUserId)
-        val notificationId = NotificationPayloadPolicy.encryptedWakeupNotificationId(
-            recipientUserId = recipientUserId,
-            fallbackId = ENCRYPTED_WAKEUP_NOTIFICATION_ID,
-        )
         val intent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            data = Uri.parse("inchat://encrypted-wakeup/$tag")
+            data = Uri.parse(intentUri)
         }
         val pendingIntent = PendingIntent.getActivity(
             appContext,
@@ -70,7 +86,6 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
-
         notifications.notify(tag, notificationId, notification)
     }
 
@@ -83,6 +98,13 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
             fallbackId = ENCRYPTED_WAKEUP_NOTIFICATION_ID,
         )
         NotificationManagerCompat.from(appContext).cancel(tag, notificationId)
+    }
+
+    fun clearPendingAuthEncryptedWakeup() {
+        NotificationManagerCompat.from(appContext).cancel(
+            AUTH_PENDING_WAKEUP_TAG,
+            AUTH_PENDING_WAKEUP_NOTIFICATION_ID,
+        )
     }
 
     fun notifyDirectMessage(conversationId: String, senderUserId: String) {
@@ -156,5 +178,7 @@ internal class EncryptedMessageNotificationPublisher(context: Context) {
         const val DEFAULT_NOTIFICATION_ID = 1001
         const val ENCRYPTED_WAKEUP_CHANNEL_ID = "inchat_encrypted_wakeup"
         const val ENCRYPTED_WAKEUP_NOTIFICATION_ID = 1002
+        const val AUTH_PENDING_WAKEUP_TAG = "inchat_encrypted_wakeup_pending_auth"
+        const val AUTH_PENDING_WAKEUP_NOTIFICATION_ID = 1003
     }
 }

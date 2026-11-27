@@ -57,6 +57,14 @@ class EncryptedOlmInboxWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        val wakeReceivedAtMillis = inputData.getLong(KEY_WAKE_RECEIVED_AT, 0L)
+        if (wakeReceivedAtMillis > 0L) {
+            Log.i(
+                TAG,
+                "Encrypted inbox worker start delay after FCM callback ms=" +
+                    (System.currentTimeMillis() - wakeReceivedAtMillis).coerceAtLeast(0L),
+            )
+        }
         val ownerUserId = inputData.getString(KEY_OWNER_USER_ID).orEmpty()
         val recipientDeviceId = inputData.getString(KEY_RECIPIENT_DEVICE_ID).orEmpty()
         if (!ownerUserId.matches(USER_ID_PATTERN) || !recipientDeviceId.matches(DEVICE_ID_PATTERN)) {
@@ -321,6 +329,7 @@ class EncryptedOlmInboxWorker(
                 // Keep the immediate FCM placeholder visible across transient
                 // receive/decrypt/notification failures; clear it after a clean drain.
                 encryptedNotifications.clearEncryptedWakeup(ownerUserId)
+                encryptedNotifications.clearPendingAuthEncryptedWakeup()
             }
             // Native/Room handoff failures retain the existing bounded retry policy.
             if (handoffResult.failed > 0) Result.retry() else Result.success()
@@ -336,6 +345,7 @@ class EncryptedOlmInboxWorker(
         private const val TAG = "EncryptedOlmInbox"
         private const val KEY_OWNER_USER_ID = "owner_user_id"
         private const val KEY_RECIPIENT_DEVICE_ID = "recipient_device_id"
+        private const val KEY_WAKE_RECEIVED_AT = "wake_received_at_millis"
         private const val PERIODIC_INTERVAL_MINUTES = 15L
         private const val MAX_NOTIFICATION_BATCH_SIZE = 50
         private const val WORK_TAG = "encrypted_olm_inbox"
@@ -347,7 +357,12 @@ class EncryptedOlmInboxWorker(
          * events and FCM both use this same durable path, preserving the Room
          * receipt ledger, Olm authentication, and acknowledgement ordering.
          */
-        fun wake(context: Context, ownerUserId: String, recipientDeviceId: String) {
+        fun wake(
+            context: Context,
+            ownerUserId: String,
+            recipientDeviceId: String,
+            wakeReceivedAtMillis: Long? = null,
+        ) {
             require(ownerUserId.matches(USER_ID_PATTERN)) { "Owner user ID has an invalid format" }
             require(recipientDeviceId.matches(DEVICE_ID_PATTERN)) { "Recipient device ID has an invalid format" }
 
@@ -357,6 +372,7 @@ class EncryptedOlmInboxWorker(
                     workDataOf(
                         KEY_OWNER_USER_ID to ownerUserId,
                         KEY_RECIPIENT_DEVICE_ID to recipientDeviceId,
+                        KEY_WAKE_RECEIVED_AT to (wakeReceivedAtMillis ?: 0L),
                     ),
                 )
                 .addTag(WORK_TAG)
@@ -375,13 +391,18 @@ class EncryptedOlmInboxWorker(
         }
 
         /** Schedule the startup poll and the durable, network-constrained recovery poll. */
-        fun schedule(context: Context, ownerUserId: String, recipientDeviceId: String) {
+        fun schedule(
+            context: Context,
+            ownerUserId: String,
+            recipientDeviceId: String,
+            wakeReceivedAtMillis: Long? = null,
+        ) {
             EncryptedOlmForegroundInboxMonitor.setDeviceScope(
                 context = context,
                 accountUserId = ownerUserId,
                 localDeviceId = recipientDeviceId,
             )
-            wake(context, ownerUserId, recipientDeviceId)
+            wake(context, ownerUserId, recipientDeviceId, wakeReceivedAtMillis)
             val periodic = PeriodicWorkRequestBuilder<EncryptedOlmInboxWorker>(
                 PERIODIC_INTERVAL_MINUTES,
                 TimeUnit.MINUTES,
