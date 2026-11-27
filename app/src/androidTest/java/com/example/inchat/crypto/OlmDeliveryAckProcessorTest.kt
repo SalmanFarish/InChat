@@ -51,6 +51,41 @@ class OlmDeliveryAckProcessorTest {
     }
 
     @Test
+    fun failedAcknowledgementDoesNotBlockLaterValidAcknowledgement() = runBlocking {
+        val store = InMemoryQueueStore()
+        val queue = OlmDeliveryQueue(store)
+        queue.enqueue("alice", "sender-device", "first-message", listOf(prepared()))
+        queue.enqueue("alice", "sender-device", "second-message", listOf(prepared()))
+        val rows = store.rows.values.toList()
+        assertEquals(2, rows.size)
+        val first = rows[0]
+        val second = rows[1]
+        val transport = FakeAckTransport(
+            acknowledgements = rows.map { it.toAcknowledgement() },
+            failRemovalDeliveryIds = setOf(first.deliveryId),
+        )
+
+        val failure = runCatching {
+            OlmDeliveryAckProcessor(
+                queue = queue,
+                transport = transport,
+                senderUserId = "alice",
+                senderDeviceId = "sender-device",
+                recordAcknowledgement = { _, _ -> },
+            ).processPending()
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("temporary"))
+        // The failed first ACK remains retryable, but the later ACK was fully
+        // reconciled and its corresponding ciphertext row was safely removed.
+        assertEquals(first, store.rows[first.deliveryId])
+        assertNull(store.rows[second.deliveryId])
+        assertTrue(transport.hasPendingAcknowledgements())
+        assertEquals(listOf(second.deliveryId), transport.removedDeliveryIds)
+    }
+
+    @Test
     fun acknowledgementDeletionThenProcessDeathRecoversByResendingSameDeliveryId() = runBlocking {
         val store = InMemoryQueueStore()
         val queue = OlmDeliveryQueue(store, leaseDurationMillis = 100L)
@@ -344,6 +379,7 @@ class OlmDeliveryAckProcessorTest {
         acknowledgements: List<OlmDeliveryAcknowledgement>,
         private val failRemoval: Boolean = false,
         private val failAfterRemovalOnce: Boolean = false,
+        private val failRemovalDeliveryIds: Set<String> = emptySet(),
     ) : OlmDeliveryAckTransport {
         private val acknowledgements = acknowledgements.toMutableList()
         val removedDeliveryIds = mutableListOf<String>()
@@ -365,7 +401,9 @@ class OlmDeliveryAckProcessorTest {
         }
 
         override suspend fun removeMyDeliveryAcknowledgement(senderDeviceId: String, deliveryId: String) {
-            if (failRemoval) throw IllegalStateException("temporary ack deletion failure")
+            if (failRemoval || deliveryId in failRemovalDeliveryIds) {
+                throw IllegalStateException("temporary ack deletion failure")
+            }
             val removed = acknowledgements.removeAll { it.deliveryId == deliveryId }
             if (removed) removedDeliveryIds += deliveryId
             if (removed && failAfterRemovalOnce && !interruptionSent) {
