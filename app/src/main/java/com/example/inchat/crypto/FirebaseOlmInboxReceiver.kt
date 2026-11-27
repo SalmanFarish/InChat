@@ -3,14 +3,12 @@ package com.example.inchat.crypto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 internal data class FirebaseOlmInboxReceiveResult(
     val stored: Int,
@@ -44,17 +42,20 @@ internal class FirebaseOlmInboxReceiver(
             transport.removeFromMyDeviceInbox(deviceId, item)
         }
 
-        // Mailbox entries are independent until they reach the receiver's
-        // per-session decrypt/ratchet stage. Stage and acknowledge several in
-        // parallel so one slow relay HTTP round trip does not delay every later
-        // message in the same inbox snapshot. Keep this bounded for low-memory
-        // devices and to avoid flooding Firebase/Cloudflare with requests.
-        val semaphore = Semaphore(MAX_CONCURRENT_ITEM_HANDOFFS)
-        val outcomes = coroutineScope {
-            items.map { item ->
-                async {
-                    semaphore.withPermit {
-                        try {
+        // Inbox items are independent until the per-session decrypt/ratchet
+        // stage. A fixed worker pool keeps the number of suspended jobs bounded
+        // even when the relay returns a large mailbox snapshot.
+        val outcomes = arrayOfNulls<ItemOutcome>(items.size)
+        val nextIndex = AtomicInteger()
+        val workerCount = minOf(MAX_CONCURRENT_ITEM_HANDOFFS, items.size)
+        coroutineScope {
+            repeat(workerCount) {
+                launch {
+                    while (true) {
+                        val index = nextIndex.getAndIncrement()
+                        if (index >= items.size) break
+                        val item = items[index]
+                        outcomes[index] = try {
                             val registration = withContext(ioDispatcher) {
                                 require(
                                     EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId ==
@@ -76,13 +77,13 @@ internal class FirebaseOlmInboxReceiver(
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
-                            // Isolate a failed relay item so the rest of this
-                            // bounded batch can still be durably staged/removed.
+                            // One failed item must not prevent the other workers
+                            // from durably staging and acknowledging independent items.
                             ItemOutcome(registration = null, failure = failure)
                         }
                     }
                 }
-            }.awaitAll()
+            }
         }
 
         var stored = 0
@@ -91,7 +92,10 @@ internal class FirebaseOlmInboxReceiver(
         var conflicts = 0
         var rejected = 0
         var firstFailure: Exception? = null
-        for (outcome in outcomes) {
+        for (outcomeOrNull in outcomes) {
+            val outcome = checkNotNull(outcomeOrNull) {
+                "Inbox worker pool completed without staging every snapshot item"
+            }
             when (outcome.registration) {
                 OlmInboundRegistration.NEW -> stored++
                 OlmInboundRegistration.PENDING_RETRY -> pending++

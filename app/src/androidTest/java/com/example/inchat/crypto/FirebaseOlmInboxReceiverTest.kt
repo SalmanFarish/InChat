@@ -597,6 +597,68 @@ class FirebaseOlmInboxReceiverTest {
         }
     }
 
+    @Test
+    fun largeInboxSnapshotUsesFixedWorkerPoolAndStagesEveryItem() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-bounded-worker-pool-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val items = (0 until 24).map { index ->
+                FirebaseOlmInboxItem(
+                    deliveryId = index.toString(16).padStart(64, '0'),
+                    senderUid = "alice",
+                    senderDeviceId = "sender-device",
+                    messageId = "bounded-inbox-$index",
+                    envelope = envelope(index),
+                )
+            }
+            val transport = FakeTransport(items.toMutableList())
+            val ledger = OlmInboundDeliveryLedger(
+                db.olmInboundReceiptDao(),
+                "recipient",
+                "receiver-device",
+            )
+            val activeCallbacks = AtomicInteger()
+            val peakCallbacks = AtomicInteger()
+            val completedCallbacks = AtomicInteger()
+            val receiver = FirebaseOlmInboxReceiver(
+                transport = transport,
+                ledger = ledger,
+                deviceId = "receiver-device",
+                clock = { 700L },
+                onAcknowledgementStored = {
+                    val active = activeCallbacks.incrementAndGet()
+                    peakCallbacks.updateAndGet { previous -> maxOf(previous, active) }
+                    try {
+                        // Suspend all current workers together so the test can
+                        // observe the maximum handoff concurrency deterministically.
+                        yield()
+                        completedCallbacks.incrementAndGet()
+                    } finally {
+                        activeCallbacks.decrementAndGet()
+                    }
+                },
+            )
+
+            val result = withTimeout(20_000L) { receiver.receivePending() }
+
+            assertEquals(24, result.stored)
+            assertEquals(0, result.conflicts)
+            assertEquals(0, result.alreadyPending)
+            assertEquals(8, peakCallbacks.get())
+            assertEquals(24, completedCallbacks.get())
+            assertEquals(24, transport.acknowledgementAttempts.size)
+            assertEquals(24, transport.acknowledgedDeliveryIds.size)
+            assertEquals(24, transport.removedDeliveryIds.size)
+            assertTrue(transport.items.isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private class FakeTransport(
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,
