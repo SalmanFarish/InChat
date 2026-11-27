@@ -9,10 +9,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class FirebaseOlmInboxReceiverTest {
     @Test
@@ -507,11 +509,80 @@ class FirebaseOlmInboxReceiverTest {
         }
     }
 
+    @Test
+    fun independentInboxItemsAreAcknowledgedConcurrentlyAfterDurableStaging() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-concurrent-acknowledgements-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val first = FirebaseOlmInboxItem(
+                "3".repeat(64), "alice", "sender-device", "message-concurrent-1", envelope(1),
+            )
+            val second = FirebaseOlmInboxItem(
+                "4".repeat(64), "alice", "sender-device", "message-concurrent-2", envelope(2),
+            )
+            val bothAcknowledgementsStarted = CompletableDeferred<Unit>()
+            val acknowledgementCount = AtomicInteger()
+            val transport = FakeTransport(
+                items = mutableListOf(first, second),
+                beforeAcknowledgement = {
+                    if (acknowledgementCount.incrementAndGet() == 2) {
+                        bothAcknowledgementsStarted.complete(Unit)
+                    }
+                    // A sequential receiver would time out here because its first
+                    // network ACK could not finish until a second ACK also started.
+                    withTimeout(2_000L) { bothAcknowledgementsStarted.await() }
+                },
+            )
+            val ledger = OlmInboundDeliveryLedger(
+                db.olmInboundReceiptDao(),
+                "recipient",
+                "receiver-device",
+            )
+            val receiver = FirebaseOlmInboxReceiver(
+                transport = transport,
+                ledger = ledger,
+                deviceId = "receiver-device",
+                clock = { 600L },
+            )
+
+            val result = withTimeout(5_000L) { receiver.receivePending() }
+
+            assertEquals(2, result.stored)
+            assertEquals(0, result.conflicts)
+            assertEquals(0, result.alreadyPending)
+            assertEquals(2, acknowledgementCount.get())
+            assertEquals(
+                listOf(first.deliveryId, second.deliveryId).sorted(),
+                transport.acknowledgedDeliveryIds.sorted(),
+            )
+            assertEquals(
+                listOf(first.deliveryId, second.deliveryId).sorted(),
+                transport.removedDeliveryIds.sorted(),
+            )
+            assertTrue(transport.items.isEmpty())
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", first.messageId, first.envelope, 601L),
+            )
+            assertEquals(
+                OlmInboundRegistration.PENDING_RETRY,
+                ledger.register("alice", second.messageId, second.envelope, 602L),
+            )
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private class FakeTransport(
         val items: MutableList<FirebaseOlmInboxItem>,
         private var failFirstRemoval: Boolean = false,
         private var failFirstAcknowledgement: Boolean = false,
         private var failFirstRemovalAfterCommit: Boolean = false,
+        private val beforeAcknowledgement: suspend (FirebaseOlmInboxItem) -> Unit = {},
     ) : OlmInboxTransport {
         val acknowledgementAttempts = mutableListOf<String>()
         var readCalls = 0
@@ -526,6 +597,7 @@ class FirebaseOlmInboxReceiverTest {
 
         override suspend fun acknowledgeStoredDelivery(deviceId: String, item: FirebaseOlmInboxItem) {
             acknowledgementAttempts += item.deliveryId
+            beforeAcknowledgement(item)
             if (failFirstAcknowledgement) {
                 failFirstAcknowledgement = false
                 throw IllegalStateException("temporary acknowledgement write failure")
