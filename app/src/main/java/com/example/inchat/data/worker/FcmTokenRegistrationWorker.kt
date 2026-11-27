@@ -20,6 +20,13 @@ import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
 
 /**
+ * Encrypted Olm push requires a token registered under the exact device ID.
+ * A general account token is not sufficient for the per-device relay lookup.
+ */
+internal fun isReadyForDeviceScopedFcmRegistration(deviceId: String?, lookupFailed: Boolean): Boolean =
+    !lookupFailed && deviceId?.matches(Regex("[A-Za-z0-9_-]{1,64}")) == true
+
+/**
  * Keeps the signed-in account's FCM token and server-managed group
  * notification subscriptions synchronized.
  *
@@ -64,19 +71,33 @@ class FcmTokenRegistrationWorker(
                 return Result.failure()
             }
 
-            // Encrypted delivery addresses a specific published device. Register
-            // this token under that device only when an existing Olm identity is
-            // already available; never create crypto identity state from FCM work.
-            val olmDeviceId = runCatching {
-                DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-            }.onFailure { error ->
-                Log.w(TAG, "Could not resolve the existing Olm device for push registration.", error)
-            }.getOrNull()
+            // The encrypted sender resolves FCM tokens by exact recipient device.
+            // Do not report registration success after writing only the legacy
+            // account token: that leaves olmDeviceFcmTokens/{deviceId} missing and
+            // makes every encrypted push retry fail with "no token".
+            val deviceLookup: kotlin.Result<String?> = try {
+                kotlin.Result.success(
+                    DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery(),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                kotlin.Result.failure(error)
+            }
+            val olmDeviceId = deviceLookup.getOrNull()
+            if (!isReadyForDeviceScopedFcmRegistration(olmDeviceId, deviceLookup.isFailure)) {
+                Log.w(
+                    TAG,
+                    "Deferring encrypted FCM registration until this installation's Olm device ID is available.",
+                    deviceLookup.exceptionOrNull(),
+                )
+                return Result.retry()
+            }
 
             val registration = UserRepository().saveFcmToken(
                 uid = uid,
                 token = token,
-                olmDeviceId = olmDeviceId,
+                olmDeviceId = requireNotNull(olmDeviceId),
             )
             val error = registration.exceptionOrNull()
             if (error != null) {
