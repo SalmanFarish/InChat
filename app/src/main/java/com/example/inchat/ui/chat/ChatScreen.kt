@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteSweep
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -757,56 +760,40 @@ fun ChatScreen(
     }
 
     if (showDeleteSelectedForMeConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
-            title = { Text("Delete selected messages for you?") },
-            text = {
-                Text("These messages will disappear only from your chat. Other participants will keep them.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteSelectedForMeConfirmation = false
-                        val ids = selectedMessageIds
-                        chatViewModel.deleteMessagesForMe(ids) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
-                    }
-                ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
-                    Text("Cancel")
+        InChatActionDialog(
+            title = "Delete selected messages for you?",
+            description = "These messages will disappear only from your chat. Other participants will keep them.",
+            titleIcon = Icons.Outlined.DeleteSweep,
+            confirmLabel = "Delete for me",
+            confirmIcon = Icons.Outlined.DeleteSweep,
+            onConfirm = {
+                showDeleteSelectedForMeConfirmation = false
+                val ids = selectedMessageIds
+                chatViewModel.deleteMessagesForMe(ids) { success, error ->
+                    selectedMessageIds = emptySet()
+                    if (!success) actionMessage = error ?: "Could not delete selected messages."
                 }
-            }
+            },
+            onDismiss = { showDeleteSelectedForMeConfirmation = false }
         )
     }
 
     if (showDeleteSelectedForEveryoneConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
-            title = { Text("Delete selected messages?") },
-            text = {
-                Text("These messages will be removed for every participant. This cannot be undone.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteSelectedForEveryoneConfirmation = false
-                        val ids = selectedMessageIds
-                        chatViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
-                    }
-                ) { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSelectedForEveryoneConfirmation = false }) {
-                    Text("Cancel")
+        InChatActionDialog(
+            title = "Delete selected messages?",
+            description = "These messages will be removed for every participant. This cannot be undone.",
+            titleIcon = Icons.Outlined.DeleteSweep,
+            confirmLabel = "Delete for everyone",
+            confirmIcon = Icons.Outlined.DeleteSweep,
+            onConfirm = {
+                showDeleteSelectedForEveryoneConfirmation = false
+                val ids = selectedMessageIds
+                chatViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
+                    selectedMessageIds = emptySet()
+                    if (!success) actionMessage = error ?: "Could not delete selected messages."
                 }
-            }
+            },
+            onDismiss = { showDeleteSelectedForEveryoneConfirmation = false }
         )
     }
 
