@@ -11,10 +11,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.inchat.MainActivity
-import com.example.inchat.crypto.DeviceIdentityRepository
-import com.example.inchat.data.worker.EncryptedOlmInboxWorker
-import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
+import com.example.inchat.data.worker.EncryptedOlmFcmWakeResolverWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -77,17 +75,10 @@ class InChatFirebaseMessagingService :
             return
         }
 
-        val deviceId = runCatching {
-            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-        }.onFailure { error ->
-            Log.w("InChatFCM", "Could not resolve the device for deleted-message recovery.", error)
-        }.getOrNull() ?: return
-
         runCatching {
-            EncryptedOlmInboxWorker.wake(
+            EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
                 context = applicationContext,
                 ownerUserId = uid,
-                recipientDeviceId = deviceId,
             )
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule full encrypted inbox reconciliation.", error)
@@ -174,17 +165,10 @@ class InChatFirebaseMessagingService :
             return
         }
 
-        val deviceId = runCatching {
-            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-        }.onFailure { error ->
-            Log.w("InChatFCM", "Could not resolve this installation's encrypted inbox.", error)
-        }.getOrNull() ?: return
-
         runCatching {
-            EncryptedOlmInboxWorker.schedule(
+            EncryptedOlmFcmWakeResolverWorker.scheduleInbox(
                 context = applicationContext,
                 ownerUserId = uid,
-                recipientDeviceId = deviceId,
             )
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule encrypted inbox recovery.", error)
@@ -241,20 +225,11 @@ class InChatFirebaseMessagingService :
             return
         }
         val expectedDeviceId = data["senderDeviceId"].orEmpty()
-        val localDeviceId = runCatching {
-            DeviceIdentityRepository(applicationContext).existingDeviceIdForDelivery()
-        }.onFailure { error ->
-            Log.w("InChatFCM", "Could not resolve the sender device for an acknowledgement wake-up.", error)
-        }.getOrNull() ?: return
-        if (expectedDeviceId != localDeviceId) {
-            Log.w("InChatFCM", "Ignored an acknowledgement wake-up for another device.")
-            return
-        }
         runCatching {
-            EncryptedOlmDeliveryWorker.scheduleRecoveryAfterTrustChange(
+            EncryptedOlmFcmWakeResolverWorker.scheduleAcknowledgement(
                 context = applicationContext,
                 ownerUserId = uid,
-                senderDeviceId = localDeviceId,
+                expectedSenderDeviceId = expectedDeviceId,
             )
         }.onFailure { error ->
             Log.w("InChatFCM", "Could not schedule encrypted sender acknowledgement recovery.", error)
