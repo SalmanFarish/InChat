@@ -41,7 +41,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -183,26 +182,13 @@ fun CreateGroupScreen(
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = ::handleBack,
+                        onClick = { handleBack() },
                         enabled = !isCreating
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
-                    }
-                },
-                actions = {
-                    if (!showDetailsStep) {
-                        TextButton(
-                            onClick = {
-                                showDetailsStep = true
-                                errorMessage = null
-                            },
-                            enabled = selectedUsers.isNotEmpty() && !isCreating
-                        ) {
-                            Text("Next")
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
