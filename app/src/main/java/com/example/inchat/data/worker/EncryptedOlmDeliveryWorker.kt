@@ -636,10 +636,19 @@ class EncryptedOlmDeliveryWorker(
         for (groupId in groupIds) {
             requireActiveIdentity()
             val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                ?: continue
-            if (!membership.isValid() || membership.groupId != groupId ||
-                ownerUserId !in membership.memberUserIds
-            ) continue
+            when (pendingGroupMembershipDecision(membership, groupId, ownerUserId)) {
+                PendingGroupMembershipDecision.RETRY -> {
+                    retryRequired = true
+                    Log.w(TAG, "Pending encrypted group message is waiting for a valid membership snapshot; recovery will retry.")
+                    continue
+                }
+                PendingGroupMembershipDecision.RETIRED -> {
+                    Log.e(TAG, "Pending encrypted group message was retained because the sender is no longer a group member.")
+                    continue
+                }
+                PendingGroupMembershipDecision.READY -> Unit
+            }
+            val currentMembership = requireNotNull(membership)
 
             // Restore committed timeline echoes independently. One damaged
             // marker must not prevent other groups from making progress.
@@ -662,13 +671,28 @@ class EncryptedOlmDeliveryWorker(
                         "Local sender device changed during background group-message retry"
                     }
                     val latestMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                        ?: continue
+                    when (pendingGroupMembershipDecision(latestMembership, groupId, ownerUserId)) {
+                        PendingGroupMembershipDecision.RETRY -> {
+                            retryRequired = true
+                            Log.w(TAG, "Group membership changed or became unavailable while retrying an encrypted message; recovery will retry.")
+                            continue
+                        }
+                        PendingGroupMembershipDecision.RETIRED -> {
+                            Log.e(TAG, "Encrypted group message remains local because the sender is no longer a group member.")
+                            continue
+                        }
+                        PendingGroupMembershipDecision.READY -> Unit
+                    }
                     if (!isPendingGroupIntentRetryMembershipCurrent(
-                        expected = membership,
-                        latest = latestMembership,
+                        expected = currentMembership,
+                        latest = requireNotNull(latestMembership),
                         ownerUserId = ownerUserId,
                         groupId = groupId,
-                    )) continue
+                    )) {
+                        retryRequired = true
+                        Log.i(TAG, "Group membership generation changed during pending-message recovery; retrying against the latest snapshot.")
+                        continue
+                    }
 
                     when (val outcome = coordinator.send(
                         groupId = groupId,
