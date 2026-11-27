@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -74,15 +76,15 @@ fun ChatThemeScreen(
     }
 
     errorMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { errorMessage = null },
-            title = { Text("Chat style") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { errorMessage = null }) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "Chat style",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { errorMessage = null },
+            onDismiss = { errorMessage = null }
         )
     }
 
