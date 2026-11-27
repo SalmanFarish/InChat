@@ -23,6 +23,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.MarkEmailRead
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -496,26 +498,17 @@ fun LoginScreen(
         }
     }
 
-    if (successMessage != null) {
-        AlertDialog(
-            onDismissRequest = {
-                successMessage = null
-            },
-            title = {
-                Text("Check your email")
-            },
-            text = {
-                Text(successMessage.orEmpty())
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        successMessage = null
-                    }
-                ) {
-                    Text("OK")
-                }
-            }
+    successMessage?.let { message ->
+        InChatActionDialog(
+            title = "Check your email",
+            description = message,
+            titleIcon = Icons.Outlined.MarkEmailRead,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.MarkEmailRead,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { successMessage = null },
+            onDismiss = { successMessage = null }
         )
     }
 }
