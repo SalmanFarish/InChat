@@ -46,3 +46,14 @@ internal fun isEncryptedOlmAuthResolutionCurrent(
 ): Boolean =
     requestGeneration == currentGeneration &&
         authenticatedUserId == requestedOwnerUserId
+
+/** Map a device-scope lookup result to a safe worker action. */
+internal enum class EncryptedOlmDeviceScopeAction { CONTINUE, RETRY, RETIRE }
+
+internal fun encryptedOlmDeviceScopeAction(
+    decision: EncryptedOlmDeviceScopeDecision,
+): EncryptedOlmDeviceScopeAction = when (decision) {
+    EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE -> EncryptedOlmDeviceScopeAction.CONTINUE
+    EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> EncryptedOlmDeviceScopeAction.RETRY
+    EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> EncryptedOlmDeviceScopeAction.RETIRE
+}

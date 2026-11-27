@@ -93,9 +93,14 @@ class EncryptedOlmInboxWorker(
             lookupFailed = identityLookup.isFailure,
         )) {
             EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> {
-                Log.w(TAG, "Encrypted inbox polling is paused because the local device identity lookup failed.",
-                    identityLookup.exceptionOrNull())
-                return Result.success()
+                // Keep the one-time inbox wake alive when local storage/Keystore
+                // access fails transiently; otherwise this message waits for polling.
+                Log.w(
+                    TAG,
+                    "Encrypted inbox is waiting for a temporary local device-identity lookup failure.",
+                    identityLookup.exceptionOrNull(),
+                )
+                return Result.retry()
             }
             EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> {
                 Log.i(TAG, "Retiring encrypted inbox polling for a missing or inactive device identity.")

@@ -105,14 +105,15 @@ class EncryptedOlmDeliveryWorker(
         )
         when (deviceScopeDecision) {
             EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP -> {
-                // Preserve the schedule for transient storage failures or a temporary
-                // identity-transfer lock; a later pass can recover after the lock clears.
-                Log.e(
+                // A one-shot wake must not be consumed by a transient identity-store
+                // failure. Retry with WorkManager backoff; permanent missing/retired
+                // identities are handled by RETIRE_STALE_SCOPE below.
+                Log.w(
                     TAG,
-                    "The local encrypted device identity is unavailable; delivery is paused.",
+                    "Encrypted delivery is waiting for a temporary local device-identity lookup failure.",
                     identityLookup.exceptionOrNull(),
                 )
-                return Result.success()
+                return Result.retry()
             }
             EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE -> {
                 // A missing/retired native identity cannot ever service this schedule.

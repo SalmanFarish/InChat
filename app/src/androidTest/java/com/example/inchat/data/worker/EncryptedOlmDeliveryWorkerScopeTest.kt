@@ -52,6 +52,30 @@ class EncryptedOlmDeliveryWorkerScopeTest {
     }
 
     @Test
+    fun deferredDeviceIdentityLookupRetriesInsteadOfDiscardingTheOneShotWake() {
+        assertEquals(
+            EncryptedOlmDeviceScopeAction.RETRY,
+            encryptedOlmDeviceScopeAction(EncryptedOlmDeviceScopeDecision.DEFER_LOOKUP),
+        )
+    }
+
+    @Test
+    fun activeDeviceIdentityContinuesTheWorker() {
+        assertEquals(
+            EncryptedOlmDeviceScopeAction.CONTINUE,
+            encryptedOlmDeviceScopeAction(EncryptedOlmDeviceScopeDecision.KEEP_ACTIVE),
+        )
+    }
+
+    @Test
+    fun confirmedRetiredIdentityCancelsOnlyTheStaleScope() {
+        assertEquals(
+            EncryptedOlmDeviceScopeAction.RETIRE,
+            encryptedOlmDeviceScopeAction(EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE),
+        )
+    }
+
+    @Test
     fun confirmedMissingIdentityRetiresOnlyTheStaleDeviceScope() {
         assertEquals(
             EncryptedOlmDeviceScopeDecision.RETIRE_STALE_SCOPE,
