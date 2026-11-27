@@ -168,100 +168,121 @@ class EncryptedOlmInboxWorker(
                     }
                 },
             )
-            val mailboxReceiveStartedAt = SystemClock.elapsedRealtime()
-            val result = receiver.receivePending()
-            Log.i(
-                TAG,
-                "Encrypted mailbox receive duration ms=" +
-                    (SystemClock.elapsedRealtime() - mailboxReceiveStartedAt).coerceAtLeast(0L),
-            )
-            // Inbox polling can suspend while Firebase auth changes. Do not build
-            // a receipt processor under a different account than this worker owns.
-            if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
-                return Result.success()
-            }
-
-            // Decryption remains isolated from plaintext Firebase listeners and UI.
-            // Only automatically pinned, unchanged, signature-verified bundles reach the handoff.
-            val olmSessionRepository = OlmSessionRepository(applicationContext)
-            val megolmSessionRepository = MegolmSessionRepository(applicationContext) {
-                FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-            }
-            val groupRepository = GroupChatRepository()
-            val groupMessageHandoff = DefaultOlmInboundGroupMessageHandoff(
-                membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
-                sessionRepository = megolmSessionRepository,
-                messageRepository = EncryptedGroupMessageRepository(
-                    dao = database.encryptedGroupMessageDao(),
-                ),
-                authenticatedLocalUserId = {
-                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                },
-                trustVerifier = trustRepository,
-            )
-            val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
-                membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
-                keyImporter = megolmSessionRepository,
-                authenticatedLocalUserId = {
-                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                },
-                trustVerifier = trustRepository,
-            )
-            val handoffCoordinator = OlmInboundHandoffCoordinator(
-                database = database,
-                receiptDao = database.olmInboundReceiptDao(),
-                sessionRepository = olmSessionRepository,
-                authenticatedLocalUserId = {
-                    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                },
-                trustVerifier = trustRepository,
-                encryptedMessageDao = database.encryptedOlmMessageDao(),
-                groupMessageHandoff = groupMessageHandoff,
-                groupSessionKeyHandoff = groupSessionKeyHandoff,
-                megolmSessionRepository = megolmSessionRepository,
-            )
-            val deviceDirectory = DeviceKeyDirectoryRepository()
-            val processor = OlmPendingReceiptProcessor(
-                receiptDao = database.olmInboundReceiptDao(),
-                remoteDevicesForUser = deviceDirectory::getUserDevices,
-                trustVerifier = trustRepository,
-                authenticatedLocalUserId = {
-                    FirebaseAuth.getInstance().currentUser?.uid
-                },
-                expectedLocalUserId = ownerUserId,
-                handoff = OlmInboundReceiptHandoff { receiptId, remoteDevice, senderUid, kind, localUid ->
-                    handoffCoordinator.process(
-                        receiptId = receiptId,
-                        remoteDevice = remoteDevice,
-                        remoteDeviceUserId = senderUid,
-                        ciphertextKind = kind,
-                        localUserId = localUid,
-                    ) { payload ->
-                        DecryptedOlmMessage(
-                            ownerUserId = payload.recipientUserId,
-                            conversationId = payload.conversationId,
-                            messageId = payload.messageId,
-                            conversationPeerUserId = payload.conversationPeerUserId,
-                            senderUserId = payload.senderUserId,
-                            senderDeviceId = payload.senderDeviceId,
-                            recipientUserId = payload.recipientUserId,
-                            recipientDeviceId = payload.recipientDeviceId,
-                            sentAtMillis = payload.sentAtMillis,
-                            text = payload.text,
+            // A relay acknowledgement/removal can fail after some other deliveries
+            // have already been staged in Room. Still process the durable local queue
+            // in this pass; preserve the relay failure as a WorkManager retry signal.
+            val passOutcome = receiveAndProcessDurableInbox(
+                receive = {
+                    val mailboxReceiveStartedAt = SystemClock.elapsedRealtime()
+                    receiver.receivePending().also {
+                        Log.i(
+                            TAG,
+                            "Encrypted mailbox receive duration ms=" +
+                                (SystemClock.elapsedRealtime() - mailboxReceiveStartedAt).coerceAtLeast(0L),
                         )
                     }
                 },
-                finalizer = OlmCommittedReceiptFinalizer { receiptId, localUid ->
-                    handoffCoordinator.finalizePreviouslyCommitted(receiptId, localUid)
+                processDurableReceipts = {
+                    // Inbox polling can suspend while Firebase auth changes. Do not
+                    // build a receipt processor under a different account than this worker owns.
+                    if (FirebaseAuth.getInstance().currentUser?.uid != ownerUserId) {
+                        null
+                    } else {
+                        // Decryption remains isolated from plaintext Firebase listeners and UI.
+                        // Only automatically pinned, unchanged, signature-verified bundles reach the handoff.
+                        val olmSessionRepository = OlmSessionRepository(applicationContext)
+                        val megolmSessionRepository = MegolmSessionRepository(applicationContext) {
+                            FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                        }
+                        val groupRepository = GroupChatRepository()
+                        val groupMessageHandoff = DefaultOlmInboundGroupMessageHandoff(
+                            membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                            sessionRepository = megolmSessionRepository,
+                            messageRepository = EncryptedGroupMessageRepository(
+                                dao = database.encryptedGroupMessageDao(),
+                            ),
+                            authenticatedLocalUserId = {
+                                FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                            },
+                            trustVerifier = trustRepository,
+                        )
+                        val groupSessionKeyHandoff = DefaultOlmInboundGroupSessionKeyHandoff(
+                            membershipForGroup = groupRepository::getGroupCryptoMembershipSnapshot,
+                            keyImporter = megolmSessionRepository,
+                            authenticatedLocalUserId = {
+                                FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                            },
+                            trustVerifier = trustRepository,
+                        )
+                        val handoffCoordinator = OlmInboundHandoffCoordinator(
+                            database = database,
+                            receiptDao = database.olmInboundReceiptDao(),
+                            sessionRepository = olmSessionRepository,
+                            authenticatedLocalUserId = {
+                                FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                            },
+                            trustVerifier = trustRepository,
+                            encryptedMessageDao = database.encryptedOlmMessageDao(),
+                            groupMessageHandoff = groupMessageHandoff,
+                            groupSessionKeyHandoff = groupSessionKeyHandoff,
+                            megolmSessionRepository = megolmSessionRepository,
+                        )
+                        val deviceDirectory = DeviceKeyDirectoryRepository()
+                        val processor = OlmPendingReceiptProcessor(
+                            receiptDao = database.olmInboundReceiptDao(),
+                            remoteDevicesForUser = deviceDirectory::getUserDevices,
+                            trustVerifier = trustRepository,
+                            authenticatedLocalUserId = {
+                                FirebaseAuth.getInstance().currentUser?.uid
+                            },
+                            expectedLocalUserId = ownerUserId,
+                            handoff = OlmInboundReceiptHandoff { receiptId, remoteDevice, senderUid, kind, localUid ->
+                                handoffCoordinator.process(
+                                    receiptId = receiptId,
+                                    remoteDevice = remoteDevice,
+                                    remoteDeviceUserId = senderUid,
+                                    ciphertextKind = kind,
+                                    localUserId = localUid,
+                                ) { payload ->
+                                    DecryptedOlmMessage(
+                                        ownerUserId = payload.recipientUserId,
+                                        conversationId = payload.conversationId,
+                                        messageId = payload.messageId,
+                                        conversationPeerUserId = payload.conversationPeerUserId,
+                                        senderUserId = payload.senderUserId,
+                                        senderDeviceId = payload.senderDeviceId,
+                                        recipientUserId = payload.recipientUserId,
+                                        recipientDeviceId = payload.recipientDeviceId,
+                                        sentAtMillis = payload.sentAtMillis,
+                                        text = payload.text,
+                                    )
+                                }
+                            },
+                            finalizer = OlmCommittedReceiptFinalizer { receiptId, localUid ->
+                                handoffCoordinator.finalizePreviouslyCommitted(receiptId, localUid)
+                            },
+                        )
+                        val handoffStartedAt = SystemClock.elapsedRealtime()
+                        processor.processPending().also {
+                            Log.i(
+                                TAG,
+                                "Encrypted decrypt and handoff duration ms=" +
+                                    (SystemClock.elapsedRealtime() - handoffStartedAt).coerceAtLeast(0L),
+                            )
+                        }
+                    }
                 },
             )
-            val handoffStartedAt = SystemClock.elapsedRealtime()
-            val handoffResult = processor.processPending()
-            Log.i(
-                TAG,
-                "Encrypted decrypt and handoff duration ms=" +
-                    (SystemClock.elapsedRealtime() - handoffStartedAt).coerceAtLeast(0L),
-            )
+            val result = passOutcome.receiveResult
+            val inboxReceiveFailure = passOutcome.receiveFailure
+            val handoffResult = passOutcome.processingResult ?: return Result.success()
+            if (inboxReceiveFailure != null) {
+                Log.w(
+                    TAG,
+                    "Encrypted inbox receive was incomplete; continuing with ciphertext receipts already staged in Room.",
+                    inboxReceiveFailure,
+                )
+            }
 
             // Reconcile encrypted-message notification intents committed in Room.
             // If Android killed this process after message commit but before notify,
@@ -310,14 +331,16 @@ class EncryptedOlmInboxWorker(
                 "Encrypted notification outbox publish duration ms=" +
                     (SystemClock.elapsedRealtime() - notificationStartedAt).coerceAtLeast(0L),
             )
-            Log.i(
-                TAG,
-                "Encrypted inbox pass completed: stored=" + result.stored +
-                    ", pendingRetries=" + result.alreadyPending +
-                    ", processedDuplicates=" + result.alreadyProcessed +
-                    ", conflicts=" + result.conflicts +
-                    ", rejectedDuplicates=" + result.rejected,
-            )
+            if (result != null) {
+                Log.i(
+                    TAG,
+                    "Encrypted inbox pass completed: stored=" + result.stored +
+                        ", pendingRetries=" + result.alreadyPending +
+                        ", processedDuplicates=" + result.alreadyProcessed +
+                        ", conflicts=" + result.conflicts +
+                        ", rejectedDuplicates=" + result.rejected,
+                )
+            }
             Log.i(
                 TAG,
                 "Encrypted inbound handoff completed: pending=" + handoffResult.pendingScanned +
@@ -345,7 +368,7 @@ class EncryptedOlmInboxWorker(
                     recipientDeviceId = recipientDeviceId,
                 )
                 Log.i(TAG, "Queued another encrypted inbox pass for untouched durable receipts.")
-            } else if (handoffResult.failed == 0) {
+            } else if (handoffResult.failed == 0 && inboxReceiveFailure == null) {
                 // Keep the immediate FCM placeholder visible across transient
                 // receive/decrypt/notification failures; clear it after a clean drain.
                 encryptedNotifications.clearEncryptedWakeup(ownerUserId)
@@ -357,7 +380,7 @@ class EncryptedOlmInboxWorker(
                 "Encrypted inbox worker total duration ms=" +
                     (SystemClock.elapsedRealtime() - workerStartedAtMillis).coerceAtLeast(0L),
             )
-            if (handoffResult.failed > 0) Result.retry() else Result.success()
+            if (handoffResult.failed > 0 || inboxReceiveFailure != null) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
