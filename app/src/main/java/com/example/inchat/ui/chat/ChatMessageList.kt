@@ -187,7 +187,8 @@ fun ChatMessageList(
         messagesLoaded,
         hasOlderMessages,
         messages.size,
-        messages.lastOrNull()?.id
+        messages.lastOrNull()?.id,
+        isOtherUserTyping
     ) {
 
         if (
