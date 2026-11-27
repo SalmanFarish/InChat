@@ -803,11 +803,8 @@ private fun HomeHeader(
 
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(
-                width = 0.85.dp,
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
         ) {
             IconButton(
                 onClick = onNewChatClick,
@@ -816,8 +813,8 @@ private fun HomeHeader(
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "New chat",
-                    modifier = Modifier.size(25.dp),
-                    tint = MaterialTheme.colorScheme.onSurface
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -977,16 +974,16 @@ private fun HomeInboxFilterChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         filters.forEach { filter ->
             val selected = selectedFilter == filter
             Surface(
                 modifier = Modifier
-                    .height(36.dp)
+                    .height(32.dp)
                     .clickable { onFilterSelected(filter) },
                 shape = CircleShape,
                 color = if (selected) {
@@ -1004,7 +1001,7 @@ private fun HomeInboxFilterChips(
                 )
             ) {
                 Box(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -1014,7 +1011,7 @@ private fun HomeInboxFilterChips(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Normal
                     )
                 }
