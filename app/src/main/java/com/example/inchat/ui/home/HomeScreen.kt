@@ -46,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -80,6 +81,10 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 
 @Composable
 fun HomeScreen(
@@ -1337,6 +1342,40 @@ private fun ConversationItem(
         }
     }
 
+    var otherUserTyping by remember(conversation.chatId, conversation.otherUserId) {
+        mutableStateOf(false)
+    }
+
+    // Observe the same per-chat typing node used by ChatViewModel. The listener
+    // exists only while this inbox row is composed and is removed when it leaves.
+    DisposableEffect(conversation.chatId, conversation.otherUserId, conversation.chatType) {
+        if (conversation.chatType != "group" &&
+            conversation.chatId.isNotBlank() &&
+            conversation.otherUserId.isNotBlank()
+        ) {
+            val typingRef = FirebaseDatabase.getInstance()
+                .getReference("typing")
+                .child(conversation.chatId)
+                .child(conversation.otherUserId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    otherUserTyping = snapshot.getValue(Boolean::class.java) == true
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    otherUserTyping = false
+                }
+            }
+            typingRef.addValueEventListener(listener)
+            onDispose {
+                typingRef.removeEventListener(listener)
+            }
+        } else {
+            otherUserTyping = false
+            onDispose { }
+        }
+    }
+
     val hasUnread = conversation.unreadCount > 0L
     val avatarBorderColor =
         if (hasUnread) {
@@ -1465,17 +1504,19 @@ private fun ConversationItem(
                     Spacer(Modifier.height(5.dp))
 
                     Text(
-                        text = "$messagePrefix$previewText",
+                        text = if (otherUserTyping) "typing…" else "$messagePrefix$previewText",
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontSize = 12.sp,
                             lineHeight = 17.sp
                         ),
-                        fontWeight = if (hasUnread) {
+                        fontWeight = if (otherUserTyping || hasUnread) {
                             FontWeight.Medium
                         } else {
                             FontWeight.Normal
                         },
-                        color = if (hasUnread) {
+                        color = if (otherUserTyping) {
+                            MaterialTheme.colorScheme.primary
+                        } else if (hasUnread) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
