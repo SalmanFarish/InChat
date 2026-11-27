@@ -18,11 +18,12 @@ internal data class StagedInboundOlmMessage(
 )
 
 /**
- * App-facing wrapper for the native, encrypted-at-rest Olm session prototype.
+ * App-facing adapter for native Olm ratchets stored in the Android Keystore.
  *
- * This repository is intentionally not connected to Firebase, chat sending,
- * chat receiving, or message persistence. Callers must obtain remote bundles
- * through DeviceKeyDirectoryRepository, which verifies their signatures.
+ * Callers supply public bundles only after DeviceKeyDirectoryRepository verifies
+ * their signatures. All private Olm state and ratchet transitions stay inside
+ * the native encrypted device-state store; Firebase and chat persistence remain
+ * outside this class.
  */
 internal class OlmSessionRepository(
     context: Context,
@@ -87,6 +88,31 @@ internal class OlmSessionRepository(
             }
         ) {
             "Could not create the outbound Olm session"
+        }
+    }
+
+    /**
+     * Reuse only a persisted session that has received a message from the exact
+     * remote identity key in this freshly verified device bundle. A session that
+     * has not yet received a reply is not safe to reuse for a later message because
+     * the recipient may not have established it yet.
+     */
+    override fun findEstablishedOutboundSession(remoteDevice: PublicDeviceKeyBundle): String? {
+        verifyRemoteDevice(remoteDevice)
+        require(remoteDevice.deviceId != localBundle.deviceId) {
+            "Cannot reuse an Olm session with this same device"
+        }
+        return withLocalStore { store ->
+            val sessionId = requireNotNull(
+                NativeCryptoBridge.nativeFindEstablishedOutboundOlmSession(
+                    store,
+                    localBundle.deviceId,
+                    remoteDevice.curve25519IdentityKey,
+                ),
+            ) {
+                "Could not inspect the saved Olm session state"
+            }
+            sessionId.takeIf { it.isNotBlank() }
         }
     }
 

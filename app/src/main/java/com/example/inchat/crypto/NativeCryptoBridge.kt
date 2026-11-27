@@ -84,6 +84,17 @@ internal object NativeCryptoBridge {
         deviceId: String,
     ): Boolean
 
+    /**
+     * Find a persisted, established session for this exact remote Curve25519
+     * identity. An empty string means a normal cache miss; null means native state
+     * could not be read safely. Unconfirmed sessions are never returned.
+     */
+    external fun nativeFindEstablishedOutboundOlmSession(
+        store: CryptoStateStore,
+        deviceId: String,
+        remoteIdentityKey: String,
+    ): String?
+
     /** Create and persist an outbound Olm session; returns its opaque session ID. */
     external fun nativeCreateOutboundOlmSession(
         store: CryptoStateStore,

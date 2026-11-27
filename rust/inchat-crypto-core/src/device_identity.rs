@@ -126,6 +126,9 @@ impl Drop for PendingOutboundMegolmMessage {
 struct DeviceCryptoState {
     account: Account,
     sessions: std::collections::BTreeMap<String, vodozemac::olm::Session>,
+    /// Verified remote Curve25519 identity for each established Olm session.
+    /// This is public metadata, persisted inside the Keystore-encrypted device state.
+    session_remote_identity_keys: std::collections::BTreeMap<String, String>,
     pending_decryptions: std::collections::BTreeMap<String, PendingDecryption>,
     /// Advanced inbound Megolm ratchets with durable plaintext awaiting Room commit.
     pending_group_decryptions: std::collections::BTreeMap<String, PendingGroupDecryption>,
@@ -762,6 +765,18 @@ fn encode_device_crypto_state(
                 .map_err(|_| "Olm session serialization failed")?,
         );
     }
+    if state.session_remote_identity_keys.len() > state.sessions.len() {
+        return Err("Saved Olm peer-identity map contains too many entries");
+    }
+    let mut session_remote_identity_keys = serde_json::Map::new();
+    for (session_id, remote_identity_key) in &state.session_remote_identity_keys {
+        if !state.sessions.contains_key(session_id) {
+            return Err("Saved Olm peer identity references a missing session");
+        }
+        let parsed = Curve25519PublicKey::from_base64(remote_identity_key)
+            .map_err(|_| "Saved Olm peer identity key is invalid")?;
+        session_remote_identity_keys.insert(session_id.clone(), json!(parsed.to_base64()));
+    }
     let mut pending_decryptions = serde_json::Map::new();
     for (receipt_id, pending) in &state.pending_decryptions {
         pending_decryptions.insert(
@@ -974,6 +989,7 @@ fn encode_device_crypto_state(
     let mut serialized = serde_json::to_vec(&json!({
         "account": account,
         "sessions": sessions,
+        "sessionRemoteIdentityKeys": session_remote_identity_keys,
         "pendingDecryptions": pending_decryptions,
         "pendingGroupDecryptions": pending_group_decryptions,
         "pendingOutboundGroupMessages": pending_outbound_group_messages,
@@ -1034,6 +1050,7 @@ fn decode_device_crypto_state(
             return Ok(DeviceCryptoState {
                 account: Account::from(pickle),
                 sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -1070,6 +1087,28 @@ fn decode_device_crypto_state(
                 return Err("Saved Olm session ID does not match its pickle");
             }
             sessions.insert(id.clone(), session);
+        }
+        let mut session_remote_identity_keys = std::collections::BTreeMap::new();
+        if let Some(peer_values) = envelope
+            .get("sessionRemoteIdentityKeys")
+            .and_then(Value::as_object)
+        {
+            if peer_values.len() > sessions.len() {
+                return Err("Saved Olm peer-identity map contains too many entries");
+            }
+            for (session_id, value) in peer_values {
+                if !sessions.contains_key(session_id) {
+                    return Err("Saved Olm peer identity references a missing session");
+                }
+                let remote_identity_key = value
+                    .as_str()
+                    .ok_or("Saved Olm peer identity is not a string")?;
+                let parsed = Curve25519PublicKey::from_base64(remote_identity_key)
+                    .map_err(|_| "Saved Olm peer identity key is invalid")?;
+                session_remote_identity_keys.insert(session_id.clone(), parsed.to_base64());
+            }
+        } else if envelope.get("sessionRemoteIdentityKeys").is_some() {
+            return Err("Saved Olm peer-identity map has an invalid format");
         }
         let mut pending_decryptions = std::collections::BTreeMap::new();
         if let Some(pending_values) = envelope
@@ -1496,6 +1535,7 @@ fn decode_device_crypto_state(
         Ok(DeviceCryptoState {
             account: Account::from(account_pickle),
             sessions,
+            session_remote_identity_keys,
             pending_decryptions,
             pending_group_decryptions,
             pending_outbound_group_messages,
@@ -1528,6 +1568,7 @@ fn encode_device_account_state(
         &DeviceCryptoState {
             account: restored,
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -1803,6 +1844,7 @@ fn ensure_device_identity<'local>(
             DeviceCryptoState {
                 account: Account::new(),
                 sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
                 pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -1948,9 +1990,41 @@ fn create_outbound_olm_session<'local>(
         return Err("An Olm session with this ID already exists");
     }
     state.sessions.insert(session_id.clone(), session);
+    state.session_remote_identity_keys.insert(session_id.clone(), remote_identity.to_base64());
     let blob = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, blob)?;
     Ok(session_id)
+}
+
+/// Find an Olm channel that the peer has demonstrably established by replying.
+/// The peer identity binding is stored alongside this native ratchet in the encrypted device state.
+/// Never return an outbound session that has not received a peer message: a recipient
+/// that has not processed the initial pre-key envelope may not have this session yet.
+fn find_established_outbound_olm_session(
+    state: &DeviceCryptoState,
+    remote_identity_key: &str,
+) -> Option<String> {
+    state.session_remote_identity_keys.iter()
+        .filter(|(session_id, identity_key)| {
+            identity_key.as_str() == remote_identity_key &&
+                state.sessions.get(*session_id)
+                    .is_some_and(|session| session.has_received_message())
+        })
+        .map(|(session_id, _)| session_id.clone())
+        .max()
+}
+
+fn read_established_outbound_olm_session<'local>(
+    env: &mut JNIEnv<'local>,
+    store: &JObject<'local>,
+    device_id: &str,
+    remote_identity_key: &str,
+) -> Result<Option<String>, &'static str> {
+    let remote_identity = Curve25519PublicKey::from_base64(remote_identity_key)
+        .map_err(|_| "Remote Olm identity key is invalid")?;
+    let canonical_identity_key = remote_identity.to_base64();
+    let state = load_device_crypto_state(env, store, device_id)?;
+    Ok(find_established_outbound_olm_session(&state, &canonical_identity_key))
 }
 
 fn encrypt_olm_message<'local>(
@@ -2025,6 +2099,7 @@ fn create_inbound_olm_session<'local>(
         return Err("Inbound Olm session already exists");
     }
     state.sessions.insert(session_id.clone(), inbound.session);
+    state.session_remote_identity_keys.insert(session_id.clone(), remote_identity.to_base64());
     let blob = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, blob)?;
     // Return only session ID and application plaintext; never private state.
@@ -2242,6 +2317,44 @@ fn decrypt_olm_message<'local>(
     let blob = encode_device_crypto_state(device_id, &state)?;
     write_device_state(env, store, blob)?;
     Ok(plaintext)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_inchat_crypto_NativeCryptoBridge_nativeFindEstablishedOutboundOlmSession<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    store: JObject<'local>,
+    device_id: JString<'local>,
+    remote_identity_key: JString<'local>,
+) -> jstring {
+    let device_id: String = match env.get_string(&device_id) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let remote_identity_key: String = match env.get_string(&remote_identity_key) {
+        Ok(value) => value.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match catch_unwind(AssertUnwindSafe(|| {
+        read_established_outbound_olm_session(
+            &mut env,
+            &store,
+            &device_id,
+            &remote_identity_key,
+        )
+    })) {
+        Ok(Ok(Some(session_id))) => env
+            .new_string(session_id)
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Ok(None)) => env
+            .new_string("")
+            .map(|value| value.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(_)) | Err(_) => std::ptr::null_mut(),
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -3132,6 +3245,7 @@ mod tests {
         let mut state = super::DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3237,6 +3351,7 @@ mod tests {
         let mut state = super::DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3348,6 +3463,7 @@ mod tests {
         let state = super::DeviceCryptoState {
             account,
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions,
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3425,9 +3541,13 @@ mod tests {
 
         let mut sessions = std::collections::BTreeMap::new();
         sessions.insert(session_id.clone(), alice_session);
+        let bob_identity_key = bob.curve25519_key().to_base64();
+        let mut session_remote_identity_keys = std::collections::BTreeMap::new();
+        session_remote_identity_keys.insert(session_id.clone(), bob_identity_key.clone());
         let state = super::DeviceCryptoState {
             account: alice,
             sessions,
+            session_remote_identity_keys,
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3440,6 +3560,10 @@ mod tests {
         let mut restored = super::decode_device_crypto_state(encoded, "session-device")
             .expect("unified state should restore");
         assert_eq!(restored.sessions.len(), 1);
+        assert_eq!(
+            restored.session_remote_identity_keys.get(&session_id),
+            Some(&bob_identity_key),
+        );
 
         let reply = bob_session
             .encrypt("persisted reply")
@@ -3470,6 +3594,79 @@ mod tests {
     }
 
     #[test]
+    fn established_olm_session_lookup_requires_a_peer_reply_and_exact_identity() {
+        let alice = Account::new();
+        let mut bob = Account::new();
+        bob.generate_one_time_keys(1);
+        let bob_identity = bob.curve25519_key();
+        let bob_identity_key = bob_identity.to_base64();
+        let bob_one_time_key = *bob.one_time_keys().values().next().expect("Bob prekey exists");
+        let mut alice_session = alice
+            .create_outbound_session(SessionConfig::version_1(), bob_identity, bob_one_time_key)
+            .expect("Alice creates an outbound session");
+        let session_id = alice_session.session_id();
+        let mut sessions = std::collections::BTreeMap::new();
+        sessions.insert(session_id.clone(), alice_session);
+
+        let mut peer_identities = std::collections::BTreeMap::new();
+        peer_identities.insert(session_id.clone(), bob_identity_key.clone());
+        let unestablished = super::DeviceCryptoState {
+            account: alice,
+            sessions,
+            session_remote_identity_keys: peer_identities.clone(),
+            pending_decryptions: std::collections::BTreeMap::new(),
+            pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+        assert_eq!(
+            None,
+            super::find_established_outbound_olm_session(&unestablished, &bob_identity_key),
+            "A first-message session must not be reused before the recipient replies",
+        );
+
+        let alice_session_pickle = unestablished.sessions.get(&session_id).unwrap().pickle();
+        let mut alice_session = vodozemac::olm::Session::from_pickle(alice_session_pickle);
+        let first = alice_session.encrypt("initial hello").expect("prekey message encrypts");
+        let pre_key = match first {
+            OlmMessage::PreKey(message) => message,
+            OlmMessage::Normal(_) => panic!("the first message must be a prekey message"),
+        };
+        bob.mark_keys_as_published();
+        let inbound = bob
+            .create_inbound_session(SessionConfig::version_1(), unestablished.account.curve25519_key(), &pre_key)
+            .expect("Bob establishes the matching inbound session");
+        let reply = inbound.session.encrypt("reply").expect("Bob reply encrypts");
+        alice_session.decrypt(&reply).expect("Alice receives Bob's reply");
+
+        let mut established_sessions = std::collections::BTreeMap::new();
+        established_sessions.insert(session_id.clone(), alice_session);
+        let established = super::DeviceCryptoState {
+            account: unestablished.account,
+            sessions: established_sessions,
+            session_remote_identity_keys: peer_identities,
+            pending_decryptions: std::collections::BTreeMap::new(),
+            pending_group_decryptions: std::collections::BTreeMap::new(),
+            pending_outbound_group_messages: std::collections::BTreeMap::new(),
+            outbound_group_sessions: std::collections::BTreeMap::new(),
+            retired_outbound_group_sessions: std::collections::BTreeMap::new(),
+            inbound_group_sessions: std::collections::BTreeMap::new(),
+        };
+        assert_eq!(
+            Some(session_id),
+            super::find_established_outbound_olm_session(&established, &bob_identity_key),
+        );
+        let unrelated_identity = Account::new().curve25519_key().to_base64();
+        assert_eq!(
+            None,
+            super::find_established_outbound_olm_session(&established, &unrelated_identity),
+            "An established session must never cross device-identity boundaries",
+        );
+    }
+
+    #[test]
     fn outbound_megolm_ratchet_round_trips_in_keystore_device_state() {
         let mut sender = OutboundGroupSession::new();
         let session_id = sender.session_id();
@@ -3497,6 +3694,7 @@ mod tests {
         let state = super::DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3563,6 +3761,7 @@ mod tests {
         let state = super::DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3606,6 +3805,7 @@ mod tests {
         let state = super::DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3942,9 +4142,13 @@ mod transfer_tests {
 
         let mut sessions = std::collections::BTreeMap::new();
         sessions.insert(session_id.clone(), session);
+        let peer_identity_key = peer.curve25519_key().to_base64();
+        let mut session_remote_identity_keys = std::collections::BTreeMap::new();
+        session_remote_identity_keys.insert(session_id.clone(), peer_identity_key.clone());
         let state = DeviceCryptoState {
             account: source_account,
             sessions,
+            session_remote_identity_keys,
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -3988,6 +4192,10 @@ mod transfer_tests {
         assert_eq!(restored.account.identity_keys(), expected_identity);
         assert_eq!(restored.sessions.len(), 1);
         assert!(restored.sessions.contains_key(&session_id));
+        assert_eq!(
+            restored.session_remote_identity_keys.get(&session_id),
+            Some(&peer_identity_key),
+        );
         assert_eq!(restored.account.one_time_keys().len(), 20);
         assert_eq!(restored.account.fallback_key().len(), 1);
     }
@@ -4024,6 +4232,7 @@ mod transfer_tests {
         let state = DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -4075,6 +4284,7 @@ mod transfer_tests {
         let state = DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
                 pending_group_decryptions: std::collections::BTreeMap::new(),
                 pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -4690,6 +4900,7 @@ mod pending_megolm_receive_tests {
         let mut state = DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),
@@ -4920,6 +5131,7 @@ mod pending_outbound_megolm_tests {
         DeviceCryptoState {
             account: Account::new(),
             sessions: std::collections::BTreeMap::new(),
+                session_remote_identity_keys: std::collections::BTreeMap::new(),
             pending_decryptions: std::collections::BTreeMap::new(),
             pending_group_decryptions: std::collections::BTreeMap::new(),
             pending_outbound_group_messages: std::collections::BTreeMap::new(),

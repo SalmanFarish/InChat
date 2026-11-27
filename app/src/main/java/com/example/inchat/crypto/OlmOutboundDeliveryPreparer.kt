@@ -117,6 +117,10 @@ internal interface OlmOutboundKeyDirectory {
 /** Native session operations required by the first-message preparer. */
 internal interface OlmOutboundSessionRepository {
     val localDeviceId: String
+
+    /** Return only a session already confirmed by a message from this exact device identity. */
+    fun findEstablishedOutboundSession(remoteDevice: PublicDeviceKeyBundle): String? = null
+
     fun createOutboundSession(remoteDevice: PublicDeviceKeyBundle, remotePreKey: SignedOlmPreKey): String
     fun encryptAuthenticatedEnvelope(sessionId: String, payload: OlmAuthenticatedMessagePayload): String
 }
@@ -160,29 +164,35 @@ internal class OlmOutboundDeliveryPreparer(
             "Recipient device identity changed. Encrypted delivery is blocked to protect this conversation"
         }
 
-        var claimedPreKey: SignedOlmPreKey? = null
-        for (candidate in remoteDevice.oneTimeKeys) {
-            if (directory.claimOneTimePreKey(
-                    recipientUserId,
-                    recipientDeviceId,
-                    candidate.keyId,
-                    OlmPreKeyClaimScope.direct(
-                        conversationId = payload.conversationId,
-                        peerUserId = payload.conversationPeerUserId,
-                    ),
-                )) {
-                claimedPreKey = candidate
-                break
+        // Reuse only a session that has received a message from this exact
+        // signed device identity. An unconfirmed first-send session is not reused:
+        // until its peer reply arrives, every new message gets an independent
+        // pre-key handshake and remains independently decryptable on arrival.
+        val establishedSessionId = sessions.findEstablishedOutboundSession(remoteDevice)
+        val sessionId = establishedSessionId ?: run {
+            var claimedPreKey: SignedOlmPreKey? = null
+            for (candidate in remoteDevice.oneTimeKeys) {
+                if (directory.claimOneTimePreKey(
+                        recipientUserId,
+                        recipientDeviceId,
+                        candidate.keyId,
+                        OlmPreKeyClaimScope.direct(
+                            conversationId = payload.conversationId,
+                            peerUserId = payload.conversationPeerUserId,
+                        ),
+                    )) {
+                    claimedPreKey = candidate
+                    break
+                }
             }
-        }
 
-        // The signed fallback key is reusable and remains safe as a last resort
-        // when all one-time keys have already been atomically claimed.
-        val selectedPreKey = claimedPreKey ?: requireNotNull(remoteDevice.fallbackKey) {
-            "Recipient device has no signed fallback prekey"
+            // The signed fallback key is reusable and remains safe as a last resort
+            // when all one-time keys have already been atomically claimed.
+            val selectedPreKey = claimedPreKey ?: requireNotNull(remoteDevice.fallbackKey) {
+                "Recipient device has no signed fallback prekey"
+            }
+            sessions.createOutboundSession(remoteDevice, selectedPreKey)
         }
-
-        val sessionId = sessions.createOutboundSession(remoteDevice, selectedPreKey)
         require(payload.recipientDeviceId == remoteDevice.deviceId) {
             "Authenticated payload recipient device does not match the selected device"
         }

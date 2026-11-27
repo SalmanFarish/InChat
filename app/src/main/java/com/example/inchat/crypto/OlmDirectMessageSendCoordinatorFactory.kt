@@ -34,6 +34,9 @@ internal class OlmDirectMessageSendCoordinatorFactory(
             override val localDeviceId: String
                 get() = olmSessions.localDeviceId
 
+            override fun findEstablishedOutboundSession(remoteDevice: PublicDeviceKeyBundle): String? =
+                olmSessions.findEstablishedOutboundSession(remoteDevice)
+
             override fun createOutboundSession(
                 remoteDevice: PublicDeviceKeyBundle,
                 remotePreKey: SignedOlmPreKey,
@@ -144,8 +147,17 @@ internal class OlmDirectMessageSendCoordinator(
 
         // First-use setup is automatic. This is also a race-safe fallback when
         // the user sends before the application startup provisioning finishes.
-        val senderBundle = try {
-            directory.ensureMyDevicePublished(identity, refreshActivity = false)
+        val (senderDirectory, recipientDevices) = try {
+            coroutineScope {
+                val senderDirectory = async {
+                    directory.ensureMyDevicePublishedWithDirectory(
+                        identityRepository = identity,
+                        refreshActivity = false,
+                    )
+                }
+                val recipientDevices = async { directory.getUserDevices(recipientUserId) }
+                senderDirectory.await() to recipientDevices.await()
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (setupError: Exception) {
@@ -155,6 +167,8 @@ internal class OlmDirectMessageSendCoordinator(
                 setupError,
             )
         }
+        val senderBundle = senderDirectory.currentDevice
+        val senderDevices = senderDirectory.userDevices
         val senderDeviceId = senderBundle.deviceId
         require(auth.currentUser?.uid == senderUserId) {
             "Authenticated account changed while preparing secure messaging"
@@ -162,13 +176,9 @@ internal class OlmDirectMessageSendCoordinator(
         // A newly provisioned device needs both its outbound queue and inbox
         // poller. Keep this best-effort: the message queue owns send success.
         onDeviceReady(senderUserId, senderDeviceId)
-        // These two independent directory reads are network-bound. Resolve them
-        // together so one slow Firebase read does not serially delay the other.
-        val (senderDevices, recipientDevices) = coroutineScope {
-            val senderDevices = async { directory.getUserDevices(senderUserId) }
-            val recipientDevices = async { directory.getUserDevices(recipientUserId) }
-            senderDevices.await() to recipientDevices.await()
-        }
+        // Sender and recipient directories were resolved in parallel above.
+        // Reuse the exact sender snapshot used to validate this published device;
+        // do not fetch the same account directory a second time for one send.
         require(auth.currentUser?.uid == senderUserId) {
             "Authenticated account changed while resolving encrypted recipient devices"
         }

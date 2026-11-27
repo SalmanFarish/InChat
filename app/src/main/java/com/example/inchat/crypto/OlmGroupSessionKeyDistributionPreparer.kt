@@ -147,31 +147,37 @@ internal class OlmGroupSessionKeyDistributionPreparer(
                 "Recipient device publishes too many one-time prekeys"
             }
 
-            var claimedPreKey: SignedOlmPreKey? = null
-            for (candidate in target.device.oneTimeKeys) {
-                if (
-                    directory.claimOneTimePreKey(
-                        targetUid = target.userId,
-                        deviceId = target.device.deviceId,
-                        keyId = candidate.keyId,
-                        scope = OlmPreKeyClaimScope.group(
-                            groupId = groupId,
-                            membershipEpoch = membershipEpoch,
-                        ),
-                    )
-                ) {
-                    claimedPreKey = candidate
-                    break
+            // A confirmed Olm channel can carry this control payload too. Only
+            // reuse sessions that have received a message from this exact signed
+            // device identity; otherwise establish a fresh pre-key session.
+            val establishedSessionId = sessions.findEstablishedOutboundSession(target.device)
+            val sessionId = establishedSessionId ?: run {
+                var claimedPreKey: SignedOlmPreKey? = null
+                for (candidate in target.device.oneTimeKeys) {
+                    if (
+                        directory.claimOneTimePreKey(
+                            targetUid = target.userId,
+                            deviceId = target.device.deviceId,
+                            keyId = candidate.keyId,
+                            scope = OlmPreKeyClaimScope.group(
+                                groupId = groupId,
+                                membershipEpoch = membershipEpoch,
+                            ),
+                        )
+                    ) {
+                        claimedPreKey = candidate
+                        break
+                    }
                 }
-            }
 
-            val selectedPreKey = claimedPreKey ?: requireNotNull(target.device.fallbackKey) {
-                "Recipient device has no signed fallback prekey"
+                val selectedPreKey = claimedPreKey ?: requireNotNull(target.device.fallbackKey) {
+                    "Recipient device has no signed fallback prekey"
+                }
+                sessions.createOutboundSession(
+                    remoteDevice = target.device,
+                    remotePreKey = selectedPreKey,
+                )
             }
-            val sessionId = sessions.createOutboundSession(
-                remoteDevice = target.device,
-                remotePreKey = selectedPreKey,
-            )
             val payload = OlmGroupSessionKeyDistributionPayload(
                 distributionId = distributionId,
                 groupId = groupId,

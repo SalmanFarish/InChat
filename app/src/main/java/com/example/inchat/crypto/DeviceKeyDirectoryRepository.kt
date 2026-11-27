@@ -23,6 +23,11 @@ import kotlin.coroutines.resumeWithException
  * keys as a side effect of ordinary chat messaging. Device publication may
  * refresh only the matching private FCM token registration.
  */
+internal data class DeviceKeyDirectorySnapshot(
+    val currentDevice: PublicDeviceKeyBundle,
+    val userDevices: List<PublicDeviceKeyBundle>,
+)
+
 internal class DeviceKeyDirectoryRepository(
     private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
@@ -96,15 +101,28 @@ internal class DeviceKeyDirectoryRepository(
     suspend fun ensureMyDevicePublished(
         identityRepository: DeviceIdentityRepository,
         refreshActivity: Boolean = true,
-    ): PublicDeviceKeyBundle {
+    ): PublicDeviceKeyBundle = ensureMyDevicePublishedWithDirectory(
+        identityRepository = identityRepository,
+        refreshActivity = refreshActivity,
+    ).currentDevice
+
+    /**
+     * Resolve this installation and its complete account device list in one
+     * directory read. Direct-message fan-out needs both values; doing a second
+     * read of our own account immediately afterward only adds RTT and latency.
+     */
+    suspend fun ensureMyDevicePublishedWithDirectory(
+        identityRepository: DeviceIdentityRepository,
+        refreshActivity: Boolean = true,
+    ): DeviceKeyDirectorySnapshot {
         val ownerUserId = authenticatedUserId
         val deviceId = identityRepository.currentDeviceId()
         require(auth.currentUser?.uid == ownerUserId) {
             "Authenticated account changed while preparing this device identity"
         }
 
-        val existing = getUserDevices(ownerUserId)
-            .firstOrNull { it.deviceId == deviceId }
+        val currentDevices = getUserDevices(ownerUserId)
+        val existing = currentDevices.firstOrNull { it.deviceId == deviceId }
         if (existing != null && identityRepository.hasLocalIdentityState()) {
             // Regular sends only need the existing signed bundle. Startup/device
             // management refreshes activity and the FCM token; doing both RTDB
@@ -116,10 +134,29 @@ internal class DeviceKeyDirectoryRepository(
             require(auth.currentUser?.uid == ownerUserId) {
                 "Authenticated account changed while refreshing this device"
             }
-            return existing
+            return DeviceKeyDirectorySnapshot(
+                currentDevice = existing,
+                userDevices = currentDevices,
+            )
         }
 
-        return replenishAndPublishMyDevice(identityRepository)
+        val published = replenishAndPublishMyDevice(identityRepository)
+        // First-time publication is uncommon. Refresh once after publishing so
+        // concurrent device additions are still included in the fan-out snapshot.
+        val refreshedDevices = getUserDevices(ownerUserId)
+        require(auth.currentUser?.uid == ownerUserId) {
+            "Authenticated account changed while refreshing the published device directory"
+        }
+        val refreshedCurrent = refreshedDevices.firstOrNull { it.deviceId == deviceId } ?: published
+        val completeDevices = if (refreshedDevices.any { it.deviceId == deviceId }) {
+            refreshedDevices
+        } else {
+            refreshedDevices + refreshedCurrent
+        }
+        return DeviceKeyDirectorySnapshot(
+            currentDevice = refreshedCurrent,
+            userDevices = completeDevices,
+        )
     }
 
     /**
