@@ -5,18 +5,14 @@ import com.example.inchat.ui.components.CompactSearchField
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
@@ -197,18 +192,6 @@ fun HomeScreen(
         mutableStateOf(false)
     }
 
-    var isSelectionMode by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    var selectedChatIds by remember {
-        mutableStateOf<Set<String>>(emptySet())
-    }
-
-    var showBulkDeleteConfirmation by rememberSaveable {
-        mutableStateOf(false)
-    }
-
     var actionMessage by
     remember {
         mutableStateOf<String?>(
@@ -321,45 +304,6 @@ fun HomeScreen(
             conversationsMatchingInboxFilter.filter { it.isHidden }
         }
 
-    // Selection is limited to rows currently shown in this inbox view.
-    // Hidden chats become selectable when their section is expanded.
-    val selectableConversations = remember(
-        visibleFilteredConversations,
-        hiddenFilteredConversations,
-        showHiddenChats
-    ) {
-        visibleFilteredConversations +
-            if (showHiddenChats) hiddenFilteredConversations else emptyList()
-    }
-    val selectableChatIds = remember(selectableConversations) {
-        selectableConversations.mapTo(linkedSetOf()) { it.chatId }
-    }
-    val selectedConversations = remember(conversations, selectedChatIds) {
-        conversations.filter { it.chatId in selectedChatIds }
-    }
-    val allVisibleChatsSelected = selectableChatIds.isNotEmpty() &&
-        selectableChatIds.all { it in selectedChatIds }
-
-    LaunchedEffect(selectableChatIds) {
-        selectedChatIds = selectedChatIds.intersect(selectableChatIds)
-    }
-
-    val exitSelection: () -> Unit = {
-        isSelectionMode = false
-        selectedChatIds = emptySet()
-    }
-    val toggleConversationSelection: (String) -> Unit = { chatId ->
-        selectedChatIds = if (chatId in selectedChatIds) {
-            selectedChatIds - chatId
-        } else {
-            selectedChatIds + chatId
-        }
-    }
-
-    BackHandler(enabled = isSelectionMode) {
-        exitSelection()
-    }
-
     /*
      * =========================================================
      * ACTION MESSAGE
@@ -377,33 +321,6 @@ fun HomeScreen(
             onDismiss = { actionMessage = null }
         )
     }
-
-    if (showBulkDeleteConfirmation) {
-        val selectedCount = selectedConversations.size
-        InChatActionDialog(
-            title = if (selectedCount == 1) "Delete this chat?" else "Delete $selectedCount chats?",
-            description = "Selected chats will be removed from your inbox. Deleting a group chat also removes your membership.",
-            confirmLabel = "Delete",
-            confirmIcon = Icons.Outlined.DeleteOutline,
-            confirmDestructive = true,
-            onConfirm = {
-                val conversationsToDelete = selectedConversations.toList()
-                showBulkDeleteConfirmation = false
-                exitSelection()
-                conversationsToDelete.forEach { conversation ->
-                    homeViewModel.deleteConversation(
-                        currentUserId = currentUserId,
-                        chatId = conversation.chatId,
-                        chatType = conversation.chatType
-                    ) { success, error ->
-                        if (!success) actionMessage = error ?: "Could not delete chat."
-                    }
-                }
-            },
-            onDismiss = { showBulkDeleteConfirmation = false }
-        )
-    }
-
     /*
      * =========================================================
      * HOME
@@ -430,24 +347,7 @@ fun HomeScreen(
                     )
         ) {
 
-            HomeHeader(
-                selectionMode = isSelectionMode,
-                selectedCount = selectedChatIds.size,
-                canSelect = conversations.isNotEmpty(),
-                allSelected = allVisibleChatsSelected,
-                hasSelectableChats = selectableChatIds.isNotEmpty(),
-                onEditClick = {
-                    selectedConversation = null
-                    pendingDeleteConversation = null
-                    selectedChatIds = emptySet()
-                    isSelectionMode = true
-                },
-                onCancelSelection = exitSelection,
-                onSelectAll = {
-                    selectedChatIds = if (allVisibleChatsSelected) emptySet() else selectableChatIds
-                },
-                onNewChatClick = { showNewChatOptions = true }
-            )
+            HomeHeader(onNewChatClick = { showNewChatOptions = true })
 
             HomeSearchBar(
 
@@ -508,7 +408,7 @@ fun HomeScreen(
 
                     modifier =
                         Modifier
-                            .weight(1f),
+                            .fillMaxSize(),
 
                     contentPadding =
                         PaddingValues(
@@ -547,27 +447,17 @@ fun HomeScreen(
                             homeViewModel = homeViewModel,
                             userRepository = userRepository,
                             currentUserId = currentUserId,
-                            isSelectionMode = isSelectionMode,
-                            isSelected = conversation.chatId in selectedChatIds,
                             onClick = {
-                                if (isSelectionMode) {
-                                    toggleConversationSelection(conversation.chatId)
-                                } else {
-                                    pendingDeleteConversation = null
-                                    selectedConversation = null
-                                    onConversationClick(conversation)
-                                }
+                                pendingDeleteConversation = null
+                                selectedConversation = null
+                                onConversationClick(conversation)
                             },
                             onLongClick = {
-                                if (isSelectionMode) {
-                                    toggleConversationSelection(conversation.chatId)
-                                } else {
-                                    pendingDeleteConversation = null
-                                    actionPopupOnLeft = kotlin.random.Random.nextBoolean()
-                                    selectedConversation = conversation
-                                }
+                                pendingDeleteConversation = null
+                                actionPopupOnLeft = kotlin.random.Random.nextBoolean()
+                                selectedConversation = conversation
                             },
-                            showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
+                            showActions = selectedConversation?.chatId == conversation.chatId,
                             popupOnLeft = actionPopupOnLeft,
                             onDismissActions = {
                                 pendingDeleteConversation = null
@@ -655,31 +545,21 @@ fun HomeScreen(
                         }
                             ) { conversation ->
                                 ConversationItem(
-                            conversation = conversation,
-                            homeViewModel = homeViewModel,
-                            userRepository = userRepository,
-                            currentUserId = currentUserId,
-                            isSelectionMode = isSelectionMode,
-                            isSelected = conversation.chatId in selectedChatIds,
-                            onClick = {
-                                if (isSelectionMode) {
-                                    toggleConversationSelection(conversation.chatId)
-                                } else {
-                                    pendingDeleteConversation = null
-                                    selectedConversation = null
-                                    onConversationClick(conversation)
-                                }
-                            },
-                            onLongClick = {
-                                if (isSelectionMode) {
-                                    toggleConversationSelection(conversation.chatId)
-                                } else {
-                                    pendingDeleteConversation = null
-                                    actionPopupOnLeft = kotlin.random.Random.nextBoolean()
-                                    selectedConversation = conversation
-                                }
-                            },
-                            showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
+                                    conversation = conversation,
+                                    homeViewModel = homeViewModel,
+                                    userRepository = userRepository,
+                                    currentUserId = currentUserId,
+                                    onClick = {
+                                        pendingDeleteConversation = null
+                                        selectedConversation = null
+                                        onConversationClick(conversation)
+                                    },
+                                    onLongClick = {
+                                        pendingDeleteConversation = null
+                                        actionPopupOnLeft = kotlin.random.Random.nextBoolean()
+                                        selectedConversation = conversation
+                                    },
+                                    showActions = selectedConversation?.chatId == conversation.chatId,
                                     popupOnLeft = actionPopupOnLeft,
                                     onDismissActions = {
                                         pendingDeleteConversation = null
@@ -740,52 +620,6 @@ fun HomeScreen(
                         }
                     }
                 }
-            }
-
-            if (isSelectionMode) {
-                val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
-                    selectedConversations.all { it.isHidden }
-                val allSelectedAreFavorite = selectedConversations.isNotEmpty() &&
-                    selectedConversations.all { it.isFavorite }
-
-                BulkSelectionBar(
-                    enabled = selectedConversations.isNotEmpty(),
-                    hideLabel = if (allSelectedAreHidden) "Show" else "Hide",
-                    favoriteLabel = if (allSelectedAreFavorite) "Unfavorite" else "Favorite",
-                    onToggleHidden = {
-                        val conversationsToUpdate = selectedConversations.toList()
-                        val shouldHide = conversationsToUpdate.any { !it.isHidden }
-                        exitSelection()
-                        conversationsToUpdate.forEach { conversation ->
-                            if (conversation.isHidden != shouldHide) {
-                                homeViewModel.setConversationHidden(
-                                    currentUserId = currentUserId,
-                                    chatId = conversation.chatId,
-                                    hidden = shouldHide
-                                ) { success, error ->
-                                    if (!success) actionMessage = error ?: "Could not update hidden chats."
-                                }
-                            }
-                        }
-                    },
-                    onToggleFavorite = {
-                        val conversationsToUpdate = selectedConversations.toList()
-                        val shouldFavorite = conversationsToUpdate.any { !it.isFavorite }
-                        exitSelection()
-                        conversationsToUpdate.forEach { conversation ->
-                            if (conversation.isFavorite != shouldFavorite) {
-                                homeViewModel.setConversationFavorite(
-                                    currentUserId = currentUserId,
-                                    chatId = conversation.chatId,
-                                    favorite = shouldFavorite
-                                ) { success, error ->
-                                    if (!success) actionMessage = error ?: "Could not update favorites."
-                                }
-                            }
-                        }
-                    },
-                    onDelete = { showBulkDeleteConfirmation = true }
-                )
             }
         }
     }
@@ -921,193 +755,58 @@ private fun NewChatOptionRow(
  */
 @Composable
 private fun HomeHeader(
-    selectionMode: Boolean,
-    selectedCount: Int,
-    canSelect: Boolean,
-    allSelected: Boolean,
-    hasSelectableChats: Boolean,
-    onEditClick: () -> Unit,
-    onCancelSelection: () -> Unit,
-    onSelectAll: () -> Unit,
     onNewChatClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, top = 18.dp, end = 14.dp, bottom = 14.dp),
+            .padding(start = 22.dp, top = 22.dp, end = 20.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (selectionMode) {
-            TextButton(
-                onClick = onCancelSelection,
-                modifier = Modifier.width(76.dp),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
-            ) {
-                Text("Cancel", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-            }
+        Text(
+            text = "Messages",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontSize = 27.sp,
+                lineHeight = 32.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f)
+        )
 
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+        ) {
+            IconButton(
+                onClick = onNewChatClick,
+                modifier = Modifier.size(42.dp)
             ) {
-                Text(
-                    text = "$selectedCount Selected",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            TextButton(
-                onClick = onSelectAll,
-                enabled = hasSelectableChats,
-                modifier = Modifier.width(92.dp),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = if (allSelected) "Deselect All" else "Select All",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1
-                )
-            }
-        } else {
-            TextButton(
-                onClick = onEditClick,
-                enabled = canSelect,
-                modifier = Modifier.width(64.dp),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
-            ) {
-                Text("Edit", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-            }
-
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Messages",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontSize = 27.sp,
-                        lineHeight = 32.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                IconButton(
-                    onClick = onNewChatClick,
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    val plusColor = MaterialTheme.colorScheme.onPrimary
-                    Canvas(modifier = Modifier.size(18.dp)) {
-                        val arm = 6.5.dp.toPx()
-                        val centerX = size.width / 2f
-                        val centerY = size.height / 2f
-                        val stroke = 2.dp.toPx()
-                        drawLine(
-                            color = plusColor,
-                            start = Offset(centerX - arm, centerY),
-                            end = Offset(centerX + arm, centerY),
-                            strokeWidth = stroke,
-                            cap = StrokeCap.Round
-                        )
-                        drawLine(
-                            color = plusColor,
-                            start = Offset(centerX, centerY - arm),
-                            end = Offset(centerX, centerY + arm),
-                            strokeWidth = stroke,
-                            cap = StrokeCap.Round
-                        )
-                    }
+                val plusColor = MaterialTheme.colorScheme.onPrimary
+                Canvas(modifier = Modifier.size(18.dp)) {
+                    val arm = 6.5.dp.toPx()
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val stroke = 2.dp.toPx()
+                    drawLine(
+                        color = plusColor,
+                        start = Offset(centerX - arm, centerY),
+                        end = Offset(centerX + arm, centerY),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = plusColor,
+                        start = Offset(centerX, centerY - arm),
+                        end = Offset(centerX, centerY + arm),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
                 }
             }
         }
     }
 }
-
-@Composable
-private fun BulkSelectionBar(
-    enabled: Boolean,
-    hideLabel: String,
-    favoriteLabel: String,
-    onToggleHidden: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background,
-        border = BorderStroke(
-            width = 0.7.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            TextButton(
-                onClick = onToggleHidden,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 9.dp)
-            ) {
-                Icon(
-                    imageVector = if (hideLabel == "Show") Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                    contentDescription = null,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(hideLabel, fontSize = 12.sp, maxLines = 1)
-            }
-
-            TextButton(
-                onClick = onToggleFavorite,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 9.dp)
-            ) {
-                Icon(
-                    imageVector = if (favoriteLabel == "Unfavorite") Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = null,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(favoriteLabel, fontSize = 12.sp, maxLines = 1)
-            }
-
-            TextButton(
-                onClick = onDelete,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 9.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.DeleteOutline,
-                    contentDescription = null,
-                    modifier = Modifier.size(17.dp),
-                    tint = MaterialTheme.colorScheme.error
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "Delete",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
 /*
  * ============================================================
  * SEARCH BAR
@@ -1834,8 +1533,6 @@ private fun ConversationItem(
     homeViewModel: HomeViewModel,
     userRepository: UserRepository,
     currentUserId: String,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     showActions: Boolean,
@@ -1959,23 +1656,19 @@ private fun ConversationItem(
                 .padding(horizontal = 16.dp, vertical = 3.dp)
                 .combinedClickable(
                     interactionSource = null,
-                    indication = LocalIndication.current,
+                    indication = null,
                     onClick = onClick,
                     onLongClick = onLongClick
                 ),
             shape = RoundedCornerShape(18.dp),
-            color = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f)
-            } else if (hasUnread) {
+            color = if (hasUnread) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
             } else {
                 MaterialTheme.colorScheme.surface
             },
             border = BorderStroke(
                 width = 0.75.dp,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.74f)
-                } else if (hasUnread) {
+                color = if (hasUnread) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                 } else {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
@@ -1988,46 +1681,6 @@ private fun ConversationItem(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AnimatedVisibility(
-                    visible = isSelectionMode,
-                    enter = fadeIn(animationSpec = tween(130)) +
-                        scaleIn(initialScale = 0.72f, animationSpec = tween(160)),
-                    exit = fadeOut(animationSpec = tween(110)) +
-                        scaleOut(targetScale = 0.72f, animationSpec = tween(120))
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(25.dp),
-                            shape = CircleShape,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            border = BorderStroke(
-                                width = 1.25.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.82f)
-                                }
-                            )
-                        ) {
-                            if (isSelected) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        modifier = Modifier.size(15.dp),
-                                        tint = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.width(9.dp))
-                    }
-                }
-
                 Box(
                     modifier = Modifier
                         .size(48.dp)
