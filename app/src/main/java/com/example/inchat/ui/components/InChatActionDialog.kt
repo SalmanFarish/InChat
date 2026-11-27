@@ -52,6 +52,9 @@ fun InChatActionDialog(
     titleIcon: ImageVector? = null,
     confirmEnabled: Boolean = true,
     dismissEnabled: Boolean = true,
+    confirmDestructive: Boolean = true,
+    showCancel: Boolean = true,
+    cancelLabel: String = "Cancel",
     isLoading: Boolean = false,
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -122,18 +125,20 @@ fun InChatActionDialog(
 
                     content()
 
-                    ActionDialogRow(
-                        icon = Icons.Default.Clear,
-                        title = "Cancel",
-                        destructive = true,
-                        enabled = dismissEnabled,
-                        onClick = onDismiss
-                    )
+                    if (showCancel) {
+                        ActionDialogRow(
+                            icon = Icons.Default.Clear,
+                            title = cancelLabel,
+                            destructive = true,
+                            enabled = dismissEnabled,
+                            onClick = onDismiss
+                        )
+                    }
 
                     ActionDialogRow(
                         icon = confirmIcon,
                         title = confirmLabel,
-                        destructive = true,
+                        destructive = confirmDestructive,
                         enabled = confirmEnabled && !isLoading,
                         loading = isLoading,
                         onClick = onConfirm
