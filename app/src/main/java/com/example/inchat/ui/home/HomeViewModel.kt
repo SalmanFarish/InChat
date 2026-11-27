@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -329,15 +331,20 @@ class HomeViewModel : ViewModel() {
             return flowOf(null)
         }
 
-        return if (conversation.chatType == "group") {
-            observeGroupLocalPreview(currentUserId, conversation.chatId)
-        } else {
-            observeDirectLocalPreview(
-                currentUserId = currentUserId,
-                conversationId = conversation.chatId,
-                peerUserId = conversation.otherUserId
-            )
-        }
+        // Defer repository construction until collection so a short-lived auth
+        // transition cannot throw synchronously while a LazyColumn row composes.
+        return flow {
+            val source = if (conversation.chatType == "group") {
+                observeGroupLocalPreview(currentUserId, conversation.chatId)
+            } else {
+                observeDirectLocalPreview(
+                    currentUserId = currentUserId,
+                    conversationId = conversation.chatId,
+                    peerUserId = conversation.otherUserId
+                )
+            }
+            emitAll(source)
+        }.catch { emit(null) }.distinctUntilChanged()
     }
 
     private fun observeDirectLocalPreview(
@@ -347,6 +354,11 @@ class HomeViewModel : ViewModel() {
     ): Flow<LocalConversationPreview?> {
         if (peerUserId.isBlank()) return flowOf(null)
 
+        // Preserve the latest legacy message already cached on this device.
+        // ChatRepository applies the same per-user clear/hide visibility rules
+        // used by the chat timeline. New E2EE records always take precedence.
+        val legacyMessages = chatRepository.getMessagesFlow(conversationId)
+            .catch { emit(emptyList()) }
         val committedMessages = encryptedOlmMessageRepository
             .observeMessages(currentUserId, conversationId)
             .catch { emit(emptyList()) }
@@ -358,13 +370,19 @@ class HomeViewModel : ViewModel() {
             )
             .catch { emit(emptyList()) }
 
-        return combine(committedMessages, pendingMessages) { committed, pending ->
+        return combine(legacyMessages, committedMessages, pendingMessages) { legacy, committed, pending ->
+            val protectedIds = committed.mapTo(mutableSetOf()) { it.messageId } +
+                pending.map { it.messageId }
+            val legacyPreview = legacy.asSequence()
+                .filterNot { it.id in protectedIds }
+                .maxByOrNull { it.timestamp }
+                ?.let { LocalConversationPreview(it.text, it.senderId, it.timestamp) }
             val committedPreview = committed.maxByOrNull { it.sentAtMillis }
                 ?.let { LocalConversationPreview(it.text, it.senderUserId, it.sentAtMillis) }
             val pendingPreview = pending.maxByOrNull { it.sentAtMillis }
                 ?.let { LocalConversationPreview(it.plaintext, currentUserId, it.sentAtMillis) }
 
-            newestPreview(committedPreview, pendingPreview)
+            newestPreview(legacyPreview, newestPreview(committedPreview, pendingPreview))
         }.distinctUntilChanged()
     }
 
@@ -383,6 +401,10 @@ class HomeViewModel : ViewModel() {
                 initialValue = null
             )
 
+        // Legacy group messages already cached by the chat timeline remain a
+        // valid local preview source. E2EE content below stays membership-gated.
+        val legacyMessages = chatRepository.getMessagesFlow(groupId)
+            .catch { emit(emptyList()) }
         val committedMessages = encryptedGroupMessageRepository
             .observeMessagesForMember(
                 ownerUserId = currentUserId,
@@ -396,25 +418,34 @@ class HomeViewModel : ViewModel() {
 
         return combine(
             membershipSnapshots,
+            legacyMessages,
             committedMessages,
             pendingMessages
-        ) { membership, committed, pending ->
-            val canViewMessages = membership?.let {
+        ) { membership, legacy, committed, pending ->
+            val canViewEncryptedMessages = membership?.let {
                 it.isValid() &&
                     it.groupId == groupId &&
                     currentUserId in it.memberUserIds
             } == true
 
-            if (!canViewMessages) {
-                null
-            } else {
+            val protectedIds = committed.mapTo(mutableSetOf()) { it.messageId } +
+                pending.map { it.messageId }
+            val legacyPreview = legacy.asSequence()
+                .filterNot { it.id in protectedIds }
+                .maxByOrNull { it.timestamp }
+                ?.let { LocalConversationPreview(it.text, it.senderId, it.timestamp) }
+
+            val encryptedPreview = if (canViewEncryptedMessages) {
                 val committedPreview = committed.maxByOrNull { it.sentAtMillis }
                     ?.let { LocalConversationPreview(it.text, it.senderUserId, it.sentAtMillis) }
                 val pendingPreview = pending.maxByOrNull { it.sentAtMillis }
                     ?.let { LocalConversationPreview(it.plaintext, currentUserId, it.sentAtMillis) }
-
                 newestPreview(committedPreview, pendingPreview)
+            } else {
+                null
             }
+
+            newestPreview(legacyPreview, encryptedPreview)
         }.distinctUntilChanged()
     }
 
