@@ -1,5 +1,7 @@
 package com.example.inchat.ui.settings
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -497,6 +499,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(14.dp))
 
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = newPassword,
                         onValueChange = {
                             newPassword = it
@@ -541,6 +544,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(10.dp))
 
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = confirmNewPassword,
                         onValueChange = {
                             confirmNewPassword = it
@@ -746,6 +750,7 @@ fun SettingsScreen(
                         )
                     } else {
                         OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                             value = deletePassword,
                             onValueChange = {
                                 deletePassword = it
