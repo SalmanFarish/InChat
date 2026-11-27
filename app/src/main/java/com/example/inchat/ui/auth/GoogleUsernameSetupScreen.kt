@@ -1,5 +1,7 @@
 package com.example.inchat.ui.auth
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -117,6 +119,7 @@ fun GoogleUsernameSetupScreen(
             )
 
             OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                 value =
                     username,
 
