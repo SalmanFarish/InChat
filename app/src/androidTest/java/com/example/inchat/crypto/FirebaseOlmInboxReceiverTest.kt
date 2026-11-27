@@ -306,19 +306,24 @@ class FirebaseOlmInboxReceiverTest {
             )
             val transport = FakeTransport(
                 items = mutableListOf(first, second),
-                failFirstRemoval = true,
+                failRemovalForDeliveryId = first.deliveryId,
             )
             val ledger = OlmInboundDeliveryLedger(db.olmInboundReceiptDao(), "recipient", "receiver-device")
             val receiver = FirebaseOlmInboxReceiver(transport, ledger, "receiver-device", clock = { 500L })
 
             assertTrue(runCatching { receiver.receivePending() }.isFailure)
-            assertEquals("Only the failed first delivery should remain", listOf(first), transport.items)
-            assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals("Only the delivery with the injected removal failure should remain", listOf(first), transport.items)
+            assertEquals(
+                listOf(first.deliveryId, second.deliveryId).sorted(),
+                transport.acknowledgedDeliveryIds.sorted(),
+            )
+            assertEquals(listOf(second.deliveryId), transport.removedDeliveryIds)
 
             val retry = receiver.receivePending()
             assertEquals(0, retry.stored)
             assertEquals(1, retry.alreadyPending)
-            assertEquals(listOf(first.deliveryId, second.deliveryId), transport.acknowledgedDeliveryIds)
+            assertEquals(listOf(first.deliveryId, second.deliveryId).sorted(), transport.acknowledgedDeliveryIds.sorted())
+            assertEquals(listOf(second.deliveryId, first.deliveryId), transport.removedDeliveryIds)
             assertTrue(transport.items.isEmpty())
             assertEquals(
                 OlmInboundRegistration.PENDING_RETRY,
@@ -523,11 +528,30 @@ class FirebaseOlmInboxReceiverTest {
             val second = FirebaseOlmInboxItem(
                 "4".repeat(64), "alice", "sender-device", "message-concurrent-2", envelope(2),
             )
+            val ledger = OlmInboundDeliveryLedger(
+                db.olmInboundReceiptDao(),
+                "recipient",
+                "receiver-device",
+            )
             val bothAcknowledgementsStarted = CompletableDeferred<Unit>()
             val acknowledgementCount = AtomicInteger()
+            val durableBeforeAcknowledgementCount = AtomicInteger()
             val transport = FakeTransport(
                 items = mutableListOf(first, second),
-                beforeAcknowledgement = {
+                beforeAcknowledgement = { item ->
+                    // An ACK must never begin until this exact ciphertext has a
+                    // durable Room receipt. PENDING_RETRY proves registration
+                    // completed before the network handoff started.
+                    assertEquals(
+                        OlmInboundRegistration.PENDING_RETRY,
+                        ledger.register(
+                            senderUserId = item.senderUid,
+                            messageId = item.messageId,
+                            encodedEnvelope = item.envelope,
+                            receivedAtMillis = 600L,
+                        ),
+                    )
+                    durableBeforeAcknowledgementCount.incrementAndGet()
                     if (acknowledgementCount.incrementAndGet() == 2) {
                         bothAcknowledgementsStarted.complete(Unit)
                     }
@@ -535,11 +559,6 @@ class FirebaseOlmInboxReceiverTest {
                     // network ACK could not finish until a second ACK also started.
                     withTimeout(2_000L) { bothAcknowledgementsStarted.await() }
                 },
-            )
-            val ledger = OlmInboundDeliveryLedger(
-                db.olmInboundReceiptDao(),
-                "recipient",
-                "receiver-device",
             )
             val receiver = FirebaseOlmInboxReceiver(
                 transport = transport,
@@ -554,6 +573,7 @@ class FirebaseOlmInboxReceiverTest {
             assertEquals(0, result.conflicts)
             assertEquals(0, result.alreadyPending)
             assertEquals(2, acknowledgementCount.get())
+            assertEquals(2, durableBeforeAcknowledgementCount.get())
             assertEquals(
                 listOf(first.deliveryId, second.deliveryId).sorted(),
                 transport.acknowledgedDeliveryIds.sorted(),
@@ -582,6 +602,7 @@ class FirebaseOlmInboxReceiverTest {
         private var failFirstRemoval: Boolean = false,
         private var failFirstAcknowledgement: Boolean = false,
         private var failFirstRemovalAfterCommit: Boolean = false,
+        private var failRemovalForDeliveryId: String? = null,
         private val beforeAcknowledgement: suspend (FirebaseOlmInboxItem) -> Unit = {},
     ) : OlmInboxTransport {
         val acknowledgementAttempts = mutableListOf<String>()
@@ -608,6 +629,10 @@ class FirebaseOlmInboxReceiverTest {
         }
 
         override suspend fun removeFromMyDeviceInbox(deviceId: String, deliveryId: String) {
+            if (deliveryId == failRemovalForDeliveryId) {
+                failRemovalForDeliveryId = null
+                throw IllegalStateException("temporary acknowledgement failure for delivery $deliveryId")
+            }
             if (failFirstRemoval) {
                 failFirstRemoval = false
                 throw IllegalStateException("temporary acknowledgement failure")
