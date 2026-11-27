@@ -733,26 +733,56 @@ fun SettingsScreen(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!deleteLoading) {
-                    showDeleteDialog = false
-                    deletePassword = ""
-                    deleteError = null
+        InChatActionDialog(
+            title = "Delete account?",
+            description = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
+            titleIcon = Icons.Outlined.DeleteForever,
+            confirmLabel = "Delete account",
+            confirmIcon = Icons.Outlined.DeleteForever,
+            confirmEnabled = !deleteLoading &&
+                (isGoogleAccount || deletePassword.isNotBlank()),
+            dismissEnabled = !deleteLoading,
+            isLoading = deleteLoading,
+            onConfirm = {
+                deleteLoading = true
+                deleteError = null
+
+                if (isGoogleAccount) {
+                    coroutineScope.launch {
+                        try {
+                            val idToken = GoogleSignInHelper.getIdToken(context)
+                            authViewModel.deleteAccountWithGoogle(idToken) { success, error ->
+                                deleteLoading = false
+                                if (success) {
+                                    showDeleteDialog = false
+                                } else {
+                                    deleteError = error ?: "Could not delete your account."
+                                }
+                            }
+                        } catch (e: Exception) {
+                            deleteLoading = false
+                            deleteError = e.message ?: "Google confirmation failed."
+                        }
+                    }
+                } else {
+                    authViewModel.deleteAccount(password = deletePassword) { success, error ->
+                        deleteLoading = false
+                        if (success) {
+                            showDeleteDialog = false
+                            deletePassword = ""
+                        } else {
+                            deleteError = error ?: "Could not delete your account."
+                        }
+                    }
                 }
             },
-            title = {
-                Text("Delete account?")
+            onDismiss = {
+                showDeleteDialog = false
+                deletePassword = ""
+                deleteError = null
             },
-            text = {
+            content = {
                 Column {
-                    Text(
-                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
                     Text(
                         text = "Groups with at least two members remaining stay active, with ownership transferred when needed. A two-person group is removed for everyone. One-to-one conversations remain in other participants' accounts.",
                         style = MaterialTheme.typography.bodySmall,
@@ -768,7 +798,7 @@ fun SettingsScreen(
                         )
                     } else {
                         OutlinedTextField(
-                        colors = inChatOutlinedTextFieldColors(),
+                            colors = inChatOutlinedTextFieldColors(),
                             value = deletePassword,
                             onValueChange = {
                                 deletePassword = it
@@ -791,75 +821,6 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.error
                         )
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleteLoading &&
-                        (isGoogleAccount || deletePassword.isNotBlank()),
-                    onClick = {
-                        deleteLoading = true
-                        deleteError = null
-
-                        if (isGoogleAccount) {
-                            coroutineScope.launch {
-                                try {
-                                    val idToken = GoogleSignInHelper.getIdToken(context)
-                                    authViewModel.deleteAccountWithGoogle(idToken) { success, error ->
-                                        deleteLoading = false
-
-                                        if (success) {
-                                            showDeleteDialog = false
-                                        } else {
-                                            deleteError = error
-                                                ?: "Could not delete your account."
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    deleteLoading = false
-                                    deleteError = e.message
-                                        ?: "Google confirmation failed."
-                                }
-                            }
-                        } else {
-                            authViewModel.deleteAccount(
-                                password = deletePassword
-                            ) { success, error ->
-                                deleteLoading = false
-
-                                if (success) {
-                                    showDeleteDialog = false
-                                    deletePassword = ""
-                                } else {
-                                    deleteError = error
-                                        ?: "Could not delete your account."
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    if (deleteLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-
-                    Text("Delete account")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !deleteLoading,
-                    onClick = {
-                        showDeleteDialog = false
-                        deletePassword = ""
-                        deleteError = null
-                    }
-                ) {
-                    Text("Cancel")
                 }
             }
         )
