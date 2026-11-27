@@ -86,13 +86,13 @@ fun GroupChatComposer(
         shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
                 shape = RoundedCornerShape(28.dp)
             )
-            .navigationBarsPadding()
     ) {
 
         Column {
