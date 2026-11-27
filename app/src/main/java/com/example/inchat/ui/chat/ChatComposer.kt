@@ -157,6 +157,8 @@ fun ChatComposer(
 
     Surface(
 
+        shape = RoundedCornerShape(28.dp),
+
         color =
             MaterialTheme
                 .colorScheme
@@ -400,9 +402,7 @@ fun ChatComposer(
                                 .bodyLarge
                                 .copy(
                                     color =
-                                        MaterialTheme
-                                            .colorScheme
-                                            .onSurfaceVariant
+                                        androidx.compose.ui.graphics.Color.White
                                 ),
 
                         cursorBrush =
