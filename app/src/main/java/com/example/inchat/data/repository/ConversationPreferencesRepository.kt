@@ -13,7 +13,8 @@ import kotlinx.coroutines.tasks.await
 data class ConversationPreference(
     val isPinned: Boolean = false,
     val isHidden: Boolean = false,
-    val clearedAt: Long = 0L
+    val clearedAt: Long = 0L,
+    val isFavorite: Boolean = false
 )
 
 /**
@@ -56,7 +57,9 @@ class ConversationPreferencesRepository {
                         isHidden = child.child("hidden")
                             .getValue(Boolean::class.java) ?: false,
                         clearedAt = child.child("clearedAt")
-                            .getValue(Long::class.java) ?: 0L
+                            .getValue(Long::class.java) ?: 0L,
+                        isFavorite = child.child("favorite")
+                            .getValue(Boolean::class.java) ?: false
                     )
                 }.toMap()
 
@@ -95,6 +98,17 @@ class ConversationPreferencesRepository {
         chatId = chatId,
         key = "hidden",
         value = hidden
+    )
+
+    suspend fun setFavorite(
+        currentUserId: String,
+        chatId: String,
+        favorite: Boolean
+    ): Result<Unit> = setPreference(
+        currentUserId = currentUserId,
+        chatId = chatId,
+        key = "favorite",
+        value = favorite
     )
 
     private suspend fun setPreference(
