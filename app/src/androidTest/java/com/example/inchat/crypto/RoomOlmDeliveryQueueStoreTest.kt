@@ -825,7 +825,7 @@ class RoomOlmDeliveryQueueStoreTest {
     }
 
     @Test
-    fun nextScheduledRetryUsesTheEarliestScopedQueuedRetryOrInFlightLease() {
+    fun nextScheduledRetryUsesTheEarliestScopedQueuedUploadedRetryOrInFlightLease() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "olm-queue-next-retry-time-test.db"
         context.deleteDatabase(name)
@@ -852,7 +852,8 @@ class RoomOlmDeliveryQueueStoreTest {
 
             assertEquals(1_100L, queue.nextScheduledRetryAtMillis("alice", "sender-device", 1_000L))
             assertEquals(3_000L, queue.nextScheduledRetryAtMillis("alice", "sender-device", 1_100L))
-            assertNull(queue.nextScheduledRetryAtMillis("alice", "sender-device", 3_000L))
+            assertEquals(601_000L, queue.nextScheduledRetryAtMillis("alice", "sender-device", 3_000L))
+            assertNull(queue.nextScheduledRetryAtMillis("alice", "sender-device", 601_000L))
             assertNull(queue.nextScheduledRetryAtMillis("alice", "another-device", 1_000L))
         } finally {
             db.close()
