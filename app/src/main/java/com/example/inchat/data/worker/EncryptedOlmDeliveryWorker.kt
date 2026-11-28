@@ -817,7 +817,7 @@ class EncryptedOlmDeliveryWorker(
                 .setInputData(data)
                 .addTag(WORK_TAG)
                 .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
 
             val workManager = WorkManager.getInstance(appContext)
@@ -844,7 +844,7 @@ class EncryptedOlmDeliveryWorker(
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 immediateWorkName(ownerUserId, senderDeviceId),
@@ -893,7 +893,7 @@ class EncryptedOlmDeliveryWorker(
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build(),
                 )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10L, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 immediateWorkName(ownerUserId, senderDeviceId),

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.inchat.crypto.CloudflareOlmEnvelopeTransport
 import com.example.inchat.crypto.DeviceIdentityRepository
+import com.example.inchat.crypto.isCommittedGroupDeliveryCurrent
 import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.MAX_OLM_DEVICE_DELIVERY_TARGETS
 import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
@@ -15,6 +16,7 @@ import com.example.inchat.crypto.RoomOlmDeliveryQueueStore
 import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.CloudflareWorkerConfig
+import com.example.inchat.data.repository.GroupChatRepository
 import com.google.firebase.auth.FirebaseAuth
 
 /**
@@ -168,4 +170,136 @@ internal object EncryptedOlmForegroundDeliveryDispatcher {
             )
         }
     }
+
+    /** Foreground upload for one durable group-key distribution; ACKs remain with WorkManager. */
+    suspend fun dispatchGroupKeyDistribution(
+        context: Context, ownerUserId: String, senderDeviceId: String,
+        groupId: String, distributionId: String, membershipEpoch: Long,
+    ): com.example.inchat.crypto.OlmDeliveryWorkerRunResult =
+        dispatchGroupScoped(context, ownerUserId, senderDeviceId, groupId, distributionId, membershipEpoch, true)
+
+    /** Foreground upload for the exact group ciphertext just committed to Room. */
+    suspend fun dispatchGroupMessage(
+        context: Context, ownerUserId: String, senderDeviceId: String,
+        groupId: String, messageId: String, membershipEpoch: Long,
+    ): com.example.inchat.crypto.OlmDeliveryWorkerRunResult =
+        dispatchGroupScoped(context, ownerUserId, senderDeviceId, groupId, messageId, membershipEpoch, false)
+
+    private suspend fun dispatchGroupScoped(
+        context: Context, ownerUserId: String, senderDeviceId: String,
+        groupId: String, messageId: String, membershipEpoch: Long, keyDistribution: Boolean,
+    ): com.example.inchat.crypto.OlmDeliveryWorkerRunResult {
+        require(USER_ID_PATTERN.matches(ownerUserId)) { "Sender account ID has an invalid format" }
+        require(DEVICE_ID_PATTERN.matches(senderDeviceId)) { "Sender device ID has an invalid format" }
+        require(MESSAGE_ID_PATTERN.matches(messageId)) { "Message ID has an invalid format" }
+        require(USER_ID_PATTERN.matches(groupId) && membershipEpoch > 0L) { "Group delivery scope is invalid" }
+
+        val appContext = context.applicationContext
+        val auth = FirebaseAuth.getInstance()
+        require(auth.currentUser?.uid == ownerUserId) { "Authenticated account changed before foreground group delivery" }
+        val identity = DeviceIdentityRepository(appContext)
+        require(identity.existingDeviceIdForDelivery() == senderDeviceId) {
+            "The active encrypted sender device changed before foreground group delivery"
+        }
+        require(auth.currentUser?.uid == ownerUserId) { "Authenticated account changed during foreground group delivery setup" }
+
+        val database = LocalChatDatabase.getInstance(appContext)
+        val dao = database.olmDeliveryQueueDao()
+        val queue = OlmDeliveryQueue(
+            RoomOlmDeliveryQueueStore(database, dao, database.encryptedOlmMessageDao()),
+        )
+        val trustRepository = TrustedDeviceRepository(appContext)
+        val firebaseTransport = FirebaseOlmEnvelopeTransport(
+            trustVerifier = trustRepository, expectedAuthenticatedUserId = ownerUserId,
+        )
+        val cloudflareTransport = CloudflareOlmEnvelopeTransport(
+            trustVerifier = trustRepository, expectedAuthenticatedUserId = ownerUserId,
+        )
+        val transport: OlmOutgoingDeliveryTransport = PartitionedOlmEnvelopeTransport(
+            firebase = firebaseTransport,
+            cloudflare = cloudflareTransport,
+            cloudflareDirectEnabled = CloudflareWorkerConfig.isDirectOlmMailboxEnabled,
+            cloudflareGroupEnabled = CloudflareWorkerConfig.isGroupOlmMailboxEnabled,
+        )
+        val metadataStore = database.olmGroupKeyDistributionMetadataStore()
+        val groupRepository = GroupChatRepository()
+        val runResult = OlmDeliveryWorkerRunner(
+            queue = queue,
+            transport = transport,
+            senderUserId = ownerUserId,
+            senderDeviceId = senderDeviceId,
+            maxDeliveriesPerRun = MAX_OLM_DEVICE_DELIVERY_TARGETS,
+            recordAcknowledgement = { _, _ -> /* Background worker owns ACK reconciliation. */ },
+            validateBeforeUpload = { delivery ->
+                val exactRow = delivery.messageId == messageId &&
+                    delivery.ownerUserId == ownerUserId &&
+                    delivery.senderDeviceId == senderDeviceId &&
+                    delivery.groupId == groupId &&
+                    delivery.membershipEpoch == membershipEpoch &&
+                    delivery.conversationId == groupId &&
+                    delivery.conversationPeerUserId == null
+                if (!exactRow || auth.currentUser?.uid != ownerUserId ||
+                    identity.existingDeviceIdForDelivery() != senderDeviceId
+                ) {
+                    false
+                } else {
+                    val membership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                        ?: throw IllegalStateException("Current group membership snapshot is unavailable for foreground delivery")
+                    val current = membership.isValid() && membership.groupId == groupId &&
+                        membership.epoch == membershipEpoch && ownerUserId in membership.memberUserIds &&
+                        delivery.recipientUserId in membership.memberUserIds
+                    if (!current) {
+                        false
+                    } else {
+                        val commits = dao.getOutgoingGroupCommitsForMessage(ownerUserId, senderDeviceId, messageId)
+                        if (keyDistribution) {
+                            val metadata = metadataStore.get(ownerUserId, senderDeviceId, messageId)
+                            commits.isEmpty() && metadata != null &&
+                                metadata.groupId == groupId && metadata.membershipEpoch == membershipEpoch
+                        } else {
+                            val commit = commits.singleOrNull()
+                            commit != null && commit.groupId == groupId &&
+                                commit.membershipEpoch == membershipEpoch &&
+                                isCommittedGroupDeliveryCurrent(
+                                    commit, delivery, ownerUserId, senderDeviceId, membership,
+                                )
+                        }
+                    }
+                }
+            },
+            syncEncryptedGroupPreview = { delivery ->
+                if (!keyDistribution && delivery.recipientUserId != ownerUserId) {
+                    EncryptedOlmMessagePreviewWorker.schedule(
+                        context = appContext, ownerUserId = ownerUserId, senderDeviceId = senderDeviceId,
+                        recipientUserId = delivery.recipientUserId, recipientDeviceId = delivery.recipientDeviceId,
+                        deliveryId = delivery.deliveryId, messageId = delivery.messageId,
+                        conversationId = requireNotNull(delivery.conversationId), conversationPeerUserId = null,
+                        groupId = groupId, membershipEpoch = membershipEpoch,
+                    )
+                }
+            },
+            notifyEncryptedRecipient = { delivery ->
+                EncryptedOlmMessageWakeWorker.schedule(
+                    context = appContext, ownerUserId = ownerUserId, senderDeviceId = senderDeviceId,
+                    recipientUserId = delivery.recipientUserId, recipientDeviceId = delivery.recipientDeviceId,
+                    deliveryId = delivery.deliveryId, messageId = delivery.messageId,
+                    conversationId = requireNotNull(delivery.conversationId),
+                    groupId = groupId, membershipEpoch = membershipEpoch, conversationPeerUserId = null,
+                )
+            },
+            onTiming = { stage, elapsedMillis ->
+                Log.i(TAG, "Foreground encrypted group " + stage + " duration ms=" + elapsedMillis)
+            },
+            messageIdFilter = messageId,
+            processAcknowledgements = false,
+        ).run()
+        Log.i(
+            TAG,
+            "Foreground group delivery complete: group=" + groupId + ", message=" + messageId +
+                ", keyDistribution=" + keyDistribution + ", uploaded=" + runResult.uploaded +
+                ", retryRequired=" + runResult.retryRequired,
+        )
+        return runResult
+    }
+
 }

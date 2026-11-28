@@ -618,6 +618,8 @@ class RoomOlmDeliveryQueueStoreTest {
                         prepared("alice-tablet", senderDevice).copy(recipientUserId = owner),
                         prepared("bob-phone", senderDevice),
                     ),
+                    groupId = "group-1",
+                    membershipEpoch = 7L,
                 ),
             )
             val metadata = OlmGroupKeyDistributionRecord(
@@ -688,6 +690,8 @@ class RoomOlmDeliveryQueueStoreTest {
                 "sender-device",
                 distributionId,
                 listOf(prepared("bob-phone")),
+                groupId = "group-1",
+                membershipEpoch = 7L,
             )
             val metadata = OlmGroupKeyDistributionRecord(
                 ownerUserId = "alice",
@@ -750,6 +754,8 @@ class RoomOlmDeliveryQueueStoreTest {
                 "sender-device",
                 distributionId,
                 listOf(prepared("mallory-phone")),
+                groupId = "group-1",
+                membershipEpoch = 7L,
             )
             val metadata = OlmGroupKeyDistributionRecord(
                 ownerUserId = "alice",

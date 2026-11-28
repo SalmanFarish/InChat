@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmForegroundDeliveryDispatcher
 import com.example.inchat.data.worker.EncryptedOlmInboxWorker
 import com.example.inchat.data.worker.FcmTokenRegistrationWorker
 import com.google.firebase.auth.FirebaseAuth
@@ -198,6 +199,39 @@ internal class MegolmGroupMessageSendCoordinatorFactory(
                 }.onFailure { error ->
                     Log.w("MegolmGroupSender", "Encrypted inbox and push registration could not be scheduled yet.", error)
                 }
+            },
+            dispatchGroupKeyDistributionImmediately = { groupId, distributionId, epoch ->
+                val owner = authenticatedUserId()
+                val senderDevice = localDeviceId()
+                try {
+                    val dispatchResult = EncryptedOlmForegroundDeliveryDispatcher.dispatchGroupKeyDistribution(
+                        context = appContext, ownerUserId = owner, senderDeviceId = senderDevice,
+                        groupId = groupId, distributionId = distributionId, membershipEpoch = epoch,
+                    )
+                    if (dispatchResult.retryRequired) Log.i("MegolmGroupSender", "Group-key foreground dispatch left retryable rows queued.")
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w("MegolmGroupSender", "Group-key foreground dispatch failed; WorkManager recovery remains scheduled.", error)
+                }
+            },
+            dispatchGroupMessageImmediately = { groupId, messageId, epoch ->
+                val owner = authenticatedUserId()
+                val senderDevice = localDeviceId()
+                try {
+                    val dispatchResult = EncryptedOlmForegroundDeliveryDispatcher.dispatchGroupMessage(
+                        context = appContext, ownerUserId = owner, senderDeviceId = senderDevice,
+                        groupId = groupId, messageId = messageId, membershipEpoch = epoch,
+                    )
+                    if (dispatchResult.retryRequired) Log.i("MegolmGroupSender", "Group-message foreground dispatch left retryable rows queued.")
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w("MegolmGroupSender", "Group-message foreground dispatch failed; WorkManager recovery remains scheduled.", error)
+                }
+            },
+            onTiming = { stage, elapsedMillis ->
+                Log.i("MegolmGroupSender", "Group send " + stage + " duration ms=" + elapsedMillis)
             },
         )
     }

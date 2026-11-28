@@ -126,13 +126,17 @@ internal class FirebaseOlmInboxReceiver(
             // Null rows are later mailbox sequences deliberately left remote
             // after an earlier local registration failure.
             val outcome = outcomeOrNull ?: continue
+            // ACK, wake-up, and remote-removal failures happen after the local
+            // receipt is durable. They must still escape this pass so the relay
+            // copy is retried instead of being mistaken for completed delivery.
+            if (firstFailure == null) firstFailure = outcome.failure
             when (outcome.registration) {
                 OlmInboundRegistration.NEW -> stored++
                 OlmInboundRegistration.PENDING_RETRY -> pending++
                 OlmInboundRegistration.DUPLICATE_PROCESSED -> processed++
                 OlmInboundRegistration.DUPLICATE_REJECTED -> rejected++
                 OlmInboundRegistration.CONFLICT -> conflicts++
-                null -> if (firstFailure == null) firstFailure = outcome.failure
+                null -> Unit
             }
         }
 

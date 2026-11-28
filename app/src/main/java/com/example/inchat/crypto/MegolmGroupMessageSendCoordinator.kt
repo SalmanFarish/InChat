@@ -90,6 +90,9 @@ internal class MegolmGroupMessageSendCoordinator(
     private val observeAcknowledgementCount: (String, String) -> Flow<Int> = { _, _ -> flowOf(0) },
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val ensureLocalDevicePublished: suspend () -> Unit = {},
+    private val dispatchGroupKeyDistributionImmediately: suspend (String, String, Long) -> Unit = { _, _, _ -> },
+    private val dispatchGroupMessageImmediately: suspend (String, String, Long) -> Unit = { _, _, _ -> },
+    private val onTiming: (String, Long) -> Unit = { _, _ -> },
 ) {
     /** Resume exact native-staged ciphertexts after process death; never re-encrypt. */
     suspend fun recoverPendingMessages(): Int = sendMutex.withLock {
@@ -127,7 +130,7 @@ internal class MegolmGroupMessageSendCoordinator(
         require(sentAtMillis >= 0L) { "Group message timestamp is invalid" }
 
         val requestedOwnerUid = authenticatedUserId()
-        ensureLocalDevicePublished()
+        measure("local_device_publication") { ensureLocalDevicePublished() }
         val ownerUid = authenticatedUserId()
         require(ownerUid == requestedOwnerUid) {
             "Authenticated account changed while preparing secure group messaging"
@@ -136,8 +139,10 @@ internal class MegolmGroupMessageSendCoordinator(
         require(ownerUid.matches(ID) && senderDevice.matches(DEVICE_ID)) {
             "Authenticated group sender identity is invalid"
         }
-        val membership = requireNotNull(membershipForGroup(groupId)) {
-            "Current E2EE group membership snapshot is unavailable"
+        val membership = measure("membership_snapshot") {
+            requireNotNull(membershipForGroup(groupId)) {
+                "Current E2EE group membership snapshot is unavailable"
+            }
         }
         require(membership.isValid() && membership.groupId == groupId) {
             "Current E2EE group membership snapshot is invalid"
@@ -146,12 +151,12 @@ internal class MegolmGroupMessageSendCoordinator(
             "Authenticated sender is no longer a group member"
         }
 
-        val trustedTargets = currentTrustedTargetDevices(membership)
+        val trustedTargets = measure("trusted_device_lookup") { currentTrustedTargetDevices(membership) }
         require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
             "Authenticated group sender identity changed during trusted-device lookup"
         }
         requireValidTargets(membership, ownerUid, senderDevice, trustedTargets)
-        val session = ensureOutboundSession(membership, trustedTargets)
+        val session = measure("megolm_session_prepare") { ensureOutboundSession(membership, trustedTargets) }
         require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
             "Authenticated group sender identity changed while preparing the outbound session"
         }
@@ -171,22 +176,17 @@ internal class MegolmGroupMessageSendCoordinator(
             megolmSessionId = session.sessionId,
         )
 
-        var state = evaluateKeyReadiness(
-            ownerUid,
-            senderDevice,
-            membership,
-            session.sessionId,
-        )
+        var state = measure("group_key_readiness") {
+            evaluateKeyReadiness(ownerUid, senderDevice, membership, session.sessionId)
+        }
         var newlyQueued = 0
         if (state is OlmGroupKeyDistributionReadinessState.Missing) {
             require(state.distributionId == distributionId) {
                 "Readiness lookup returned a different group-key distribution ID"
             }
-            val distributionResult = distributeKey(
-                groupId,
-                distributionId,
-                nowMillis().coerceAtLeast(0L),
-            )
+            val distributionResult = measure("group_key_prepare_and_queue") {
+                distributeKey(groupId, distributionId, nowMillis().coerceAtLeast(0L))
+            }
             require(
                 distributionResult.distributionId == distributionId &&
                     distributionResult.groupId == groupId &&
@@ -196,6 +196,11 @@ internal class MegolmGroupMessageSendCoordinator(
                 "Group-key distributor returned metadata for a different session"
             }
             newlyQueued = distributionResult.newlyQueuedDeliveryCount
+            // Attempt immediate delivery for the new key envelopes before checking
+            // readiness again. WorkManager remains the retry/ACK/recovery authority.
+            measure("foreground_group_key_delivery") {
+                dispatchGroupKeyDistributionImmediately(groupId, distributionId, membership.epoch)
+            }
 
             // Do not proceed using the pre-distribution snapshot if membership or
             // trust changed while key envelopes were being prepared and queued.
@@ -206,12 +211,9 @@ internal class MegolmGroupMessageSendCoordinator(
             require(currentTrustedTargetDevices(latestMembership) == trustedTargets) {
                 "Trusted group devices changed during key distribution"
             }
-            state = evaluateKeyReadiness(
-                ownerUid,
-                senderDevice,
-                latestMembership,
-                session.sessionId,
-            )
+            state = measure("group_key_readiness_after_foreground_delivery") {
+                evaluateKeyReadiness(ownerUid, senderDevice, latestMembership, session.sessionId)
+            }
         }
 
         when (state) {
@@ -257,13 +259,9 @@ internal class MegolmGroupMessageSendCoordinator(
                 require(authenticatedUserId() == ownerUid && localDeviceId() == senderDevice) {
                     "Authenticated group sender identity changed before encrypted message send"
                 }
-                val result = sendEncryptedMessage(
-                    latestMembership,
-                    messageId,
-                    plaintext,
-                    sentAtMillis,
-                    token,
-                )
+                val result = measure("group_message_encrypt_and_commit") {
+                    sendEncryptedMessage(latestMembership, messageId, plaintext, sentAtMillis, token)
+                }
                 require(
                     result.messageId == messageId &&
                         result.groupId == groupId &&
@@ -271,8 +269,21 @@ internal class MegolmGroupMessageSendCoordinator(
                 ) {
                     "Encrypted group sender returned a result for a different message or group"
                 }
+                measure("foreground_group_message_delivery") {
+                    dispatchGroupMessageImmediately(groupId, messageId, membership.epoch)
+                }
                 return MegolmGroupMessageSendOutcome.Queued(result)
             }
+        }
+    }
+
+    private suspend fun <T> measure(stage: String, operation: suspend () -> T): T {
+        val startedAtNanos = System.nanoTime()
+        return try {
+            operation()
+        } finally {
+            val elapsedMillis = ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+            runCatching { onTiming(stage, elapsedMillis) }
         }
     }
 
