@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -486,7 +487,8 @@ fun HomeScreen(
              * CONTENT
              * =================================================
              */
-            if (
+            Box(modifier = Modifier.weight(1f)) {
+                if (
                 !conversationsLoaded
             ) {
 
@@ -514,17 +516,12 @@ fun HomeScreen(
 
                 LazyColumn(
 
-                    modifier =
-                        if (isSelectionMode) {
-                            Modifier.weight(1f)
-                        } else {
-                            Modifier.fillMaxSize()
-                        },
+                    modifier = Modifier.fillMaxSize(),
 
                     contentPadding =
                         PaddingValues(
                             top = 2.dp,
-                            bottom = 24.dp
+                            bottom = if (isSelectionMode) 100.dp else 24.dp
                         ),
 
                     verticalArrangement =
@@ -773,6 +770,7 @@ fun HomeScreen(
 
             AnimatedVisibility(
                 visible = isSelectionMode,
+                modifier = Modifier.align(Alignment.BottomCenter),
                 // The same-size selection card replaces the dock. Animate the
                 // measured height so the home content never snaps to a new baseline.
                 enter = expandVertically(
@@ -834,6 +832,7 @@ fun HomeScreen(
                     }
                 )
             }
+        }
         }
     }
 
@@ -1652,7 +1651,9 @@ private fun ConversationActionsPopup(
             enter = fadeIn(animationSpec = InChatMotion.effects(155))
         ) {
         Surface(
-            modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
+            modifier = Modifier
+                .widthIn(min = 190.dp, max = 228.dp)
+                .heightIn(min = 260.dp),
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
