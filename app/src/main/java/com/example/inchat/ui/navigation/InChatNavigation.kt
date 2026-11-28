@@ -237,6 +237,13 @@ fun InChatApp(
 
     var backNavigationInProgress by remember { mutableStateOf(false) }
 
+    fun releaseBackNavigationLockAfterTransition() {
+        navigationScope.launch {
+            delay(700)
+            backNavigationInProgress = false
+        }
+    }
+
     /*
      * Keep the NavHost start destination alive and serialize Back navigation.
      * The guard remains active through the return transition, so a rapid
@@ -270,6 +277,8 @@ fun InChatApp(
             if (!navController.popBackStack()) {
                 backNavigationInProgress = false
                 context.findActivity()?.finish()
+            } else {
+                releaseBackNavigationLockAfterTransition()
             }
         }
     }
@@ -279,6 +288,8 @@ fun InChatApp(
         backNavigationInProgress = true
         if (!navController.popBackStack("home", false)) {
             backNavigationInProgress = false
+        } else {
+            releaseBackNavigationLockAfterTransition()
         }
     }
 
@@ -317,13 +328,6 @@ fun InChatApp(
                     bottomNavItems.lastIndex
                 )
             )
-        }
-
-        // Navigation transitions are short; keep duplicate Back presses
-        // blocked until the outgoing destination has fully settled.
-        if (backNavigationInProgress) {
-            delay(700)
-            backNavigationInProgress = false
         }
     }
 
