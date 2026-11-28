@@ -563,7 +563,7 @@ fun ReactionSummary(
                                 interactionSource =
                                     null,
                                 indication =
-                                    null,
+                                    LocalIndication.current,
                                 onClick = {
                                     onReactionClick(
                                         reaction
