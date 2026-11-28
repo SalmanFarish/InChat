@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
@@ -60,6 +62,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +102,7 @@ import com.example.inchat.ui.settings.SettingsScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
 import com.example.inchat.ui.theme.GoogleSansFlex
 import com.example.inchat.ui.theme.InChatMotion
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? = when (this) {
@@ -105,6 +110,9 @@ private fun Context.findActivity(): Activity? = when (this) {
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
+private fun isConversationRoute(route: String?): Boolean =
+    route?.startsWith("chat/") == true || route?.startsWith("group_chat/") == true
 
 data class NotificationChatTarget(
     val recipientUserId: String,
@@ -217,13 +225,22 @@ fun InChatApp(
             ?.route
 
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    fun dismissKeyboardBeforeOpeningConversation() {
+        // Search/new-message fields can remain focused while their destination
+        // is kept on the back stack. Clear that focus before mounting a composer.
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
 
     var backNavigationInProgress by remember { mutableStateOf(false) }
 
     /*
-     * Keep the NavHost start destination alive. A rapid second Back press
-     * after leaving a conversation must exit from Home, never pop Home itself
-     * and leave an empty NavHost (the black-screen failure).
+     * Keep the NavHost start destination alive and serialize Back navigation.
+     * The guard remains active through the return transition, so a rapid
+     * second press cannot immediately finish the Activity after a chat pop.
      */
     fun handleBack() {
         if (backNavigationInProgress) return
@@ -234,11 +251,16 @@ fun InChatApp(
                 pagerState.currentPage != 0 ||
                 pagerState.currentPageOffsetFraction != 0f
             ) {
+                backNavigationInProgress = true
                 navigationScope.launch {
-                    pagerState.animateScrollToPage(
-                        page = 0,
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                    try {
+                        pagerState.animateScrollToPage(
+                            page = 0,
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                    } finally {
+                        backNavigationInProgress = false
+                    }
                 }
             } else {
                 context.findActivity()?.finish()
@@ -266,19 +288,12 @@ fun InChatApp(
     LaunchedEffect(
         currentRoute
     ) {
-        backNavigationInProgress = false
         if (currentRoute != "home") {
             isHomeSelectionMode = false
         }
 
-        if (
-            currentRoute?.startsWith(
-                "chat/"
-            ) == true ||
-            currentRoute?.startsWith(
-                "group_chat/"
-            ) == true
-        ) {
+        if (isConversationRoute(currentRoute)) {
+            dismissKeyboardBeforeOpeningConversation()
             onChatOpened()
         }
 
@@ -288,13 +303,19 @@ fun InChatApp(
             pagerState.currentPageOffsetFraction !=
             0f
         ) {
-
             pagerState.scrollToPage(
                 pagerState.currentPage.coerceIn(
                     0,
                     bottomNavItems.lastIndex
                 )
             )
+        }
+
+        // Navigation transitions are short; keep duplicate Back presses
+        // blocked until the outgoing destination has fully settled.
+        if (backNavigationInProgress) {
+            delay(700)
+            backNavigationInProgress = false
         }
     }
 
@@ -323,6 +344,7 @@ fun InChatApp(
             return@LaunchedEffect
         }
 
+        dismissKeyboardBeforeOpeningConversation()
         if (target.isGroup) {
             navController.navigate(
                 "group_chat/${target.chatId}"
@@ -368,14 +390,20 @@ fun InChatApp(
         bottomBar = {
             AnimatedVisibility(
                 visible = showBottomBar && !isHomeSelectionMode,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
+                enter = expandVertically(
+                    expandFrom = Alignment.Bottom,
                     animationSpec = InChatMotion.navigationSpring()
-                ) + fadeIn(animationSpec = InChatMotion.effects(200)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
+                ) + slideInVertically(
+                    initialOffsetY = { it / 3 },
                     animationSpec = InChatMotion.navigationSpring()
-                ) + fadeOut(animationSpec = InChatMotion.effects(160))
+                ) + fadeIn(animationSpec = InChatMotion.effects(190)),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + slideOutVertically(
+                    targetOffsetY = { it / 3 },
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeOut(animationSpec = InChatMotion.effects(150))
             ) {
                 InChatBottomBar(
                     pagerState = pagerState,
@@ -404,46 +432,88 @@ fun InChatApp(
             // Short shared-axis movement plus a soft fade connects screens
             // without resizing or scaling the full content tree.
             enterTransition = {
-                fadeIn(animationSpec = InChatMotion.effects(220)) +
-                    slideInHorizontally(
-                        initialOffsetX = { width -> width / 14 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeIn(animationSpec = InChatMotion.effects(170))
+                } else {
+                    fadeIn(animationSpec = InChatMotion.effects(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { width -> width / 14 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
             exitTransition = {
-                fadeOut(animationSpec = InChatMotion.effects(155)) +
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> -width / 28 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeOut(animationSpec = InChatMotion.effects(145))
+                } else {
+                    fadeOut(animationSpec = InChatMotion.effects(155)) +
+                        slideOutHorizontally(
+                            targetOffsetX = { width -> -width / 28 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
             popEnterTransition = {
-                fadeIn(animationSpec = InChatMotion.effects(220)) +
-                    slideInHorizontally(
-                        initialOffsetX = { width -> -width / 14 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeIn(animationSpec = InChatMotion.effects(170))
+                } else {
+                    fadeIn(animationSpec = InChatMotion.effects(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { width -> -width / 14 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
             popExitTransition = {
-                fadeOut(animationSpec = InChatMotion.effects(155)) +
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> width / 28 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeOut(animationSpec = InChatMotion.effects(145))
+                } else {
+                    fadeOut(animationSpec = InChatMotion.effects(155)) +
+                        slideOutHorizontally(
+                            targetOffsetX = { width -> width / 28 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
             predictivePopEnterTransition = { _ ->
-                fadeIn(animationSpec = InChatMotion.effects(220)) +
-                    slideInHorizontally(
-                        initialOffsetX = { width -> -width / 14 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeIn(animationSpec = InChatMotion.effects(170))
+                } else {
+                    fadeIn(animationSpec = InChatMotion.effects(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { width -> -width / 14 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
             predictivePopExitTransition = { _ ->
-                fadeOut(animationSpec = InChatMotion.effects(155)) +
-                    slideOutHorizontally(
-                        targetOffsetX = { width -> width / 28 },
-                        animationSpec = InChatMotion.navigationSpring()
-                    )
+                if (
+                    isConversationRoute(initialState.destination.route) ||
+                    isConversationRoute(targetState.destination.route)
+                ) {
+                    fadeOut(animationSpec = InChatMotion.effects(145))
+                } else {
+                    fadeOut(animationSpec = InChatMotion.effects(155)) +
+                        slideOutHorizontally(
+                            targetOffsetX = { width -> width / 28 },
+                            animationSpec = InChatMotion.navigationSpring()
+                        )
+                }
             },
 
             modifier =
@@ -921,6 +991,7 @@ fun InChatApp(
                         navController.popBackStack()
                     },
                     onUserClick = { user ->
+                        dismissKeyboardBeforeOpeningConversation()
                         val encodedName = Uri.encode(user.username)
                         navController.navigate(
                             "chat/${user.uid}?otherUserNickname=$encodedName"
@@ -952,7 +1023,7 @@ fun InChatApp(
                     },
 
                     onGroupCreated = { groupId ->
-
+                        dismissKeyboardBeforeOpeningConversation()
                         navController.navigate(
                             "group_chat/" +
                                     groupId
@@ -1271,6 +1342,7 @@ private fun MainTabPager(
 
                     onConversationClick = {
                             conversation ->
+                        dismissKeyboardBeforeOpeningConversation()
 
                         if (
                             conversation.chatType ==
@@ -1457,7 +1529,7 @@ private fun InChatBottomBar(
                 bottomNavItems.forEachIndexed { index, item ->
                     BottomNavigationItem(
                         item = item,
-                        selected = pagerState.settledPage == index,
+                        selected = pagerState.targetPage == index,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxSize(),

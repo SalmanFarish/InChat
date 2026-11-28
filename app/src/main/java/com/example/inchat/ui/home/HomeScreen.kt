@@ -17,6 +17,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.spring
@@ -194,11 +196,6 @@ fun HomeScreen(
     var pendingDeleteConversation by remember {
         mutableStateOf<Conversation?>(null)
     }
-
-    var actionPopupOnLeft by remember {
-        mutableStateOf(false)
-    }
-
     var showHiddenChats by rememberSaveable {
         mutableStateOf(false)
     }
@@ -588,12 +585,10 @@ fun HomeScreen(
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
-                                    actionPopupOnLeft = kotlin.random.Random.nextBoolean()
                                     selectedConversation = conversation
                                 }
                             },
                             showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
-                            popupOnLeft = actionPopupOnLeft,
                             onDismissActions = {
                                 pendingDeleteConversation = null
                                 selectedConversation = null
@@ -711,12 +706,10 @@ fun HomeScreen(
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
-                                    actionPopupOnLeft = kotlin.random.Random.nextBoolean()
                                     selectedConversation = conversation
                                 }
                             },
                             showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
-                                    popupOnLeft = actionPopupOnLeft,
                                     onDismissActions = {
                                         pendingDeleteConversation = null
                                         selectedConversation = null
@@ -780,16 +773,16 @@ fun HomeScreen(
 
             AnimatedVisibility(
                 visible = isSelectionMode,
-                // Translate and fade only. Avoid animating layout size and scale
-                // together, which forces extra measurements as the dock changes.
-                enter = slideInVertically(
-                    initialOffsetY = { it / 3 },
+                // The same-size selection card replaces the dock. Animate the
+                // measured height so the home content never snaps to a new baseline.
+                enter = expandVertically(
+                    expandFrom = Alignment.Bottom,
                     animationSpec = InChatMotion.navigationSpring()
-                ) + fadeIn(animationSpec = InChatMotion.effects(190)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it / 3 },
+                ) + fadeIn(animationSpec = InChatMotion.effects(175)),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
                     animationSpec = InChatMotion.navigationSpring()
-                ) + fadeOut(animationSpec = InChatMotion.effects(150))
+                ) + fadeOut(animationSpec = InChatMotion.effects(145))
             ) {
                 val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
                     selectedConversations.all { it.isHidden }
@@ -1627,7 +1620,6 @@ private fun EmptyConversationState(
 @Composable
 private fun ConversationActionsPopup(
     conversation: Conversation,
-    popupOnLeft: Boolean,
     onDismiss: () -> Unit,
     onSelectChat: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -1639,9 +1631,8 @@ private fun ConversationActionsPopup(
     onDelete: () -> Unit
 ) {
     val density = LocalDensity.current
-    val positionProvider = remember(popupOnLeft, density) {
+    val positionProvider = remember(density) {
         ConversationActionsPopupPositionProvider(
-            preferLeft = popupOnLeft,
             edgeMarginPx = with(density) { 14.dp.roundToPx() }
         )
     }
@@ -1657,11 +1648,8 @@ private fun ConversationActionsPopup(
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = fadeIn(animationSpec = InChatMotion.effects(180)) +
-                scaleIn(
-                    initialScale = 0.96f,
-                    animationSpec = InChatMotion.navigationSpring()
-                )
+            // Keep the popup at a constant measured size while its alpha settles.
+            enter = fadeIn(animationSpec = InChatMotion.effects(155))
         ) {
         Surface(
             modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
@@ -1749,7 +1737,6 @@ private fun ConversationActionsPopup(
 }
 
 private class ConversationActionsPopupPositionProvider(
-    private val preferLeft: Boolean,
     private val edgeMarginPx: Int
 ) : PopupPositionProvider {
     override fun calculatePosition(
@@ -1760,7 +1747,8 @@ private class ConversationActionsPopupPositionProvider(
     ): IntOffset {
         val maxX = (windowSize.width - popupContentSize.width - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
-        val x = if (preferLeft) edgeMarginPx else maxX
+        val x = ((windowSize.width - popupContentSize.width) / 2)
+            .coerceIn(edgeMarginPx, maxX)
 
         val maxY = (windowSize.height - popupContentSize.height - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
@@ -1909,7 +1897,6 @@ private fun ConversationItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     showActions: Boolean,
-    popupOnLeft: Boolean,
     onDismissActions: () -> Unit,
     onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
@@ -2276,7 +2263,6 @@ private fun ConversationItem(
         if (showActions) {
             ConversationActionsPopup(
                 conversation = conversation,
-                popupOnLeft = popupOnLeft,
                 onDismiss = onDismissActions,
                 onSelectChat = onSelectChat,
                 onToggleFavorite = onToggleFavorite,
