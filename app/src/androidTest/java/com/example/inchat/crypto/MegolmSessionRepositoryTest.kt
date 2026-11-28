@@ -27,19 +27,23 @@ class MegolmSessionRepositoryTest {
         val suffix = UUID.randomUUID().toString().replace("-", "")
         val senderDeviceId = "megolm-sender-" + suffix
         val recipientDeviceId = "megolm-recipient-" + suffix
-        val sender = createIdentity(context, senderDeviceId)
-        val recipient = createIdentity(context, recipientDeviceId)
-        val membership = GroupCryptoMembershipSnapshot(
-            groupId = "megolm-e2e-group",
-            epoch = 7L,
-            members = mapOf(
-                "alice" to "admin",
-                "bob" to "member",
-            ),
-        )
-        val trustedTargets = setOf("bob" to recipientDeviceId)
-
+        val senderStore = CryptoStateStore(context, "device-$senderDeviceId")
+        val recipientStore = CryptoStateStore(context, "device-$recipientDeviceId")
         try {
+            senderStore.delete()
+            recipientStore.delete()
+            val sender = createIdentity(senderDeviceId, senderStore)
+            val recipient = createIdentity(recipientDeviceId, recipientStore)
+            val membership = GroupCryptoMembershipSnapshot(
+                groupId = "megolm-e2e-group",
+                epoch = 7L,
+                members = mapOf(
+                    "alice" to "admin",
+                    "bob" to "member",
+                ),
+            )
+            val trustedTargets = setOf("bob" to recipientDeviceId)
+
             val senderRepository = MegolmSessionRepository(
                 context = context,
                 identityRepository = sender.identity,
@@ -72,6 +76,10 @@ class MegolmSessionRepositoryTest {
                     expectedSessionId = outboundSession.sessionId,
                     sessionKey = exportedKey,
                 ),
+            )
+            assertTrue(
+                "The exported session-key buffer must be wiped after import",
+                exportedKey.all { it == 0.toByte() },
             )
 
             deliverAndFinalize(
@@ -117,8 +125,8 @@ class MegolmSessionRepositoryTest {
             assertTrue(restartedSenderRepository.pendingOutboundMessageIds().isEmpty())
             assertTrue(recipientRepository.pendingInboundDecryptionReceiptIds().isEmpty())
         } finally {
-            sender.store.delete()
-            recipient.store.delete()
+            senderStore.delete()
+            recipientStore.delete()
         }
     }
 
@@ -207,9 +215,7 @@ class MegolmSessionRepositoryTest {
         }
     }
 
-    private fun createIdentity(context: Context, deviceId: String): TestIdentity {
-        val store = CryptoStateStore(context, "device-$deviceId")
-        store.delete()
+    private fun createIdentity(deviceId: String, store: CryptoStateStore): TestIdentity {
         val encoded = store.withExclusiveAccess {
             NativeCryptoBridge.nativeEnsureDeviceIdentity(store, deviceId)
         } ?: error("Native identity setup failed for $deviceId")
@@ -218,7 +224,7 @@ class MegolmSessionRepositoryTest {
             override fun ensurePublicKeyBundle(): PublicDeviceKeyBundle = bundle
             override fun requireIdentityUsable() = Unit
         }
-        return TestIdentity(store, localIdentity)
+        return TestIdentity(localIdentity)
     }
 
     private fun parseBundle(encoded: String, expectedDeviceId: String): PublicDeviceKeyBundle {
@@ -257,7 +263,6 @@ class MegolmSessionRepositoryTest {
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private data class TestIdentity(
-        val store: CryptoStateStore,
         val identity: SasVerificationLocalIdentity,
     )
 }

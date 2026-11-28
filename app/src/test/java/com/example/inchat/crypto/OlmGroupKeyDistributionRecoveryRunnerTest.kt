@@ -707,6 +707,184 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertEquals(1, resumes.get())
     }
 
+    @Test
+    fun accountSwitchDuringEnvelopePreparationStopsBeforeTrustValidationOrQueueing() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("bob" to "bob-phone"),
+        ).toEntity()
+        var activeUserId = "alice"
+        var exports = 0
+        var preparations = 0
+        var trustValidations = 0
+        var resumes = 0
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = { activeUserId },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(
+                    expectedSessionId,
+                    snapshot.groupId,
+                    snapshot.epoch,
+                    created = false,
+                )
+            },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                exports++
+                ByteArray(32) { 8 }
+            },
+            prepareDistribution = { id, snapshot, session, _, _, _, _ ->
+                preparations++
+                assertEquals(distributionId, id)
+                assertEquals(membership, snapshot)
+                assertEquals(sessionId, session)
+                activeUserId = "mallory"
+                PreparedOlmGroupKeyDistribution(
+                    distributionId = id,
+                    groupId = snapshot.groupId,
+                    membershipEpoch = snapshot.epoch,
+                    megolmSessionId = session,
+                    deliveries = listOf(
+                        PreparedOlmGroupKeyDelivery(
+                            recipientUserId = "bob",
+                            recipientDeviceId = "bob-phone",
+                            sessionId = "olm-session-bob",
+                            envelope = "encrypted-envelope",
+                        ),
+                    ),
+                    skippedUntrustedDeviceCount = 0,
+                    targetDevices = metadata.targetDevicePairs(),
+                )
+            },
+            resumeDistribution = { _, _ ->
+                resumes++
+                1
+            },
+            validatePreparedTargets = {
+                trustValidations++
+                true
+            },
+            onDistributionFailure = { _, _ -> failureReported = true },
+        )
+
+        val failure = runCatching { kotlinx.coroutines.runBlocking { runner.run() } }.exceptionOrNull()
+
+        assertTrue("An account switch during envelope preparation must abort recovery", failure is IllegalArgumentException)
+        assertEquals(1, exports)
+        assertEquals(1, preparations)
+        assertEquals(0, trustValidations)
+        assertEquals(0, resumes)
+        assertFalse(failureReported)
+    }
+
+    @Test
+    fun accountSwitchDuringFinalTrustValidationStopsBeforeQueueingRecovery() {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("bob" to "bob-phone"),
+        ).toEntity()
+        var activeUserId = "alice"
+        var trustValidations = 0
+        var resumes = 0
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = { membership },
+            authenticatedUserId = { activeUserId },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(
+                    expectedSessionId,
+                    snapshot.groupId,
+                    snapshot.epoch,
+                    created = false,
+                )
+            },
+            exportOutboundSessionKey = { _, _ -> ByteArray(32) { 9 } },
+            prepareDistribution = { id, snapshot, session, _, _, _, _ ->
+                PreparedOlmGroupKeyDistribution(
+                    distributionId = id,
+                    groupId = snapshot.groupId,
+                    membershipEpoch = snapshot.epoch,
+                    megolmSessionId = session,
+                    deliveries = listOf(
+                        PreparedOlmGroupKeyDelivery(
+                            recipientUserId = "bob",
+                            recipientDeviceId = "bob-phone",
+                            sessionId = "olm-session-bob",
+                            envelope = "encrypted-envelope",
+                        ),
+                    ),
+                    skippedUntrustedDeviceCount = 0,
+                    targetDevices = metadata.targetDevicePairs(),
+                )
+            },
+            resumeDistribution = { _, _ ->
+                resumes++
+                1
+            },
+            validatePreparedTargets = {
+                trustValidations++
+                activeUserId = "mallory"
+                true
+            },
+            onDistributionFailure = { _, _ -> failureReported = true },
+        )
+
+        val failure = runCatching { kotlinx.coroutines.runBlocking { runner.run() } }.exceptionOrNull()
+
+        assertTrue("An account switch during trust validation must abort recovery", failure is IllegalArgumentException)
+        assertEquals(1, trustValidations)
+        assertEquals(0, resumes)
+        assertFalse(failureReported)
+    }
+
     private fun membership() = GroupCryptoMembershipSnapshot(
         groupId = "group-1",
         epoch = 7L,
