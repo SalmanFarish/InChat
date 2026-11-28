@@ -4,6 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -32,6 +38,7 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.notification.ActiveConversationTracker
 import kotlinx.coroutines.flow.flowOf
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -432,57 +439,65 @@ fun ChatScreen(
                 .background,
 
         topBar = {
-            if (selectedMessageIds.isNotEmpty()) {
-                val selectedMessages = messages.filter { it.id in selectedMessageIds }
-                val selectedAreAllOwn = selectedMessages.size == selectedMessageIds.size &&
-                    selectedMessages.all { it.senderId == currentUserId }
-                MessageSelectionTopBar(
-                    selectedCount = selectedMessageIds.size,
-                    canDeleteForEveryone = selectedAreAllOwn,
-                    onClose = { selectedMessageIds = emptySet() },
-                    onCopy = {
-                        val copiedText = selectedMessages
-                            .sortedBy { it.timestamp }
-                            .mapNotNull { it.text.takeIf(String::isNotBlank) }
-                            .joinToString("\n")
-                        if (copiedText.isNotBlank()) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-
+            AnimatedContent(
+                targetState = selectedMessageIds.isNotEmpty(),
+                transitionSpec = {
+                    (
+                        fadeIn(animationSpec = InChatMotion.effects(150)) +
+                            slideInVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { it / 8 }
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = InChatMotion.effects(110)) +
+                            slideOutVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 8 }
+                            )
+                        )
+                },
+                label = "directChatTopBar"
+            ) { selectingMessages ->
+                if (selectingMessages) {
+                    val selectedMessages = messages.filter { it.id in selectedMessageIds }
+                    val selectedAreAllOwn =
+                        selectedMessages.size == selectedMessageIds.size &&
+                            selectedMessages.all { it.senderId == currentUserId }
+                    MessageSelectionTopBar(
+                        selectedCount = selectedMessageIds.size,
+                        canDeleteForEveryone = selectedAreAllOwn,
+                        onClose = { selectedMessageIds = emptySet() },
+                        onCopy = {
+                            val copiedText = selectedMessages
+                                .sortedBy { it.timestamp }
+                                .mapNotNull { it.text.takeIf(String::isNotBlank) }
+                                .joinToString("\n")
+                            if (copiedText.isNotBlank()) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
+                            }
+                            selectedMessageIds = emptySet()
+                        },
+                        onDeleteForMe = {
+                            showDeleteSelectedForMeConfirmation = true
+                        },
+                        onDeleteForEveryone = {
+                            showDeleteSelectedForEveryoneConfirmation = true
                         }
-                        selectedMessageIds = emptySet()
-                    },
-                    onDeleteForMe = {
-                        showDeleteSelectedForMeConfirmation = true
-                    },
-                    onDeleteForEveryone = {
-                        showDeleteSelectedForEveryoneConfirmation = true
-                    }
-                )
-            } else {
-            ChatTopBar(
-
-                otherUserNickname =
-                    otherUserNickname,
-
-                otherUserProfilePhoto =
-                    otherUserProfilePhoto,
-
-                otherUserPresence =
-                    otherUserPresence,
-
-                blockState =
-                    blockState,
-
-                onBackClick =
-                    onBackClick,
-
-                onChatInfoClick =
-                    onChatInfoClick,
-                onClearChatClick = {
-                    showClearChatConfirmation = true
+                    )
+                } else {
+                    ChatTopBar(
+                        otherUserNickname = otherUserNickname,
+                        otherUserProfilePhoto = otherUserProfilePhoto,
+                        otherUserPresence = otherUserPresence,
+                        blockState = blockState,
+                        onBackClick = onBackClick,
+                        onChatInfoClick = onChatInfoClick,
+                        onClearChatClick = {
+                            showClearChatConfirmation = true
+                        }
+                    )
                 }
-            )
             }
         },
 
