@@ -360,7 +360,9 @@ fun SettingsScreen(
                     description = "Move this phone's encrypted identity using QR pairing.",
                     onClick = onDeviceTransferClick
                 )
-            }            item {
+            }
+
+            item {
                 SettingsSectionLabel("PRIVACY & VISIBILITY")
                 SettingsNavigationRow(
                     icon = Icons.Outlined.Visibility,
@@ -368,7 +370,9 @@ fun SettingsScreen(
                     description = "Control last seen, online status, read receipts and more.",
                     onClick = onPrivacyClick
                 )
-            }            item {
+            }
+
+            item {
                 SettingsSectionLabel("ACCOUNT ACTIONS")
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     SettingsActionRow(
