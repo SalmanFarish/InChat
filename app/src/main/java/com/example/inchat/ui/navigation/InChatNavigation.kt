@@ -10,10 +10,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
@@ -97,6 +97,7 @@ import com.example.inchat.ui.settings.PrivacySettingsScreen
 import com.example.inchat.ui.settings.SettingsScreen
 import com.example.inchat.ui.settings.DeviceTransferScreen
 import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? = when (this) {
@@ -234,7 +235,10 @@ fun InChatApp(
                 pagerState.currentPageOffsetFraction != 0f
             ) {
                 navigationScope.launch {
-                    pagerState.animateScrollToPage(0)
+                    pagerState.animateScrollToPage(
+                        page = 0,
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
                 }
             } else {
                 context.findActivity()?.finish()
@@ -366,18 +370,21 @@ fun InChatApp(
                 visible = showBottomBar && !isHomeSelectionMode,
                 enter = slideInVertically(
                     initialOffsetY = { it },
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
-                ) + fadeIn(animationSpec = tween(160)),
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeIn(animationSpec = InChatMotion.effects(200)),
                 exit = slideOutVertically(
                     targetOffsetY = { it },
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
-                ) + fadeOut(animationSpec = tween(130))
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeOut(animationSpec = InChatMotion.effects(160))
             ) {
                 InChatBottomBar(
                     pagerState = pagerState,
                     onPageSelected = { page ->
                         navigationScope.launch {
-                            pagerState.animateScrollToPage(page)
+                            pagerState.animateScrollToPage(
+                                page = page,
+                                animationSpec = InChatMotion.navigationSpring()
+                            )
                         }
                     }
                 )
@@ -393,6 +400,51 @@ fun InChatApp(
 
             startDestination =
                 "home",
+
+            // Short shared-axis movement plus a soft fade connects screens
+            // without resizing or scaling the full content tree.
+            enterTransition = {
+                fadeIn(animationSpec = InChatMotion.effects(220)) +
+                    slideInHorizontally(
+                        initialOffsetX = { width -> width / 14 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
+            exitTransition = {
+                fadeOut(animationSpec = InChatMotion.effects(155)) +
+                    slideOutHorizontally(
+                        targetOffsetX = { width -> -width / 28 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = InChatMotion.effects(220)) +
+                    slideInHorizontally(
+                        initialOffsetX = { width -> -width / 14 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = InChatMotion.effects(155)) +
+                    slideOutHorizontally(
+                        targetOffsetX = { width -> width / 28 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
+            predictivePopEnterTransition = { _ ->
+                fadeIn(animationSpec = InChatMotion.effects(220)) +
+                    slideInHorizontally(
+                        initialOffsetX = { width -> -width / 14 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
+            predictivePopExitTransition = { _ ->
+                fadeOut(animationSpec = InChatMotion.effects(155)) +
+                    slideOutHorizontally(
+                        targetOffsetX = { width -> width / 28 },
+                        animationSpec = InChatMotion.navigationSpring()
+                    )
+            },
 
             modifier =
                 Modifier
@@ -1430,19 +1482,13 @@ private fun BottomNavigationItem(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = spring(
-            dampingRatio = 0.9f,
-            stiffness = 360f
-        ),
+        animationSpec = InChatMotion.effects(180),
         label = "bottomNavContent"
     )
 
     val iconSize by animateFloatAsState(
         targetValue = if (selected) 25f else 23f,
-        animationSpec = spring(
-            dampingRatio = 0.86f,
-            stiffness = 420f
-        ),
+        animationSpec = InChatMotion.contentSpring(),
         label = "bottomNavIconSize"
     )
 
@@ -1469,28 +1515,16 @@ private fun BottomNavigationItem(
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
             enter = androidx.compose.animation.fadeIn(
-                animationSpec = spring(
-                    dampingRatio = 0.92f,
-                    stiffness = 420f
-                )
+                animationSpec = InChatMotion.effects(170)
             ) + androidx.compose.animation.expandHorizontally(
                 expandFrom = Alignment.Start,
-                animationSpec = spring(
-                    dampingRatio = 0.88f,
-                    stiffness = 420f
-                )
+                animationSpec = InChatMotion.contentSpring()
             ),
             exit = androidx.compose.animation.fadeOut(
-                animationSpec = spring(
-                    dampingRatio = 0.92f,
-                    stiffness = 420f
-                )
+                animationSpec = InChatMotion.effects(140)
             ) + androidx.compose.animation.shrinkHorizontally(
                 shrinkTowards = Alignment.Start,
-                animationSpec = spring(
-                    dampingRatio = 0.88f,
-                    stiffness = 420f
-                )
+                animationSpec = InChatMotion.contentSpring()
             )
         ) {
             Row(
