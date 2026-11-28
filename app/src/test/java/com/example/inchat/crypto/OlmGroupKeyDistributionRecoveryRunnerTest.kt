@@ -608,8 +608,8 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         val stateReader = object : OlmGroupKeyDistributionRecoveryStateReader {
             override fun read(metadata: OlmGroupKeyDistributionEntity) = recoveryState
         }
-        val membershipLookupEntered = CompletableDeferred<Unit>()
-        val releaseMembershipLookup = CompletableDeferred<Unit>()
+        val preparationEntered = CompletableDeferred<Unit>()
+        val releasePreparation = CompletableDeferred<Unit>()
         val membershipLookups = AtomicInteger()
         val keyExports = AtomicInteger()
         val preparations = AtomicInteger()
@@ -619,10 +619,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
             metadataStore = metadataStore,
             recoveryStateReader = stateReader,
             membershipForGroup = {
-                if (membershipLookups.incrementAndGet() == 1) {
-                    membershipLookupEntered.complete(Unit)
-                    releaseMembershipLookup.await()
-                }
+                membershipLookups.incrementAndGet()
                 membership
             },
             authenticatedUserId = { "alice" },
@@ -637,7 +634,13 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
                 ByteArray(32) { 6 }
             },
             prepareDistribution = { id, snapshot, session, _, issuedAt, selected, expected ->
-                preparations.incrementAndGet()
+                if (preparations.incrementAndGet() == 1) {
+                    // Pause only after the first pass has exported the Megolm
+                    // key and reached envelope preparation. A competing runner
+                    // must remain outside this critical section.
+                    preparationEntered.complete(Unit)
+                    releasePreparation.await()
+                }
                 assertEquals(distributionId, id)
                 assertEquals(0L, issuedAt)
                 assertEquals(setOf("bob" to "bob-phone"), selected)
@@ -673,7 +676,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         )
 
         val first = async { runner().run() }
-        membershipLookupEntered.await()
+        preparationEntered.await()
         val secondStarted = CompletableDeferred<Unit>()
         val second = async {
             secondStarted.complete(Unit)
@@ -689,7 +692,7 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertEquals(1, keyExports.get())
         assertEquals(1, preparations.get())
 
-        releaseMembershipLookup.complete(Unit)
+        releasePreparation.complete(Unit)
         val firstResult = first.await()
         val secondResult = second.await()
 
