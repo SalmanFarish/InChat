@@ -5,10 +5,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
+import com.example.inchat.ui.theme.InChatMotion
 
 @Composable
 fun ChatComposer(
@@ -200,19 +203,23 @@ fun ChatComposer(
                             !messagingBlocked,
 
                 enter =
-                    fadeIn() +
+                    fadeIn(animationSpec = InChatMotion.effects(160)) +
+                            expandVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideInVertically(
-                                initialOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { -it / 3 }
                             ),
 
                 exit =
-                    fadeOut() +
+                    fadeOut(animationSpec = InChatMotion.effects(130)) +
+                            shrinkVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideOutVertically(
-                                targetOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 3 }
                             )
             ) {
 
@@ -243,19 +250,23 @@ fun ChatComposer(
                             !messagingBlocked,
 
                 enter =
-                    fadeIn() +
+                    fadeIn(animationSpec = InChatMotion.effects(160)) +
+                            expandVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideInVertically(
-                                initialOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { -it / 3 }
                             ),
 
                 exit =
-                    fadeOut() +
+                    fadeOut(animationSpec = InChatMotion.effects(130)) +
+                            shrinkVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideOutVertically(
-                                targetOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 3 }
                             )
             ) {
 
