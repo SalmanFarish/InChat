@@ -84,17 +84,6 @@ interface OlmDeliveryQueueDao {
         senderDeviceId: String,
     ): Int
 
-    /**
-     * Enumerate durable targets for one group-key distribution. messageId is
-     * the immutable distribution ID; no ciphertext is returned to the scanner.
-     */
-    @Query(
-        "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
-            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
-            "AND messageId = :distributionId AND groupId = :groupId " +
-            "AND membershipEpoch = :membershipEpoch " +
-            "ORDER BY recipientUserId ASC, recipientDeviceId ASC"
-    )
     /** All target states for an immutable outgoing distribution (direct or group). */
     @Query(
         "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
@@ -108,6 +97,17 @@ interface OlmDeliveryQueueDao {
         distributionId: String,
     ): List<OlmDeliveryQueueTargetState>
 
+    /**
+     * Enumerate durable targets for one group-key distribution. messageId is
+     * the immutable distribution ID; no ciphertext is returned to the scanner.
+     */
+    @Query(
+        "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :distributionId AND groupId = :groupId " +
+            "AND membershipEpoch = :membershipEpoch " +
+            "ORDER BY recipientUserId ASC, recipientDeviceId ASC"
+    )
     fun getTargetStatesForGroupDistribution(
         ownerUserId: String,
         senderDeviceId: String,
