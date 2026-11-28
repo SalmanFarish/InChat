@@ -489,8 +489,8 @@ fun HomeScreen(
              */
             Box(modifier = Modifier.weight(1f)) {
                 if (
-                !conversationsLoaded
-            ) {
+                    !conversationsLoaded
+                ) {
 
                 HomeConversationLoadingState()
 
@@ -771,8 +771,8 @@ fun HomeScreen(
             AnimatedVisibility(
                 visible = isSelectionMode,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                // The same-size selection card replaces the dock. Animate the
-                // measured height so the home content never snaps to a new baseline.
+                // Overlay the replacement dock so selection does not resize
+                // the inbox viewport or move the selected conversation.
                 enter = expandVertically(
                     expandFrom = Alignment.Bottom,
                     animationSpec = InChatMotion.navigationSpring()
@@ -832,7 +832,7 @@ fun HomeScreen(
                     }
                 )
             }
-        }
+            }
         }
     }
 
