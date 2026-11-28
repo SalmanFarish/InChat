@@ -1,10 +1,13 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -82,7 +85,13 @@ fun MessageSelectionTopBar(
                     contentDescription = "Delete selected messages for me"
                 )
             }
-            if (canDeleteForEveryone) {
+            AnimatedVisibility(
+                visible = canDeleteForEveryone,
+                enter = fadeIn(animationSpec = InChatMotion.effects(150)) +
+                    expandHorizontally(animationSpec = InChatMotion.contentSpring()),
+                exit = fadeOut(animationSpec = InChatMotion.effects(110)) +
+                    shrinkHorizontally(animationSpec = InChatMotion.contentSpring())
+            ) {
                 IconButton(onClick = onDeleteForEveryone) {
                     Icon(
                         imageVector = Icons.Outlined.DeleteForever,
