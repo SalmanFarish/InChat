@@ -181,8 +181,6 @@ fun ProfileScreen(
                                 .fillMaxSize()
                                 .clip(CircleShape)
                                 .clickable(
-                                    interactionSource = null,
-                                    indication = null,
                                     onClick = onProfilePhotoClick
                                 ),
                             iconSize = 54.dp,
