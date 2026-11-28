@@ -100,7 +100,14 @@ internal class OlmGroupMessageDistributionPreparer(
                 "Trusted group devices changed before encrypted envelope preparation"
             }
         }
-        val deliveries = resolved.plan.targets.map { target ->
+        // Prepare independent device fan-out concurrently with a small bound.
+        // OlmSessionRepository still serializes native ratchet state transitions;
+        // only the per-device network/prekey waits overlap.
+        val preparationPermits = kotlinx.coroutines.sync.Semaphore(MAX_CONCURRENT_DEVICE_PREPARATIONS)
+        val deliveries = coroutineScope {
+            resolved.plan.targets.map { target ->
+                async {
+                    preparationPermits.withPermit {
             check(
                 trustVerifier.isTrustedForMessaging(
                     peerUserId = target.userId,
@@ -158,6 +165,9 @@ internal class OlmGroupMessageDistributionPreparer(
                 sessionId = sessionId,
                 envelope = envelope,
             )
+                    }
+                }
+            }.awaitAll()
         }
 
         return PreparedOlmGroupMessageDistribution(
@@ -181,12 +191,16 @@ internal class OlmGroupMessageDistributionPreparer(
         }
 
         val otherMembers = membership.memberUserIds - senderUserId
-        val recipientDevices = coroutineScope {
-            otherMembers.sorted().map { uid ->
+        // Fetch local companion-device bundles at the same time as member bundles
+        // instead of paying a second sequential Firebase directory request.
+        val directoryUsers = (otherMembers + senderUserId).sorted()
+        val devicesByUser = coroutineScope {
+            directoryUsers.map { uid ->
                 async { uid to directory.getUserDevices(uid) }
             }.awaitAll().toMap()
         }
-        val senderDevices = directory.getUserDevices(senderUserId)
+        val recipientDevices = devicesByUser.filterKeys { it != senderUserId }
+        val senderDevices = requireNotNull(devicesByUser[senderUserId])
         val plan = OlmGroupSessionKeyDistributionPlanner.plan(
             senderUserId = senderUserId,
             senderDeviceId = senderDeviceId,
@@ -200,6 +214,7 @@ internal class OlmGroupMessageDistributionPreparer(
 
     private companion object {
         const val MAX_ONE_TIME_KEYS = 20
+        const val MAX_CONCURRENT_DEVICE_PREPARATIONS = 8
         val MESSAGE_ID = Regex("[A-Za-z0-9_-]{1,128}")
     }
 }

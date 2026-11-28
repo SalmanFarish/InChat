@@ -75,12 +75,16 @@ internal class OlmGroupSessionKeyDistributionPreparer(
         val otherMemberIds = currentMemberUserIds - senderUserId
         // Require a directory result for every other member. An absent map entry
         // is different from a successfully loaded account with no published keys.
-        val recipientDevices = coroutineScope {
-            otherMemberIds.sorted().map { memberId ->
-                async { memberId to directory.getUserDevices(memberId) }
+        // Fetch the sender's other devices alongside group members. This removes
+        // one serialized directory round-trip from every first-time group send.
+        val directoryUsers = (otherMemberIds + senderUserId).sorted()
+        val devicesByUser = coroutineScope {
+            directoryUsers.map { userId ->
+                async { userId to directory.getUserDevices(userId) }
             }.awaitAll().toMap()
         }
-        val senderDevices = directory.getUserDevices(senderUserId)
+        val recipientDevices = devicesByUser.filterKeys { it != senderUserId }
+        val senderDevices = requireNotNull(devicesByUser[senderUserId])
 
         val plan = OlmGroupSessionKeyDistributionPlanner.plan(
             senderUserId = senderUserId,
@@ -131,7 +135,13 @@ internal class OlmGroupSessionKeyDistributionPreparer(
             )
         )
 
-        val deliveries = targetsToPrepare.map { target ->
+        // Distinct device targets have independent prekey claim paths. Bound
+        // concurrent preparations to avoid serial network waits without flooding RTDB.
+        val preparationPermits = kotlinx.coroutines.sync.Semaphore(MAX_CONCURRENT_DEVICE_PREPARATIONS)
+        val deliveries = coroutineScope {
+            targetsToPrepare.map { target ->
+                async {
+                    preparationPermits.withPermit {
             // Trust is checked again immediately before claiming a prekey and
             // creating a session, rather than relying only on the earlier plan.
             if (!trustVerifier.isTrustedForMessaging(
@@ -204,6 +214,9 @@ internal class OlmGroupSessionKeyDistributionPreparer(
                 sessionId = sessionId,
                 envelope = envelope,
             )
+                    }
+                }
+            }.awaitAll()
         }
 
         return PreparedOlmGroupKeyDistribution(
@@ -247,5 +260,6 @@ internal class OlmGroupSessionKeyDistributionPreparer(
 
     private companion object {
         const val MAX_ONE_TIME_KEYS = 20
+        const val MAX_CONCURRENT_DEVICE_PREPARATIONS = 8
     }
 }
