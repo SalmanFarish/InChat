@@ -86,6 +86,18 @@ internal class OlmInboundDeliveryLedger(
         require(DEVICE_ID_PATTERN.matches(localDeviceId)) { "Local device ID has an invalid format" }
     }
 
+    /**
+     * Returns a durable logical receive timestamp strictly after every ciphertext
+     * already staged for this account. The receiver adds each mailbox page offset.
+     */
+    fun nextReceivedAtMillis(nowMillis: Long): Long {
+        require(nowMillis >= 0L) { "Receive time must not be negative" }
+        val nextAfterLatest = dao.getLatestReceivedAtMillis(recipientUserId)
+            ?.let { Math.addExact(it, 1L) }
+            ?: 0L
+        return maxOf(nowMillis, nextAfterLatest)
+    }
+
     fun register(
         senderUserId: String,
         messageId: String,

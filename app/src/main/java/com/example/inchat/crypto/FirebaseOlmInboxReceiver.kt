@@ -43,45 +43,74 @@ internal class FirebaseOlmInboxReceiver(
             transport.removeFromMyDeviceInbox(deviceId, item)
         }
 
-        // Inbox items are independent until the per-session decrypt/ratchet
-        // stage. A fixed worker pool keeps the number of suspended jobs bounded
-        // even when the relay returns a large mailbox snapshot.
+        // Stage this page in the exact order supplied by the durable per-device
+        // mailbox before doing network acknowledgements. Cloudflare assigns each
+        // accepted envelope a monotonically increasing sequence; preserving it
+        // here ensures a Megolm key envelope is committed before dependent group
+        // ciphertext. ACK/removal remains parallel after all local receipts exist.
         val outcomes = arrayOfNulls<ItemOutcome>(items.size)
+        val stagedIndexes = ArrayList<Int>(items.size)
+        var nextReceivedAtMillis = withContext(ioDispatcher) {
+            ledger.nextReceivedAtMillis(clock().coerceAtLeast(0L))
+        }
+        for (index in items.indices) {
+            val item = items[index]
+            try {
+                val registration = withContext(ioDispatcher) {
+                    require(
+                        EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId ==
+                            item.senderDeviceId,
+                    ) {
+                        "Inbox sender device does not match the encrypted envelope"
+                    }
+                    ledger.register(
+                        senderUserId = item.senderUid,
+                        messageId = item.messageId,
+                        encodedEnvelope = item.envelope,
+                        receivedAtMillis = nextReceivedAtMillis,
+                    )
+                }
+                outcomes[index] = ItemOutcome(registration = registration, failure = null)
+                if (registration != OlmInboundRegistration.CONFLICT) {
+                    stagedIndexes += index
+                }
+                nextReceivedAtMillis = Math.addExact(nextReceivedAtMillis, 1L)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // Do not stage any later mailbox sequence after a local durable
+                // registration failure. Those remote rows remain for the next pass.
+                outcomes[index] = ItemOutcome(registration = null, failure = failure)
+                break
+            }
+        }
+
+        suspend fun acknowledgeStagedItem(index: Int) {
+            val item = items[index]
+            try {
+                acknowledgeAndRemove(item)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                outcomes[index] = ItemOutcome(
+                    registration = outcomes[index]?.registration,
+                    failure = failure,
+                )
+            }
+        }
+
+        // Only local Room registration is ordered. Network ACK/removal remains
+        // concurrent and bounded so a slow relay operation cannot hold up
+        // unrelated, already-durable envelopes in this page.
         val nextIndex = AtomicInteger()
-        val workerCount = minOf(MAX_CONCURRENT_ITEM_HANDOFFS, items.size)
+        val workerCount = minOf(MAX_CONCURRENT_ITEM_HANDOFFS, stagedIndexes.size)
         coroutineScope {
             List(workerCount) {
                 async {
                     while (true) {
-                        val index = nextIndex.getAndIncrement()
-                        if (index >= items.size) break
-                        val item = items[index]
-                        outcomes[index] = try {
-                            val registration = withContext(ioDispatcher) {
-                                require(
-                                    EncryptedOlmEnvelopeCodec.decode(item.envelope).senderDeviceId ==
-                                        item.senderDeviceId,
-                                ) {
-                                    "Inbox sender device does not match the encrypted envelope"
-                                }
-                                ledger.register(
-                                    senderUserId = item.senderUid,
-                                    messageId = item.messageId,
-                                    encodedEnvelope = item.envelope,
-                                    receivedAtMillis = clock().coerceAtLeast(0L),
-                                )
-                            }
-                            if (registration != OlmInboundRegistration.CONFLICT) {
-                                acknowledgeAndRemove(item)
-                            }
-                            ItemOutcome(registration = registration, failure = null)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            // One failed item must not prevent the other workers
-                            // from durably staging and acknowledging independent items.
-                            ItemOutcome(registration = null, failure = failure)
-                        }
+                        val offset = nextIndex.getAndIncrement()
+                        if (offset >= stagedIndexes.size) break
+                        acknowledgeStagedItem(stagedIndexes[offset])
                     }
                 }
             }.awaitAll()
@@ -94,9 +123,9 @@ internal class FirebaseOlmInboxReceiver(
         var rejected = 0
         var firstFailure: Exception? = null
         for (outcomeOrNull in outcomes) {
-            val outcome = checkNotNull(outcomeOrNull) {
-                "Inbox worker pool completed without staging every snapshot item"
-            }
+            // Null rows are later mailbox sequences deliberately left remote
+            // after an earlier local registration failure.
+            val outcome = outcomeOrNull ?: continue
             when (outcome.registration) {
                 OlmInboundRegistration.NEW -> stored++
                 OlmInboundRegistration.PENDING_RETRY -> pending++

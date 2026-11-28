@@ -339,6 +339,64 @@ class FirebaseOlmInboxReceiverTest {
         }
     }
 
+
+    @Test
+    fun inboxReceiptsPreserveMailboxOrderAcrossBatchesWhenClockDoesNotAdvance() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "olm-inbox-mailbox-order-test.db"
+        context.deleteDatabase(name)
+        val db = Room.databaseBuilder(context, LocalChatDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val first = FirebaseOlmInboxItem(
+                "a".repeat(64), "alice", "sender-device", "group-key-envelope", envelope(1),
+            )
+            val second = FirebaseOlmInboxItem(
+                "b".repeat(64), "alice", "sender-device", "group-message-envelope", envelope(2),
+            )
+            val ledger = OlmInboundDeliveryLedger(
+                db.olmInboundReceiptDao(),
+                "recipient",
+                "receiver-device",
+            )
+
+            val firstPageReceiver = FirebaseOlmInboxReceiver(
+                FakeTransport(mutableListOf(first, second)),
+                ledger,
+                "receiver-device",
+                clock = { 900L },
+            )
+            val firstPage = firstPageReceiver.receivePending()
+            assertEquals(2, firstPage.stored)
+
+            val third = FirebaseOlmInboxItem(
+                "c".repeat(64), "alice", "sender-device", "next-mailbox-page", envelope(3),
+            )
+            val secondPageReceiver = FirebaseOlmInboxReceiver(
+                FakeTransport(mutableListOf(third)),
+                ledger,
+                "receiver-device",
+                clock = { 900L },
+            )
+            val secondPage = secondPageReceiver.receivePending()
+            assertEquals(1, secondPage.stored)
+
+            val orderedReceipts = db.olmInboundReceiptDao().getPending("recipient", 10)
+            assertEquals(
+                listOf(
+                    "group-key-envelope",
+                    "group-message-envelope",
+                    "next-mailbox-page",
+                ),
+                orderedReceipts.map { it.messageId },
+            )
+            assertEquals(listOf(900L, 901L, 902L), orderedReceipts.map { it.receivedAtMillis })
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test
     fun conflictingCiphertextIsNotAcknowledged() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()

@@ -13,6 +13,10 @@ interface OlmInboundReceiptDao {
     @Query("SELECT * FROM olm_inbound_receipts WHERE receiptId = :receiptId LIMIT 1")
     fun getByReceiptId(receiptId: String): OlmInboundReceiptEntity?
 
+    /** Highest persisted mailbox receive-order marker for this local account. */
+    @Query("SELECT MAX(receivedAtMillis) FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId")
+    fun getLatestReceivedAtMillis(recipientUserId: String): Long?
+
     /** Oldest ciphertext receipts belonging only to the authenticated local account. */
     @Query("SELECT * FROM olm_inbound_receipts WHERE recipientUserId = :recipientUserId AND status = 'PENDING' ORDER BY CASE WHEN lastAttemptAtMillis IS NULL THEN 0 ELSE 1 END ASC, lastAttemptAtMillis ASC, receivedAtMillis ASC, receiptId ASC LIMIT :limit")
     fun getPending(recipientUserId: String, limit: Int): List<OlmInboundReceiptEntity>
