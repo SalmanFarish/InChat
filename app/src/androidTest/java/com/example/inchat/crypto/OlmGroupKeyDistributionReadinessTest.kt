@@ -87,6 +87,64 @@ class OlmGroupKeyDistributionReadinessTest {
         )
     }
 
+
+    @Test
+    fun readinessAcceptsEveryMailboxUploadWithoutWaitingForClientAcknowledgements() {
+        val membership = GroupCryptoMembershipSnapshot(
+            groupId = "group-1",
+            epoch = 7L,
+            members = mapOf("alice" to "admin", "bob" to "member"),
+        )
+        val distributionId = distributionId()
+        val metadataStore = database.olmGroupKeyDistributionMetadataStore()
+        metadataStore.persistIfAbsent(
+            OlmGroupKeyDistributionRecord(
+                ownerUserId = "alice",
+                senderDeviceId = "alice-phone",
+                distributionId = distributionId,
+                groupId = "group-1",
+                membershipEpoch = 7L,
+                megolmSessionId = "1234567890abcdef",
+                targetDevices = listOf("bob" to "bob-phone", "bob" to "bob-tablet"),
+            ),
+        )
+        val queueDao = database.olmDeliveryQueueDao()
+        val readiness = RoomOlmGroupKeyDistributionReadiness(
+            deliveryReceipts = database.olmDeliveryReceiptDao(),
+            metadataStore = metadataStore,
+            deliveryStatesForDistribution = { owner, sender, distribution, group, epoch ->
+                queueDao.getTargetStatesForDistribution(
+                    ownerUserId = owner,
+                    senderDeviceId = sender,
+                    distributionId = distribution,
+                    groupId = group,
+                    membershipEpoch = epoch,
+                )
+            },
+        )
+
+        queueDao.insertIfAbsent(
+            listOf(mailboxDelivery("a".repeat(64), distributionId, "bob-phone", "UPLOADED")),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            readiness.requireMailboxAccepted("alice", "alice-phone", membership, "1234567890abcdef")
+        }
+
+        queueDao.insertIfAbsent(
+            listOf(mailboxDelivery("b".repeat(64), distributionId, "bob-tablet", "UPLOADED")),
+        )
+        val token = readiness.requireMailboxAccepted(
+            "alice",
+            "alice-phone",
+            membership,
+            "1234567890abcdef",
+        )
+        assertEquals(setOf("bob" to "bob-phone", "bob" to "bob-tablet"), token.targetDevices)
+        assertTrue(database.olmDeliveryReceiptDao()
+            .getAcknowledgedTargetIdentitiesForDistribution("alice", "alice-phone", distributionId)
+            .isEmpty())
+    }
+
     @Test
     fun distributionMetadataIsDurableImmutableAndIdempotent() {
         val store = database.olmGroupKeyDistributionMetadataStore()
@@ -153,6 +211,31 @@ class OlmGroupKeyDistributionReadinessTest {
         assertEquals(null, store.get("alice", "alice-tablet", "group-key-9"))
         assertEquals(listOf(record.toEntity()), store.getAllForDevice("alice", "alice-phone"))
     }
+
+
+    private fun mailboxDelivery(
+        deliveryId: String,
+        messageId: String,
+        recipientDeviceId: String,
+        status: String,
+    ) = OlmDeviceDeliveryEntity(
+        deliveryId = deliveryId,
+        messageId = messageId,
+        recipientUserId = "bob",
+        recipientDeviceId = recipientDeviceId,
+        ownerUserId = "alice",
+        senderDeviceId = "alice-phone",
+        groupId = "group-1",
+        membershipEpoch = 7L,
+        conversationId = "group-1",
+        conversationPeerUserId = null,
+        envelope = "ciphertext-envelope",
+        status = status,
+        attemptCount = 1,
+        nextAttemptAtMillis = 0L,
+        leaseUntilMillis = 0L,
+        lastError = null,
+    )
 
     private fun receipt(
         deliveryId: String,

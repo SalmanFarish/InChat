@@ -13,7 +13,7 @@ import org.junit.Test
 
 class MegolmGroupMessageSendCoordinatorTest {
     @Test
-    fun startsKeyDistributionAndWaitsWithoutCallingEncryptedSender() = runBlocking {
+    fun startsKeyDistributionAndWaitsForMailboxAcceptanceWithoutCallingEncryptedSender() = runBlocking {
         val membership = membership()
         val targets = targets()
         val session = session(membership, targets)
@@ -32,7 +32,7 @@ class MegolmGroupMessageSendCoordinatorTest {
                 assertEquals(distributionId(membership, session.sessionId), distributionId)
                 assertEquals(555L, issuedAt)
                 distributeCalls++
-                state = OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements(
+                state = OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance(
                     distributionId,
                     setOf("bob" to "bob-phone"),
                 )
@@ -48,14 +48,14 @@ class MegolmGroupMessageSendCoordinatorTest {
             },
             send = { _, _, _, _, _ ->
                 sendCalls++
-                error("Message must wait for the key acknowledgement")
+                error("Message must wait until the key envelope is accepted by the target mailbox")
             },
         )
 
         val result = coordinator.send("group-1", "message-1", "secret text", 777L)
 
-        assertTrue(result is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements)
-        val waiting = result as MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements
+        assertTrue(result is MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance)
+        val waiting = result as MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance
         assertEquals(setOf("bob" to "bob-phone"), waiting.pendingTargets)
         assertEquals(1, waiting.newlyQueuedKeyDeliveries)
         assertEquals(1, distributeCalls)
@@ -108,7 +108,7 @@ class MegolmGroupMessageSendCoordinatorTest {
     }
 
     @Test
-    fun retriesReadinessAfterFirstDistributionAndSendsOnlyIfAcknowledgementsAlreadyArrived() = runBlocking {
+    fun retriesReadinessAfterMailboxAcceptanceAndSendsWithoutWaitingForClientAcknowledgements() = runBlocking {
         val membership = membership()
         val targets = targets()
         val session = session(membership, targets)
@@ -153,11 +153,11 @@ class MegolmGroupMessageSendCoordinatorTest {
     }
 
     @Test
-    fun rejectsPendingAcknowledgementsForDifferentDistributionOrUnknownDevice() = runBlocking {
+    fun rejectsPendingMailboxTargetsForDifferentDistributionOrUnknownDevice() = runBlocking {
         val membership = membership()
         val targets = targets()
         val session = session(membership, targets)
-        val mismatched = OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements(
+        val mismatched = OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance(
             distributionId = "different-distribution",
             pendingTargets = setOf("mallory" to "unknown-device"),
         )
@@ -180,12 +180,12 @@ class MegolmGroupMessageSendCoordinatorTest {
     }
 
     @Test
-    fun doesNotRedistributeWhenAnExistingDistributionIsWaiting() = runBlocking {
+    fun doesNotRedistributeWhenAnExistingDistributionAwaitsMailboxAcceptance() = runBlocking {
         val membership = membership()
         val targets = targets()
         val session = session(membership, targets)
         var distributeCalls = 0
-        val waiting = OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements(
+        val waiting = OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance(
             distributionId(membership, session.sessionId),
             setOf("bob" to "bob-phone"),
         )
@@ -203,7 +203,7 @@ class MegolmGroupMessageSendCoordinatorTest {
 
         val result = coordinator.send("group-1", "message-4", "hello", 780L)
 
-        assertTrue(result is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements)
+        assertTrue(result is MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance)
         assertEquals(0, distributeCalls)
     }
 

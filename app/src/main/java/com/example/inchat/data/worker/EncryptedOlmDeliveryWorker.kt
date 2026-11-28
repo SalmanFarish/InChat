@@ -455,8 +455,9 @@ class EncryptedOlmDeliveryWorker(
                 Log.w(TAG, "Encrypted push wake-up dispatch failed; recipient inbox polling remains the recovery path.")
             }
 
-            // Acknowledgement receipts are durable now. Retry waiting group
-            // intents in the background even when no GroupChatViewModel exists.
+            // Group-key relay uploads are now durable. Retry waiting group
+            // intents even when no GroupChatViewModel exists; offline recipients
+            // consume key then group ciphertext from their ordered mailbox.
             val retriedGroupMessages = try {
                 retryPendingGroupMessages(
                     database = database,
@@ -711,7 +712,7 @@ class EncryptedOlmDeliveryWorker(
                         plaintext = intent.plaintext,
                         sentAtMillis = intent.sentAtMillis,
                     )) {
-                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                        is MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance -> {
                             // Keep this durable local intent on an active retry schedule.
                             // Otherwise it waits for the 15-minute periodic safety poll
                             // unless a separate acknowledgement wake happens to arrive.

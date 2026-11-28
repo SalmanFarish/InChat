@@ -158,9 +158,9 @@ internal class OlmDeliveryWorkerRunner(
             var wakeEnqueueFailed = true
             for (attempt in 1..MAX_WAKE_ENQUEUE_ATTEMPTS) {
                 try {
-                    // Every remote device needs a wake-up, including a sender-owned
-                    // companion. It must stage the exact ciphertext and ACK any
-                    // group-key delivery before subsequent group messages proceed.
+                    // Every recipient device receives a wake-up hint. Delivery
+                    // readiness is based on durable mailbox acceptance; the inbox
+                    // processes its sequenced key envelope before later group content.
                     notifyEncryptedRecipient(delivery)
                     wakeEnqueueFailed = false
                     break

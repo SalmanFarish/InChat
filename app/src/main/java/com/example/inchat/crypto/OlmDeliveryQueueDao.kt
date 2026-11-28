@@ -91,12 +91,16 @@ interface OlmDeliveryQueueDao {
     @Query(
         "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
             "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
-            "AND messageId = :distributionId ORDER BY recipientUserId ASC, recipientDeviceId ASC"
+            "AND messageId = :distributionId AND groupId = :groupId " +
+            "AND membershipEpoch = :membershipEpoch " +
+            "ORDER BY recipientUserId ASC, recipientDeviceId ASC"
     )
     fun getTargetStatesForDistribution(
         ownerUserId: String,
         senderDeviceId: String,
         distributionId: String,
+        groupId: String,
+        membershipEpoch: Long,
     ): List<OlmDeliveryQueueTargetState>
 
     @Query("SELECT * FROM olm_device_deliveries WHERE deliveryId = :deliveryId LIMIT 1")

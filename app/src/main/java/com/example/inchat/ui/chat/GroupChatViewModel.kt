@@ -578,7 +578,7 @@ class GroupChatViewModel : ViewModel() {
                         sentAtMillis = intent.sentAtMillis,
                     )
                 }) {
-                    is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> Unit
+                    is MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance -> Unit
                     is MegolmGroupMessageSendOutcome.Queued -> {
                         val queued = outcome.result
                         withContext(Dispatchers.IO) {
@@ -857,10 +857,10 @@ class GroupChatViewModel : ViewModel() {
                             )
                         }
                     ) {
-                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                        is MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance -> {
                             onResult(
                                 true,
-                                "Message saved securely. It is waiting for trusted member devices to acknowledge the group key.",
+                                "Message saved securely. It is waiting for encrypted group-key deliveries to reach recipient mailboxes.",
                             )
                         }
 

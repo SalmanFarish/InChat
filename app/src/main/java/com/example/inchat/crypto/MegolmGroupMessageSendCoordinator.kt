@@ -33,7 +33,7 @@ internal fun isPendingGroupIntentRetryMembershipCurrent(
 
 /** Result of a guarded group-message send attempt. */
 internal sealed class MegolmGroupMessageSendOutcome {
-    data class AwaitingKeyAcknowledgements(
+    data class AwaitingMailboxAcceptance(
         val groupId: String,
         val distributionId: String,
         val pendingTargets: Set<Pair<String, String>>,
@@ -50,9 +50,9 @@ internal sealed class MegolmGroupMessageSendOutcome {
  * isolated Megolm sender into one operation.
  *
  * If the current session has no saved key-distribution metadata, this starts
- * distribution once. If receipts are incomplete it returns the exact devices
- * still waiting and does not advance the Megolm ratchet or persist plaintext.
- * A later caller may retry with the same message ID after acknowledgements arrive.
+ * distribution once. It advances the Megolm ratchet only after every target
+ * mailbox has accepted the pairwise-encrypted key envelope. Offline devices do
+ * not block sends; their mailbox retains key then group message in order.
  *
  * GroupChatViewModel invokes this coordinator for group sends; the legacy plaintext
  * group-message upload path is deliberately bypassed.
@@ -218,15 +218,15 @@ internal class MegolmGroupMessageSendCoordinator(
             is OlmGroupKeyDistributionReadinessState.Missing ->
                 error("Group-key distributor completed without persisting its distribution metadata")
 
-            is OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements -> {
+            is OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance -> {
                 require(
                     state.distributionId == distributionId &&
                         state.pendingTargets.isNotEmpty() &&
                         trustedTargets.containsAll(state.pendingTargets)
                 ) {
-                    "Pending key acknowledgements do not match the active group-key distribution"
+                    "Pending mailbox targets do not match the active group-key distribution"
                 }
-                return MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements(
+                return MegolmGroupMessageSendOutcome.AwaitingMailboxAcceptance(
                     groupId = groupId,
                     distributionId = distributionId,
                     pendingTargets = state.pendingTargets,

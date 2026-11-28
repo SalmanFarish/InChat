@@ -12,38 +12,38 @@ class OlmGroupKeyDistributionReadinessTest {
     fun acceptsOnlyPersistedExactDistributionWhenEveryRemoteTargetAcknowledged() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
         verifier.requireReady("alice", "alice-phone", membership(), keyDistribution(), messageDistribution())
         assertTrue(metadata.get("alice", "alice-phone", distributionId()) != null)
     }
 
     @Test
     fun preflightReturnsMissingWhenKeyDistributionHasNotBeenPersisted() {
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), FakeMetadataStore())
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), FakeMetadataStore())
         val state = verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
         assertTrue(state is OlmGroupKeyDistributionReadinessState.Missing)
     }
 
     @Test
-    fun preflightReportsExactRemoteDevicesStillAwaitingAcknowledgement() {
+    fun preflightReportsExactRemoteDevicesStillAwaitingMailboxAcceptance() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(emptySet(), distributionId()), metadata)
+        val verifier = createReadiness(FakeDeliveryReceipts(emptySet(), distributionId()), metadata)
 
         val state = verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
 
-        assertTrue(state is OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements)
+        assertTrue(state is OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance)
         assertEquals(
             setOf("bob" to "bob-phone"),
-            (state as OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements).pendingTargets,
+            (state as OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance).pendingTargets,
         )
     }
 
     @Test
-    fun preflightBecomesReadyWhenRemoteTargetsAcknowledgeAndDoesNotRequireCompanionAck() {
+    fun preflightBecomesReadyWhenEveryMailboxHasAcceptedTheKeyOrItWasAcknowledged() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
 
         val state = verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
 
@@ -56,7 +56,7 @@ class OlmGroupKeyDistributionReadinessTest {
 
     @Test
     fun refusesDistributionWithoutDurableMetadata() {
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), FakeMetadataStore())
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), FakeMetadataStore())
         assertRejected { verifier.requireReady("alice", "alice-phone", membership(), keyDistribution(), messageDistribution()) }
     }
 
@@ -64,25 +64,25 @@ class OlmGroupKeyDistributionReadinessTest {
     fun refusesMetadataWithChangedSession() {
         val metadata = FakeMetadataStore()
         metadata.seed(record().toEntity().copy(megolmSessionId = "fedcba0987654321"))
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
         assertRejected { verifier.requireReady("alice", "alice-phone", membership(), keyDistribution(), messageDistribution()) }
     }
 
     @Test
-    fun refusesKeyDistributionUntilEveryRemoteDeviceAcknowledges() {
+    fun refusesKeyDistributionUntilEveryTargetMailboxHasAcceptedTheKey() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(emptySet(), distributionId()), metadata)
+        val verifier = createReadiness(FakeDeliveryReceipts(emptySet(), distributionId()), metadata)
         assertRejected { verifier.requireReady("alice", "alice-phone", membership(), keyDistribution(), messageDistribution()) }
     }
 
     @Test
-    fun rechecksAcknowledgementsAfterPreflightBeforeOutboxCommit() {
+    fun rechecksMailboxAcceptanceAfterPreflightBeforeOutboxCommit() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
         val receipts = FakeDeliveryReceipts(setOf("bob-phone"), distributionId())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(receipts, metadata)
-        val token = verifier.requireAcknowledged(
+        val verifier = createReadiness(receipts, metadata)
+        val token = verifier.requireMailboxAccepted(
             ownerUserId = "alice",
             senderDeviceId = "alice-phone",
             currentMembership = membership(),
@@ -106,8 +106,8 @@ class OlmGroupKeyDistributionReadinessTest {
     fun finalOutboxGateRejectsNewlyTrustedDeviceMissingFromKeyDistribution() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
-        val token = verifier.requireAcknowledged(
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
+        val token = verifier.requireMailboxAccepted(
             ownerUserId = "alice",
             senderDeviceId = "alice-phone",
             currentMembership = membership(),
@@ -136,8 +136,8 @@ class OlmGroupKeyDistributionReadinessTest {
     fun senderPreflightRejectsTrustedDeviceRosterChangeBeforeStaging() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
-        val token = verifier.requireAcknowledged(
+        val verifier = createReadiness(FakeDeliveryReceipts(setOf("bob-phone"), distributionId()), metadata)
+        val token = verifier.requireMailboxAccepted(
             ownerUserId = "alice",
             senderDeviceId = "alice-phone",
             currentMembership = membership(),
@@ -171,7 +171,7 @@ class OlmGroupKeyDistributionReadinessTest {
     fun senderPreflightRejectsAccountSwitchDuringTrustedDeviceLookup() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(
+        val verifier = createReadiness(
             FakeDeliveryReceipts(setOf("bob-phone"), distributionId()),
             metadata,
         )
@@ -199,7 +199,7 @@ class OlmGroupKeyDistributionReadinessTest {
     fun senderPreflightRejectsDeviceIdentityChangeDuringTrustedDeviceLookup() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(
+        val verifier = createReadiness(
             FakeDeliveryReceipts(setOf("bob-phone"), distributionId()),
             metadata,
         )
@@ -227,12 +227,68 @@ class OlmGroupKeyDistributionReadinessTest {
     fun refusesAcknowledgementForTargetOutsideImmutableMetadata() {
         val metadata = FakeMetadataStore()
         metadata.persistIfAbsent(record())
-        val verifier = RoomOlmGroupKeyDistributionReadiness(
+        val verifier = createReadiness(
             FakeDeliveryReceipts(setOf("bob-phone", "intruder-device"), distributionId()),
             metadata,
         )
         assertRejected {
             verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
+        }
+    }
+
+
+    private fun createReadiness(
+        receipts: OlmDeliveryReceiptDao,
+        metadata: OlmGroupKeyDistributionMetadataStore,
+        queueStates: List<OlmDeliveryQueueTargetState> = listOf(
+            OlmDeliveryQueueTargetState("alice", "alice-tablet", "UPLOADED"),
+        ),
+    ) = RoomOlmGroupKeyDistributionReadiness(
+        deliveryReceipts = receipts,
+        metadataStore = metadata,
+        deliveryStatesForDistribution = { _, _, _, _, _ -> queueStates },
+    )
+
+
+    @Test
+    fun mailboxAcceptanceReleasesGroupSendWithoutWaitingForRecipientClientAck() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        val verifier = createReadiness(
+            receipts = FakeDeliveryReceipts(emptySet(), distributionId()),
+            metadata = metadata,
+            queueStates = listOf(
+                OlmDeliveryQueueTargetState("alice", "alice-tablet", "UPLOADED"),
+                OlmDeliveryQueueTargetState("bob", "bob-phone", "UPLOADED"),
+            ),
+        )
+
+        val state = verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
+
+        assertTrue(
+            "Durable relay mailbox acceptance is enough; recipient connectivity/ACK is not required",
+            state is OlmGroupKeyDistributionReadinessState.Ready,
+        )
+    }
+
+    @Test
+    fun queuedInFlightAndFailedKeyDeliveriesDoNotReleaseGroupSend() {
+        val metadata = FakeMetadataStore()
+        metadata.persistIfAbsent(record())
+        for (status in listOf("QUEUED", "IN_FLIGHT", "FAILED")) {
+            val verifier = createReadiness(
+                receipts = FakeDeliveryReceipts(emptySet(), distributionId()),
+                metadata = metadata,
+                queueStates = listOf(
+                    OlmDeliveryQueueTargetState("alice", "alice-tablet", "UPLOADED"),
+                    OlmDeliveryQueueTargetState("bob", "bob-phone", status),
+                ),
+            )
+
+            val state = verifier.evaluate("alice", "alice-phone", membership(), "1234567890abcdef")
+
+            assertTrue("$status must remain pending until mailbox acceptance", state is
+                OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance)
         }
     }
 

@@ -48,9 +48,21 @@ abstract class LocalChatDatabase : RoomDatabase() {
     internal fun olmGroupKeyDistributionMetadataStore(): OlmGroupKeyDistributionMetadataStore =
         RoomOlmGroupKeyDistributionMetadataStore(this, olmGroupKeyDistributionDao())
 
-    /** Fail-closed Room verifier using both the immutable distribution ledger and delivery receipts. */
+    /** Room verifier gates Megolm sends on accepted mailbox writes and durable ACK receipts. */
     internal fun olmGroupKeyDistributionReadiness(): RoomOlmGroupKeyDistributionReadiness =
-        RoomOlmGroupKeyDistributionReadiness(olmDeliveryReceiptDao(), olmGroupKeyDistributionMetadataStore())
+        RoomOlmGroupKeyDistributionReadiness(
+            deliveryReceipts = olmDeliveryReceiptDao(),
+            metadataStore = olmGroupKeyDistributionMetadataStore(),
+            deliveryStatesForDistribution = { owner, sender, distribution, group, epoch ->
+                olmDeliveryQueueDao().getTargetStatesForDistribution(
+                    ownerUserId = owner,
+                    senderDeviceId = sender,
+                    distributionId = distribution,
+                    groupId = group,
+                    membershipEpoch = epoch,
+                )
+            },
+        )
     abstract fun encryptedOlmMessageDao(): EncryptedOlmMessageDao
     abstract fun encryptedDirectPendingMessageDao(): EncryptedDirectPendingMessageDao
     abstract fun encryptedGroupMessageDao(): EncryptedGroupMessageDao

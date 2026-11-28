@@ -16,7 +16,7 @@ internal data class OlmGroupKeyDistributionReadinessToken(
 /** Result suitable for a send preflight before the native Megolm ratchet is advanced. */
 internal sealed class OlmGroupKeyDistributionReadinessState {
     data class Missing(val distributionId: String) : OlmGroupKeyDistributionReadinessState()
-    data class AwaitingAcknowledgements(
+    data class AwaitingMailboxAcceptance(
         val distributionId: String,
         val pendingTargets: Set<Pair<String, String>>,
     ) : OlmGroupKeyDistributionReadinessState()
@@ -35,16 +35,18 @@ internal fun interface OlmGroupKeyDistributionReadinessVerifier {
 }
 
 /**
- * Requires the immutable Room distribution record and the existing delivery
- * receipt ledger to agree before every remote target may receive Megolm content.
+ * Requires every immutable per-device key envelope to be durably accepted by
+ * its relay mailbox (or already acknowledged) before Megolm content is queued.
  * The metadata ledger contains identities only; it never stores session keys.
  */
 internal class RoomOlmGroupKeyDistributionReadiness(
     private val deliveryReceipts: OlmDeliveryReceiptDao,
     private val metadataStore: OlmGroupKeyDistributionMetadataStore,
+    private val deliveryStatesForDistribution: (String, String, String, String, Long) ->
+        List<OlmDeliveryQueueTargetState> = { _, _, _, _, _ -> emptyList() },
 ) : OlmGroupKeyDistributionReadinessVerifier {
 
-    /** Preflight for callers that must wait before advancing the Megolm ratchet. */
+    /** Preflight waits for mailbox acceptance, not an offline recipient's ACK. */
     fun evaluate(
         ownerUserId: String,
         senderDeviceId: String,
@@ -99,10 +101,43 @@ internal class RoomOlmGroupKeyDistributionReadiness(
             "Group-key acknowledgement ledger contains a target outside immutable metadata"
         }
 
-        // Sender-owned companion devices synchronize independently. Every
-        // remote target must acknowledge this exact distribution before use.
-        val remoteTargets = targets.filterTo(mutableSetOf()) { it.first != ownerUserId }
-        val pending = remoteTargets - acknowledged
+        // Relay acceptance is the send gate: an offline device can receive
+        // its key later from its own ordered mailbox. A client ACK remains the
+        // stronger delivered/decrypted signal, but must not block other members.
+        val acceptedTargets = acknowledged.toMutableSet()
+        val seenQueueTargets = mutableSetOf<Pair<String, String>>()
+        val deliveryStates = deliveryStatesForDistribution(
+            ownerUserId,
+            senderDeviceId,
+            distributionId,
+            metadata.groupId,
+            metadata.membershipEpoch,
+        )
+        deliveryStates.forEach { row ->
+            val target = row.recipientUserId to row.recipientDeviceId
+            require(target in targets) {
+                "Group-key delivery queue contains a target outside immutable distribution metadata"
+            }
+            require(seenQueueTargets.add(target)) {
+                "Group-key delivery queue contains duplicate rows for one target"
+            }
+            when (row.status) {
+                "UPLOADED" -> acceptedTargets += target
+                "ACKNOWLEDGED" -> {
+                    require(target in acknowledged) {
+                        "Acknowledged group-key queue row is missing its durable receipt"
+                    }
+                    acceptedTargets += target
+                }
+                "QUEUED", "IN_FLIGHT", "FAILED" -> require(target !in acknowledged) {
+                    "Group-key delivery queue conflicts with a durable acknowledgement receipt"
+                }
+                else -> throw IllegalArgumentException(
+                    "Group-key delivery queue contains an unknown status",
+                )
+            }
+        }
+        val pending = targets - acceptedTargets
         return if (pending.isEmpty()) {
             OlmGroupKeyDistributionReadinessState.Ready(
                 OlmGroupKeyDistributionReadinessToken(
@@ -116,7 +151,7 @@ internal class RoomOlmGroupKeyDistributionReadiness(
                 ),
             )
         } else {
-            OlmGroupKeyDistributionReadinessState.AwaitingAcknowledgements(
+            OlmGroupKeyDistributionReadinessState.AwaitingMailboxAcceptance(
                 distributionId = distributionId,
                 pendingTargets = pending,
             )
@@ -124,11 +159,10 @@ internal class RoomOlmGroupKeyDistributionReadiness(
     }
 
     /**
-     * Must run before preparing a new Megolm message. The returned token proves
-     * that the full immutable key target set is acknowledged, so callers can
-     * avoid advancing the sender ratchet while a group member is still waiting.
+     * Must run before preparing a new Megolm message. The token proves the key
+     * envelopes were accepted by every immutable per-device mailbox.
      */
-    fun requireAcknowledged(
+    fun requireMailboxAccepted(
         ownerUserId: String,
         senderDeviceId: String,
         currentMembership: GroupCryptoMembershipSnapshot,
@@ -137,7 +171,7 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         (evaluate(ownerUserId, senderDeviceId, currentMembership, megolmSessionId)
             as? OlmGroupKeyDistributionReadinessState.Ready)?.token
             ?: throw IllegalArgumentException(
-                "Megolm group key distribution has not been acknowledged by every remote target",
+                "Megolm group key has not been accepted by every target mailbox",
             )
 
     override fun requireReady(
@@ -161,14 +195,14 @@ internal class RoomOlmGroupKeyDistributionReadiness(
         ) {
             "Group membership or key-distribution identity changed before outbox commit"
         }
-        val latest = requireAcknowledged(
+        val latest = requireMailboxAccepted(
             ownerUserId = ownerUserId,
             senderDeviceId = senderDeviceId,
             currentMembership = currentMembership,
             megolmSessionId = keyDistribution.megolmSessionId,
         )
         require(latest == keyDistribution) {
-            "Group-key readiness token no longer matches durable metadata or acknowledgements"
+            "Group-key readiness token no longer matches durable metadata or mailbox acceptance"
         }
         val messageTargets = messageDistribution.deliveries.map {
             it.recipientUserId to it.recipientDeviceId
@@ -220,7 +254,7 @@ internal class RoomOlmGroupMessageSendPreflight(
         }
         val ownerUid = authenticatedUserId()
         val senderDevice = localDeviceId()
-        val latestToken = readiness.requireAcknowledged(
+        val latestToken = readiness.requireMailboxAccepted(
             ownerUserId = ownerUid,
             senderDeviceId = senderDevice,
             currentMembership = membership,

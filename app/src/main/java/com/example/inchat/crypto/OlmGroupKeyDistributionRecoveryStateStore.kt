@@ -34,6 +34,8 @@ internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
                 ownerUserId = metadata.ownerUserId,
                 senderDeviceId = metadata.senderDeviceId,
                 distributionId = metadata.distributionId,
+                groupId = metadata.groupId,
+                membershipEpoch = metadata.membershipEpoch,
             )
             val acknowledgedTargets = receiptDao
                 .getAcknowledgedTargetIdentitiesForDistribution(
