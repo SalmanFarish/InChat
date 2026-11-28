@@ -5,7 +5,11 @@ import com.example.inchat.ui.theme.InChatMotion
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.background
@@ -178,7 +182,21 @@ fun SearchScreen(
                 }
             )
 
-            when (val state = searchState) {
+            AnimatedContent(
+                targetState = searchState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                transitionSpec = {
+                    fadeIn(animationSpec = InChatMotion.effects(170)) togetherWith
+                        fadeOut(animationSpec = InChatMotion.effects(130))
+                },
+                // Keep live suggestions stable while the user types; only
+                // animate when the visible search state actually changes.
+                contentKey = { state -> state::class },
+                label = "searchContent"
+            ) { state ->
+                when (state) {
                 UserSearchState.Idle -> {
                     RecentSearches(
                         users = recentUsers,
@@ -211,6 +229,7 @@ fun SearchScreen(
                         query = usernameInput,
                         message = state.message
                     )
+                }
                 }
             }
         }
