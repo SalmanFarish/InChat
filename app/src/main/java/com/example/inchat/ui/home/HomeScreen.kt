@@ -2052,7 +2052,7 @@ private fun ConversationItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AnimatedVisibility(
-                    visible = homeSelectionMode,
+                    visible = isSelectionMode,
                     enter = fadeIn(animationSpec = tween(130)) +
                         scaleIn(initialScale = 0.72f, animationSpec = tween(160)),
                     exit = fadeOut(animationSpec = tween(110)) +
