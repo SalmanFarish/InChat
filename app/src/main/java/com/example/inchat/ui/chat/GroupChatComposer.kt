@@ -2,10 +2,12 @@ package com.example.inchat.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
+import com.example.inchat.ui.theme.InChatMotion
 
 @Composable
 fun GroupChatComposer(
@@ -99,8 +102,18 @@ fun GroupChatComposer(
 
             AnimatedVisibility(
                 visible = editingMessage != null,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
+                enter = fadeIn(animationSpec = InChatMotion.effects(160)) +
+                    expandVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideInVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        initialOffsetY = { -it / 3 }
+                    ),
+                exit = fadeOut(animationSpec = InChatMotion.effects(130)) +
+                    shrinkVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideOutVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        targetOffsetY = { -it / 3 }
+                    )
             ) {
                 editingMessage?.let { message ->
                     EditComposerPreview(
@@ -112,8 +125,18 @@ fun GroupChatComposer(
 
             AnimatedVisibility(
                 visible = replyingTo != null && editingMessage == null,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
+                enter = fadeIn(animationSpec = InChatMotion.effects(160)) +
+                    expandVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideInVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        initialOffsetY = { -it / 3 }
+                    ),
+                exit = fadeOut(animationSpec = InChatMotion.effects(130)) +
+                    shrinkVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideOutVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        targetOffsetY = { -it / 3 }
+                    )
             ) {
                 replyingTo?.let { message ->
                     ReplyComposerPreview(
