@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,7 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.FirebaseServerClock
 import kotlinx.coroutines.delay
+import com.example.inchat.ui.theme.InChatMotion
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -110,8 +112,10 @@ fun ChatMessageActionsDialog(
     val confirmingDeleteForMeState = remember(message.id) {
         mutableStateOf(false)
     }
-    val popupOnLeft = remember(message.id) {
-        kotlin.random.Random.nextBoolean()
+    // Keep the action menu on the same side as its message instead of
+    // changing sides randomly between long presses.
+    val popupOnLeft = remember(message.id, isOwnMessage) {
+        !isOwnMessage
     }
     val positionProvider = remember(popupOnLeft, density) {
         MessageActionsPopupPositionProvider(
@@ -130,10 +134,12 @@ fun ChatMessageActionsDialog(
         )
     ) {
         Surface(
-            modifier = Modifier.widthIn(
-                min = if (showInfoState.value) 220.dp else 190.dp,
-                max = if (showInfoState.value) 280.dp else 228.dp
-            ),
+            modifier = Modifier
+                .widthIn(
+                    min = if (showInfoState.value) 220.dp else 190.dp,
+                    max = if (showInfoState.value) 280.dp else 228.dp
+                )
+                .animateContentSize(animationSpec = InChatMotion.contentSpring()),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
