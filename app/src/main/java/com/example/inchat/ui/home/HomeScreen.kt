@@ -12,8 +12,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,7 +21,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,8 +63,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -201,7 +196,6 @@ fun HomeScreen(
         mutableStateOf(false)
     }
 
-    val isSelectionMode = homeSelectionMode
 
     var selectedChatIds by remember {
         mutableStateOf<Set<String>>(emptySet())
@@ -354,8 +348,8 @@ fun HomeScreen(
 
     // If the navigation host ends selection mode (for example, when a
     // notification opens another destination), clear the local selection too.
-    LaunchedEffect(isSelectionMode) {
-        if (!isSelectionMode && selectedChatIds.isNotEmpty()) {
+    LaunchedEffect(homeSelectionMode) {
+        if (!homeSelectionMode && selectedChatIds.isNotEmpty()) {
             selectedChatIds = emptySet()
         }
     }
@@ -367,7 +361,7 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = isSelectionMode && !showBulkDeleteConfirmation) {
+    BackHandler(enabled = homeSelectionMode && !showBulkDeleteConfirmation) {
         exitSelection()
     }
 
@@ -444,7 +438,7 @@ fun HomeScreen(
         ) {
 
             HomeHeader(
-                selectionMode = isSelectionMode,
+                selectionMode = homeSelectionMode,
                 selectedCount = selectedChatIds.size,
                 allSelected = allSelectableChatsSelected,
                 onCancelSelection = exitSelection,
@@ -521,7 +515,7 @@ fun HomeScreen(
                     contentPadding =
                         PaddingValues(
                             top = 2.dp,
-                            bottom = if (isSelectionMode) 100.dp else 24.dp
+                            bottom = if (homeSelectionMode) 100.dp else 24.dp
                         ),
 
                     verticalArrangement =
@@ -560,7 +554,7 @@ fun HomeScreen(
                             homeViewModel = homeViewModel,
                             userRepository = userRepository,
                             currentUserId = currentUserId,
-                            isSelectionMode = isSelectionMode,
+                            isSelectionMode = homeSelectionMode,
                             isSelected = conversation.chatId in selectedChatIds,
                             onSelectChat = {
                                 selectedConversation = null
@@ -569,7 +563,7 @@ fun HomeScreen(
                                 onSelectionModeChange(true)
                             },
                             onClick = {
-                                if (isSelectionMode) {
+                                if (homeSelectionMode) {
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
@@ -578,14 +572,14 @@ fun HomeScreen(
                                 }
                             },
                             onLongClick = {
-                                if (isSelectionMode) {
+                                if (homeSelectionMode) {
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
                                     selectedConversation = conversation
                                 }
                             },
-                            showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
+                            showActions = !homeSelectionMode && selectedConversation?.chatId == conversation.chatId,
                             onDismissActions = {
                                 pendingDeleteConversation = null
                                 selectedConversation = null
@@ -681,7 +675,7 @@ fun HomeScreen(
                                     homeViewModel = homeViewModel,
                                     userRepository = userRepository,
                                     currentUserId = currentUserId,
-                                    isSelectionMode = isSelectionMode,
+                                    isSelectionMode = homeSelectionMode,
                                     isSelected = conversation.chatId in selectedChatIds,
                                     onSelectChat = {
                                         selectedConversation = null
@@ -690,7 +684,7 @@ fun HomeScreen(
                                         onSelectionModeChange(true)
                                     },
                                     onClick = {
-                                if (isSelectionMode) {
+                                if (homeSelectionMode) {
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
@@ -699,14 +693,14 @@ fun HomeScreen(
                                 }
                             },
                             onLongClick = {
-                                if (isSelectionMode) {
+                                if (homeSelectionMode) {
                                     toggleChatSelection(conversation.chatId)
                                 } else {
                                     pendingDeleteConversation = null
                                     selectedConversation = conversation
                                 }
                             },
-                            showActions = !isSelectionMode && selectedConversation?.chatId == conversation.chatId,
+                            showActions = !homeSelectionMode && selectedConversation?.chatId == conversation.chatId,
                                     onDismissActions = {
                                         pendingDeleteConversation = null
                                         selectedConversation = null
@@ -768,8 +762,8 @@ fun HomeScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = isSelectionMode,
+            this@Column.AnimatedVisibility(
+                visible = homeSelectionMode,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 // Overlay the replacement dock so selection does not resize
                 // the inbox viewport or move the selected conversation.
@@ -2058,7 +2052,7 @@ private fun ConversationItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AnimatedVisibility(
-                    visible = isSelectionMode,
+                    visible = homeSelectionMode,
                     enter = fadeIn(animationSpec = tween(130)) +
                         scaleIn(initialScale = 0.72f, animationSpec = tween(160)),
                     exit = fadeOut(animationSpec = tween(110)) +
