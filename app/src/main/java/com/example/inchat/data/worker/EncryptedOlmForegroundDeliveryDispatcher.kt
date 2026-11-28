@@ -9,6 +9,7 @@ import com.example.inchat.crypto.FirebaseOlmEnvelopeTransport
 import com.example.inchat.crypto.MAX_OLM_DEVICE_DELIVERY_TARGETS
 import com.example.inchat.crypto.OlmAuthenticatedMessagePayloadCodec
 import com.example.inchat.crypto.OlmDeliveryQueue
+import com.example.inchat.crypto.OlmDeliveryWorkerRunResult
 import com.example.inchat.crypto.OlmDeliveryWorkerRunner
 import com.example.inchat.crypto.OlmOutgoingDeliveryTransport
 import com.example.inchat.crypto.PartitionedOlmEnvelopeTransport
@@ -18,6 +19,10 @@ import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.repository.CloudflareWorkerConfig
 import com.example.inchat.data.repository.GroupChatRepository
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /**
  * Sends one freshly committed direct message on the foreground coroutine instead
@@ -33,6 +38,7 @@ internal object EncryptedOlmForegroundDeliveryDispatcher {
     private val USER_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
     private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
     private val MESSAGE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
+    private const val GROUP_FOREGROUND_UPLOAD_WORKERS = 4
 
     suspend fun dispatch(
         context: Context,
@@ -223,7 +229,7 @@ internal object EncryptedOlmForegroundDeliveryDispatcher {
         )
         val metadataStore = database.olmGroupKeyDistributionMetadataStore()
         val groupRepository = GroupChatRepository()
-        val runResult = OlmDeliveryWorkerRunner(
+        val runner = OlmDeliveryWorkerRunner(
             queue = queue,
             transport = transport,
             senderUserId = ownerUserId,
@@ -292,7 +298,24 @@ internal object EncryptedOlmForegroundDeliveryDispatcher {
             },
             messageIdFilter = messageId,
             processAcknowledgements = false,
-        ).run()
+        )
+
+        // Room's transactional lease is the cross-worker claim authority. Running
+        // a small pool of the same runner overlaps independent relay writes while
+        // WorkManager can safely compete for other rows without duplicate uploads.
+        val workerResults = coroutineScope {
+            List(GROUP_FOREGROUND_UPLOAD_WORKERS) {
+                async(Dispatchers.IO) { runner.run() }
+            }.awaitAll()
+        }
+        val runResult = OlmDeliveryWorkerRunResult(
+            uploaded = workerResults.sumOf { it.uploaded },
+            acknowledged = workerResults.sumOf { it.acknowledged },
+            unmatchedAcknowledgements = workerResults.sumOf { it.unmatchedAcknowledgements },
+            retryRequired = workerResults.any { it.retryRequired },
+            followUpRequired = workerResults.any { it.followUpRequired },
+            notificationDispatchFailures = workerResults.sumOf { it.notificationDispatchFailures },
+        )
         Log.i(
             TAG,
             "Foreground group delivery complete: group=" + groupId + ", message=" + messageId +
