@@ -274,6 +274,14 @@ fun InChatApp(
         }
     }
 
+    fun handleBackToHome() {
+        if (backNavigationInProgress) return
+        backNavigationInProgress = true
+        if (!navController.popBackStack("home", false)) {
+            backNavigationInProgress = false
+        }
+    }
+
     val showBottomBar =
         currentRoute ==
                 "home"
@@ -666,8 +674,7 @@ fun InChatApp(
                                 !isSavingPhoto
                             ) {
 
-                                navController
-                                    .popBackStack()
+                                handleBack()
                             }
                         },
 
@@ -696,8 +703,7 @@ fun InChatApp(
                                             isSavingPhoto =
                                                 false
 
-                                            navController
-                                                .popBackStack()
+                                            handleBack()
                                         }
                                         .onFailure {
 
@@ -729,8 +735,7 @@ fun InChatApp(
                                             isSavingPhoto =
                                                 false
 
-                                            navController
-                                                .popBackStack()
+                                            handleBack()
                                         }
                                         .onFailure {
 
@@ -777,8 +782,7 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController
-                            .popBackStack()
+                        handleBack()
                     },
 
                     onProfileSaved = {
@@ -794,8 +798,7 @@ fun InChatApp(
                                     savedBio
                             )
 
-                        navController
-                            .popBackStack()
+                        handleBack()
                     }
                 )
             }
@@ -823,8 +826,7 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController
-                            .popBackStack()
+                        handleBack()
                     },
 
                     onPrivacyClick = {
@@ -843,7 +845,7 @@ fun InChatApp(
             composable("device_transfer") {
                 DeviceTransferScreen(
                     uid = uid,
-                    onBackClick = { navController.popBackStack() }
+                    onBackClick = { handleBack() }
                 )
             }
 
@@ -864,8 +866,7 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController
-                            .popBackStack()
+                        handleBack()
                     }
                 )
             }
@@ -973,8 +974,7 @@ fun InChatApp(
 
                     onBackClick = {
 
-                        navController
-                            .popBackStack()
+                        handleBack()
                     }
                 )
             }
@@ -991,7 +991,7 @@ fun InChatApp(
                 NewMessageScreen(
                     currentUserId = uid,
                     onBackClick = {
-                        navController.popBackStack()
+                        handleBack()
                     },
                     onUserClick = { user ->
                         dismissKeyboardBeforeOpeningConversation()
@@ -1022,7 +1022,7 @@ fun InChatApp(
                         uid,
 
                     onBackClick = {
-                        navController.popBackStack()
+                        handleBack()
                     },
 
                     onGroupCreated = { groupId ->
@@ -1120,13 +1120,10 @@ fun InChatApp(
                     currentUserId = uid,
                     groupId = infoGroupId,
                     onBackClick = {
-                        navController.popBackStack()
+                        handleBack()
                     },
                     onGroupLeft = {
-                        navController.popBackStack(
-                            "home",
-                            false
-                        )
+                        handleBackToHome()
                     }
                 )
             }
@@ -1165,7 +1162,7 @@ fun InChatApp(
                     otherUserId = infoUserId,
                     otherUserNickname = infoUsername,
                     chatViewModel = infoChatViewModel,
-                    onBackClick = { navController.popBackStack() }
+                    onBackClick = { handleBack() }
                 )
             }
 
