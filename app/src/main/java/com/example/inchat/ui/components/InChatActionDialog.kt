@@ -1,7 +1,6 @@
 package com.example.inchat.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.inchat.ui.theme.InChatMotion
 
 /**
  * InChat's compact action-card dialog.
@@ -70,8 +70,11 @@ fun InChatActionDialog(
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = fadeIn(animationSpec = tween(120)) +
-                scaleIn(initialScale = 0.94f, animationSpec = tween(150))
+            enter = fadeIn(animationSpec = InChatMotion.effects(180)) +
+                scaleIn(
+                    initialScale = 0.96f,
+                    animationSpec = InChatMotion.navigationSpring()
+                )
         ) {
             Surface(
                 modifier = Modifier.widthIn(min = 220.dp, max = 320.dp),
