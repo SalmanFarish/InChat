@@ -236,10 +236,11 @@ fun InChatApp(
     }
 
     var backNavigationInProgress by remember { mutableStateOf(false) }
+    var rootBackPressDeadline by remember { mutableStateOf(0L) }
 
     fun releaseBackNavigationLockAfterTransition() {
         navigationScope.launch {
-            delay(700)
+            delay(1_100)
             backNavigationInProgress = false
         }
     }
@@ -270,7 +271,25 @@ fun InChatApp(
                     }
                 }
             } else {
-                context.findActivity()?.finish()
+                val now = System.currentTimeMillis()
+                if (now <= rootBackPressDeadline) {
+                    rootBackPressDeadline = 0L
+                    context.findActivity()?.finish()
+                } else {
+                    val deadline = now + 2_000L
+                    rootBackPressDeadline = deadline
+                    android.widget.Toast.makeText(
+                        context,
+                        "Press back again to exit",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    navigationScope.launch {
+                        delay(2_000)
+                        if (rootBackPressDeadline == deadline) {
+                            rootBackPressDeadline = 0L
+                        }
+                    }
+                }
             }
         } else {
             backNavigationInProgress = true
@@ -309,10 +328,10 @@ fun InChatApp(
     ) {
         if (currentRoute != "home") {
             isHomeSelectionMode = false
+            rootBackPressDeadline = 0L
         }
 
         if (isConversationRoute(currentRoute)) {
-            dismissKeyboardBeforeOpeningConversation()
             onChatOpened()
         }
 
@@ -1594,16 +1613,10 @@ private fun BottomNavigationItem(
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
             enter = androidx.compose.animation.fadeIn(
-                animationSpec = InChatMotion.effects(170)
-            ) + androidx.compose.animation.expandHorizontally(
-                expandFrom = Alignment.Start,
-                animationSpec = InChatMotion.contentSpring()
+                animationSpec = InChatMotion.effects(100)
             ),
             exit = androidx.compose.animation.fadeOut(
-                animationSpec = InChatMotion.effects(140)
-            ) + androidx.compose.animation.shrinkHorizontally(
-                shrinkTowards = Alignment.Start,
-                animationSpec = InChatMotion.contentSpring()
+                animationSpec = InChatMotion.effects(90)
             )
         ) {
             Row(
