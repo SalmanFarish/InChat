@@ -621,7 +621,9 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertEquals(1, firstResult.deliveriesQueued)
         assertEquals(1, secondResult.distributionsSkipped)
         assertEquals(0, secondResult.deliveriesQueued)
-        assertEquals(1, membershipLookups.get())
+        // The first pass performs its initial and final membership reads;
+        // the serialized second pass exits from the durable recovery snapshot.
+        assertEquals(2, membershipLookups.get())
         assertEquals(1, keyExports.get())
         assertEquals(1, preparations.get())
         assertEquals(1, resumes.get())
