@@ -4,7 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -133,13 +136,22 @@ fun ChatMessageActionsDialog(
             dismissOnClickOutside = true
         )
     ) {
-        Surface(
-            modifier = Modifier
-                .widthIn(
-                    min = if (showInfoState.value) 220.dp else 190.dp,
-                    max = if (showInfoState.value) 280.dp else 228.dp
-                )
-                .animateContentSize(animationSpec = InChatMotion.contentSpring()),
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(animationSpec = InChatMotion.effects(140)) +
+                scaleIn(
+                    initialScale = 0.94f,
+                    animationSpec = InChatMotion.navigationSpring()
+                ),
+            label = "messageActionPopup"
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(
+                        min = if (showInfoState.value) 220.dp else 190.dp,
+                        max = if (showInfoState.value) 280.dp else 228.dp
+                    )
+                    .animateContentSize(animationSpec = InChatMotion.contentSpring()),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
@@ -262,6 +274,7 @@ fun ChatMessageActionsDialog(
                         )
                     }
                 }
+            }
             }
         }
     }
