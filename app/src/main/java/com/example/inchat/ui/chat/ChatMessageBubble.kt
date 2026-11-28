@@ -2,10 +2,12 @@ package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -556,50 +558,61 @@ fun ReactionSummary(
                             reaction
                         ] ?: 0
 
-                    Text(
-                        text =
-                            if (count > 1) {
-                                "$reaction$count"
-                            } else {
-                                reaction
-                            },
-                        fontSize =
-                            13.sp,
-                        fontWeight =
-                            if (
-                                userReaction ==
-                                reaction
-                            ) {
+                    val isCurrentUserReaction = userReaction == reaction
+                    val reactionBackground by animateColorAsState(
+                        targetValue = if (isCurrentUserReaction) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        },
+                        animationSpec = InChatMotion.effects(160),
+                        label = "reactionChipBackground"
+                    )
+                    val reactionBorder by animateColorAsState(
+                        targetValue = if (isCurrentUserReaction) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                        },
+                        animationSpec = InChatMotion.effects(160),
+                        label = "reactionChipBorder"
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = InChatMotion.contentSpring()
+                            )
+                            .clickable(
+                                interactionSource = null,
+                                indication = LocalIndication.current,
+                                onClick = { onReactionClick(reaction) }
+                            ),
+                        shape = RoundedCornerShape(50),
+                        color = reactionBackground,
+                        border = BorderStroke(0.7.dp, reactionBorder),
+                        tonalElevation = 0.dp
+                    ) {
+                        Text(
+                            text = if (count > 1) "$reaction$count" else reaction,
+                            modifier = Modifier.padding(
+                                horizontal = 7.dp,
+                                vertical = 3.dp
+                            ),
+                            fontSize = 13.sp,
+                            fontFamily = GoogleSansFlex,
+                            fontWeight = if (isCurrentUserReaction) {
                                 FontWeight.Medium
                             } else {
                                 FontWeight.Normal
                             },
-                        modifier =
-                            Modifier.clickable(
-                                interactionSource =
-                                    null,
-                                indication =
-                                    LocalIndication.current,
-                                onClick = {
-                                    onReactionClick(
-                                        reaction
-                                    )
-                                }
-                            ),
-                        color =
-                            if (
-                                userReaction ==
-                                reaction
-                            ) {
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary
+                            color = if (isCurrentUserReaction) {
+                                MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
+                                MaterialTheme.colorScheme.onSurface
                             }
-                    )
+                        )
+                    }
                 }
         }
     }
