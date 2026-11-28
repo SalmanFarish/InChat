@@ -259,6 +259,7 @@ fun InChatApp(
                 pagerState.currentPage != 0 ||
                 pagerState.currentPageOffsetFraction != 0f
             ) {
+                rootBackPressDeadline = 0L
                 backNavigationInProgress = true
                 navigationScope.launch {
                     try {
