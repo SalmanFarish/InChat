@@ -6,8 +6,6 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -47,11 +45,8 @@ private class PressScaleNode(
                 when (interaction) {
                     is PressInteraction.Press -> {
                         animatedScale.animateTo(
-                            targetValue = 0.965f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                            targetValue = InChatMotion.PressedScale,
+                            animationSpec = InChatMotion.pressSpring()
                         )
                     }
 
@@ -59,10 +54,7 @@ private class PressScaleNode(
                     is PressInteraction.Cancel -> {
                         animatedScale.animateTo(
                             targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                            animationSpec = InChatMotion.releaseSpring()
                         )
                     }
                 }
