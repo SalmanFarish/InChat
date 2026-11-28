@@ -54,7 +54,7 @@ abstract class LocalChatDatabase : RoomDatabase() {
             deliveryReceipts = olmDeliveryReceiptDao(),
             metadataStore = olmGroupKeyDistributionMetadataStore(),
             deliveryStatesForDistribution = { owner, sender, distribution, group, epoch ->
-                olmDeliveryQueueDao().getTargetStatesForDistribution(
+                olmDeliveryQueueDao().getTargetStatesForGroupDistribution(
                     ownerUserId = owner,
                     senderDeviceId = sender,
                     distributionId = distribution,

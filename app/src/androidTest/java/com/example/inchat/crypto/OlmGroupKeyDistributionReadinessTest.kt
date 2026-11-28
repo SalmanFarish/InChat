@@ -113,7 +113,7 @@ class OlmGroupKeyDistributionReadinessTest {
             deliveryReceipts = database.olmDeliveryReceiptDao(),
             metadataStore = metadataStore,
             deliveryStatesForDistribution = { owner, sender, distribution, group, epoch ->
-                queueDao.getTargetStatesForDistribution(
+                queueDao.getTargetStatesForGroupDistribution(
                     ownerUserId = owner,
                     senderDeviceId = sender,
                     distributionId = distribution,

@@ -30,7 +30,7 @@ internal class RoomOlmGroupKeyDistributionRecoveryStateStore(
         // an acknowledgement can be inserted between the two SELECTs and create a
         // false overlap or hide a queue/receipt inconsistency during recovery.
         return database.runInTransaction(Callable {
-            val queueRows = queueDao.getTargetStatesForDistribution(
+            val queueRows = queueDao.getTargetStatesForGroupDistribution(
                 ownerUserId = metadata.ownerUserId,
                 senderDeviceId = metadata.senderDeviceId,
                 distributionId = metadata.distributionId,

@@ -95,7 +95,20 @@ interface OlmDeliveryQueueDao {
             "AND membershipEpoch = :membershipEpoch " +
             "ORDER BY recipientUserId ASC, recipientDeviceId ASC"
     )
+    /** All target states for an immutable outgoing distribution (direct or group). */
+    @Query(
+        "SELECT recipientUserId, recipientDeviceId, status FROM olm_device_deliveries " +
+            "WHERE ownerUserId = :ownerUserId AND senderDeviceId = :senderDeviceId " +
+            "AND messageId = :distributionId " +
+            "ORDER BY recipientUserId ASC, recipientDeviceId ASC"
+    )
     fun getTargetStatesForDistribution(
+        ownerUserId: String,
+        senderDeviceId: String,
+        distributionId: String,
+    ): List<OlmDeliveryQueueTargetState>
+
+    fun getTargetStatesForGroupDistribution(
         ownerUserId: String,
         senderDeviceId: String,
         distributionId: String,
