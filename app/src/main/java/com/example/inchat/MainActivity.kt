@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.example.inchat.data.preferences.UserPreferencesManager
 import com.example.inchat.data.repository.FirebaseServerClock
 import com.example.inchat.crypto.DeviceIdentityRepository
 import com.example.inchat.crypto.DeviceKeyDirectoryRepository
@@ -96,15 +97,13 @@ class MainActivity :
         )
 
         setContent {
-
-            /*
-             * Apply the actual InChat theme here.
-             *
-             * This makes the new monochrome Color.kt
-             * and Typography.kt apply to the entire app.
-             */
-            InChatTheme {
-
+            val preferences = androidx.compose.runtime.remember {
+                UserPreferencesManager(applicationContext)
+            }
+            val themeMode by preferences.themeModeFlow.collectAsState(
+                initial = UserPreferencesManager.THEME_DARK
+            )
+            InChatTheme(isLight = themeMode == UserPreferencesManager.THEME_LIGHT) {
                 InChatRoot()
             }
         }
