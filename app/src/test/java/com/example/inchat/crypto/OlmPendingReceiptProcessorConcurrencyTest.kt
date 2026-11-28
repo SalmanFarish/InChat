@@ -329,6 +329,13 @@ class OlmPendingReceiptProcessorConcurrencyTest {
         }
 
         @Synchronized
+        override fun getLatestReceivedAtMillis(recipientUserId: String): Long? =
+            rows.values
+                .asSequence()
+                .filter { it.recipientUserId == recipientUserId }
+                .maxOfOrNull { it.receivedAtMillis }
+
+        @Synchronized
         override fun getByReceiptId(receiptId: String): OlmInboundReceiptEntity? = rows[receiptId]
 
         @Synchronized
