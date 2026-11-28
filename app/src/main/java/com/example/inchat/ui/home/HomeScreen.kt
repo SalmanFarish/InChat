@@ -11,8 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.BackHandler
@@ -770,26 +768,16 @@ fun HomeScreen(
 
             AnimatedVisibility(
                 visible = isSelectionMode,
+                // Translate and fade only. Avoid animating layout size and scale
+                // together, which forces extra measurements as the dock changes.
                 enter = slideInVertically(
-                    initialOffsetY = { it / 2 },
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
-                ) + expandVertically(
-                    expandFrom = Alignment.Bottom,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
-                ) + fadeIn(animationSpec = tween(150)) + scaleIn(
-                    initialScale = 0.97f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f)
-                ),
+                    initialOffsetY = { it / 3 },
+                    animationSpec = tween(190)
+                ) + fadeIn(animationSpec = tween(150)),
                 exit = slideOutVertically(
-                    targetOffsetY = { it / 2 },
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Bottom,
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 460f)
-                ) + fadeOut(animationSpec = tween(120)) + scaleOut(
-                    targetScale = 0.985f,
-                    animationSpec = tween(150)
-                )
+                    targetOffsetY = { it / 3 },
+                    animationSpec = tween(160)
+                ) + fadeOut(animationSpec = tween(120))
             ) {
                 val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
                     selectedConversations.all { it.isHidden }
@@ -1080,34 +1068,40 @@ private fun BulkSelectionBar(
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit
 ) {
-    // Keep the actions visually grouped as a floating control rather than
-    // turning the bottom edge of the inbox into a full-width navigation bar.
-    Surface(
+    // Match the navigation dock's footprint: 86% width inside the same
+    // 18dp side gutters, with the same fixed 60dp height and pill silhouette.
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 3.dp,
-        shadowElevation = 16.dp,
-        border = BorderStroke(
-            width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.82f)
-        )
+            .padding(horizontal = 18.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 7.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth(0.86f)
+                .height(60.dp),
+            shape = RoundedCornerShape(50.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 2.dp,
+            shadowElevation = 12.dp,
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             TextButton(
                 onClick = onToggleHidden,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
             ) {
                 Icon(
                     imageVector = if (hideLabel == "Show") {
@@ -1116,17 +1110,17 @@ private fun BulkSelectionBar(
                         Icons.Outlined.VisibilityOff
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(Modifier.width(5.dp))
-                Text(hideLabel, fontSize = 12.sp, maxLines = 1)
+                Spacer(Modifier.width(4.dp))
+                Text(hideLabel, fontSize = 11.sp, maxLines = 1)
             }
 
             TextButton(
                 onClick = onToggleFavorite,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
             ) {
                 Icon(
                     imageVector = if (favoriteLabel == "Unfavorite") {
@@ -1135,28 +1129,28 @@ private fun BulkSelectionBar(
                         Icons.Outlined.Star
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(Modifier.width(5.dp))
-                Text(favoriteLabel, fontSize = 12.sp, maxLines = 1)
+                Spacer(Modifier.width(4.dp))
+                Text(favoriteLabel, fontSize = 11.sp, maxLines = 1)
             }
 
             TextButton(
                 onClick = onDelete,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
                     contentDescription = null,
-                    modifier = Modifier.size(17.dp),
+                    modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.error
                 )
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = "Delete",
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 1
                 )
