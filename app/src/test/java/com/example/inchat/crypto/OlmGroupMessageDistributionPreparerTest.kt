@@ -65,6 +65,36 @@ class OlmGroupMessageDistributionPreparerTest {
     }
 
     @Test
+    fun reusesEstablishedOlmSessionForGroupMessagesWithoutClaimingAnotherPrekey() = runBlocking {
+        val sender = bundle("sender-current")
+        val recipient = bundle("recipient-phone")
+        val directory = FakeDirectory(
+            "alice",
+            mapOf("alice" to listOf(sender), "bob" to listOf(recipient)),
+        )
+        val sessions = FakeSessions(
+            localDeviceId = sender.deviceId,
+            establishedSessionIds = mapOf("recipient-phone" to "established-recipient-session"),
+        )
+        val preparer = OlmGroupMessageDistributionPreparer(
+            directory,
+            sessions,
+            verifier(setOf("bob::recipient-phone::ed25519-recipient-phone")),
+        )
+
+        val result = preparer.prepare(
+            membership = membership("group-1", 5L, "alice", "bob"),
+            messageId = "message-established",
+            encryptedMessage = EncryptedMegolmMessage("1234567890abcdef", 4L, ByteArray(80)),
+            sentAtMillis = 5678L,
+        )
+
+        assertEquals("established-recipient-session", result.deliveries.single().sessionId)
+        assertTrue(directory.claimedPreKeys.isEmpty())
+        assertTrue(sessions.createdSessions.isEmpty())
+    }
+
+    @Test
     fun readOnlyTrustedTargetPreviewMatchesFanoutWithoutClaimingPrekeysOrCreatingSessions() = runBlocking {
         val sender = bundle("sender-current")
         val senderOther = bundle("sender-tablet")
@@ -210,8 +240,12 @@ class OlmGroupMessageDistributionPreparerTest {
 
     private class FakeSessions(
         override val localDeviceId: String,
+        private val establishedSessionIds: Map<String, String> = emptyMap(),
     ) : OlmGroupMessageOutboundSessionRepository {
         val createdSessions = mutableListOf<Pair<String, SignedOlmPreKey>>()
+
+        override fun findEstablishedOutboundSession(remoteDevice: PublicDeviceKeyBundle): String? =
+            establishedSessionIds[remoteDevice.deviceId]
 
         override fun createOutboundSession(
             remoteDevice: PublicDeviceKeyBundle,
@@ -230,7 +264,10 @@ class OlmGroupMessageDistributionPreparerTest {
             sessionId: String,
             payload: OlmGroupMessagePayload,
         ): String {
-            assertEquals("session-${payload.recipientDeviceId}", sessionId)
+            assertEquals(
+                establishedSessionIds[payload.recipientDeviceId] ?: "session-${payload.recipientDeviceId}",
+                sessionId,
+            )
             return OlmGroupMessagePayloadCodec.encode(payload)
         }
     }
