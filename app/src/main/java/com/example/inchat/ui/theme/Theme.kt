@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -114,16 +115,53 @@ private val TerminalGreenColorScheme =
         onErrorContainer = Color(0xFFFFDADA)
     )
 
+
+private val LightColorScheme = lightColorScheme(
+    primary = LightTerminalGreen,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD7F4DD),
+    onPrimaryContainer = Color(0xFF00210A),
+    secondary = LightTerminalGreenSoft,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE0F1E3),
+    onSecondaryContainer = Color(0xFF102B17),
+    tertiary = LightTerminalGreenBright,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFD1F2D8),
+    onTertiaryContainer = Color(0xFF00210A),
+    background = LightAppBackground,
+    onBackground = LightTextPrimary,
+    surface = LightAppSurface,
+    onSurface = LightTextPrimary,
+    surfaceVariant = LightAppSurfaceVariant,
+    onSurfaceVariant = LightTextSecondary,
+    surfaceDim = Color(0xFFE2E9E3),
+    surfaceBright = Color.White,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF3F7F3),
+    surfaceContainer = LightAppSurfaceVariant,
+    surfaceContainerHigh = Color(0xFFE8EFE9),
+    surfaceContainerHighest = Color(0xFFDDE7DF),
+    surfaceTint = LightTerminalGreen,
+    outline = LightAppOutline,
+    outlineVariant = LightAppOutlineVariant,
+    error = Color(0xFFBA1A1A),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002)
+)
+
 /**
- * InChat uses its AMOLED terminal-green appearance on every device.
- * The system light/dark setting does not switch to a white interface.
+ * InChat keeps its terminal-green identity in both appearances.
+ * Dark remains the default; light is an explicit user preference.
  */
 @Composable
 fun InChatTheme(
+    isLight: Boolean = false,
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = TerminalGreenColorScheme,
+        colorScheme = if (isLight) LightColorScheme else TerminalGreenColorScheme,
         typography = Typography
     ) {
         CompositionLocalProvider(
