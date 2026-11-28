@@ -188,6 +188,81 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
     }
 
     @Test
+    fun accountSwitchDuringInitialMembershipLookupStopsBeforeReadingMegolmSessionKey() = runBlocking {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("bob" to "bob-phone"),
+        ).toEntity()
+        var activeUserId = "alice"
+        var sessionReads = 0
+        var keyExports = 0
+        var preparations = 0
+        var resumed = false
+        var failureReported = false
+        val runner = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = FakeMetadataStore(metadata),
+            recoveryStateReader = FakeStateReader(
+                OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = emptySet(),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                ),
+            ),
+            membershipForGroup = {
+                // Simulate Firebase auth changing while the membership lookup suspends.
+                activeUserId = "mallory"
+                membership
+            },
+            authenticatedUserId = { activeUserId },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                sessionReads++
+                OutboundMegolmSessionInfo(
+                    expectedSessionId,
+                    snapshot.groupId,
+                    snapshot.epoch,
+                    created = false,
+                )
+            },
+            exportOutboundSessionKey = { _, _ ->
+                keyExports++
+                ByteArray(32) { 4 }
+            },
+            prepareDistribution = { _, _, _, _, _, _, _ ->
+                preparations++
+                error("Must not prepare after the account has changed")
+            },
+            resumeDistribution = { _, _ ->
+                resumed = true
+                1
+            },
+            onDistributionFailure = { _, _ -> failureReported = true },
+        )
+
+        val failure = runCatching { runner.run() }.exceptionOrNull()
+
+        assertTrue("An account switch during lookup must abort recovery", failure is IllegalArgumentException)
+        assertEquals(0, sessionReads)
+        assertEquals(0, keyExports)
+        assertEquals(0, preparations)
+        assertTrue(!resumed)
+        assertTrue(!failureReported)
+    }
+
+    @Test
     fun accountSwitchDuringOneDistributionAbortsRecoveryInsteadOfBeingCountedAsItemFailure() {
         val membership = membership()
         val sessionId = "1234567890abcdef"

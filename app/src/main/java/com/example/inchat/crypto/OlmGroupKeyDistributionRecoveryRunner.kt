@@ -84,6 +84,14 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
             }
 
             val initial = membershipForGroup(metadata.groupId)
+            // Membership lookup suspends. Fence the account/device immediately
+            // before reading or exporting the native Megolm session key; otherwise
+            // an auth switch during this lookup can continue under stale scope.
+            require(
+                authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+            ) {
+                "Authenticated sender identity changed during group membership lookup"
+            }
             if (initial == null || !initial.isValid() ||
                 initial.groupId != metadata.groupId ||
                 initial.epoch != metadata.membershipEpoch ||
@@ -136,6 +144,13 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 plan.missingTargets.toSet(),
                 metadata.targetDevicePairs().toSet(),
             )
+            // Device-directory/prekey preparation can suspend. Do not continue
+            // trust validation or queue recovery after an account/device switch.
+            require(
+                authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+            ) {
+                "Authenticated sender identity changed during group-key envelope preparation"
+            }
             require(
                 prepared.distributionId == metadata.distributionId &&
                     prepared.groupId == metadata.groupId &&
@@ -155,7 +170,16 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
                 "Recovery preparer returned a target that is not currently missing"
             }
 
-            if (!validatePreparedTargets(prepared)) {
+            val preparedTargetsStillTrusted = validatePreparedTargets(prepared)
+            // Trust validation is suspendable too. A stale account must abort
+            // this recovery pass even when the callback reports an untrusted
+            // target; silently counting that as a normal skip hides scope loss.
+            require(
+                authenticatedUserId() == ownerUid && localDeviceId() == senderDeviceId
+            ) {
+                "Authenticated sender identity changed during group-key trust validation"
+            }
+            if (!preparedTargetsStillTrusted) {
                 skipped += 1
                 return@forEach
             }
