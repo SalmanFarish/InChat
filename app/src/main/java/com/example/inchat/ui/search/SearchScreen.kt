@@ -1,6 +1,7 @@
 package com.example.inchat.ui.search
 
 import com.example.inchat.ui.components.CompactSearchField
+import com.example.inchat.ui.theme.InChatMotion
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
@@ -301,7 +302,12 @@ private fun RecentSearches(
                 RecentSearchRow(
                     user = user,
                     onClick = { onUserClick(user) },
-                    onRemove = { onRemoveUser(user.uid) }
+                    onRemove = { onRemoveUser(user.uid) },
+                    itemModifier = Modifier.animateItem(
+                        fadeInSpec = InChatMotion.effects(180),
+                        placementSpec = InChatMotion.contentSpring(),
+                        fadeOutSpec = InChatMotion.effects(140)
+                    )
                 )
             }
         }
@@ -330,7 +336,12 @@ private fun SearchResults(
             items(items = users, key = { it.uid }) { user ->
                 SearchUserRow(
                     user = user,
-                    onClick = { onUserClick(user) }
+                    onClick = { onUserClick(user) },
+                    itemModifier = Modifier.animateItem(
+                        fadeInSpec = InChatMotion.effects(180),
+                        placementSpec = InChatMotion.contentSpring(),
+                        fadeOutSpec = InChatMotion.effects(140)
+                    )
                 )
             }
         }
@@ -382,9 +393,10 @@ private fun SectionHeading(
 private fun RecentSearchRow(
     user: User,
     onClick: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = itemModifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -417,9 +429,10 @@ private fun RecentSearchRow(
 @Composable
 private fun SearchUserRow(
     user: User,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = itemModifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
