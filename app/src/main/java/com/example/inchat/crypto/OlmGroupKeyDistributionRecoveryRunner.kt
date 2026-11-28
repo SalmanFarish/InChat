@@ -2,6 +2,8 @@ package com.example.inchat.crypto
 
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import java.util.Base64
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal data class OlmGroupKeyRecoveryRunResult(
     val distributionsScanned: Int,
@@ -46,7 +48,10 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val onDistributionFailure: (OlmGroupKeyDistributionEntity, Exception) -> Unit = { _, _ -> },
 ) {
-    suspend fun run(): OlmGroupKeyRecoveryRunResult {
+    suspend fun run(): OlmGroupKeyRecoveryRunResult =
+        RECOVERY_MUTEX.withLock { runLocked() }
+
+    private suspend fun runLocked(): OlmGroupKeyRecoveryRunResult {
         val ownerUid = authenticatedUserId()
         val senderDeviceId = localDeviceId()
         val records = metadataStore.getAllForDevice(ownerUid, senderDeviceId)
@@ -209,6 +214,11 @@ internal class OlmGroupKeyDistributionRecoveryRunner(
     }
 
     private companion object {
+        // Immediate and periodic encrypted-delivery workers can overlap. A
+        // process-wide lock prevents two recovery passes from simultaneously
+        // exporting the same Megolm key, claiming Olm prekeys, and rebuilding
+        // envelopes for the same immutable distribution snapshot.
+        val RECOVERY_MUTEX = Mutex()
         const val MIN_KEY_BYTES = 32
         const val MAX_KEY_BYTES = 1024
     }

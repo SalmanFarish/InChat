@@ -1,10 +1,15 @@
 package com.example.inchat.crypto
 
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class OlmGroupKeyDistributionRecoveryRunnerTest {
     @Test
@@ -498,6 +503,128 @@ class OlmGroupKeyDistributionRecoveryRunnerTest {
         assertEquals(0, result.deliveriesQueued)
         assertFalse(exported)
         assertFalse(prepared)
+    }
+
+    @Test
+    fun overlappingRecoveryRunnersDoNotPrepareTheSameMissingKeyDistributionTwice() = runBlocking {
+        val membership = membership()
+        val sessionId = "1234567890abcdef"
+        val distributionId = OlmGroupSessionKeyDistributionId.create(
+            membership = membership,
+            senderUserId = "alice",
+            senderDeviceId = "alice-phone",
+            megolmSessionId = sessionId,
+        )
+        val metadata = OlmGroupKeyDistributionRecord(
+            ownerUserId = "alice",
+            senderDeviceId = "alice-phone",
+            distributionId = distributionId,
+            groupId = membership.groupId,
+            membershipEpoch = membership.epoch,
+            megolmSessionId = sessionId,
+            targetDevices = listOf("bob" to "bob-phone"),
+        ).toEntity()
+        val metadataStore = FakeMetadataStore(metadata)
+        var recoveryState = OlmGroupKeyDistributionRecoveryState(
+            queuedTargets = emptySet(),
+            acknowledgedTargets = emptySet(),
+            failedTargets = emptySet(),
+        )
+        val stateReader = object : OlmGroupKeyDistributionRecoveryStateReader {
+            override fun read(metadata: OlmGroupKeyDistributionEntity) = recoveryState
+        }
+        val membershipLookupEntered = CompletableDeferred<Unit>()
+        val releaseMembershipLookup = CompletableDeferred<Unit>()
+        val membershipLookups = AtomicInteger()
+        val keyExports = AtomicInteger()
+        val preparations = AtomicInteger()
+        val resumes = AtomicInteger()
+
+        fun runner() = OlmGroupKeyDistributionRecoveryRunner(
+            metadataStore = metadataStore,
+            recoveryStateReader = stateReader,
+            membershipForGroup = {
+                if (membershipLookups.incrementAndGet() == 1) {
+                    membershipLookupEntered.complete(Unit)
+                    releaseMembershipLookup.await()
+                }
+                membership
+            },
+            authenticatedUserId = { "alice" },
+            localDeviceId = { "alice-phone" },
+            existingOutboundSession = { snapshot, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                OutboundMegolmSessionInfo(expectedSessionId, snapshot.groupId, snapshot.epoch, created = false)
+            },
+            exportOutboundSessionKey = { _, expectedSessionId ->
+                assertEquals(sessionId, expectedSessionId)
+                keyExports.incrementAndGet()
+                ByteArray(32) { 6 }
+            },
+            prepareDistribution = { id, snapshot, session, _, issuedAt, selected, expected ->
+                preparations.incrementAndGet()
+                assertEquals(distributionId, id)
+                assertEquals(0L, issuedAt)
+                assertEquals(setOf("bob" to "bob-phone"), selected)
+                assertEquals(setOf("bob" to "bob-phone"), expected)
+                PreparedOlmGroupKeyDistribution(
+                    distributionId = id,
+                    groupId = snapshot.groupId,
+                    membershipEpoch = snapshot.epoch,
+                    megolmSessionId = session,
+                    deliveries = listOf(
+                        PreparedOlmGroupKeyDelivery(
+                            recipientUserId = "bob",
+                            recipientDeviceId = "bob-phone",
+                            sessionId = "olm-session-bob",
+                            envelope = "encrypted-envelope",
+                        ),
+                    ),
+                    skippedUntrustedDeviceCount = 0,
+                    targetDevices = listOf("bob" to "bob-phone"),
+                )
+            },
+            resumeDistribution = { _, prepared ->
+                assertEquals(1, prepared.deliveries.size)
+                resumes.incrementAndGet()
+                recoveryState = OlmGroupKeyDistributionRecoveryState(
+                    queuedTargets = setOf("bob" to "bob-phone"),
+                    acknowledgedTargets = emptySet(),
+                    failedTargets = emptySet(),
+                )
+                1
+            },
+            nowMillis = { 0L },
+        )
+
+        val first = async { runner().run() }
+        membershipLookupEntered.await()
+        val secondStarted = CompletableDeferred<Unit>()
+        val second = async {
+            secondStarted.complete(Unit)
+            runner().run()
+        }
+        secondStarted.await()
+        yield()
+
+        // The first pass is paused after its durable missing-target snapshot.
+        // The second runner must wait rather than exporting/claiming/preparing
+        // the same group session key concurrently.
+        assertEquals(1, membershipLookups.get())
+        assertEquals(1, keyExports.get())
+        assertEquals(1, preparations.get())
+
+        releaseMembershipLookup.complete(Unit)
+        val firstResult = first.await()
+        val secondResult = second.await()
+
+        assertEquals(1, firstResult.deliveriesQueued)
+        assertEquals(1, secondResult.distributionsSkipped)
+        assertEquals(0, secondResult.deliveriesQueued)
+        assertEquals(1, membershipLookups.get())
+        assertEquals(1, keyExports.get())
+        assertEquals(1, preparations.get())
+        assertEquals(1, resumes.get())
     }
 
     private fun membership() = GroupCryptoMembershipSnapshot(
