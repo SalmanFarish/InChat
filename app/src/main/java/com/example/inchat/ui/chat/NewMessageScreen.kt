@@ -1,6 +1,7 @@
 package com.example.inchat.ui.chat
 
 import com.example.inchat.ui.components.CompactSearchField
+import com.example.inchat.ui.theme.InChatMotion
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -261,7 +262,12 @@ fun NewMessageScreen(
                         ) { user ->
                             NewMessageUserRow(
                                 user = user,
-                                onClick = { onUserClick(user) }
+                                onClick = { onUserClick(user) },
+                                itemModifier = Modifier.animateItem(
+                                    fadeInSpec = InChatMotion.effects(180),
+                                    placementSpec = InChatMotion.contentSpring(),
+                                    fadeOutSpec = InChatMotion.effects(140)
+                                )
                             )
                         }
                     }
@@ -289,7 +295,12 @@ fun NewMessageScreen(
                         ) { user ->
                             NewMessageUserRow(
                                 user = user,
-                                onClick = { onUserClick(user) }
+                                onClick = { onUserClick(user) },
+                                itemModifier = Modifier.animateItem(
+                                    fadeInSpec = InChatMotion.effects(180),
+                                    placementSpec = InChatMotion.contentSpring(),
+                                    fadeOutSpec = InChatMotion.effects(140)
+                                )
                             )
                         }
                     }
@@ -302,10 +313,11 @@ fun NewMessageScreen(
 @Composable
 private fun NewMessageUserRow(
     user: User,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = itemModifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
