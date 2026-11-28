@@ -35,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.inchat.data.preferences.UserPreferencesManager
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.auth.GoogleSignInHelper
 import com.example.inchat.ui.theme.GoogleSansFlex
@@ -169,6 +171,84 @@ fun SettingsScreen(
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            item {
+                SettingsSectionLabel("APPEARANCE")
+                val preferences = remember(context) { UserPreferencesManager(context) }
+                val themeMode by preferences.themeModeFlow.collectAsState(
+                    initial = UserPreferencesManager.THEME_DARK
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(
+                            text = "Choose your appearance",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 5.dp, bottom = 3.dp)
+                        )
+                        Text(
+                            text = "Your choice stays on this device.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 5.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch {
+                                        preferences.saveThemeMode(UserPreferencesManager.THEME_DARK)
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = themeMode == UserPreferencesManager.THEME_DARK,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        preferences.saveThemeMode(UserPreferencesManager.THEME_DARK)
+                                    }
+                                }
+                            )
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
+                                Text("Dark", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                                Text("AMOLED black with terminal-green accents", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch {
+                                        preferences.saveThemeMode(UserPreferencesManager.THEME_LIGHT)
+                                    }
+                                }
+                                .padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = themeMode == UserPreferencesManager.THEME_LIGHT,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        preferences.saveThemeMode(UserPreferencesManager.THEME_LIGHT)
+                                    }
+                                }
+                            )
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
+                                Text("Light", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                                Text("Soft neutral surfaces with the same green identity", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
             }
 
