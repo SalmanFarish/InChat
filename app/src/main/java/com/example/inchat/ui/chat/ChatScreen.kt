@@ -698,13 +698,15 @@ fun ChatScreen(
             )
         } else {
             androidx.compose.foundation.layout.Box(
-                modifier =
-                    androidx.compose.ui.Modifier
-                        .fillMaxSize()
-                        .padding(
-                            innerPadding
-                        )
-            )
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                ChatConversationLoadingState(
+                    title = "Opening conversation",
+                    description = "Getting your messages ready"
+                )
+            }
         }
 
     if (showClearChatConfirmation) {
