@@ -108,6 +108,64 @@ class MegolmGroupMessageSendCoordinatorTest {
     }
 
     @Test
+    fun immediatelyDispatchesGroupKeysBeforeCiphertextAndThenDispatchesCiphertext() = runBlocking {
+        val membership = membership()
+        val targets = targets()
+        val session = session(membership, targets)
+        val token = token(membership, session, targets)
+        val distributionId = distributionId(membership, session.sessionId)
+        var readinessCalls = 0
+        val events = mutableListOf<String>()
+
+        val coordinator = coordinator(
+            membershipReads = listOf(membership, membership, membership),
+            targets = targets,
+            session = session,
+            readiness = {
+                readinessCalls++
+                if (readinessCalls == 1) {
+                    OlmGroupKeyDistributionReadinessState.Missing(distributionId)
+                } else {
+                    OlmGroupKeyDistributionReadinessState.Ready(token)
+                }
+            },
+            distribute = { groupId, requestedDistributionId, _ ->
+                assertEquals("group-1", groupId)
+                assertEquals(distributionId, requestedDistributionId)
+                events += "queue-key"
+                MegolmGroupKeyDistributionResult(
+                    distributionId, groupId, membership.epoch, session.sessionId,
+                    targets.size, 1, 0,
+                )
+            },
+            send = { snapshot, id, _, _, _ ->
+                events += "encrypt-message"
+                MegolmGroupMessageOutboxCommitResult(id, snapshot.groupId, snapshot.epoch, 1, 1)
+            },
+            dispatchGroupKey = { groupId, id, epoch ->
+                assertEquals("group-1", groupId)
+                assertEquals(distributionId, id)
+                assertEquals(membership.epoch, epoch)
+                events += "dispatch-key"
+            },
+            dispatchGroupMessage = { groupId, id, epoch ->
+                assertEquals("group-1", groupId)
+                assertEquals("message-fast-path", id)
+                assertEquals(membership.epoch, epoch)
+                events += "dispatch-message"
+            },
+        )
+
+        val outcome = coordinator.send("group-1", "message-fast-path", "hello", 790L)
+
+        assertTrue(outcome is MegolmGroupMessageSendOutcome.Queued)
+        assertEquals(
+            listOf("queue-key", "dispatch-key", "encrypt-message", "dispatch-message"),
+            events,
+        )
+    }
+
+    @Test
     fun retriesReadinessAfterMailboxAcceptanceAndSendsWithoutWaitingForClientAcknowledgements() = runBlocking {
         val membership = membership()
         val targets = targets()
@@ -478,6 +536,8 @@ class MegolmGroupMessageSendCoordinatorTest {
             session
         },
         onMembershipRead: (Int) -> Unit = {},
+        dispatchGroupKey: suspend (String, String, Long) -> Unit = { _, _, _ -> },
+        dispatchGroupMessage: suspend (String, String, Long) -> Unit = { _, _, _ -> },
     ): MegolmGroupMessageSendCoordinator {
         val remainingMembershipReads = membershipReads.toMutableList()
         var membershipReadCount = 0
@@ -495,6 +555,8 @@ class MegolmGroupMessageSendCoordinatorTest {
             distributeKey = distribute,
             sendEncryptedMessage = send,
             nowMillis = { 555L },
+            dispatchGroupKeyDistributionImmediately = dispatchGroupKey,
+            dispatchGroupMessageImmediately = dispatchGroupMessage,
         )
     }
 
