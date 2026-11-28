@@ -568,6 +568,9 @@ fun InChatApp(
 
                     onHomeSelectionModeChange = { enabled ->
                         isHomeSelectionMode = enabled
+                    },
+                    onBeforeConversationOpen = {
+                        dismissKeyboardBeforeOpeningConversation()
                     }
                 )
             }
@@ -1299,7 +1302,10 @@ private fun MainTabPager(
         Boolean,
 
     onHomeSelectionModeChange:
-        (Boolean) -> Unit
+        (Boolean) -> Unit,
+
+    onBeforeConversationOpen:
+        () -> Unit
 ) {
 
     val searchViewModel:
@@ -1342,7 +1348,7 @@ private fun MainTabPager(
 
                     onConversationClick = {
                             conversation ->
-                        dismissKeyboardBeforeOpeningConversation()
+                        onBeforeConversationOpen()
 
                         if (
                             conversation.chatType ==
