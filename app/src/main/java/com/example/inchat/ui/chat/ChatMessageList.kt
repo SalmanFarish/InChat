@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
+import com.example.inchat.ui.theme.InChatMotion
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
@@ -741,18 +742,22 @@ fun ChatMessageList(
                             if (message.id == enteringMessageId) {
                                 AnimatedVisibility(
                                     visible = true,
-                                    enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.94f) +
-                                        if (enteringMessageFromBottom) {
-                                            slideInVertically(
-                                                animationSpec = tween(320),
-                                                initialOffsetY = { it / 2 }
-                                            )
-                                        } else {
-                                            slideInHorizontally(
-                                                animationSpec = tween(320),
-                                                initialOffsetX = { -it / 3 }
-                                            )
-                                        }
+                                    enter = fadeIn(
+                                        animationSpec = InChatMotion.effects(190)
+                                    ) + scaleIn(
+                                        initialScale = 0.97f,
+                                        animationSpec = InChatMotion.navigationSpring()
+                                    ) + if (enteringMessageFromBottom) {
+                                        slideInVertically(
+                                            animationSpec = InChatMotion.navigationSpring(),
+                                            initialOffsetY = { it / 5 }
+                                        )
+                                    } else {
+                                        slideInHorizontally(
+                                            animationSpec = InChatMotion.navigationSpring(),
+                                            initialOffsetX = { -it / 6 }
+                                        )
+                                    }
                                 ) {
                                 SwipeableMessageBubble(
     
