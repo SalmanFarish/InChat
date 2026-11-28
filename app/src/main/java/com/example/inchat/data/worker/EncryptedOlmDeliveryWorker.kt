@@ -478,7 +478,10 @@ class EncryptedOlmDeliveryWorker(
             // chains. A failed delivery's backoff must never sit in front of a
             // newly committed local-first message in the immediate sender chain.
             if (result.followUpRequired) {
-                scheduleAfterCurrentPass(applicationContext, ownerUserId, senderDeviceId)
+                // Acknowledgement reconciliation may already have requested
+                // this same continuation. Share the pass-level gate to avoid
+                // appending duplicate sender jobs for one completed batch.
+                acknowledgementFollowUp.scheduleOnce()
             }
             val now = System.currentTimeMillis().coerceAtLeast(0L)
             val queueRetryDelay = queue.nextScheduledRetryAtMillis(

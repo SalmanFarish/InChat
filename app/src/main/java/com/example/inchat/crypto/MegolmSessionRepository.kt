@@ -121,7 +121,7 @@ internal fun isOutboundMegolmSessionReadyFor(
 
 internal class MegolmSessionRepository(
     context: Context,
-    private val identityRepository: DeviceIdentityRepository = DeviceIdentityRepository(context.applicationContext),
+    private val identityRepository: SasVerificationLocalIdentity = DeviceIdentityRepository(context.applicationContext),
     private val authenticatedUserId: () -> String,
 ) : MegolmInboundSessionKeyImporter, MegolmInboundGroupMessageStager {
     private val appContext = context.applicationContext
