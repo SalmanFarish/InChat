@@ -1,5 +1,11 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -16,6 +22,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,10 +44,30 @@ fun MessageSelectionTopBar(
             }
         },
         title = {
-            Text(
-                text = "$selectedCount selected",
-                style = MaterialTheme.typography.titleMedium
-            )
+            AnimatedContent(
+                targetState = selectedCount,
+                transitionSpec = {
+                    (
+                        fadeIn(animationSpec = InChatMotion.effects(150)) +
+                            slideInVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { it / 4 }
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = InChatMotion.effects(110)) +
+                            slideOutVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 4 }
+                            )
+                        )
+                },
+                label = "selectedMessageCount"
+            ) { count ->
+                Text(
+                    text = "$count selected",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
         },
         actions = {
             IconButton(onClick = onCopy) {
