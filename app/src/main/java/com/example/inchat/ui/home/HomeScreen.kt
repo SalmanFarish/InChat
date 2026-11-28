@@ -555,15 +555,12 @@ fun HomeScreen(
                             }
                         }
                     ) { conversation ->
-                        Box(
-                            modifier = Modifier.animateItem(
+                        ConversationItem(
+                            itemModifier = Modifier.animateItem(
                                 fadeInSpec = InChatMotion.effects(180),
                                 placementSpec = InChatMotion.contentSpring(),
                                 fadeOutSpec = InChatMotion.effects(140)
-                            )
-                            )
-                        } {
-                            ConversationItem(
+                            ),
                             conversation = conversation,
                             homeViewModel = homeViewModel,
                             userRepository = userRepository,
@@ -681,14 +678,12 @@ fun HomeScreen(
                             }
                         }
                             ) { conversation ->
-                                Box(
-                                    modifier = Modifier.animateItem(
+                                ConversationItem(
+                                    itemModifier = Modifier.animateItem(
                                         fadeInSpec = InChatMotion.effects(180),
                                         placementSpec = InChatMotion.contentSpring(),
                                         fadeOutSpec = InChatMotion.effects(140)
-                                    )
-                                ) {
-                                    ConversationItem(
+                                    ),
                                     conversation = conversation,
                                     homeViewModel = homeViewModel,
                                     userRepository = userRepository,
@@ -730,8 +725,7 @@ fun HomeScreen(
                                     currentUserId = currentUserId,
                                     chatId = conversation.chatId,
                                     favorite = !conversation.isFavorite
-                                    )
-                                } { success, error ->
+                                ) { success, error ->
                                     selectedConversation = null
                                     if (!success) {
                                         actionMessage = error ?: "Could not update favorites."
@@ -1900,6 +1894,7 @@ private fun HiddenChatsToggle(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationItem(
+    itemModifier: Modifier = Modifier,
     conversation: Conversation,
     homeViewModel: HomeViewModel,
     userRepository: UserRepository,
@@ -2046,7 +2041,7 @@ private fun ConversationItem(
         label = "conversationSelectionBorder"
     )
 
-    Box {
+    Box(modifier = itemModifier) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
