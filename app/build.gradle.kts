@@ -81,8 +81,9 @@ dependencies {
     kspAndroidTestDebug(libs.androidx.room.compiler)
 
     // Jetpack Navigation Compose
+    // Stable Navigation Compose with predictive-back transition support.
     implementation(
-        "androidx.navigation:navigation-compose:2.7.7"
+        "androidx.navigation:navigation-compose:2.10.2"
     )
 
     // Compose & AndroidX Core
