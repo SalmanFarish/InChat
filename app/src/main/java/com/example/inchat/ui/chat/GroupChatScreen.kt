@@ -10,7 +10,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
-import com.example.inchat.ui.theme.Black
 import com.example.inchat.ui.theme.GoogleSansFlex
 import com.example.inchat.ui.theme.InChatMotion
 
@@ -340,18 +342,48 @@ fun GroupChatScreen(
                                 Spacer(Modifier.width(10.dp))
 
                                 Column {
-                                    Text(
-                                        text = group?.name?.ifBlank { "Group" } ?: "Group",
-                                        fontFamily = GoogleSansFlex,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 16.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = (group?.members?.size ?: 0).toString() + " members",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    AnimatedContent(
+                                        targetState = group?.name?.ifBlank { "Group" } ?: "Group",
+                                        transitionSpec = {
+                                            (
+                                                fadeIn(animationSpec = InChatMotion.effects(150)) +
+                                                    slideInVertically(
+                                                        animationSpec = InChatMotion.navigationSpring(),
+                                                        initialOffsetY = { it / 5 }
+                                                    )
+                                                ) togetherWith (
+                                                fadeOut(animationSpec = InChatMotion.effects(110)) +
+                                                    slideOutVertically(
+                                                        animationSpec = InChatMotion.navigationSpring(),
+                                                        targetOffsetY = { -it / 5 }
+                                                    )
+                                                )
+                                        },
+                                        label = "groupHeaderName"
+                                    ) { name ->
+                                        Text(
+                                            text = name,
+                                            fontFamily = GoogleSansFlex,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 16.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    AnimatedContent(
+                                        targetState = group?.members?.size ?: 0,
+                                        transitionSpec = {
+                                            fadeIn(animationSpec = InChatMotion.effects(130)) togetherWith
+                                                fadeOut(animationSpec = InChatMotion.effects(100))
+                                        },
+                                        label = "groupMemberCount"
+                                    ) { memberCount ->
+                                        Text(
+                                            text = "$memberCount members",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -365,11 +397,18 @@ fun GroupChatScreen(
                             DropdownMenu(
                                 expanded = overflowExpanded,
                                 onDismissRequest = { overflowExpanded = false },
-                                containerColor = Black,
-                                tonalElevation = 0.dp
+                                modifier = Modifier.border(
+                                    BorderStroke(
+                                        0.8.dp,
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    ),
+                                    RoundedCornerShape(16.dp)
+                                ),
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                tonalElevation = 2.dp
                             ) {
                                 DropdownMenuItem(
-                                    modifier = Modifier.background(Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                    modifier = Modifier,
                                     text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
                                     leadingIcon = {
                                         Icon(
