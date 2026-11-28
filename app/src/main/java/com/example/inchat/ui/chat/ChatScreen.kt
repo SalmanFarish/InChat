@@ -3,15 +3,24 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +38,7 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.notification.ActiveConversationTracker
 import kotlinx.coroutines.flow.flowOf
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -279,6 +289,14 @@ fun ChatScreen(
         }
     }
 
+    BackHandler {
+        if (selectedMessageIds.isNotEmpty()) {
+            selectedMessageIds = emptySet()
+        } else {
+            onBackClick()
+        }
+    }
+
     LaunchedEffect(chatInitializationError) {
         if (!chatInitializationError.isNullOrBlank()) {
             actionMessage =
@@ -394,51 +412,18 @@ fun ChatScreen(
      * ACTION MESSAGE
      * =========================================================
      */
-    if (
-        actionMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                actionMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "InChat"
-                )
-            },
-
-            text = {
-
-                Text(
-                    actionMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        actionMessage =
-                            null
-                    }
-                ) {
-
-                    Text(
-                        "OK"
-                    )
-                }
-            }
+    actionMessage?.let { message ->
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
-
     /*
      * =========================================================
      * MAIN SCREEN
@@ -454,60 +439,65 @@ fun ChatScreen(
                 .background,
 
         topBar = {
-            if (selectedMessageIds.isNotEmpty()) {
-                val selectedMessages = messages.filter { it.id in selectedMessageIds }
-                val selectedAreAllOwn = selectedMessages.size == selectedMessageIds.size &&
-                    selectedMessages.all { it.senderId == currentUserId }
-                MessageSelectionTopBar(
-                    selectedCount = selectedMessageIds.size,
-                    canDeleteForEveryone = selectedAreAllOwn,
-                    onClose = { selectedMessageIds = emptySet() },
-                    onCopy = {
-                        val copiedText = selectedMessages
-                            .sortedBy { it.timestamp }
-                            .mapNotNull { it.text.takeIf(String::isNotBlank) }
-                            .joinToString("\n")
-                        if (copiedText.isNotBlank()) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-
+            AnimatedContent(
+                targetState = selectedMessageIds.isNotEmpty(),
+                transitionSpec = {
+                    (
+                        fadeIn(animationSpec = InChatMotion.effects(150)) +
+                            slideInVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { it / 8 }
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = InChatMotion.effects(110)) +
+                            slideOutVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 8 }
+                            )
+                        )
+                },
+                label = "directChatTopBar"
+            ) { selectingMessages ->
+                if (selectingMessages) {
+                    val selectedMessages = messages.filter { it.id in selectedMessageIds }
+                    val selectedAreAllOwn =
+                        selectedMessages.size == selectedMessageIds.size &&
+                            selectedMessages.all { it.senderId == currentUserId }
+                    MessageSelectionTopBar(
+                        selectedCount = selectedMessageIds.size,
+                        canDeleteForEveryone = selectedAreAllOwn,
+                        onClose = { selectedMessageIds = emptySet() },
+                        onCopy = {
+                            val copiedText = selectedMessages
+                                .sortedBy { it.timestamp }
+                                .mapNotNull { it.text.takeIf(String::isNotBlank) }
+                                .joinToString("\n")
+                            if (copiedText.isNotBlank()) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
+                            }
+                            selectedMessageIds = emptySet()
+                        },
+                        onDeleteForMe = {
+                            showDeleteSelectedForMeConfirmation = true
+                        },
+                        onDeleteForEveryone = {
+                            showDeleteSelectedForEveryoneConfirmation = true
                         }
-                        selectedMessageIds = emptySet()
-                    },
-                    onDeleteForMe = {
-                        showDeleteSelectedForMeConfirmation = true
-                    },
-                    onDeleteForEveryone = {
-                        showDeleteSelectedForEveryoneConfirmation = true
-                    }
-                )
-            } else {
-            ChatTopBar(
-
-                otherUserNickname =
-                    otherUserNickname,
-
-                otherUserProfilePhoto =
-                    otherUserProfilePhoto,
-
-                otherUserPresence =
-                    otherUserPresence,
-
-                otherUserTyping =
-                    otherUserTyping,
-
-                blockState =
-                    blockState,
-
-                onBackClick =
-                    onBackClick,
-
-                onChatInfoClick =
-                    onChatInfoClick,
-                onClearChatClick = {
-                    showClearChatConfirmation = true
+                    )
+                } else {
+                    ChatTopBar(
+                        otherUserNickname = otherUserNickname,
+                        otherUserProfilePhoto = otherUserProfilePhoto,
+                        otherUserPresence = otherUserPresence,
+                        blockState = blockState,
+                        onBackClick = onBackClick,
+                        onChatInfoClick = onChatInfoClick,
+                        onClearChatClick = {
+                            showClearChatConfirmation = true
+                        }
+                    )
                 }
-            )
             }
         },
 
@@ -657,6 +647,9 @@ fun ChatScreen(
                 readReceiptsEnabled =
                     readReceiptsEnabled,
 
+                isOtherUserTyping =
+                    otherUserTyping,
+
                 chatTheme =
                     chatTheme,
 
@@ -720,13 +713,15 @@ fun ChatScreen(
             )
         } else {
             androidx.compose.foundation.layout.Box(
-                modifier =
-                    androidx.compose.ui.Modifier
-                        .fillMaxSize()
-                        .padding(
-                            innerPadding
-                        )
-            )
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                ChatConversationLoadingState(
+                    title = "Opening conversation",
+                    description = "Getting your messages ready"
+                )
+            }
         }
 
     if (showClearChatConfirmation) {
@@ -748,56 +743,40 @@ fun ChatScreen(
     }
 
     if (showDeleteSelectedForMeConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
-            title = { Text("Delete selected messages for you?") },
-            text = {
-                Text("These messages will disappear only from your chat. Other participants will keep them.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteSelectedForMeConfirmation = false
-                        val ids = selectedMessageIds
-                        chatViewModel.deleteMessagesForMe(ids) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
-                    }
-                ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
-                    Text("Cancel")
+        InChatActionDialog(
+            title = "Delete selected messages for you?",
+            description = "These messages will disappear only from your chat. Other participants will keep them.",
+            titleIcon = Icons.Outlined.DeleteSweep,
+            confirmLabel = "Delete for me",
+            confirmIcon = Icons.Outlined.DeleteSweep,
+            onConfirm = {
+                showDeleteSelectedForMeConfirmation = false
+                val ids = selectedMessageIds
+                chatViewModel.deleteMessagesForMe(ids) { success, error ->
+                    selectedMessageIds = emptySet()
+                    if (!success) actionMessage = error ?: "Could not delete selected messages."
                 }
-            }
+            },
+            onDismiss = { showDeleteSelectedForMeConfirmation = false }
         )
     }
 
     if (showDeleteSelectedForEveryoneConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
-            title = { Text("Delete selected messages?") },
-            text = {
-                Text("These messages will be removed for every participant. This cannot be undone.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteSelectedForEveryoneConfirmation = false
-                        val ids = selectedMessageIds
-                        chatViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
-                            selectedMessageIds = emptySet()
-                            if (!success) actionMessage = error ?: "Could not delete selected messages."
-                        }
-                    }
-                ) { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSelectedForEveryoneConfirmation = false }) {
-                    Text("Cancel")
+        InChatActionDialog(
+            title = "Delete selected messages?",
+            description = "These messages will be removed for every participant. This cannot be undone.",
+            titleIcon = Icons.Outlined.DeleteSweep,
+            confirmLabel = "Delete for everyone",
+            confirmIcon = Icons.Outlined.DeleteSweep,
+            onConfirm = {
+                showDeleteSelectedForEveryoneConfirmation = false
+                val ids = selectedMessageIds
+                chatViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
+                    selectedMessageIds = emptySet()
+                    if (!success) actionMessage = error ?: "Could not delete selected messages."
                 }
-            }
+            },
+            onDismiss = { showDeleteSelectedForEveryoneConfirmation = false }
         )
     }
 

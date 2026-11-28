@@ -4,6 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +67,7 @@ import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.FirebaseServerClock
 import kotlinx.coroutines.delay
+import com.example.inchat.ui.theme.InChatMotion
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -110,8 +120,10 @@ fun ChatMessageActionsDialog(
     val confirmingDeleteForMeState = remember(message.id) {
         mutableStateOf(false)
     }
-    val popupOnLeft = remember(message.id) {
-        kotlin.random.Random.nextBoolean()
+    // Keep the action menu on the same side as its message instead of
+    // changing sides randomly between long presses.
+    val popupOnLeft = remember(message.id, isOwnMessage) {
+        !isOwnMessage
     }
     val positionProvider = remember(popupOnLeft, density) {
         MessageActionsPopupPositionProvider(
@@ -129,11 +141,22 @@ fun ChatMessageActionsDialog(
             dismissOnClickOutside = true
         )
     ) {
-        Surface(
-            modifier = Modifier.widthIn(
-                min = if (showInfoState.value) 220.dp else 190.dp,
-                max = if (showInfoState.value) 280.dp else 228.dp
-            ),
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(animationSpec = InChatMotion.effects(140)) +
+                scaleIn(
+                    initialScale = 0.94f,
+                    animationSpec = InChatMotion.navigationSpring()
+                ),
+            label = "messageActionPopup"
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(
+                        min = if (showInfoState.value) 220.dp else 190.dp,
+                        max = if (showInfoState.value) 280.dp else 228.dp
+                    )
+                    .animateContentSize(animationSpec = InChatMotion.contentSpring()),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
@@ -171,7 +194,7 @@ fun ChatMessageActionsDialog(
                                 "Delete this message for everyone?"
                             },
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
@@ -257,6 +280,7 @@ fun ChatMessageActionsDialog(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -323,7 +347,7 @@ private fun MessageActionRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (destructive) {
                     MaterialTheme.colorScheme.error
                 } else {
@@ -376,7 +400,7 @@ private fun MessageInfoContent(
                     .weight(1f)
                     .padding(start = 7.dp),
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             )
             IconButton(
                 onClick = onDismiss,
@@ -455,6 +479,16 @@ private fun MessageInfoRow(
     value: String,
     highlighted: Boolean = false
 ) {
+    val valueColor by animateColorAsState(
+        targetValue = if (highlighted) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = InChatMotion.effects(170),
+        label = "messageInfoValueColor"
+    )
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -492,16 +526,23 @@ private fun MessageInfoRow(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                text = value.ifBlank { "—" },
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (highlighted) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
-            )
+            AnimatedContent(
+                targetState = value.ifBlank { "—" },
+                transitionSpec = {
+                    fadeIn(animationSpec = InChatMotion.effects(150)) togetherWith
+                        fadeOut(animationSpec = InChatMotion.effects(110))
+                },
+                label = "messageInfoValue"
+            ) { displayedValue ->
+                Text(
+                    text = displayedValue,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = valueColor,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

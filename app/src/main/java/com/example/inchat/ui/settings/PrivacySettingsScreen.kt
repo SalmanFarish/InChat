@@ -1,8 +1,11 @@
 package com.example.inchat.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,17 +17,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -35,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
@@ -320,11 +327,7 @@ fun PrivacySettingsScreen(
                         fontSize =
                             20.sp,
 
-                        fontWeight =
-                            androidx.compose
-                                .ui.text.font
-                                .FontWeight
-                                .Bold,
+                        fontWeight = FontWeight.Medium,
 
                         letterSpacing =
                             (-0.3).sp
@@ -405,166 +408,88 @@ fun PrivacySettingsScreen(
         ) {
 
             item {
-
-                PrivacyHeader()
+                PrivacyIntro()
             }
 
             item {
+                PrivacySectionCard(title = "Activity status") {
+                    PrivacyToggleRow(
+                        title = "Last seen",
+                        description = "Show other people when you were last active.",
+                        checked = presence.lastSeenVisible,
+                        enabled = !savingVisibility,
+                        onCheckedChange = { checked ->
+                            updateVisibility(
+                                onlineVisible = presence.onlineVisible,
+                                lastSeenVisible = checked
+                            )
+                        }
+                    )
 
-                PrivacySectionLabel(
-                    "ACTIVITY VISIBILITY"
-                )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
+                    PrivacyToggleRow(
+                        title = "Online status",
+                        description = "Show other people when you are currently online.",
+                        checked = presence.onlineVisible,
+                        enabled = !savingVisibility,
+                        onCheckedChange = { checked ->
+                            updateVisibility(
+                                onlineVisible = checked,
+                                lastSeenVisible = presence.lastSeenVisible
+                            )
+                        }
+                    )
+                }
             }
 
             item {
+                PrivacySectionCard(title = "Messages") {
+                    PrivacyToggleRow(
+                        title = "Read receipts",
+                        description = "Let other people see when you have read their messages.",
+                        checked = readReceiptsVisible,
+                        enabled = !savingReadReceipts,
+                        onCheckedChange = { checked ->
+                            updateReadReceiptsVisibility(checked)
+                        }
+                    )
 
-                PrivacyToggleRow(
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
 
-                    title =
-                        "Last seen",
-
-                    description =
-                        "Show other people when you were last active.",
-
-                    checked =
-                        presence.lastSeenVisible,
-
-                    enabled =
-                        !savingVisibility,
-
-                    onCheckedChange = { checked ->
-
-                        updateVisibility(
-                            onlineVisible =
-                                presence.onlineVisible,
-
-                            lastSeenVisible =
-                                checked
-                        )
-                    }
-                )
+                    PrivacyToggleRow(
+                        title = "Typing indicator",
+                        description = "Let other people see when you are typing a message.",
+                        checked = typingIndicatorVisible,
+                        enabled = !savingTypingIndicator,
+                        onCheckedChange = { checked ->
+                            updateTypingIndicatorVisibility(checked)
+                        }
+                    )
+                }
             }
 
             item {
-
-                PrivacyToggleRow(
-
-                    title =
-                        "Online status",
-
-                    description =
-                        "Show other people when you are currently online.",
-
-                    checked =
-                        presence.onlineVisible,
-
-                    enabled =
-                        !savingVisibility,
-
-                    onCheckedChange = { checked ->
-
-                        updateVisibility(
-                            onlineVisible =
-                                checked,
-
-                            lastSeenVisible =
-                                presence.lastSeenVisible
-                        )
-                    }
-                )
+                PrivacySectionCard(title = "Discoverability") {
+                    PrivacyToggleRow(
+                        title = "Who can find me",
+                        description = "Allow other people to discover your account through username search.",
+                        checked = discoverableByUsername,
+                        enabled = !saving,
+                        onCheckedChange = { checked ->
+                            updateDiscoverability(checked)
+                        }
+                    )
+                }
             }
 
             item {
-
-                PrivacySectionLabel(
-                    "MESSAGE PRIVACY"
-                )
-            }
-
-            item {
-
-                PrivacyToggleRow(
-
-                    title =
-                        "Read receipts",
-
-                    description =
-                        "Let other people see when you have read their messages.",
-
-                    checked =
-                        readReceiptsVisible,
-
-                    enabled =
-                        !savingReadReceipts,
-
-                    onCheckedChange = { checked ->
-
-                        updateReadReceiptsVisibility(
-                            checked
-                        )
-                    }
-                )
-            }
-
-            item {
-
-                PrivacyToggleRow(
-
-                    title =
-                        "Typing indicator",
-
-                    description =
-                        "Let other people see when you are typing a message.",
-
-                    checked =
-                        typingIndicatorVisible,
-
-                    enabled =
-                        !savingTypingIndicator,
-
-                    onCheckedChange = { checked ->
-
-                        updateTypingIndicatorVisibility(
-                            checked
-                        )
-                    }
-                )
-            }
-
-            item {
-
-                PrivacySectionLabel(
-                    "DISCOVERY"
-                )
-            }
-
-            item {
-
-                PrivacyToggleRow(
-
-                    title =
-                        "Who can find me",
-
-                    description =
-                        "Allow other people to discover your account through username search.",
-
-                    checked =
-                        discoverableByUsername,
-
-                    enabled =
-                        !saving,
-
-                    onCheckedChange = { checked ->
-
-                        updateDiscoverability(
-                            checked
-                        )
-                    }
-                )
-            }
-
-            item {
-
                 PrivacyExplanation()
             }
 
@@ -627,151 +552,57 @@ fun PrivacySettingsScreen(
         }
     }
 
-    if (
-        errorMessage != null
-    ) {
-
-        AlertDialog(
-
-            onDismissRequest = {
-
-                errorMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "Privacy"
-                )
-            },
-
-            text = {
-
-                Text(
-                    errorMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                androidx.compose
-                    .material3
-                    .TextButton(
-
-                        onClick = {
-
-                            errorMessage =
-                                null
-                        }
-                    ) {
-
-                        Text(
-                            "OK"
-                        )
-                    }
-            }
+    errorMessage?.let { message ->
+        InChatActionDialog(
+            title = "Privacy",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { errorMessage = null },
+            onDismiss = { errorMessage = null }
         )
-    }
-}
+    }}
 
 @Composable
-private fun PrivacyHeader() {
-
-    Column(
-
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    start =
-                        4.dp,
-
-                    top =
-                        4.dp,
-
-                    end =
-                        4.dp
-                )
-    ) {
-
-        Text(
-
-            text =
-                "Choose what other people can see.",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .titleMedium,
-
-            fontWeight =
-                androidx.compose
-                    .ui.text.font
-                    .FontWeight
-                    .Bold
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(
-                    5.dp
-                )
-        )
-
-        Text(
-
-            text =
-                "These controls affect presence and message-read information that other people can see.",
-
-            style =
-                MaterialTheme
-                    .typography
-                    .bodyMedium,
-
-            color =
-                MaterialTheme
-                    .colorScheme
-                    .onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun PrivacySectionLabel(
-    title: String
-) {
-
+private fun PrivacyIntro() {
     Text(
-
-        text =
-            title,
-
-        modifier =
-            Modifier.padding(
-                horizontal =
-                    4.dp
-            ),
-
-        style =
-            MaterialTheme
-                .typography
-                .labelSmall,
-
-        fontWeight =
-            androidx.compose
-                .ui.text.font
-                .FontWeight
-                .Bold,
-
-        letterSpacing =
-            0.8.sp,
-
-        color =
-            MaterialTheme
-                .colorScheme
-                .onSurfaceVariant
+        text = "Choose which activity and message details other people can see.",
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+@Composable
+private fun PrivacySectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(horizontal = 4.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        ) {
+            Column(content = content)
+        }
+    }
 }
 
 @Composable
@@ -806,11 +637,8 @@ private fun PrivacyToggleRow(
                     }
                 )
                 .padding(
-                    horizontal =
-                        4.dp,
-
-                    vertical =
-                        4.dp
+                    horizontal = 16.dp,
+                    vertical = 13.dp
                 ),
 
         verticalAlignment =
@@ -835,11 +663,7 @@ private fun PrivacyToggleRow(
                         .typography
                         .titleSmall,
 
-                fontWeight =
-                    androidx.compose
-                        .ui.text.font
-                        .FontWeight
-                        .SemiBold
+                fontWeight = FontWeight.Medium
             )
 
             Spacer(
@@ -892,28 +716,20 @@ private fun PrivacyToggleRow(
 
 @Composable
 private fun PrivacyExplanation() {
-
-    Text(
-
-        text =
-            "When a setting is off, InChat stops publishing that information to other users. Your privacy choice does not remove your account or messages.",
-
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal =
-                        4.dp
-                ),
-
-        style =
-            MaterialTheme
-            .typography
-            .bodySmall,
-
-        color =
-            MaterialTheme
-                .colorScheme
-                .onSurfaceVariant
-    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Text(
+            text = "When a setting is off, InChat stops publishing that information to other users. Your privacy choice does not remove your account or messages.",
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }

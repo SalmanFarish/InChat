@@ -83,11 +83,11 @@ enum class ChatTheme(
         ),
         colors = ChatThemePalette(
             background = Black,
-            incomingBubble = Color(0xFF030A04),
-            outgoingBubble = Color(0xFF06170A),
-            incomingText = Color(0xFF83F28F),
-            outgoingText = Color(0xFFA6FFB2),
-            secondaryText = Color(0xFF70A77B),
+            incomingBubble = Color(0xFF0A100C),
+            outgoingBubble = Color(0xFF102719),
+            incomingText = Color(0xFFDDF4E0),
+            outgoingText = Color(0xFFD2FFD8),
+            secondaryText = Color(0xFF9DBAA2),
             incomingBorder = Color.Transparent,
             outgoingBorder = Color.Transparent,
             statusAccent = Color(0xFF49FF66)
@@ -296,7 +296,7 @@ fun ChatThemeCard(
             ) {
                 Text(
                     text = theme.title,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -346,7 +346,7 @@ fun ChatThemeRow(
             Text(
                 text = theme.title,
                 fontSize = 16.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
 

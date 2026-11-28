@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -250,7 +251,8 @@ fun ProfilePhotoScreen(
                             screenTitle,
 
                         fontWeight =
-                            FontWeight.SemiBold
+                            FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 },
 
@@ -314,7 +316,9 @@ fun ProfilePhotoScreen(
                         .headlineSmall,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
+
+                color = MaterialTheme.colorScheme.onSurface,
 
                 textAlign =
                     TextAlign.Center
@@ -364,7 +368,7 @@ fun ProfilePhotoScreen(
                         .labelMedium,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme
@@ -401,6 +405,11 @@ fun ProfilePhotoScreen(
                             )
                             .clip(
                                 CircleShape
+                            )
+                            .border(
+                                width = 2.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = CircleShape
                             )
                             .background(
                                 MaterialTheme

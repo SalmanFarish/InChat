@@ -1,13 +1,18 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,7 +61,8 @@ import androidx.compose.ui.zIndex
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -195,7 +202,7 @@ fun SwipeableMessageBubble(
     ) {
         /* Keep message bubbles comfortably sized on normal screens. */
         val maxBubbleWidth =
-            (maxWidth * 0.84f)
+            (maxWidth * 0.80f)
                 .coerceAtLeast(68.dp)
                 .coerceAtMost(340.dp)
 
@@ -204,7 +211,7 @@ fun SwipeableMessageBubble(
          * bubble's trailing edge. This keeps times readable and
          * prevents the bubble or time from being clipped.
          */
-        Row(
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -216,244 +223,192 @@ fun SwipeableMessageBubble(
                                 replySwipeOffsetPx
                             }
                     }
-                    .zIndex(
-                        1f
-                    ),
-            horizontalArrangement =
-                if (isMe) {
-                    Arrangement.End
-                } else {
-                    Arrangement.Start
-                },
-            verticalAlignment =
-                Alignment.Top
+                    .zIndex(1f)
         ) {
             Column(
                 modifier =
                     Modifier
-                        .widthIn(
-                            max =
-                                maxBubbleWidth
-                        )
+                        .align(if (isMe) Alignment.CenterEnd else Alignment.CenterStart)
+                        .widthIn(max = maxBubbleWidth)
                         .animateContentSize()
             ) {
-                val bubbleShape =
-                    RoundedCornerShape(
-                        topStart = if (!isMe && !isFirstInGroup) 6.dp else 18.dp,
-                        topEnd = if (isMe && !isFirstInGroup) 6.dp else 18.dp,
-                        bottomStart = if (!isMe && isLastInGroup) 5.dp else 18.dp,
-                        bottomEnd = if (isMe && isLastInGroup) 5.dp else 18.dp
+                // shadcn MessageHeader: group identity stays outside the bubble.
+                if (showSenderName && message.senderNickname.isNotBlank()) {
+                    Text(
+                        text = message.senderNickname,
+                        modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            letterSpacing = 0.05.sp
+                        ),
+                        fontWeight = FontWeight.Medium,
+                        color = chatTheme.statusAccentColor,
+                        maxLines = 1
                     )
+                }
+
+                // Keep all message corners consistently rounded across group boundaries.
+                val bubbleShape = RoundedCornerShape(20.dp)
+                val bubbleBackground by animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                    } else if (isMe) {
+                        chatTheme.outgoingBubbleColor
+                    } else {
+                        chatTheme.incomingBubbleColor
+                    },
+                    animationSpec = InChatMotion.effects(170),
+                    label = "messageSelectionBackground"
+                )
+                val bubbleBorderColor by animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else if (isMe) {
+                        chatTheme.outgoingBorderColor
+                    } else {
+                        chatTheme.incomingBorderColor
+                    },
+                    animationSpec = InChatMotion.effects(170),
+                    label = "messageSelectionBorder"
+                )
+                val bubbleBorderWidth by animateDpAsState(
+                    targetValue = if (isSelected) 1.6.dp else 0.7.dp,
+                    animationSpec = InChatMotion.contentSpring(),
+                    label = "messageSelectionBorderWidth"
+                )
 
                 Column(
                     modifier =
                         Modifier
+                            // Align the bubble independently from the timestamp footer.
+                            // Short messages can have a wider footer than text; without
+                            // this, outgoing bubbles inherit the footer's left edge.
+                            .align(if (isMe) Alignment.End else Alignment.Start)
                             .combinedClickable(
-                                interactionSource =
-                                    null,
-                                indication =
-                                    null,
+                                interactionSource = null,
+                                indication = LocalIndication.current,
                                 onClick = onClick,
-                                onDoubleClick = {
-                                    onReactionClick(
-                                        "❤️"
-                                    )
-                                },
-                                onLongClick =
-                                    onLongClick
+                                onDoubleClick = { onReactionClick("❤️") },
+                                onLongClick = onLongClick
                             )
                             .clip(bubbleShape)
-                            .background(
-                                if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
-                                } else if (isMe) {
-                                    chatTheme.outgoingBubbleColor
-                                } else {
-                                    chatTheme.incomingBubbleColor
-                                }
-                            )
+                            .background(bubbleBackground)
                             .border(
-                                width = if (isSelected) 1.6.dp else 0.7.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else if (isMe) {
-                                    chatTheme.outgoingBorderColor
-                                } else {
-                                    chatTheme.incomingBorderColor
-                                },
+                                width = bubbleBorderWidth,
+                                color = bubbleBorderColor,
                                 shape = bubbleShape
                             )
-                            .padding(
-                                horizontal = 16.dp,
-                                vertical = 11.dp
-                            )
+                            .padding(horizontal = 16.dp, vertical = 11.dp)
                 ) {
-                    if (showSenderName && message.senderNickname.isNotBlank()) {
-                        Text(
-                            text = message.senderNickname,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = JetBrainsMono,
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp,
-                                letterSpacing = 0.25.sp
-                            ),
-                            fontWeight = FontWeight.SemiBold,
-                            color = chatTheme.statusAccentColor,
-                            maxLines = 1
-                        )
-
-                        Spacer(Modifier.height(5.dp))
-                    }
-
                     message.replyTo?.let { reply ->
                         ReplyMessagePreview(
-                            reply =
-                                reply,
-                            isMe =
-                                isMe,
-                            chatTheme =
-                                chatTheme,
-                            onClick = {
-                                onQuotedReplyClick(
-                                    reply.messageId
-                                )
-                            }
+                            reply = reply,
+                            isMe = isMe,
+                            chatTheme = chatTheme,
+                            onClick = { onQuotedReplyClick(reply.messageId) }
                         )
-
-                        Spacer(
-                            modifier =
-                                Modifier.height(
-                                    4.dp
-                                )
-                        )
+                        Spacer(Modifier.height(4.dp))
                     }
 
                     Text(
-                        text =
-                            message.text,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodyLarge
-                                .copy(
-                                    fontFamily = JetBrainsMono,
-                                    fontSize = 14.sp,
-                                    lineHeight = 21.sp,
-                                    letterSpacing = (-0.2).sp
-                                ),
-                        color =
-                            if (isMe) {
-                                chatTheme.outgoingTextColor
-                            } else {
-                                chatTheme.incomingTextColor
-                            }
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                            letterSpacing = 0.sp
+                        ),
+                        color = androidx.compose.ui.graphics.Color.White
                     )
-
-                    val metadataStyle =
-                        MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 9.sp,
-                            lineHeight = 12.sp,
-                            letterSpacing = 0.35.sp
-                        )
-
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(top = 4.dp, end = 1.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (message.edited) {
-                            Text(
-                                text = "EDITED",
-                                style = metadataStyle.copy(letterSpacing = 0.5.sp),
-                                fontWeight = FontWeight.Medium,
-                                color = chatTheme.secondaryTextColor.copy(alpha = 0.78f),
-                                maxLines = 1
-                            )
-
-                            Spacer(Modifier.width(6.dp))
-                        }
-
-                        Text(
-                            text = formatMessageTime(message.timestamp),
-                            style = metadataStyle,
-                            fontWeight = FontWeight.Medium,
-                            color = chatTheme.secondaryTextColor.copy(
-                                alpha = if (isMe) 0.92f else 0.78f
-                            ),
-                            maxLines = 1
-                        )
-
-                        if (isMe && encryptedDeliveryStatus != null) {
-                            Spacer(Modifier.width(7.dp))
-                            EncryptedMessageDeliveryIndicator(
-                                status = encryptedDeliveryStatus,
-                                tint = if (
-                                    encryptedDeliveryStatus == EncryptedMessageDeliveryStatus.DELIVERED
-                                ) {
-                                    chatTheme.statusAccentColor
-                                } else {
-                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
-                                },
-                            )
-                        } else if (
-                            isMe &&
-                            deliveryStatus != MessageDeliveryStatus.NONE
-                        ) {
-                            Spacer(Modifier.width(7.dp))
-                            MessageDeliveryIndicator(
-                                status = deliveryStatus,
-                                tint = if (
-                                    deliveryStatus == MessageDeliveryStatus.SEEN_JUST_NOW ||
-                                    deliveryStatus == MessageDeliveryStatus.SEEN
-                                ) {
-                                    chatTheme.statusAccentColor
-                                } else {
-                                    chatTheme.secondaryTextColor.copy(alpha = 0.92f)
-                                }
-                            )
-                        }
-                    }
                 }
 
-                if (
-                    message.reactions.isNotEmpty()
-                ) {
+                // shadcn BubbleReactions: attach the reaction pill to the bubble edge.
+                if (message.reactions.isNotEmpty()) {
                     ReactionSummary(
-                        reactions =
-                            message.reactions,
-                        currentUserId =
-                            currentUserId,
-                        onReactionClick = {
-                            reaction ->
-                            if (
-                                message.reactions[currentUserId] ==
-                                reaction
-                            ) {
-                                onReactionClick(
-                                    reaction
-                                )
+                        reactions = message.reactions,
+                        currentUserId = currentUserId,
+                        onReactionClick = { reaction ->
+                            if (message.reactions[currentUserId] == reaction) {
+                                onReactionClick(reaction)
                             }
                         },
-                        modifier =
-                            Modifier
-                                .padding(
-                                    top =
-                                        2.dp
-                                )
-                                .align(
-                                    if (isMe) {
-                                        Alignment.End
-                                    } else {
-                                        Alignment.Start
-                                    }
-                                )
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .offset(y = (-4).dp)
+                            .align(if (isMe) Alignment.End else Alignment.Start)
                     )
                 }
-            }
 
+                // shadcn MessageFooter: keep time and delivery state visible below the bubble.
+                val metadataStyle = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = GoogleSansFlex,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    letterSpacing = 0.1.sp
+                )
+
+                Row(
+                    modifier = Modifier
+                        .align(if (isMe) Alignment.End else Alignment.Start)
+                        .padding(top = if (message.reactions.isNotEmpty()) 0.dp else 3.dp)
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (message.edited) {
+                        Text(
+                            text = "EDITED",
+                            style = metadataStyle.copy(letterSpacing = 0.5.sp),
+                            fontWeight = FontWeight.Medium,
+                            color = chatTheme.secondaryTextColor.copy(alpha = 0.78f),
+                            maxLines = 1
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+
+                    Text(
+                        text = formatMessageTime(message.timestamp),
+                        style = metadataStyle,
+                        fontWeight = FontWeight.Medium,
+                        color = chatTheme.secondaryTextColor.copy(
+                            alpha = if (isMe) 0.92f else 0.78f
+                        ),
+                        maxLines = 1
+                    )
+
+                    if (isMe && encryptedDeliveryStatus != null) {
+                        Spacer(Modifier.width(7.dp))
+                        EncryptedMessageDeliveryIndicator(
+                            status = encryptedDeliveryStatus,
+                            tint = if (
+                                encryptedDeliveryStatus == EncryptedMessageDeliveryStatus.DELIVERED
+                            ) {
+                                chatTheme.statusAccentColor
+                            } else {
+                                chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                            }
+                        )
+                    } else if (
+                        isMe &&
+                        deliveryStatus != MessageDeliveryStatus.NONE
+                    ) {
+                        Spacer(Modifier.width(7.dp))
+                        MessageDeliveryIndicator(
+                            status = deliveryStatus,
+                            tint = if (
+                                deliveryStatus == MessageDeliveryStatus.SEEN_JUST_NOW ||
+                                deliveryStatus == MessageDeliveryStatus.SEEN
+                            ) {
+                                chatTheme.statusAccentColor
+                            } else {
+                                chatTheme.secondaryTextColor.copy(alpha = 0.92f)
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         /*
@@ -565,7 +520,7 @@ fun ReactionSummary(
             modifier.animateContentSize(),
         shape =
             RoundedCornerShape(
-                14.dp
+                18.dp
             ),
         color =
             MaterialTheme
@@ -603,50 +558,61 @@ fun ReactionSummary(
                             reaction
                         ] ?: 0
 
-                    Text(
-                        text =
-                            if (count > 1) {
-                                "$reaction$count"
-                            } else {
-                                reaction
-                            },
-                        fontSize =
-                            13.sp,
-                        fontWeight =
-                            if (
-                                userReaction ==
-                                reaction
-                            ) {
-                                FontWeight.SemiBold
+                    val isCurrentUserReaction = userReaction == reaction
+                    val reactionBackground by animateColorAsState(
+                        targetValue = if (isCurrentUserReaction) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        },
+                        animationSpec = InChatMotion.effects(160),
+                        label = "reactionChipBackground"
+                    )
+                    val reactionBorder by animateColorAsState(
+                        targetValue = if (isCurrentUserReaction) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                        },
+                        animationSpec = InChatMotion.effects(160),
+                        label = "reactionChipBorder"
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = InChatMotion.contentSpring()
+                            )
+                            .clickable(
+                                interactionSource = null,
+                                indication = LocalIndication.current,
+                                onClick = { onReactionClick(reaction) }
+                            ),
+                        shape = RoundedCornerShape(50),
+                        color = reactionBackground,
+                        border = BorderStroke(0.7.dp, reactionBorder),
+                        tonalElevation = 0.dp
+                    ) {
+                        Text(
+                            text = if (count > 1) "$reaction$count" else reaction,
+                            modifier = Modifier.padding(
+                                horizontal = 7.dp,
+                                vertical = 3.dp
+                            ),
+                            fontSize = 13.sp,
+                            fontFamily = GoogleSansFlex,
+                            fontWeight = if (isCurrentUserReaction) {
+                                FontWeight.Medium
                             } else {
                                 FontWeight.Normal
                             },
-                        modifier =
-                            Modifier.clickable(
-                                interactionSource =
-                                    null,
-                                indication =
-                                    null,
-                                onClick = {
-                                    onReactionClick(
-                                        reaction
-                                    )
-                                }
-                            ),
-                        color =
-                            if (
-                                userReaction ==
-                                reaction
-                            ) {
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary
+                            color = if (isCurrentUserReaction) {
+                                MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
+                                MaterialTheme.colorScheme.onSurface
                             }
-                    )
+                        )
+                    }
                 }
         }
     }

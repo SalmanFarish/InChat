@@ -1,5 +1,8 @@
 package com.example.inchat.ui.settings
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+import com.example.inchat.ui.components.InChatActionDialog
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +28,6 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -59,7 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.ui.auth.AuthViewModel
 import com.example.inchat.ui.auth.GoogleSignInHelper
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,6 +92,8 @@ fun SettingsScreen(
     var addPasswordError by remember { mutableStateOf<String?>(null) }
     var passwordAddedMessage by remember { mutableStateOf<String?>(null) }
 
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
     var deleteLoading by remember { mutableStateOf(false) }
@@ -102,8 +106,10 @@ fun SettingsScreen(
                 title = {
                     Text(
                         text = "Settings",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontFamily = GoogleSansFlex,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = (-0.35).sp
                     )
                 },
                 navigationIcon = {
@@ -128,45 +134,39 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 20.dp,
-                top = 14.dp,
-                end = 20.dp,
-                bottom = 36.dp
+                start = 18.dp,
+                top = 10.dp,
+                end = 18.dp,
+                bottom = 34.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(15.dp)
+            verticalArrangement = Arrangement.spacedBy(17.dp)
         ) {
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 3.dp)
+                        .padding(top = 2.dp, bottom = 2.dp)
                 ) {
                     Text(
-                        text = "INCHAT / PREFERENCES",
+                        text = "ACCOUNT CENTER",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             fontSize = 10.sp,
-                            letterSpacing = 1.1.sp
+                            letterSpacing = 1.15.sp,
+                            fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    Spacer(Modifier.height(7.dp))
+                    Spacer(Modifier.height(6.dp))
 
                     Text(
-                        text = "Settings",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = 26.sp,
-                            lineHeight = 32.sp
+                        text = "Your account, your control.",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
                         ),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-
-                    Spacer(Modifier.height(4.dp))
-
-                    Text(
-                        text = "Manage your account, security and privacy.",
-                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -202,7 +202,7 @@ fun SettingsScreen(
                                 Text(
                                     text = "Your InChat account",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -294,7 +294,7 @@ fun SettingsScreen(
                                 Text(
                                     text = "Password sign-in",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -344,7 +344,7 @@ fun SettingsScreen(
                             ) {
                                 Text(
                                     text = "Add password",
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -353,91 +353,23 @@ fun SettingsScreen(
             }
 
             item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(
-                        interactionSource = null,
-                        indication = null,
-                        onClick = onDeviceTransferClick
-                    ),
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SettingsIconTile(icon = Icons.Outlined.Lock, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Transfer to a new phone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.height(3.dp))
-                            Text("Move this phone's encrypted identity using QR pairing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Icon(imageVector = Icons.Outlined.ChevronRight, contentDescription = "Open device transfer", modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                SettingsSectionLabel("DEVICES")
+                SettingsNavigationRow(
+                    icon = Icons.Outlined.Lock,
+                    title = "Transfer to a new phone",
+                    description = "Move this phone's encrypted identity using QR pairing.",
+                    onClick = onDeviceTransferClick
+                )
             }
 
             item {
-                SettingsSectionLabel("PRIVACY")
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = null,
-                            indication = null,
-                            onClick = onPrivacyClick
-                        ),
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(
-                        0.8.dp,
-                        MaterialTheme.colorScheme.outlineVariant
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(
-                            horizontal = 16.dp,
-                            vertical = 15.dp
-                        ),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SettingsIconTile(
-                            icon = Icons.Outlined.Visibility,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-
-                        Spacer(Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Privacy & visibility",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Spacer(Modifier.height(3.dp))
-
-                            Text(
-                                text = "Control last seen, online status, read receipts and more.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Spacer(Modifier.width(8.dp))
-
-                        Icon(
-                            imageVector = Icons.Outlined.ChevronRight,
-                            contentDescription = "Open privacy settings",
-                            modifier = Modifier.size(19.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                SettingsSectionLabel("PRIVACY & VISIBILITY")
+                SettingsNavigationRow(
+                    icon = Icons.Outlined.Visibility,
+                    title = "Privacy & visibility",
+                    description = "Control last seen, online status, read receipts and more.",
+                    onClick = onPrivacyClick
+                )
             }
 
             item {
@@ -449,7 +381,7 @@ fun SettingsScreen(
                         subtitle = "Sign out of this InChat account.",
                         destructive = false,
                         onClick = {
-                            authViewModel.logout()
+                            showLogoutDialog = true
                         }
                     )
 
@@ -475,17 +407,6 @@ fun SettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "INCHAT",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            letterSpacing = 1.2.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(Modifier.height(5.dp))
-
-                    Text(
                         text = "Private conversations. Minimal identity.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -495,31 +416,88 @@ fun SettingsScreen(
         }
     }
 
+    if (showLogoutDialog) {
+        InChatActionDialog(
+            title = "Log out?",
+            description = "You will be signed out of this InChat account on this device.",
+            titleIcon = Icons.Outlined.Logout,
+            confirmLabel = "Log out",
+            confirmIcon = Icons.Outlined.Logout,
+            onConfirm = {
+                showLogoutDialog = false
+                authViewModel.logout()
+            },
+            onDismiss = { showLogoutDialog = false }
+        )
+    }
+
     if (showAddPasswordDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!addPasswordLoading) {
-                    showAddPasswordDialog = false
-                    newPassword = ""
-                    confirmNewPassword = ""
-                    newPasswordVisible = false
-                    confirmNewPasswordVisible = false
-                    addPasswordError = null
+        InChatActionDialog(
+            title = "Add a password",
+            description = "Add a password to your existing Google account. Your InChat username, chats, messages, and account ID will stay the same.",
+            titleIcon = Icons.Outlined.Lock,
+            confirmLabel = if (addPasswordLoading) "Please wait" else "Confirm & add",
+            confirmIcon = Icons.Outlined.Lock,
+            confirmDestructive = false,
+            confirmEnabled = !addPasswordLoading,
+            dismissEnabled = !addPasswordLoading,
+            isLoading = addPasswordLoading,
+            onConfirm = {
+                when {
+                    newPassword.length < 6 -> {
+                        addPasswordError = "Password must be at least 6 characters."
+                    }
+
+                    newPassword != confirmNewPassword -> {
+                        addPasswordError = "The passwords do not match."
+                    }
+
+                    else -> {
+                        addPasswordLoading = true
+                        addPasswordError = null
+
+                        coroutineScope.launch {
+                            try {
+                                val googleIdToken = GoogleSignInHelper.getIdToken(context)
+                                authViewModel.addPasswordToGoogleAccount(
+                                    googleIdToken = googleIdToken,
+                                    password = newPassword
+                                ) { success, message ->
+                                    addPasswordLoading = false
+                                    if (success) {
+                                        hasPasswordSignIn = true
+                                        showAddPasswordDialog = false
+                                        newPassword = ""
+                                        confirmNewPassword = ""
+                                        newPasswordVisible = false
+                                        confirmNewPasswordVisible = false
+                                        passwordAddedMessage = message
+                                    } else {
+                                        addPasswordError = message
+                                            ?: "Could not add your password. Please try again."
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                addPasswordLoading = false
+                                addPasswordError = e.message
+                                    ?: "Google confirmation failed. Please try again."
+                            }
+                        }
+                    }
                 }
             },
-            title = {
-                Text("Add a password")
+            onDismiss = {
+                showAddPasswordDialog = false
+                newPassword = ""
+                confirmNewPassword = ""
+                newPasswordVisible = false
+                confirmNewPasswordVisible = false
+                addPasswordError = null
             },
-            text = {
+            content = {
                 Column {
-                    Text(
-                        text = "Add a password to your existing Google account. Your InChat username, chats, messages, and account ID will stay the same.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Spacer(Modifier.height(14.dp))
-
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = newPassword,
                         onValueChange = {
                             newPassword = it
@@ -536,9 +514,7 @@ fun SettingsScreen(
                         },
                         trailingIcon = {
                             IconButton(
-                                onClick = {
-                                    newPasswordVisible = !newPasswordVisible
-                                },
+                                onClick = { newPasswordVisible = !newPasswordVisible },
                                 enabled = !addPasswordLoading
                             ) {
                                 Icon(
@@ -564,6 +540,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(10.dp))
 
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = confirmNewPassword,
                         onValueChange = {
                             confirmNewPassword = it
@@ -606,7 +583,6 @@ fun SettingsScreen(
                     )
 
                     Spacer(Modifier.height(9.dp))
-
                     Text(
                         text = "At least 6 characters. You will confirm ownership of your Google account before the password is linked.",
                         style = MaterialTheme.typography.bodySmall,
@@ -622,138 +598,74 @@ fun SettingsScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !addPasswordLoading,
-                    onClick = {
-                        when {
-                            newPassword.length < 6 -> {
-                                addPasswordError = "Password must be at least 6 characters."
-                            }
-
-                            newPassword != confirmNewPassword -> {
-                                addPasswordError = "The passwords do not match."
-                            }
-
-                            else -> {
-                                addPasswordLoading = true
-                                addPasswordError = null
-
-                                coroutineScope.launch {
-                                    try {
-                                        val googleIdToken =
-                                            GoogleSignInHelper.getIdToken(context)
-
-                                        authViewModel.addPasswordToGoogleAccount(
-                                            googleIdToken = googleIdToken,
-                                            password = newPassword
-                                        ) { success, message ->
-                                            addPasswordLoading = false
-
-                                            if (success) {
-                                                hasPasswordSignIn = true
-                                                showAddPasswordDialog = false
-                                                newPassword = ""
-                                                confirmNewPassword = ""
-                                                newPasswordVisible = false
-                                                confirmNewPasswordVisible = false
-                                                passwordAddedMessage = message
-                                            } else {
-                                                addPasswordError = message
-                                                    ?: "Could not add your password. Please try again."
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        addPasswordLoading = false
-                                        addPasswordError = e.message
-                                            ?: "Google confirmation failed. Please try again."
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    if (addPasswordLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-
-                    Text(
-                        if (addPasswordLoading) {
-                            "Please wait"
-                        } else {
-                            "Confirm & add"
-                        }
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !addPasswordLoading,
-                    onClick = {
-                        showAddPasswordDialog = false
-                        newPassword = ""
-                        confirmNewPassword = ""
-                        newPasswordVisible = false
-                        confirmNewPasswordVisible = false
-                        addPasswordError = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
 
     if (passwordAddedMessage != null) {
-        AlertDialog(
-            onDismissRequest = {
-                passwordAddedMessage = null
-            },
-            title = {
-                Text("Password added")
-            },
-            text = {
-                Text(passwordAddedMessage.orEmpty())
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        passwordAddedMessage = null
-                    }
-                ) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "Password added",
+            description = passwordAddedMessage.orEmpty(),
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Lock,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { passwordAddedMessage = null },
+            onDismiss = { passwordAddedMessage = null }
         )
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!deleteLoading) {
-                    showDeleteDialog = false
-                    deletePassword = ""
-                    deleteError = null
+        InChatActionDialog(
+            title = "Delete account?",
+            description = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
+            titleIcon = Icons.Outlined.DeleteForever,
+            confirmLabel = "Delete account",
+            confirmIcon = Icons.Outlined.DeleteForever,
+            confirmEnabled = !deleteLoading &&
+                (isGoogleAccount || deletePassword.isNotBlank()),
+            dismissEnabled = !deleteLoading,
+            isLoading = deleteLoading,
+            onConfirm = {
+                deleteLoading = true
+                deleteError = null
+
+                if (isGoogleAccount) {
+                    coroutineScope.launch {
+                        try {
+                            val idToken = GoogleSignInHelper.getIdToken(context)
+                            authViewModel.deleteAccountWithGoogle(idToken) { success, error ->
+                                deleteLoading = false
+                                if (success) {
+                                    showDeleteDialog = false
+                                } else {
+                                    deleteError = error ?: "Could not delete your account."
+                                }
+                            }
+                        } catch (e: Exception) {
+                            deleteLoading = false
+                            deleteError = e.message ?: "Google confirmation failed."
+                        }
+                    }
+                } else {
+                    authViewModel.deleteAccount(password = deletePassword) { success, error ->
+                        deleteLoading = false
+                        if (success) {
+                            showDeleteDialog = false
+                            deletePassword = ""
+                        } else {
+                            deleteError = error ?: "Could not delete your account."
+                        }
+                    }
                 }
             },
-            title = {
-                Text("Delete account?")
+            onDismiss = {
+                showDeleteDialog = false
+                deletePassword = ""
+                deleteError = null
             },
-            text = {
+            content = {
                 Column {
-                    Text(
-                        text = "This permanently deletes your InChat profile, username reservation, presence data, blocked-user entries and recent-chat data. You will also be removed from every group.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
                     Text(
                         text = "Groups with at least two members remaining stay active, with ownership transferred when needed. A two-person group is removed for everyone. One-to-one conversations remain in other participants' accounts.",
                         style = MaterialTheme.typography.bodySmall,
@@ -769,6 +681,7 @@ fun SettingsScreen(
                         )
                     } else {
                         OutlinedTextField(
+                            colors = inChatOutlinedTextFieldColors(),
                             value = deletePassword,
                             onValueChange = {
                                 deletePassword = it
@@ -792,75 +705,6 @@ fun SettingsScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleteLoading &&
-                        (isGoogleAccount || deletePassword.isNotBlank()),
-                    onClick = {
-                        deleteLoading = true
-                        deleteError = null
-
-                        if (isGoogleAccount) {
-                            coroutineScope.launch {
-                                try {
-                                    val idToken = GoogleSignInHelper.getIdToken(context)
-                                    authViewModel.deleteAccountWithGoogle(idToken) { success, error ->
-                                        deleteLoading = false
-
-                                        if (success) {
-                                            showDeleteDialog = false
-                                        } else {
-                                            deleteError = error
-                                                ?: "Could not delete your account."
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    deleteLoading = false
-                                    deleteError = e.message
-                                        ?: "Google confirmation failed."
-                                }
-                            }
-                        } else {
-                            authViewModel.deleteAccount(
-                                password = deletePassword
-                            ) { success, error ->
-                                deleteLoading = false
-
-                                if (success) {
-                                    showDeleteDialog = false
-                                    deletePassword = ""
-                                } else {
-                                    deleteError = error
-                                        ?: "Could not delete your account."
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    if (deleteLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-
-                    Text("Delete account")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !deleteLoading,
-                    onClick = {
-                        showDeleteDialog = false
-                        deletePassword = ""
-                        deleteError = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
@@ -872,8 +716,8 @@ private fun SettingsIconTile(
     tint: androidx.compose.ui.graphics.Color
 ) {
     Surface(
-        modifier = Modifier.size(42.dp),
-        shape = RoundedCornerShape(13.dp),
+        modifier = Modifier.size(44.dp),
+        shape = RoundedCornerShape(14.dp),
         color = tint.copy(alpha = 0.12f)
     ) {
         androidx.compose.foundation.layout.Box(
@@ -915,7 +759,7 @@ private fun SettingsStatusPill(
             text = label,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 8.sp,
                 letterSpacing = 0.45.sp
             ),
@@ -932,19 +776,40 @@ private fun SettingsStatusPill(
 private fun SettingsSectionLabel(
     title: String
 ) {
-    Text(
-        text = title,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, bottom = 8.dp),
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
-            fontSize = 10.sp,
-            letterSpacing = 0.9.sp,
-            fontWeight = FontWeight.SemiBold
-        ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+            .padding(start = 4.dp, end = 2.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(width = 3.dp, height = 11.dp),
+            shape = RoundedCornerShape(50.dp),
+            color = MaterialTheme.colorScheme.primary
+        ) {}
+
+        Spacer(Modifier.width(8.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = GoogleSansFlex,
+                fontSize = 9.sp,
+                letterSpacing = 1.05.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.weight(1f))
+
+        Surface(
+            modifier = Modifier
+                .width(26.dp)
+                .height(1.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        ) {}
+    }
 }
 
 @Composable
@@ -970,7 +835,11 @@ private fun CopyableSettingRow(
 
             Text(
                 text = value.ifBlank { "Unavailable" },
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = GoogleSansFlex,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.05.sp
+                ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -982,6 +851,71 @@ private fun CopyableSettingRow(
                 imageVector = Icons.Outlined.ContentCopy,
                 contentDescription = "Copy $title",
                 modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavigationRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SettingsIconTile(
+                icon = icon,
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontFamily = GoogleSansFlex,
+                        fontSize = 14.sp
+                    ),
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = GoogleSansFlex,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = "Open $title",
+                modifier = Modifier.size(19.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1005,11 +939,7 @@ private fun SettingsActionRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                onClick = onClick
-            ),
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
@@ -1036,7 +966,7 @@ private fun SettingsActionRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color = accent
                 )
 

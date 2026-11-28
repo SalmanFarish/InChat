@@ -1,9 +1,10 @@
 package com.example.inchat.ui.theme
 
 import androidx.compose.material3.Typography
-import com.example.inchat.R
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -11,19 +12,37 @@ import androidx.compose.ui.unit.sp
 /*
  * InChat Typography
  *
- * Designed for a compact, terminal-inspired messaging interface:
+ * Designed for a clear, modern messaging interface:
  *
- * - Monospaced headings and message text
+ * - Rounded geometric sans-serif typography
  * - Compact titles
  * - Readable body text
  * - Small, restrained metadata
  * - Controlled letter spacing
  */
-val JetBrainsMono = FontFamily(
-    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
-    Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
-    Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
-    Font(R.font.jetbrains_mono_bold, FontWeight.Bold)
+private val googleSansFlexFont = GoogleFont("Google Sans Flex")
+
+val GoogleSansFlex = FontFamily(
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.weight(400))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(500))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))
+    ),
+    Font(
+        googleFont = googleSansFlexFont,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(700))
+    )
 )
 
 val Typography =
@@ -37,10 +56,10 @@ val Typography =
         displayLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     40.sp,
@@ -49,16 +68,16 @@ val Typography =
                     44.sp,
 
                 letterSpacing =
-                    (-1.0).sp
+                    (-0.5).sp
             ),
 
         displayMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     34.sp,
@@ -67,16 +86,16 @@ val Typography =
                     39.sp,
 
                 letterSpacing =
-                    (-0.8).sp
+                    (-0.4).sp
             ),
 
         displaySmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     30.sp,
@@ -85,7 +104,7 @@ val Typography =
                     35.sp,
 
                 letterSpacing =
-                    (-0.6).sp
+                    (-0.3).sp
             ),
 
         /*
@@ -96,10 +115,10 @@ val Typography =
         headlineLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     28.sp,
@@ -108,16 +127,16 @@ val Typography =
                     33.sp,
 
                 letterSpacing =
-                    (-0.5).sp
+                    (-0.25).sp
             ),
 
         headlineMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     24.sp,
@@ -126,16 +145,16 @@ val Typography =
                     29.sp,
 
                 letterSpacing =
-                    (-0.4).sp
+                    (-0.2).sp
             ),
 
         headlineSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     21.sp,
@@ -144,7 +163,7 @@ val Typography =
                     26.sp,
 
                 letterSpacing =
-                    (-0.25).sp
+                    (-0.1).sp
             ),
 
         /*
@@ -155,10 +174,10 @@ val Typography =
         titleLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Medium,
 
                 fontSize =
                     20.sp,
@@ -167,16 +186,16 @@ val Typography =
                     24.sp,
 
                 letterSpacing =
-                    (-0.2).sp
+                    (-0.1).sp
             ),
 
         titleMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     17.sp,
@@ -185,16 +204,16 @@ val Typography =
                     22.sp,
 
                 letterSpacing =
-                    (-0.1).sp
+                    0.sp
             ),
 
         titleSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     15.sp,
@@ -214,7 +233,7 @@ val Typography =
         bodyLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -232,7 +251,7 @@ val Typography =
         bodyMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -250,7 +269,7 @@ val Typography =
         bodySmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
                     FontWeight.Normal,
@@ -273,10 +292,10 @@ val Typography =
         labelLarge =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 fontSize =
                     14.sp,
@@ -291,10 +310,10 @@ val Typography =
         labelMedium =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Medium,
+                    FontWeight.Normal,
 
                 fontSize =
                     12.sp,
@@ -309,10 +328,10 @@ val Typography =
         labelSmall =
             TextStyle(
                 fontFamily =
-                    JetBrainsMono,
+                    GoogleSansFlex,
 
                 fontWeight =
-                    FontWeight.Medium,
+                    FontWeight.Normal,
 
                 fontSize =
                     11.sp,
@@ -321,6 +340,6 @@ val Typography =
                     14.sp,
 
                 letterSpacing =
-                    0.25.sp
+                    0.1.sp
             )
     )

@@ -1,7 +1,17 @@
 package com.example.inchat.ui.search
 
+import com.example.inchat.ui.components.CompactSearchField
+import com.example.inchat.ui.theme.InChatMotion
+
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,7 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -172,7 +182,21 @@ fun SearchScreen(
                 }
             )
 
-            when (val state = searchState) {
+            AnimatedContent(
+                targetState = searchState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                transitionSpec = {
+                    fadeIn(animationSpec = InChatMotion.effects(170)) togetherWith
+                        fadeOut(animationSpec = InChatMotion.effects(130))
+                },
+                // Keep live suggestions stable while the user types; only
+                // animate when the visible search state actually changes.
+                contentKey = { state -> state::class },
+                label = "searchContent"
+            ) { state ->
+                when (state) {
                 UserSearchState.Idle -> {
                     RecentSearches(
                         users = recentUsers,
@@ -206,6 +230,7 @@ fun SearchScreen(
                         message = state.message
                     )
                 }
+                }
             }
         }
     }
@@ -218,44 +243,13 @@ private fun SearchHeader() {
             .fillMaxWidth()
             .padding(start = 22.dp, top = 24.dp, end = 22.dp, bottom = 18.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            Text(
-                text = "INCHAT / DISCOVER",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
-                    fontSize = 10.sp,
-                    letterSpacing = 1.35.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Spacer(Modifier.height(9.dp))
-
         Text(
-            text = "Find people",
+            text = "Search",
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontSize = 28.sp,
                 lineHeight = 34.sp
             ),
             color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(Modifier.height(5.dp))
-
-        Text(
-            text = "Look up people by their InChat username.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -268,103 +262,17 @@ private fun SearchInput(
     onClear: () -> Unit,
     onSearch: () -> Unit
 ) {
-    Surface(
+    CompactSearchField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = "Search username",
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(
-            width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 15.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(21.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(Modifier.width(12.dp))
-
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium
-                ),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (value.isBlank()) {
-                            Text(
-                                text = "Search username",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-
-            if (value.isNotBlank()) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                Spacer(Modifier.width(8.dp))
-            }
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 23.dp, top = 9.dp, end = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "USERNAME SEARCH",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                letterSpacing = 0.8.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        Text(
-            text = "LIVE RESULTS",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                letterSpacing = 0.6.sp
-            ),
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
+        focusRequester = focusRequester,
+        onClear = onClear,
+        onSearch = onSearch
+    )
 }
 
 @Composable
@@ -381,7 +289,7 @@ private fun RecentSearches(
 
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeading(
-            title = "RECENT PROFILES",
+            title = "Recent searches",
             detail = users.size.toString(),
             action = {
                 TextButton(
@@ -394,7 +302,7 @@ private fun RecentSearches(
                     Text(
                         text = "CLEAR",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             letterSpacing = 0.7.sp
                         )
                     )
@@ -413,7 +321,12 @@ private fun RecentSearches(
                 RecentSearchRow(
                     user = user,
                     onClick = { onUserClick(user) },
-                    onRemove = { onRemoveUser(user.uid) }
+                    onRemove = { onRemoveUser(user.uid) },
+                    itemModifier = Modifier.animateItem(
+                        fadeInSpec = InChatMotion.effects(180),
+                        placementSpec = InChatMotion.contentSpring(),
+                        fadeOutSpec = InChatMotion.effects(140)
+                    )
                 )
             }
         }
@@ -427,8 +340,8 @@ private fun SearchResults(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeading(
-            title = "PEOPLE",
-            detail = users.size.toString() + " FOUND"
+            title = "People",
+            detail = users.size.toString() + " found"
         )
 
         LazyColumn(
@@ -442,7 +355,12 @@ private fun SearchResults(
             items(items = users, key = { it.uid }) { user ->
                 SearchUserRow(
                     user = user,
-                    onClick = { onUserClick(user) }
+                    onClick = { onUserClick(user) },
+                    itemModifier = Modifier.animateItem(
+                        fadeInSpec = InChatMotion.effects(180),
+                        placementSpec = InChatMotion.contentSpring(),
+                        fadeOutSpec = InChatMotion.effects(140)
+                    )
                 )
             }
         }
@@ -463,11 +381,11 @@ private fun SectionHeading(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 10.sp,
-                letterSpacing = 1.sp,
-                fontWeight = FontWeight.SemiBold
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontFamily = GoogleSansFlex,
+                fontSize = 14.sp,
+                letterSpacing = 0.sp,
+                fontWeight = FontWeight.Medium
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -477,9 +395,10 @@ private fun SectionHeading(
         Text(
             text = detail,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                letterSpacing = 0.5.sp
+                fontFamily = GoogleSansFlex,
+                fontSize = 11.sp,
+                letterSpacing = 0.sp,
+                fontWeight = FontWeight.Normal
             ),
             color = MaterialTheme.colorScheme.primary
         )
@@ -493,9 +412,10 @@ private fun SectionHeading(
 private fun RecentSearchRow(
     user: User,
     onClick: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = itemModifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -528,9 +448,10 @@ private fun RecentSearchRow(
 @Composable
 private fun SearchUserRow(
     user: User,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = itemModifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -549,7 +470,7 @@ private fun SearchUserRow(
             Text(
                 text = "VIEW",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.7.sp
                 ),
@@ -594,7 +515,7 @@ private fun UserIdentity(
         Text(
             text = user.username,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             ),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -645,9 +566,9 @@ private fun SearchLoading() {
         Spacer(Modifier.height(14.dp))
 
         Text(
-            text = "SEARCHING DIRECTORY",
+            text = "Searching…",
             style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
+                fontFamily = GoogleSansFlex,
                 fontSize = 9.sp,
                 letterSpacing = 0.9.sp
             ),
@@ -696,7 +617,7 @@ private fun SearchNotFound(
                 "Search unavailable"
             },
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -753,7 +674,7 @@ private fun SearchWelcome() {
         Text(
             text = "Find your people",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -777,7 +698,7 @@ private fun SearchWelcome() {
                 text = "TYPE A USERNAME TO BEGIN",
                 modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.55.sp
                 ),

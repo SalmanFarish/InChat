@@ -1,5 +1,11 @@
 package com.example.inchat.ui.chat
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
+import com.example.inchat.ui.components.CompactSearchField
+import com.example.inchat.ui.components.InChatActionDialog
+
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -21,12 +28,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -51,6 +58,7 @@ import com.example.inchat.data.model.User
 import com.example.inchat.data.repository.GroupChatRepository
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.profile.InChatProfileAvatar
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -152,19 +160,24 @@ fun GroupInfoScreen(
     val actionScope = rememberCoroutineScope()
 
     if (showAddMembersDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showAddMembersDialog = false
-            },
-            title = { Text("Add members") },
-            text = {
+        InChatActionDialog(
+            title = "Add members",
+            titleIcon = Icons.Filled.PersonAdd,
+            confirmLabel = "Done",
+            confirmIcon = Icons.Filled.PersonAdd,
+            confirmDestructive = false,
+            confirmEnabled = !isActionRunning,
+            dismissEnabled = !isActionRunning,
+            onConfirm = { showAddMembersDialog = false },
+            onDismiss = { if (!isActionRunning) showAddMembersDialog = false },
+            content = {
                 Column {
-                    OutlinedTextField(
+                    CompactSearchField(
                         value = memberSearch,
                         onValueChange = { memberSearch = it },
+                        placeholder = "Search username",
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Search username") }
+                        onClear = { memberSearch = "" }
                     )
                     Spacer(Modifier.height(10.dp))
                     memberSearchResults.forEach { user ->
@@ -200,7 +213,7 @@ fun GroupInfoScreen(
                             Column(
                                 modifier = Modifier.weight(1f).padding(start = 10.dp)
                             ) {
-                                Text(text = "@" + user.username, fontWeight = FontWeight.SemiBold)
+                                Text(text = "@" + user.username, fontWeight = FontWeight.Medium)
                                 if (user.displayName.isNotBlank()) {
                                     Text(
                                         text = user.displayName,
@@ -216,113 +229,80 @@ fun GroupInfoScreen(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showAddMembersDialog = false }
-                ) { Text("Done") }
             }
         )
     }
 
     if (showRenameDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showRenameDialog = false
+        InChatActionDialog(
+            title = "Rename group",
+            titleIcon = Icons.Filled.Edit,
+            confirmLabel = "Save",
+            confirmIcon = Icons.Filled.Edit,
+            confirmDestructive = false,
+            confirmEnabled = !isActionRunning && renameText.trim().isNotBlank(),
+            dismissEnabled = !isActionRunning,
+            isLoading = isActionRunning,
+            onConfirm = {
+                val name = renameText.trim()
+                isActionRunning = true
+                actionScope.launch {
+                    groupRepository
+                        .renameGroup(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            newName = name
+                        )
+                        .onSuccess { showRenameDialog = false }
+                        .onFailure {
+                            actionError = it.message ?: "Could not rename group."
+                        }
+                    isActionRunning = false
+                }
             },
-            title = { Text("Rename group") },
-            text = {
+            onDismiss = { showRenameDialog = false },
+            content = {
                 OutlinedTextField(
+                    colors = inChatOutlinedTextFieldColors(),
                     value = renameText,
                     onValueChange = { renameText = it.take(50) },
                     singleLine = true,
-                    label = { Text("Group name") }
+                    label = { Text("Group name") },
+                    modifier = Modifier.fillMaxWidth()
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning && renameText.trim().isNotBlank(),
-                    onClick = {
-                        val name = renameText.trim()
-                        isActionRunning = true
-                        actionScope.launch {
-                            groupRepository
-                                .renameGroup(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    newName = name
-                                )
-                                .onSuccess {
-                                    showRenameDialog = false
-                                }
-                                .onFailure {
-                                    actionError =
-                                        it.message ?: "Could not rename group."
-                                }
-                            isActionRunning = false
-                        }
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showRenameDialog = false }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
 
     if (showLeaveDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isActionRunning) showLeaveDialog = false
-            },
-            title = { Text("Leave group?") },
-            text = {
-                Text(
-                    "You will no longer receive messages from this group."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = {
-                        isActionRunning = true
-                        actionScope.launch {
-                            groupRepository
-                                .leaveGroup(
-                                        currentUserId = currentUserId,
-                                        groupId = groupId
-                                    )
-                                    .onSuccess {
-                                        showLeaveDialog = false
-                                        onGroupLeft()
-                                    }
-                                .onFailure {
-                                    actionError =
-                                        it.message ?: "Could not leave group."
-                                }
-                            isActionRunning = false
+        InChatActionDialog(
+            title = "Leave group?",
+            description = "You will no longer receive messages from this group.",
+            titleIcon = Icons.Filled.ExitToApp,
+            confirmLabel = "Leave",
+            confirmIcon = Icons.Filled.ExitToApp,
+            confirmEnabled = !isActionRunning,
+            dismissEnabled = !isActionRunning,
+            isLoading = isActionRunning,
+            onConfirm = {
+                isActionRunning = true
+                actionScope.launch {
+                    groupRepository
+                        .leaveGroup(
+                            currentUserId = currentUserId,
+                            groupId = groupId
+                        )
+                        .onSuccess {
+                            showLeaveDialog = false
+                            onGroupLeft()
                         }
-                    }
-                ) {
-                    Text("Leave")
+                        .onFailure {
+                            actionError = it.message ?: "Could not leave group."
+                        }
+                    isActionRunning = false
                 }
             },
-            dismissButton = {
-                TextButton(
-                    enabled = !isActionRunning,
-                    onClick = { showLeaveDialog = false }
-                ) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { showLeaveDialog = false }
         )
     }
 
@@ -334,64 +314,64 @@ fun GroupInfoScreen(
                 target.uid != currentUserId
 
         if (canManageTarget) {
-            AlertDialog(
-                onDismissRequest = { memberActionTarget = null },
-                title = { Text("@" + target.username) },
-                text = { Text("Choose a member action.") },
-                confirmButton = {
-                    TextButton(
-                        enabled = !isActionRunning,
-                        onClick = {
-                            val newRole = if (targetRole == "admin") "member" else "admin"
-                            isActionRunning = true
-                            actionScope.launch {
-                                groupRepository.setMemberRole(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    memberId = target.uid,
-                                    role = newRole
-                                ).onFailure {
-                                    actionError = it.message ?: "Could not change member role."
-                                }
-                                isActionRunning = false
-                                memberActionTarget = null
-                            }
+            InChatActionDialog(
+                title = "@" + target.username,
+                description = "Choose a member action.",
+                titleIcon = Icons.Filled.Edit,
+                confirmLabel = if (targetRole == "admin") "Remove admin" else "Make admin",
+                confirmIcon = Icons.Filled.Edit,
+                confirmDestructive = false,
+                confirmEnabled = !isActionRunning,
+                showCancel = false,
+                secondaryActionLabel = "Remove member",
+                secondaryActionIcon = Icons.Outlined.DeleteOutline,
+                secondaryActionDestructive = true,
+                secondaryActionEnabled = !isActionRunning,
+                onSecondaryAction = {
+                    isActionRunning = true
+                    actionScope.launch {
+                        groupRepository.removeMember(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            memberId = target.uid
+                        ).onFailure {
+                            actionError = it.message ?: "Could not remove member."
                         }
-                    ) { Text(if (targetRole == "admin") "Remove admin" else "Make admin") }
+                        isActionRunning = false
+                        memberActionTarget = null
+                    }
                 },
-                dismissButton = {
-                    TextButton(
-                        enabled = !isActionRunning,
-                        onClick = {
-                            isActionRunning = true
-                            actionScope.launch {
-                                groupRepository.removeMember(
-                                    currentUserId = currentUserId,
-                                    groupId = groupId,
-                                    memberId = target.uid
-                                ).onFailure {
-                                    actionError = it.message ?: "Could not remove member."
-                                }
-                                isActionRunning = false
-                                memberActionTarget = null
-                            }
+                onConfirm = {
+                    val newRole = if (targetRole == "admin") "member" else "admin"
+                    isActionRunning = true
+                    actionScope.launch {
+                        groupRepository.setMemberRole(
+                            currentUserId = currentUserId,
+                            groupId = groupId,
+                            memberId = target.uid,
+                            role = newRole
+                        ).onFailure {
+                            actionError = it.message ?: "Could not change member role."
                         }
-                    ) { Text("Remove") }
-                }
+                        isActionRunning = false
+                        memberActionTarget = null
+                    }
+                },
+                onDismiss = { memberActionTarget = null }
             )
         }
     }
 
     actionError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionError = null },
-            title = { Text("Group") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { actionError = null }) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "Group",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionError = null },
+            onDismiss = { actionError = null }
         )
     }
 
@@ -403,7 +383,7 @@ fun GroupInfoScreen(
                 title = {
                     Text(
                         text = "Group info",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -497,8 +477,12 @@ private fun GroupInfoContent(
                             end = 16.dp,
                             bottom = 8.dp
                         ),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
             ) {
                 Row(
                     modifier =
@@ -525,8 +509,13 @@ private fun GroupInfoContent(
                             style =
                                 MaterialTheme
                                     .typography
-                                    .titleLarge,
-                            fontWeight = FontWeight.Bold,
+                                    .titleLarge
+                                    .copy(
+                                        fontFamily = GoogleSansFlex,
+                                        fontSize = 21.sp,
+                                        lineHeight = 26.sp
+                                    ),
+                            fontWeight = FontWeight.Medium,
                             maxLines = 2
                         )
 
@@ -709,9 +698,19 @@ private fun GroupMemberRow(
                 .orEmpty()
         }
 
-    Row(
-        modifier =
-            Modifier
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
                 .fillMaxWidth()
                 .clickable(
                     enabled = canManage,
@@ -719,12 +718,9 @@ private fun GroupMemberRow(
                     indication = null,
                     onClick = onManageClick
                 )
-                .padding(
-                    horizontal = 20.dp,
-                    vertical = 8.dp
-                ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         InChatProfileAvatar(
             profilePhotoUrl = photoUrl,
             modifier = Modifier.size(46.dp),
@@ -746,7 +742,7 @@ private fun GroupMemberRow(
                     } else {
                         username
                     },
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
 
@@ -785,13 +781,14 @@ private fun GroupMemberRow(
                             vertical = 5.dp
                         ),
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color =
                         MaterialTheme
                             .colorScheme
                             .onSecondaryContainer
                 )
             }
+        }
         }
     }
 }
@@ -811,8 +808,11 @@ private fun GroupInfoSectionLabel(
                     end = 20.dp,
                     bottom = 6.dp
                 ),
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = GoogleSansFlex,
+            letterSpacing = 1.sp
+        ),
+        fontWeight = FontWeight.Medium,
         color =
             MaterialTheme
                 .colorScheme
@@ -836,8 +836,14 @@ private fun GroupInfoActionRow(
                     vertical = 4.dp
                 )
                 .clickableForGroupInfo(onClick),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)
+        ),
+        shadowElevation = 2.dp,
+        tonalElevation = 0.dp
     ) {
         Row(
             modifier =
@@ -849,12 +855,26 @@ private fun GroupInfoActionRow(
                     ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                border = BorderStroke(
+                    width = 0.7.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                )
+            ) {
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
 
             Spacer(
                 modifier = Modifier.width(14.dp)
@@ -866,7 +886,7 @@ private fun GroupInfoActionRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
 
                 Text(

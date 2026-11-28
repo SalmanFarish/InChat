@@ -3,6 +3,7 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +51,8 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.crypto.EncryptedMessageContentCodec
 import com.example.inchat.ui.theme.Black
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.components.InChatActionDialog
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -176,6 +179,14 @@ fun GroupChatScreen(
         }
     }
 
+    BackHandler {
+        if (selectedMessageIds.isNotEmpty()) {
+            selectedMessageIds = emptySet()
+        } else {
+            onBackClick()
+        }
+    }
+
     val actionTarget =
         messageForActions?.let { id ->
             displayMessages.firstOrNull { it.id == id }
@@ -241,17 +252,15 @@ fun GroupChatScreen(
     }
 
     actionMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionMessage = null },
-            title = { Text("InChat") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(
-                    onClick = { actionMessage = null }
-                ) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
 
@@ -313,7 +322,7 @@ fun GroupChatScreen(
                         Column {
                             Text(
                                 text = group?.name?.ifBlank { "Group" } ?: "Group",
-                                fontFamily = JetBrainsMono,
+                                fontFamily = GoogleSansFlex,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.primary
@@ -336,11 +345,11 @@ fun GroupChatScreen(
                     DropdownMenu(
                         expanded = overflowExpanded,
                         onDismissRequest = { overflowExpanded = false },
-                        containerColor = Black,
-                        tonalElevation = 0.dp
+                        modifier = Modifier,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp
                     ) {
                         DropdownMenuItem(
-                            modifier = Modifier.background(Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
                             text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
                             leadingIcon = {
                                 Icon(
@@ -441,12 +450,11 @@ fun GroupChatScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
+                    .padding(innerPadding)
             ) {
-                Text(
-                    text = "Loading group...",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                ChatConversationLoadingState(
+                    title = "Opening group",
+                    description = "Loading group details and messages"
                 )
             }
         }

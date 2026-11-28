@@ -1,5 +1,7 @@
 package com.example.inchat.ui.auth
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,14 +17,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -51,7 +53,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 import kotlinx.coroutines.launch
 
 private enum class AuthMode {
@@ -98,9 +100,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            AuthBrandHeader()
-
-            Spacer(Modifier.height(35.dp))
+            Spacer(Modifier.height(18.dp))
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -108,15 +108,15 @@ fun LoginScreen(
             ) {
                 Text(
                     text = when (mode) {
-                        AuthMode.Login -> "Welcome back."
-                        AuthMode.Register -> "Create your account."
-                        AuthMode.Recover -> "Let's get you back in."
+                        AuthMode.Login -> "Welcome back"
+                        AuthMode.Register -> "Create account"
+                        AuthMode.Recover -> "Reset password"
                     },
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontSize = 29.sp,
                         lineHeight = 35.sp
                     ),
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
@@ -153,9 +153,8 @@ fun LoginScreen(
                     modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(13.dp)
                 ) {
-                    AuthFieldLabel("EMAIL ADDRESS")
-
                     OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                         value = emailInput,
                         onValueChange = {
                             emailInput = it
@@ -171,9 +170,8 @@ fun LoginScreen(
                     )
 
                     if (mode == AuthMode.Register) {
-                        AuthFieldLabel("USERNAME")
-
                         OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                             value = usernameInput,
                             onValueChange = {
                                 usernameInput = it
@@ -187,9 +185,8 @@ fun LoginScreen(
                     }
 
                     if (mode != AuthMode.Recover) {
-                        AuthFieldLabel("PASSWORD")
-
                         OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                             value = passwordInput,
                             onValueChange = {
                                 passwordInput = it
@@ -248,7 +245,7 @@ fun LoginScreen(
                                     Text(
                                         text = "Forgot password?",
                                         color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
@@ -357,7 +354,7 @@ fun LoginScreen(
                                     AuthMode.Recover -> "Send reset link"
                                 },
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -395,7 +392,7 @@ fun LoginScreen(
                         text = "OR",
                         modifier = Modifier.padding(horizontal = 14.dp),
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
+                            fontFamily = GoogleSansFlex,
                             letterSpacing = 1.sp
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -453,7 +450,7 @@ fun LoginScreen(
                     Text(
                         text = "Continue with Google",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -480,7 +477,7 @@ fun LoginScreen(
                             "Already have an account? Log in"
                         },
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -488,11 +485,11 @@ fun LoginScreen(
             Spacer(Modifier.height(18.dp))
 
             Text(
-                text = "PRIVATE CONVERSATIONS. MINIMAL IDENTITY.",
+                text = "Your conversations, all in one place.",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
-                    fontSize = 8.sp,
-                    letterSpacing = 0.65.sp
+                    fontFamily = GoogleSansFlex,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -500,94 +497,17 @@ fun LoginScreen(
         }
     }
 
-    if (successMessage != null) {
-        AlertDialog(
-            onDismissRequest = {
-                successMessage = null
-            },
-            title = {
-                Text("Check your email")
-            },
-            text = {
-                Text(successMessage.orEmpty())
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        successMessage = null
-                    }
-                ) {
-                    Text("OK")
-                }
-            }
+    successMessage?.let { message ->
+        InChatActionDialog(
+            title = "Check your email",
+            description = message,
+            titleIcon = Icons.Outlined.Info,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { successMessage = null },
+            onDismiss = { successMessage = null }
         )
     }
-}
-
-@Composable
-private fun AuthBrandHeader() {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(62.dp)
-                .clip(RoundedCornerShape(19.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline,
-                    shape = RoundedCornerShape(19.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
-
-        Spacer(Modifier.height(13.dp))
-
-        Text(
-            text = "INCHAT",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = JetBrainsMono,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.2.sp
-            ),
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(Modifier.height(4.dp))
-
-        Text(
-            text = "SECURE ACCESS",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                letterSpacing = 1.1.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun AuthFieldLabel(
-    label: String
-) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
-            fontSize = 9.sp,
-            letterSpacing = 0.85.sp,
-            fontWeight = FontWeight.SemiBold
-        ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 }

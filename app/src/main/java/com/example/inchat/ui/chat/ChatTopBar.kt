@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Presence
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.Black
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -43,7 +43,6 @@ fun ChatTopBar(
     otherUserNickname: String,
     otherUserProfilePhoto: String,
     otherUserPresence: Presence,
-    otherUserTyping: Boolean,
     blockState: BlockState,
     onBackClick: () -> Unit,
     onChatInfoClick: () -> Unit,
@@ -116,13 +115,13 @@ fun ChatTopBar(
                             otherUserNickname,
 
                         fontFamily =
-                            JetBrainsMono,
+                            GoogleSansFlex,
 
                         fontSize =
                             16.sp,
 
                         fontWeight =
-                            FontWeight.SemiBold,
+                            FontWeight.Medium,
 
                         letterSpacing =
                             0.1.sp,
@@ -137,12 +136,8 @@ fun ChatTopBar(
                     ) {
 
                         PresenceStatus(
-
-                            presence =
-                                otherUserPresence,
-
-                            isTyping =
-                                otherUserTyping
+                            presence = otherUserPresence,
+                            isTyping = false
                         )
                     }
                 }

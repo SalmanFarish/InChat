@@ -26,7 +26,6 @@ import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,7 +35,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -54,8 +52,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.repository.UserRepository
+import com.example.inchat.ui.components.InChatActionDialog
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,95 +92,83 @@ fun ChatInfoScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
 
     if (showBlockDialog) {
-        AlertDialog(
-            onDismissRequest = { showBlockDialog = false },
-            title = {
-                Text(
-                    when (blockState) {
-                        BlockState.NONE -> "Block $otherUserNickname?"
-                        BlockState.I_BLOCKED_THEM -> "Unblock $otherUserNickname?"
-                        BlockState.THEY_BLOCKED_ME -> "You can't unblock this user"
-                    }
-                )
+        InChatActionDialog(
+            title = when (blockState) {
+                BlockState.NONE -> "Block $otherUserNickname?"
+                BlockState.I_BLOCKED_THEM -> "Unblock $otherUserNickname?"
+                BlockState.THEY_BLOCKED_ME -> "You can't unblock this user"
             },
-            text = {
-                Text(
-                    when (blockState) {
-                        BlockState.NONE ->
-                            "They won't be able to message you, and you won't receive their chat activity."
-                        BlockState.I_BLOCKED_THEM ->
-                            "This will allow messages from this person again."
-                        BlockState.THEY_BLOCKED_ME ->
-                            "This person has blocked you. Only they can change that."
-                    }
-                )
+            description = when (blockState) {
+                BlockState.NONE ->
+                    "They won't be able to message you, and you won't receive their chat activity."
+                BlockState.I_BLOCKED_THEM ->
+                    "This will allow messages from this person again."
+                BlockState.THEY_BLOCKED_ME ->
+                    "This person has blocked you. Only they can change that."
             },
-            confirmButton = {
+            titleIcon = Icons.Outlined.Block,
+            confirmLabel = when (blockState) {
+                BlockState.NONE -> "Block"
+                BlockState.I_BLOCKED_THEM -> "Unblock"
+                BlockState.THEY_BLOCKED_ME -> "OK"
+            },
+            confirmIcon = Icons.Outlined.Block,
+            confirmDestructive = blockState == BlockState.NONE,
+            showCancel = blockState != BlockState.THEY_BLOCKED_ME,
+            onConfirm = {
                 when (blockState) {
-                    BlockState.NONE -> {
-                        TextButton(
-                            onClick = {
-                                chatViewModel.blockUser(
-                                    currentUserId = currentUserId,
-                                    otherUserId = otherUserId,
-                                    otherUsername = otherUserNickname
-                                ) { success, error ->
-                                    actionMessage = if (success) {
-                                        "User blocked"
-                                    } else {
-                                        error ?: "Could not block user"
-                                    }
-                                }
-                                showBlockDialog = false
-                            }
-                        ) {
-                            Text("Block", color = MaterialTheme.colorScheme.error)
-                        }
+                    BlockState.NONE -> chatViewModel.blockUser(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUserId,
+                        otherUsername = otherUserNickname
+                    ) { success, error ->
+                        actionMessage = if (success) "User blocked" else error ?: "Could not block user"
                     }
 
-                    BlockState.I_BLOCKED_THEM -> {
-                        TextButton(
-                            onClick = {
-                                chatViewModel.unblockUser(
-                                    currentUserId = currentUserId,
-                                    otherUserId = otherUserId
-                                ) { success, error ->
-                                    actionMessage = if (success) {
-                                        "User unblocked"
-                                    } else {
-                                        error ?: "Could not unblock user"
-                                    }
-                                }
-                                showBlockDialog = false
-                            }
-                        ) {
-                            Text("Unblock")
-                        }
+                    BlockState.I_BLOCKED_THEM -> chatViewModel.unblockUser(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUserId
+                    ) { success, error ->
+                        actionMessage = if (success) "User unblocked" else error ?: "Could not unblock user"
                     }
 
                     BlockState.THEY_BLOCKED_ME -> Unit
                 }
+                showBlockDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showBlockDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { showBlockDialog = false }
         )
     }
 
     if (showReportDialog) {
-        AlertDialog(
-            onDismissRequest = { showReportDialog = false },
-            title = { Text("Report $otherUserNickname") },
-            text = {
+        InChatActionDialog(
+            title = "Report $otherUserNickname",
+            description = "Choose the reason that best describes the issue.",
+            titleIcon = Icons.Outlined.Flag,
+            confirmLabel = "Submit report",
+            confirmIcon = Icons.Outlined.Flag,
+            confirmEnabled = reportReason.isNotBlank(),
+            onConfirm = {
+                chatViewModel.reportUser(
+                    reporterId = currentUserId,
+                    reportedUserId = otherUserId,
+                    reason = reportReason
+                ) { success, error ->
+                    actionMessage = if (success) {
+                        "Report submitted"
+                    } else {
+                        error ?: "Could not submit report"
+                    }
+                }
+                reportReason = ""
+                showReportDialog = false
+            },
+            onDismiss = {
+                reportReason = ""
+                showReportDialog = false
+            },
+            content = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "Choose the reason that best describes the issue.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(7.dp))
                     ChatReportReason(
                         label = "Spam",
                         selected = reportReason == "Spam",
@@ -203,52 +190,20 @@ fun ChatInfoScreen(
                         onClick = { reportReason = "Other" }
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = reportReason.isNotBlank(),
-                    onClick = {
-                        chatViewModel.reportUser(
-                            reporterId = currentUserId,
-                            reportedUserId = otherUserId,
-                            reason = reportReason
-                        ) { success, error ->
-                            actionMessage = if (success) {
-                                "Report submitted"
-                            } else {
-                                error ?: "Could not submit report"
-                            }
-                        }
-                        reportReason = ""
-                        showReportDialog = false
-                    }
-                ) {
-                    Text("Submit report", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        reportReason = ""
-                        showReportDialog = false
-                    }
-                ) {
-                    Text("Cancel")
-                }
             }
         )
     }
 
     actionMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { actionMessage = null },
-            title = { Text("InChat") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { actionMessage = null }) {
-                    Text("OK")
-                }
-            }
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Flag,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
         )
     }
 
@@ -259,7 +214,7 @@ fun ChatInfoScreen(
                 title = {
                     Text(
                         text = "Chat info",
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 },
                 navigationIcon = {
@@ -291,39 +246,6 @@ fun ChatInfoScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 2.dp)
-                ) {
-                    Text(
-                        text = "INCHAT / CONVERSATION",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 10.sp,
-                            letterSpacing = 1.1.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "Details and controls",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = 23.sp,
-                            lineHeight = 29.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Manage this conversation and its shared appearance.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
             item {
                 ChatInfoProfileCard(
                     nickname = otherUserNickname,
@@ -429,71 +351,73 @@ private fun ChatInfoProfileCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
         border = BorderStroke(
             width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.78f)
         )
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                modifier = Modifier
-                    .size(66.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        shape = CircleShape
-                    )
-                    .padding(3.dp)
-            ) {
-                InChatProfileAvatar(
-                    profilePhotoUrl = profilePhoto,
-                    modifier = Modifier.fillMaxSize(),
-                    iconSize = 31.dp,
-                    contentDescription = "Profile picture"
+            Surface(
+                modifier = Modifier.size(100.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
                 )
+            ) {
+                Box(
+                    modifier = Modifier.padding(5.dp)
+                ) {
+                    InChatProfileAvatar(
+                        profilePhotoUrl = profilePhoto,
+                        modifier = Modifier.fillMaxSize(),
+                        iconSize = 42.dp,
+                        contentDescription = "Profile picture"
+                    )
+                }
             }
 
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.height(14.dp))
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = nickname,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 17.sp,
-                        lineHeight = 22.sp
-                    ),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            Text(
+                text = nickname,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 21.sp,
+                    lineHeight = 27.sp
+                ),
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                border = BorderStroke(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
                 )
-
-                Spacer(Modifier.height(7.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(
-                        width = 0.7.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PresenceStatus(
-                            presence = presence,
-                            isTyping = false
-                        )
-                    }
+                    PresenceStatus(
+                        presence = presence,
+                        isTyping = false
+                    )
                 }
             }
         }
@@ -508,10 +432,10 @@ private fun ChatInfoSectionLabel(text: String) {
             .fillMaxWidth()
             .padding(start = 4.dp, bottom = 7.dp),
         style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = JetBrainsMono,
+            fontFamily = GoogleSansFlex,
             fontSize = 10.sp,
             letterSpacing = 0.9.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -542,9 +466,10 @@ private fun ChatInfoActionRow(
     showChevron: Boolean = true,
     onClick: () -> Unit
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 7.dp, vertical = 4.dp)
             .then(
                 if (enabled) {
                     Modifier.clickable(
@@ -555,62 +480,79 @@ private fun ChatInfoActionRow(
                 } else {
                     Modifier
                 }
-            )
-            .padding(horizontal = 15.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+            ),
+        shape = RoundedCornerShape(17.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)
+        ),
+        shadowElevation = if (enabled) 2.dp else 0.dp,
+        tonalElevation = 0.dp
     ) {
-        Surface(
-            modifier = Modifier.size(40.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = accent.copy(alpha = 0.12f)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(13.dp),
+                color = accent.copy(alpha = 0.14f),
+                border = BorderStroke(
+                    width = 0.7.dp,
+                    color = accent.copy(alpha = 0.18f)
+                )
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(19.dp),
-                    tint = accent
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = accent
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                    fontWeight = FontWeight.Medium,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
 
-        Spacer(Modifier.width(12.dp))
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                fontWeight = FontWeight.SemiBold,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (showChevron) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (showChevron) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Outlined.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -653,7 +595,7 @@ private fun ChatInfoPlaceholderRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(3.dp))
@@ -677,7 +619,7 @@ private fun ChatInfoPlaceholderRow(
                 text = "SOON",
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 8.sp,
                     letterSpacing = 0.45.sp
                 ),

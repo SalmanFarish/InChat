@@ -20,7 +20,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
 
 @Composable
 fun DaySeparator(
@@ -80,13 +80,13 @@ fun DaySeparator(
 
                 style =
                     MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = JetBrainsMono,
+                        fontFamily = GoogleSansFlex,
                         fontSize = 9.sp,
                         letterSpacing = 0.55.sp
                     ),
 
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Medium,
 
                 color =
                     MaterialTheme.colorScheme.primary

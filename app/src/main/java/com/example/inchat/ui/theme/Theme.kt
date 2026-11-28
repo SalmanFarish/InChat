@@ -1,9 +1,76 @@
 package com.example.inchat.ui.theme
 
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DrawModifierNode
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+
+/**
+ * A small spring press response used by every clickable component through
+ * LocalIndication. It replaces box-shaped ripples with a subtle physical
+ * compression and a quick, soft return.
+ */
+private object PressScaleIndication : IndicationNodeFactory {
+    override fun create(interactionSource: InteractionSource): DelegatableNode {
+        return PressScaleNode(interactionSource)
+    }
+
+    override fun equals(other: Any?): Boolean = other === this
+
+    override fun hashCode(): Int = 7319
+}
+
+private class PressScaleNode(
+    private val interactionSource: InteractionSource
+) : Modifier.Node(), DrawModifierNode {
+    private val animatedScale = Animatable(1f)
+
+    override fun onAttach() {
+        coroutineScope.launch {
+            interactionSource.interactions.collectLatest { interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> {
+                        animatedScale.animateTo(
+                            targetValue = InChatMotion.PressedScale,
+                            animationSpec = InChatMotion.pressSpring()
+                        )
+                    }
+
+                    is PressInteraction.Release,
+                    is PressInteraction.Cancel -> {
+                        animatedScale.animateTo(
+                            targetValue = 1f,
+                            animationSpec = InChatMotion.releaseSpring()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun ContentDrawScope.draw() {
+        scale(
+            scale = animatedScale.value,
+            pivot = Offset(size.width / 2f, size.height / 2f)
+        ) {
+            this@draw.drawContent()
+        }
+    }
+}
 
 private val TerminalGreenColorScheme =
     darkColorScheme(
@@ -57,7 +124,11 @@ fun InChatTheme(
 ) {
     MaterialTheme(
         colorScheme = TerminalGreenColorScheme,
-        typography = Typography,
-        content = content
-    )
+        typography = Typography
+    ) {
+        CompositionLocalProvider(
+            LocalIndication provides PressScaleIndication,
+            content = content
+        )
+    }
 }

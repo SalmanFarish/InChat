@@ -5,11 +5,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +58,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
+import com.example.inchat.ui.theme.InChatMotion
 
 @Composable
 fun ChatComposer(
@@ -155,6 +160,8 @@ fun ChatComposer(
 
     Surface(
 
+        shape = RoundedCornerShape(28.dp),
+
         color =
             MaterialTheme
                 .colorScheme
@@ -169,21 +176,17 @@ fun ChatComposer(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .border(
-                    width = 0.7.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = 0.dp,
-                        bottomEnd = 0.dp
-                    )
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
+                    shape = RoundedCornerShape(28.dp)
                 )
                 /*
-                 * The screen Scaffold owns IME insets. The composer
-                 * only applies navigation-bar spacing here.
+                 * The Scaffold owns IME insets; this inset pill floats
+                 * above the keyboard and navigation bar.
                  */
-                .navigationBarsPadding()
     ) {
 
         Column {
@@ -200,19 +203,23 @@ fun ChatComposer(
                             !messagingBlocked,
 
                 enter =
-                    fadeIn() +
+                    fadeIn(animationSpec = InChatMotion.effects(160)) +
+                            expandVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideInVertically(
-                                initialOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { -it / 3 }
                             ),
 
                 exit =
-                    fadeOut() +
+                    fadeOut(animationSpec = InChatMotion.effects(130)) +
+                            shrinkVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideOutVertically(
-                                targetOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 3 }
                             )
             ) {
 
@@ -243,19 +250,23 @@ fun ChatComposer(
                             !messagingBlocked,
 
                 enter =
-                    fadeIn() +
+                    fadeIn(animationSpec = InChatMotion.effects(160)) +
+                            expandVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideInVertically(
-                                initialOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { -it / 3 }
                             ),
 
                 exit =
-                    fadeOut() +
+                    fadeOut(animationSpec = InChatMotion.effects(130)) +
+                            shrinkVertically(
+                                animationSpec = InChatMotion.contentSpring()
+                            ) +
                             slideOutVertically(
-                                targetOffsetY = {
-                                    -it / 2
-                                }
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 3 }
                             )
             ) {
 
@@ -350,7 +361,12 @@ fun ChatComposer(
 
                     modifier =
                         Modifier
-                            .weight(1f),
+                            .weight(1f)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(24.dp)
+                            ),
 
                     shape =
                         RoundedCornerShape(
@@ -375,7 +391,7 @@ fun ChatComposer(
                             onMessageTextChange,
 
                         enabled =
-                            !messagingBlocked && !sendingMessage && !savingEdit,
+                            !messagingBlocked && !savingEdit,
 
                         modifier =
                             Modifier
@@ -397,9 +413,7 @@ fun ChatComposer(
                                 .bodyLarge
                                 .copy(
                                     color =
-                                        MaterialTheme
-                                            .colorScheme
-                                            .onSurfaceVariant
+                                        androidx.compose.ui.graphics.Color.White
                                 ),
 
                         cursorBrush =
@@ -450,7 +464,7 @@ fun ChatComposer(
                                                 "You can't message this user"
 
                                             else ->
-                                                "Message..."
+                                                "Type a message"
                                         },
 
                                     style =
@@ -597,7 +611,6 @@ fun ChatComposer(
                                     // callback; the timeline observes that copy.
                                     sendingMessage = false
                                     onMessageSent()
-                                    keyboardController?.hide()
                                 },
 
                                 onResult = { success, error ->
@@ -652,9 +665,9 @@ internal fun ComposerSendButton(
     )
     val activeColor = MaterialTheme.colorScheme.primary
 
-    Box(
+    Surface(
         modifier = Modifier
-            .size(40.dp)
+            .size(42.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -665,19 +678,25 @@ internal fun ComposerSendButton(
                 enabled = enabled,
                 onClick = onClick
             ),
-        contentAlignment = Alignment.Center
+        shape = CircleShape,
+        color = if (enabled) {
+            activeColor.copy(alpha = 0.86f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onPrimary.copy(
+                alpha = if (enabled) 0.32f else 0.12f
+            )
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = if (enabled) 4.dp else 0.dp
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .background(
-                    color = if (enabled) {
-                        activeColor.copy(alpha = 0.20f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    shape = CircleShape
-                ),
+                .fillMaxSize()
+                .padding(1.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -693,7 +712,7 @@ internal fun ComposerSendButton(
                 },
                 modifier = Modifier.size(20.dp),
                 tint = if (enabled) {
-                    activeColor
+                    MaterialTheme.colorScheme.onPrimary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }

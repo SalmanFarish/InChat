@@ -158,7 +158,7 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
         "$chatId": {
-          ".validate": "!newData.exists() || ((newData.hasChild('pinned') || newData.hasChild('hidden') || newData.hasChild('clearedAt')) && (!newData.hasChild('pinned') || newData.child('pinned').isBoolean()) && (!newData.hasChild('hidden') || newData.child('hidden').isBoolean()) && (!newData.hasChild('clearedAt') || (newData.child('clearedAt').isNumber() && newData.child('clearedAt').val() >= 0)))"
+          ".validate": "!newData.exists() || ((newData.hasChild('pinned') || newData.hasChild('hidden') || newData.hasChild('favorite') || newData.hasChild('clearedAt')) && (!newData.hasChild('pinned') || newData.child('pinned').isBoolean()) && (!newData.hasChild('hidden') || newData.child('hidden').isBoolean()) && (!newData.hasChild('favorite') || newData.child('favorite').isBoolean()) && (!newData.hasChild('clearedAt') || (newData.child('clearedAt').isNumber() && newData.child('clearedAt').val() >= 0)))"
         }
       }
     },

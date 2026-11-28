@@ -13,5 +13,6 @@ data class Conversation(
     val memberCount: Long = 0L,
     val lastSenderNickname: String = "",
     val isPinned: Boolean = false,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    val isFavorite: Boolean = false
 )

@@ -1,17 +1,40 @@
 package com.example.inchat.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,11 +53,65 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
+import com.example.inchat.ui.theme.InChatMotion
 import com.example.inchat.data.model.Message
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+
+/**
+ * Shared startup state for direct and group conversations. Keeps the message
+ * surface intentional while the destination is waiting for its first content.
+ */
+@Composable
+fun ChatConversationLoadingState(
+    title: String,
+    description: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            modifier = Modifier.size(58.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(Modifier.height(5.dp))
+
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
 
 @Composable
 fun ChatMessageList(
@@ -62,6 +139,7 @@ fun ChatMessageList(
     onToggleMessageSelection: (Message) -> Unit = {},
     encryptedMessageIds: Set<String> = emptySet(),
     encryptedDeliveryStatuses: Map<String, EncryptedMessageDeliveryStatus> = emptyMap(),
+    isOtherUserTyping: Boolean = false,
 ) {
 
     val listState =
@@ -69,6 +147,26 @@ fun ChatMessageList(
 
     val coroutineScope =
         rememberCoroutineScope()
+
+    var showScrollToLatest by remember {
+        mutableStateOf(false)
+    }
+
+    // Match shadcn's MessageScrollerButton: only show the control when
+    // the reader is away from the live edge; never steal scroll focus.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex =
+                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastContentItemIndex =
+                layoutInfo.totalItemsCount - if (isOtherUserTyping) 2 else 1
+
+            lastContentItemIndex >= 0 && lastVisibleIndex < lastContentItemIndex
+        }
+            .distinctUntilChanged()
+            .collect { showScrollToLatest = it }
+    }
 
     val density = LocalDensity.current
 
@@ -90,6 +188,29 @@ fun ChatMessageList(
     var previousLastMessageId by
     remember {
         mutableStateOf<String?>(null)
+    }
+
+    // Only animate messages arriving after the initial history snapshot.
+    var enteringMessageId by remember { mutableStateOf<String?>(null) }
+    var enteringMessageFromBottom by remember { mutableStateOf(false) }
+    var observedLatestMessageId by remember { mutableStateOf<String?>(null) }
+    var hasObservedInitialSnapshot by remember { mutableStateOf(false) }
+
+    LaunchedEffect(messagesLoaded, messages.lastOrNull()?.id) {
+        if (!messagesLoaded) return@LaunchedEffect
+        val latest = messages.lastOrNull()
+        val latestId = latest?.id
+        val previousId = observedLatestMessageId
+        if (!hasObservedInitialSnapshot) {
+            observedLatestMessageId = latestId
+            hasObservedInitialSnapshot = true
+        } else if (latestId != null && latestId != previousId) {
+            enteringMessageId = latestId
+            enteringMessageFromBottom = latest.senderId == currentUserId
+            observedLatestMessageId = latestId
+            kotlinx.coroutines.delay(520)
+            if (enteringMessageId == latestId) enteringMessageId = null
+        }
     }
 
     /*
@@ -125,7 +246,8 @@ fun ChatMessageList(
         messagesLoaded,
         hasOlderMessages,
         messages.size,
-        messages.lastOrNull()?.id
+        messages.lastOrNull()?.id,
+        isOtherUserTyping
     ) {
 
         if (
@@ -184,9 +306,11 @@ fun ChatMessageList(
             !initialMessagesPositioned
         ) {
 
-            listState.scrollToItem(
-                targetIndex
-            )
+            withFrameNanos { }
+            val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+            if (latestItemIndex >= 0) {
+                listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+            }
 
             keepBottomDuringIme = true
 
@@ -287,9 +411,18 @@ fun ChatMessageList(
             if (newOwnMessage || imeVisible) {
                 // Avoid competing animations while the keyboard is moving
                 // or when the user sends a message and the IME is dismissed.
-                listState.scrollToItem(targetIndex)
+                withFrameNanos { }
+                val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+                if (latestItemIndex >= 0) {
+                    listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+                }
             } else {
-                listState.animateScrollToItem(targetIndex)
+                val latestItemIndex = listState.layoutInfo.totalItemsCount - 1
+                if (latestItemIndex >= 0) {
+                    listState.animateScrollToItem(latestItemIndex)
+                    withFrameNanos { }
+                    listState.scrollToItem(latestItemIndex, Int.MAX_VALUE)
+                }
             }
         }
 
@@ -298,6 +431,28 @@ fun ChatMessageList(
 
         previousLastMessageId =
             currentLastMessageId
+    }
+
+    /*
+     * When typing starts, the indicator is appended as the final LazyColumn
+     * item. If the reader was at the latest message immediately beforehand,
+     * move to that new final row. Do not pull someone away from older history.
+     */
+    LaunchedEffect(isOtherUserTyping, messagesLoaded) {
+        if (isOtherUserTyping && messagesLoaded && messages.isNotEmpty()) {
+            withFrameNanos { }
+            val layoutInfo = listState.layoutInfo
+            val typingItemIndex = layoutInfo.totalItemsCount - 1
+            val lastMessageItemIndex = typingItemIndex - 1
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val wasAtLiveEdge = lastVisibleIndex >= lastMessageItemIndex
+
+            if (typingItemIndex >= 0 && wasAtLiveEdge) {
+                listState.animateScrollToItem(typingItemIndex)
+                withFrameNanos { }
+                listState.scrollToItem(typingItemIndex, Int.MAX_VALUE)
+            }
+        }
     }
 
     /*
@@ -476,8 +631,8 @@ fun ChatMessageList(
 
                     contentPadding =
                         PaddingValues(
-                            vertical =
-                                14.dp
+                            top = 14.dp,
+                            bottom = 14.dp
                         )
                 ) {
 
@@ -641,117 +796,335 @@ fun ChatMessageList(
                                     null
                                 }
 
-                            SwipeableMessageBubble(
-
-                                message =
-                                    message,
-
-                                isMe =
-                                    isMe,
-
-                                deliveryStatus =
-                                    deliveryStatus,
-
-                                encryptedDeliveryStatus =
-                                    encryptedDeliveryStatus,
-
-                                readTimestamp =
-                                    otherUserReadTimestamp,
-
-                                currentTimeMillis =
-                                    deliveryStatusClock,
-
-                                currentUserId =
-                                    currentUserId,
-
-                                chatTheme =
-                                    chatTheme,
-
-
-                                isFirstInGroup =
-                                    isFirstInGroup,
-
-                                isLastInGroup =
-                                    isLastInGroup,
-
-                                showSenderName =
-                                    showSenderNames && !isMe && isFirstInGroup,
-
-                                isSelected = message.id in selectedMessageIds,
-                                onClick = {
-                                    if (selectedMessageIds.isNotEmpty()) {
-                                        onToggleMessageSelection(message)
+                            if (message.id == enteringMessageId) {
+                                AnimatedVisibility(
+                                    visible = true,
+                                    enter = fadeIn(
+                                        animationSpec = InChatMotion.effects(190)
+                                    ) + scaleIn(
+                                        initialScale = 0.97f,
+                                        animationSpec = InChatMotion.navigationSpring()
+                                    ) + if (enteringMessageFromBottom) {
+                                        slideInVertically(
+                                            animationSpec = InChatMotion.navigationSpring(),
+                                            initialOffsetY = { it / 5 }
+                                        )
+                                    } else {
+                                        slideInHorizontally(
+                                            animationSpec = InChatMotion.navigationSpring(),
+                                            initialOffsetX = { -it / 6 }
+                                        )
                                     }
-                                },
-
-                                onReply = {
-                                    if (
-                                        !messagingBlocked &&
-                                        selectedMessageIds.isEmpty()
-                                    ) {
-                                        onReply(message)
-                                    }
-                                },
-
-                                onLongClick = {
-                                    if (!messagingBlocked) {
+                                ) {
+                                SwipeableMessageBubble(
+    
+                                    message =
+                                        message,
+    
+                                    isMe =
+                                        isMe,
+    
+                                    deliveryStatus =
+                                        deliveryStatus,
+    
+                                    encryptedDeliveryStatus =
+                                        encryptedDeliveryStatus,
+    
+                                    readTimestamp =
+                                        otherUserReadTimestamp,
+    
+                                    currentTimeMillis =
+                                        deliveryStatusClock,
+    
+                                    currentUserId =
+                                        currentUserId,
+    
+                                    chatTheme =
+                                        chatTheme,
+    
+    
+                                    isFirstInGroup =
+                                        isFirstInGroup,
+    
+                                    isLastInGroup =
+                                        isLastInGroup,
+    
+                                    showSenderName =
+                                        showSenderNames && !isMe && isFirstInGroup,
+    
+                                    isSelected = message.id in selectedMessageIds,
+                                    onClick = {
                                         if (selectedMessageIds.isNotEmpty()) {
                                             onToggleMessageSelection(message)
-                                        } else {
-                                            onLongClick(message)
+                                        }
+                                    },
+    
+                                    onReply = {
+                                        if (
+                                            !messagingBlocked &&
+                                            selectedMessageIds.isEmpty()
+                                        ) {
+                                            onReply(message)
+                                        }
+                                    },
+    
+                                    onLongClick = {
+                                        if (!messagingBlocked) {
+                                            if (selectedMessageIds.isNotEmpty()) {
+                                                onToggleMessageSelection(message)
+                                            } else {
+                                                onLongClick(message)
+                                            }
+                                        }
+                                    },
+    
+                                    onReactionClick = { reaction ->
+                                        if (
+                                            !messagingBlocked &&
+                                            selectedMessageIds.isEmpty()
+                                        ) {
+                                            onReactionClick(message, reaction)
+                                        }
+                                    },
+    
+                                    onQuotedReplyClick = {
+                                            originalMessageId ->
+    
+                                        val targetIndex =
+                                            messages
+                                                .indexOfFirst {
+                                                    it.id ==
+                                                            originalMessageId
+                                                }
+    
+                                        if (
+                                            targetIndex >=
+                                            0
+                                        ) {
+    
+                                            coroutineScope
+                                                .launch {
+    
+                                                    val separatorCount =
+                                                        countDaySeparatorsBeforeIndex(
+                                                            messages,
+                                                            targetIndex
+                                                        )
+    
+                                                    listState
+                                                        .animateScrollToItem(
+                                                            targetIndex +
+                                                                    separatorCount +
+                                                                    if (hasOlderMessages) 1 else 0
+                                                        )
+                                                }
                                         }
                                     }
-                                },
-
-                                onReactionClick = { reaction ->
-                                    if (
-                                        !messagingBlocked &&
-                                        selectedMessageIds.isEmpty()
-                                    ) {
-                                        onReactionClick(message, reaction)
-                                    }
-                                },
-
-                                onQuotedReplyClick = {
-                                        originalMessageId ->
-
-                                    val targetIndex =
-                                        messages
-                                            .indexOfFirst {
-                                                it.id ==
-                                                        originalMessageId
-                                            }
-
-                                    if (
-                                        targetIndex >=
-                                        0
-                                    ) {
-
-                                        coroutineScope
-                                            .launch {
-
-                                                val separatorCount =
-                                                    countDaySeparatorsBeforeIndex(
-                                                        messages,
-                                                        targetIndex
-                                                    )
-
-                                                listState
-                                                    .animateScrollToItem(
-                                                        targetIndex +
-                                                                separatorCount +
-                                                                if (hasOlderMessages) 1 else 0
-                                                    )
-                                            }
-                                    }
+                                )
                                 }
-                            )
+                            } else {
+                                SwipeableMessageBubble(
+    
+                                    message =
+                                        message,
+    
+                                    isMe =
+                                        isMe,
+    
+                                    deliveryStatus =
+                                        deliveryStatus,
+    
+                                    encryptedDeliveryStatus =
+                                        encryptedDeliveryStatus,
+    
+                                    readTimestamp =
+                                        otherUserReadTimestamp,
+    
+                                    currentTimeMillis =
+                                        deliveryStatusClock,
+    
+                                    currentUserId =
+                                        currentUserId,
+    
+                                    chatTheme =
+                                        chatTheme,
+    
+    
+                                    isFirstInGroup =
+                                        isFirstInGroup,
+    
+                                    isLastInGroup =
+                                        isLastInGroup,
+    
+                                    showSenderName =
+                                        showSenderNames && !isMe && isFirstInGroup,
+    
+                                    isSelected = message.id in selectedMessageIds,
+                                    onClick = {
+                                        if (selectedMessageIds.isNotEmpty()) {
+                                            onToggleMessageSelection(message)
+                                        }
+                                    },
+    
+                                    onReply = {
+                                        if (
+                                            !messagingBlocked &&
+                                            selectedMessageIds.isEmpty()
+                                        ) {
+                                            onReply(message)
+                                        }
+                                    },
+    
+                                    onLongClick = {
+                                        if (!messagingBlocked) {
+                                            if (selectedMessageIds.isNotEmpty()) {
+                                                onToggleMessageSelection(message)
+                                            } else {
+                                                onLongClick(message)
+                                            }
+                                        }
+                                    },
+    
+                                    onReactionClick = { reaction ->
+                                        if (
+                                            !messagingBlocked &&
+                                            selectedMessageIds.isEmpty()
+                                        ) {
+                                            onReactionClick(message, reaction)
+                                        }
+                                    },
+    
+                                    onQuotedReplyClick = {
+                                            originalMessageId ->
+    
+                                        val targetIndex =
+                                            messages
+                                                .indexOfFirst {
+                                                    it.id ==
+                                                            originalMessageId
+                                                }
+    
+                                        if (
+                                            targetIndex >=
+                                            0
+                                        ) {
+    
+                                            coroutineScope
+                                                .launch {
+    
+                                                    val separatorCount =
+                                                        countDaySeparatorsBeforeIndex(
+                                                            messages,
+                                                            targetIndex
+                                                        )
+    
+                                                    listState
+                                                        .animateScrollToItem(
+                                                            targetIndex +
+                                                                    separatorCount +
+                                                                    if (hasOlderMessages) 1 else 0
+                                                        )
+                                                }
+                                        }
+                                    }
+                                )
+                            }
                         
                             }
                         }
                     }
+                    if (isOtherUserTyping && !messagingBlocked) {
+                        item(
+                            key = "typing_indicator",
+                            contentType = "typing_indicator"
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 8.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                TypingIndicator(chatTheme = chatTheme)
+                            }
+                        }
+                    }
+                }
+
+
+
+                AnimatedVisibility(
+                    visible = showScrollToLatest && initialMessagesPositioned,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                    enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.85f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tonalElevation = 3.dp
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val latestIndex = listState.layoutInfo.totalItemsCount - 1
+                                if (latestIndex >= 0) {
+                                    coroutineScope.launch {
+                                        listState.animateScrollToItem(latestIndex)
+                                        withFrameNanos { }
+                                        val settledLastIndex = listState.layoutInfo.totalItemsCount - 1
+                                        if (settledLastIndex >= 0) {
+                                            listState.scrollToItem(settledLastIndex, Int.MAX_VALUE)
+                                        }
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Jump to latest messages"
+                            )
+                        }
+                    }
                 }
             }
+
         }
+    }
+}
+
+@Composable
+private fun TypingIndicator(chatTheme: ChatTheme) {
+    val transition = rememberInfiniteTransition(label = "typing-indicator")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 620),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "typing-dots-alpha"
+    )
+
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(
+            topStart = 20.dp, topEnd = 20.dp, bottomStart = 7.dp, bottomEnd = 20.dp
+        ),
+        color = chatTheme.incomingBubbleColor,
+        contentColor = chatTheme.incomingTextColor,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
+    ) {
+        Text(
+            text = "•••",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            color = chatTheme.statusAccentColor.copy(alpha = pulse),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 15.sp,
+                lineHeight = 22.sp
+            )
+        )
     }
 }

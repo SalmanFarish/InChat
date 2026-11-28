@@ -2,10 +2,12 @@ package com.example.inchat.ui.chat
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.inchat.data.model.Message
+import com.example.inchat.ui.theme.InChatMotion
 
 @Composable
 fun GroupChatComposer(
@@ -80,30 +83,37 @@ fun GroupChatComposer(
     }
 
     Surface(
+        shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = 0.7.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(
-                    topStart = 18.dp,
-                    topEnd = 18.dp,
-                    bottomStart = 0.dp,
-                    bottomEnd = 0.dp
-                )
-            )
             .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f),
+                shape = RoundedCornerShape(28.dp)
+            )
     ) {
 
         Column {
 
             AnimatedVisibility(
                 visible = editingMessage != null,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
+                enter = fadeIn(animationSpec = InChatMotion.effects(160)) +
+                    expandVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideInVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        initialOffsetY = { -it / 3 }
+                    ),
+                exit = fadeOut(animationSpec = InChatMotion.effects(130)) +
+                    shrinkVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideOutVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        targetOffsetY = { -it / 3 }
+                    )
             ) {
                 editingMessage?.let { message ->
                     EditComposerPreview(
@@ -115,8 +125,18 @@ fun GroupChatComposer(
 
             AnimatedVisibility(
                 visible = replyingTo != null && editingMessage == null,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
+                enter = fadeIn(animationSpec = InChatMotion.effects(160)) +
+                    expandVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideInVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        initialOffsetY = { -it / 3 }
+                    ),
+                exit = fadeOut(animationSpec = InChatMotion.effects(130)) +
+                    shrinkVertically(animationSpec = InChatMotion.contentSpring()) +
+                    slideOutVertically(
+                        animationSpec = InChatMotion.navigationSpring(),
+                        targetOffsetY = { -it / 3 }
+                    )
             ) {
                 replyingTo?.let { message ->
                     ReplyComposerPreview(
@@ -140,7 +160,12 @@ fun GroupChatComposer(
 
                 Surface(
                     modifier = Modifier
-                        .weight(1f),
+                        .weight(1f)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(24.dp)
+                        ),
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
@@ -148,7 +173,7 @@ fun GroupChatComposer(
                     BasicTextField(
                         value = messageText,
                         onValueChange = onMessageTextChange,
-                        enabled = !savingEdit && !sendingMessage,
+                        enabled = !savingEdit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -157,7 +182,7 @@ fun GroupChatComposer(
                                 vertical = 13.dp
                             ),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = androidx.compose.ui.graphics.Color.White
                         ),
                         cursorBrush = SolidColor(
                             MaterialTheme.colorScheme.primary
@@ -175,7 +200,7 @@ fun GroupChatComposer(
                                     text = if (editingMessage != null) {
                                         "Edit your message..."
                                     } else {
-                                        "Message..."
+                                        "Type a message"
                                     },
                                     color = MaterialTheme
                                         .colorScheme
@@ -231,7 +256,6 @@ fun GroupChatComposer(
                                     // message is safely stored on this phone.
                                     sendingMessage = false
                                     onMessageSent()
-                                    keyboardController?.hide()
                                 }
                             ) { success, error ->
                                 if (!success) {

@@ -1,5 +1,7 @@
 package com.example.inchat.ui.auth
 
+import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -82,10 +85,10 @@ fun GoogleUsernameSetupScreen(
                     28.sp,
 
                 fontWeight =
-                    FontWeight.Bold,
+                    FontWeight.Normal,
 
                 color =
-                    MaterialTheme.colorScheme.primary,
+                    MaterialTheme.colorScheme.onBackground,
 
                 textAlign =
                     TextAlign.Center
@@ -116,6 +119,7 @@ fun GoogleUsernameSetupScreen(
             )
 
             OutlinedTextField(
+                        colors = inChatOutlinedTextFieldColors(),
                 value =
                     username,
 
@@ -141,8 +145,9 @@ fun GoogleUsernameSetupScreen(
                 },
 
                 supportingText = {
-                    Text("3-20 characters: letters, numbers, _ or .")
-                }
+                    Text("3–20 characters · letters, numbers, _ or .")
+                },
+                shape = RoundedCornerShape(14.dp)
             )
 
             if (errorMessage != null) {
@@ -198,6 +203,7 @@ fun GoogleUsernameSetupScreen(
                     Modifier
                         .fillMaxWidth()
                         .height(50.dp),
+                shape = RoundedCornerShape(14.dp),
 
                 enabled =
                     !isLoading &&
@@ -215,7 +221,7 @@ fun GoogleUsernameSetupScreen(
                             "Create InChat profile",
 
                         fontWeight =
-                            FontWeight.Bold
+                            FontWeight.Normal
                     )
                 }
             }

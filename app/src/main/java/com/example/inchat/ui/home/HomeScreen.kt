@@ -1,11 +1,28 @@
 package com.example.inchat.ui.home
 
+import com.example.inchat.ui.components.CompactSearchField
+
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,15 +41,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.Info
+import com.example.inchat.ui.components.InChatActionDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,9 +65,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,8 +75,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,19 +98,28 @@ import com.example.inchat.data.model.Conversation
 import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
 import com.example.inchat.ui.profile.InChatProfileAvatar
-import com.example.inchat.ui.theme.JetBrainsMono
+import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 import com.example.inchat.ui.auth.AuthViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     authViewModel: AuthViewModel,
     homeViewModel: HomeViewModel,
     onConversationClick: (Conversation) -> Unit,
-    onCreateGroupClick: () -> Unit
+    onNewMessageClick: () -> Unit,
+    onCreateGroupClick: () -> Unit,
+    homeSelectionMode: Boolean,
+    onSelectionModeChange: (Boolean) -> Unit
 ) {
 
     val currentUserId by
@@ -144,6 +180,14 @@ fun HomeScreen(
         mutableStateOf("")
     }
 
+    var selectedInboxFilter by rememberSaveable {
+        mutableStateOf("All")
+    }
+
+    var showNewChatOptions by rememberSaveable {
+        mutableStateOf(false)
+    }
+
     var selectedConversation by remember {
         mutableStateOf<Conversation?>(null)
     }
@@ -151,12 +195,16 @@ fun HomeScreen(
     var pendingDeleteConversation by remember {
         mutableStateOf<Conversation?>(null)
     }
-
-    var actionPopupOnLeft by remember {
+    var showHiddenChats by rememberSaveable {
         mutableStateOf(false)
     }
 
-    var showHiddenChats by rememberSaveable {
+
+    var selectedChatIds by remember {
+        mutableStateOf<Set<String>>(emptySet())
+    }
+
+    var showBulkDeleteConfirmation by remember {
         mutableStateOf(false)
     }
 
@@ -249,74 +297,125 @@ fun HomeScreen(
             }
         }
 
+    val conversationsMatchingInboxFilter = remember(
+        filteredConversations,
+        selectedInboxFilter
+    ) {
+        when (selectedInboxFilter) {
+            "Unread" -> filteredConversations.filter { it.unreadCount > 0L }
+            "Favorites" -> filteredConversations.filter { it.isFavorite }
+            "Groups" -> filteredConversations.filter { it.chatType == "group" }
+            "Pinned" -> filteredConversations.filter { it.isPinned }
+            else -> filteredConversations
+        }
+    }
+
     val visibleFilteredConversations =
-        remember(filteredConversations) {
-            filteredConversations.filterNot { it.isHidden }
+        remember(conversationsMatchingInboxFilter) {
+            conversationsMatchingInboxFilter.filterNot { it.isHidden }
         }
 
     val hiddenFilteredConversations =
-        remember(filteredConversations) {
-            filteredConversations.filter { it.isHidden }
+        remember(conversationsMatchingInboxFilter) {
+            conversationsMatchingInboxFilter.filter { it.isHidden }
         }
 
-    val visibleChatCount =
-        remember(conversations) {
-            conversations.count { !it.isHidden }
-        }
+    // Select All applies to this search/filter result. Hidden chats are
+    // included only when their section is expanded and therefore visible.
+    val selectableChatIds = remember(
+        visibleFilteredConversations,
+        hiddenFilteredConversations,
+        showHiddenChats
+    ) {
+        (visibleFilteredConversations +
+            if (showHiddenChats) hiddenFilteredConversations else emptyList())
+            .mapTo(linkedSetOf()) { it.chatId }
+    }
+    val selectedConversations = remember(conversations, selectedChatIds) {
+        conversations.filter { it.chatId in selectedChatIds }
+    }
+    val allSelectableChatsSelected = selectableChatIds.isNotEmpty() &&
+        selectableChatIds.all { it in selectedChatIds }
 
-    val totalUnreadCount =
-        remember(conversations) {
-            conversations.filterNot { it.isHidden }
-                .sumOf { it.unreadCount }
+    LaunchedEffect(selectableChatIds) {
+        val validSelection = selectedChatIds.intersect(selectableChatIds)
+        if (validSelection != selectedChatIds) {
+            selectedChatIds = validSelection
         }
+    }
+
+    val exitSelection: () -> Unit = {
+        selectedChatIds = emptySet()
+        onSelectionModeChange(false)
+    }
+
+    // If the navigation host ends selection mode (for example, when a
+    // notification opens another destination), clear the local selection too.
+    LaunchedEffect(homeSelectionMode) {
+        if (homeSelectionMode) {
+            // A context popup and multi-select are mutually exclusive states.
+            selectedConversation = null
+            pendingDeleteConversation = null
+        }
+        if (!homeSelectionMode && selectedChatIds.isNotEmpty()) {
+            selectedChatIds = emptySet()
+        }
+    }
+    val toggleChatSelection: (String) -> Unit = { chatId ->
+        selectedChatIds = if (chatId in selectedChatIds) {
+            selectedChatIds - chatId
+        } else {
+            selectedChatIds + chatId
+        }
+    }
+
+    BackHandler(enabled = homeSelectionMode && !showBulkDeleteConfirmation) {
+        exitSelection()
+    }
 
     /*
      * =========================================================
      * ACTION MESSAGE
      * =========================================================
      */
-    if (
-        actionMessage != null
-    ) {
+    actionMessage?.let { message ->
+        InChatActionDialog(
+            title = "InChat",
+            description = message,
+            confirmLabel = "OK",
+            confirmIcon = Icons.Outlined.Info,
+            confirmDestructive = false,
+            showCancel = false,
+            onConfirm = { actionMessage = null },
+            onDismiss = { actionMessage = null }
+        )
+    }
 
-        AlertDialog(
-
-            onDismissRequest = {
-
-                actionMessage =
-                    null
-            },
-
-            title = {
-
-                Text(
-                    "InChat"
-                )
-            },
-
-            text = {
-
-                Text(
-                    actionMessage!!
-                )
-            },
-
-            confirmButton = {
-
-                TextButton(
-
-                    onClick = {
-
-                        actionMessage =
-                            null
+    if (showBulkDeleteConfirmation) {
+        val selectedCount = selectedConversations.size
+        InChatActionDialog(
+            title = if (selectedCount == 1) "Delete this chat?" else "Delete $selectedCount chats?",
+            description = "Selected chats will be removed from your inbox. For group chats, this also removes your membership.",
+            confirmLabel = "Delete",
+            confirmIcon = Icons.Outlined.DeleteOutline,
+            confirmDestructive = true,
+            onConfirm = {
+                val conversationsToDelete = selectedConversations.toList()
+                showBulkDeleteConfirmation = false
+                exitSelection()
+                conversationsToDelete.forEach { conversation ->
+                    homeViewModel.deleteConversation(
+                        currentUserId = currentUserId,
+                        chatId = conversation.chatId,
+                        chatType = conversation.chatType
+                    ) { success, error ->
+                        if (!success) {
+                            actionMessage = error ?: "Could not delete a selected chat."
+                        }
                     }
-                ) {
-
-                    Text(
-                        "OK"
-                    )
                 }
-            }
+            },
+            onDismiss = { showBulkDeleteConfirmation = false }
         )
     }
 
@@ -347,9 +446,18 @@ fun HomeScreen(
         ) {
 
             HomeHeader(
-                chatCount = visibleChatCount,
-                unreadCount = totalUnreadCount,
-                onCreateGroupClick = onCreateGroupClick
+                selectionMode = homeSelectionMode,
+                selectedCount = selectedChatIds.size,
+                allSelected = allSelectableChatsSelected,
+                onCancelSelection = exitSelection,
+                onSelectAll = {
+                    selectedChatIds = if (allSelectableChatsSelected) {
+                        emptySet()
+                    } else {
+                        selectableChatIds
+                    }
+                },
+                onNewChatClick = { showNewChatOptions = true }
             )
 
             HomeSearchBar(
@@ -371,21 +479,20 @@ fun HomeScreen(
                 }
             )
 
-            if (conversationsLoaded && conversations.isNotEmpty()) {
-                HomeSectionHeading(
-                    totalChats = visibleChatCount,
-                    unreadCount = totalUnreadCount
-                )
-            }
+            HomeInboxFilterChips(
+                selectedFilter = selectedInboxFilter,
+                onFilterSelected = { selectedInboxFilter = it }
+            )
 
             /*
              * =================================================
              * CONTENT
              * =================================================
              */
-            if (
-                !conversationsLoaded
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
+                if (
+                    !conversationsLoaded
+                ) {
 
                 HomeConversationLoadingState()
 
@@ -394,8 +501,7 @@ fun HomeScreen(
             ) {
 
                 EmptyConversationState(
-                    onCreateGroupClick =
-                        onCreateGroupClick
+                    onNewChatClick = { showNewChatOptions = true }
                 )
 
             } else if (
@@ -412,20 +518,29 @@ fun HomeScreen(
 
                 LazyColumn(
 
-                    modifier =
-                        Modifier
-                            .fillMaxSize(),
+                    modifier = Modifier.fillMaxSize(),
 
                     contentPadding =
                         PaddingValues(
                             top = 2.dp,
-                            bottom = 24.dp
+                            bottom = if (homeSelectionMode) 100.dp else 24.dp
                         ),
 
                     verticalArrangement =
                         Arrangement.spacedBy(2.dp)
                 ) {
 
+                    if (visibleFilteredConversations.isEmpty()) {
+                        item(
+                            key = "inbox_filter_empty_state",
+                            contentType = "inbox_filter_empty_state"
+                        ) {
+                            HomeInboxFilterEmptyState(
+                                selectedFilter = selectedInboxFilter,
+                                onShowAll = { selectedInboxFilter = "All" }
+                            )
+                        }
+                    } else {
                     items(
                         items = visibleFilteredConversations,
                         key = { it.chatId },
@@ -438,24 +553,57 @@ fun HomeScreen(
                         }
                     ) { conversation ->
                         ConversationItem(
+                            itemModifier = Modifier.animateItem(
+                                fadeInSpec = InChatMotion.effects(180),
+                                placementSpec = InChatMotion.contentSpring(),
+                                fadeOutSpec = InChatMotion.effects(140)
+                            ),
                             conversation = conversation,
+                            homeViewModel = homeViewModel,
                             userRepository = userRepository,
                             currentUserId = currentUserId,
-                            onClick = {
-                                pendingDeleteConversation = null
+                            isSelectionMode = homeSelectionMode,
+                            isSelected = conversation.chatId in selectedChatIds,
+                            isContextMenuOpen = selectedConversation != null && !homeSelectionMode,
+                            onSelectChat = {
                                 selectedConversation = null
-                                onConversationClick(conversation)
+                                pendingDeleteConversation = null
+                                selectedChatIds = setOf(conversation.chatId)
+                                onSelectionModeChange(true)
+                            },
+                            onClick = {
+                                if (homeSelectionMode) {
+                                    toggleChatSelection(conversation.chatId)
+                                } else {
+                                    pendingDeleteConversation = null
+                                    selectedConversation = null
+                                    onConversationClick(conversation)
+                                }
                             },
                             onLongClick = {
-                                pendingDeleteConversation = null
-                                actionPopupOnLeft = kotlin.random.Random.nextBoolean()
-                                selectedConversation = conversation
+                                if (homeSelectionMode) {
+                                    toggleChatSelection(conversation.chatId)
+                                } else {
+                                    pendingDeleteConversation = null
+                                    selectedConversation = conversation
+                                }
                             },
-                            showActions = selectedConversation?.chatId == conversation.chatId,
-                            popupOnLeft = actionPopupOnLeft,
+                            showActions = !homeSelectionMode && selectedConversation?.chatId == conversation.chatId,
                             onDismissActions = {
                                 pendingDeleteConversation = null
                                 selectedConversation = null
+                            },
+                            onToggleFavorite = {
+                                homeViewModel.setConversationFavorite(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    favorite = !conversation.isFavorite
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update favorites."
+                                    }
+                                }
                             },
                             onTogglePin = {
                                 homeViewModel.setConversationPinned(
@@ -498,6 +646,8 @@ fun HomeScreen(
                         )
                     }
 
+                    }
+
                     if (hiddenFilteredConversations.isNotEmpty()) {
                         item(
                             key = "hidden_chats_toggle",
@@ -525,26 +675,59 @@ fun HomeScreen(
                         }
                             ) { conversation ->
                                 ConversationItem(
+                                    itemModifier = Modifier.animateItem(
+                                        fadeInSpec = InChatMotion.effects(180),
+                                        placementSpec = InChatMotion.contentSpring(),
+                                        fadeOutSpec = InChatMotion.effects(140)
+                                    ),
                                     conversation = conversation,
+                                    homeViewModel = homeViewModel,
                                     userRepository = userRepository,
                                     currentUserId = currentUserId,
-                                    onClick = {
-                                        pendingDeleteConversation = null
+                                    isSelectionMode = homeSelectionMode,
+                                    isSelected = conversation.chatId in selectedChatIds,
+                                    isContextMenuOpen = selectedConversation != null && !homeSelectionMode,
+                                    onSelectChat = {
                                         selectedConversation = null
-                                        onConversationClick(conversation)
-                                    },
-                                    onLongClick = {
                                         pendingDeleteConversation = null
-                                        actionPopupOnLeft = kotlin.random.Random.nextBoolean()
-                                        selectedConversation = conversation
+                                        selectedChatIds = setOf(conversation.chatId)
+                                        onSelectionModeChange(true)
                                     },
-                                    showActions = selectedConversation?.chatId == conversation.chatId,
-                                    popupOnLeft = actionPopupOnLeft,
+                                    onClick = {
+                                if (homeSelectionMode) {
+                                    toggleChatSelection(conversation.chatId)
+                                } else {
+                                    pendingDeleteConversation = null
+                                    selectedConversation = null
+                                    onConversationClick(conversation)
+                                }
+                            },
+                            onLongClick = {
+                                if (homeSelectionMode) {
+                                    toggleChatSelection(conversation.chatId)
+                                } else {
+                                    pendingDeleteConversation = null
+                                    selectedConversation = conversation
+                                }
+                            },
+                            showActions = !homeSelectionMode && selectedConversation?.chatId == conversation.chatId,
                                     onDismissActions = {
                                         pendingDeleteConversation = null
                                         selectedConversation = null
                                     },
-                                    onTogglePin = {
+                                    onToggleFavorite = {
+                                homeViewModel.setConversationFavorite(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    favorite = !conversation.isFavorite
+                                ) { success, error ->
+                                    selectedConversation = null
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update favorites."
+                                    }
+                                }
+                            },
+                            onTogglePin = {
                                         homeViewModel.setConversationPinned(
                                             currentUserId = currentUserId,
                                             chatId = conversation.chatId,
@@ -588,6 +771,195 @@ fun HomeScreen(
                     }
                 }
             }
+
+            this@Column.AnimatedVisibility(
+                visible = homeSelectionMode,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                // Overlay the replacement dock so selection does not resize
+                // the inbox viewport or move the selected conversation.
+                enter = expandVertically(
+                    expandFrom = Alignment.Bottom,
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeIn(animationSpec = InChatMotion.effects(175)),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeOut(animationSpec = InChatMotion.effects(145))
+            ) {
+                val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
+                    selectedConversations.all { it.isHidden }
+                val allSelectedAreFavorite = selectedConversations.isNotEmpty() &&
+                    selectedConversations.all { it.isFavorite }
+
+                BulkSelectionBar(
+                    enabled = selectedConversations.isNotEmpty(),
+                    hideLabel = if (allSelectedAreHidden) "Show" else "Hide",
+                    favoriteLabel = if (allSelectedAreFavorite) "Unfavorite" else "Favorite",
+                    onToggleHidden = {
+                        val selectedForAction = selectedConversations.toList()
+                        val shouldHide = selectedForAction.any { !it.isHidden }
+                        exitSelection()
+                        selectedForAction.forEach { conversation ->
+                            if (conversation.isHidden != shouldHide) {
+                                homeViewModel.setConversationHidden(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    hidden = shouldHide
+                                ) { success, error ->
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update hidden chats."
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onToggleFavorite = {
+                        val selectedForAction = selectedConversations.toList()
+                        val shouldFavorite = selectedForAction.any { !it.isFavorite }
+                        exitSelection()
+                        selectedForAction.forEach { conversation ->
+                            if (conversation.isFavorite != shouldFavorite) {
+                                homeViewModel.setConversationFavorite(
+                                    currentUserId = currentUserId,
+                                    chatId = conversation.chatId,
+                                    favorite = shouldFavorite
+                                ) { success, error ->
+                                    if (!success) {
+                                        actionMessage = error ?: "Could not update favorites."
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onDelete = {
+                        showBulkDeleteConfirmation = true
+                    }
+                )
+            }
+            }
+        }
+    }
+
+    if (showNewChatOptions) {
+        NewChatOptionsSheet(
+            onDismiss = { showNewChatOptions = false },
+            onNewMessage = {
+                showNewChatOptions = false
+                onNewMessageClick()
+            },
+            onNewGroup = {
+                showNewChatOptions = false
+                onCreateGroupClick()
+            }
+        )
+    }
+}
+
+/*
+ * ============================================================
+ * NEW CHAT OPTIONS
+ * ============================================================*/
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewChatOptionsSheet(
+    onDismiss: () -> Unit,
+    onNewMessage: () -> Unit,
+    onNewGroup: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "New chat",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Choose how you want to start a conversation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            NewChatOptionRow(
+                icon = Icons.Default.Person,
+                title = "New message",
+                subtitle = "Start a private conversation",
+                onClick = onNewMessage
+            )
+            NewChatOptionRow(
+                icon = Icons.Default.GroupAdd,
+                title = "New group",
+                subtitle = "Create a chat with multiple people",
+                onClick = onNewGroup
+            )
+        }
+    }
+}
+
+@Composable
+private fun NewChatOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
+        border = BorderStroke(
+            width = 0.75.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 13.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -599,225 +971,218 @@ fun HomeScreen(
  */
 @Composable
 private fun HomeHeader(
-    chatCount: Int,
-    unreadCount: Long,
-    onCreateGroupClick: () -> Unit
+    selectionMode: Boolean,
+    selectedCount: Int,
+    allSelected: Boolean,
+    onCancelSelection: () -> Unit,
+    onSelectAll: () -> Unit,
+    onNewChatClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = 22.dp,
-                top = 22.dp,
-                end = 20.dp,
-                bottom = 18.dp
-            ),
+            .padding(start = 22.dp, top = 22.dp, end = 20.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+        if (selectionMode) {
+            TextButton(
+                onClick = onCancelSelection,
+                modifier = Modifier.width(76.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primary,
-                            CircleShape
-                        )
-                )
-
-                Spacer(Modifier.width(7.dp))
-
                 Text(
-                    text = "InChat",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = JetBrainsMono,
-                        fontSize = 10.sp,
-                        letterSpacing = 1.8.sp
-                    ),
+                    text = "Cancel",
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
-            Spacer(Modifier.height(7.dp))
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$selectedCount Selected",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
 
+            TextButton(
+                onClick = onSelectAll,
+                modifier = Modifier.width(96.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = if (allSelected) "Deselect All" else "Select All",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
+                )
+            }
+        } else {
             Text(
                 text = "Messages",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontSize = 27.sp,
                     lineHeight = 32.sp
                 ),
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f)
             )
 
-            Spacer(Modifier.height(4.dp))
-
-            Text(
-                text = when {
-                    unreadCount > 0L ->
-                        "$chatCount CHATS  /  $unreadCount UNREAD"
-                    else ->
-                        "$chatCount CHATS IN YOUR INBOX"
-                },
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
-                    fontSize = 9.sp,
-                    letterSpacing = 0.65.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        IconButton(
-            onClick = onCreateGroupClick,
-            modifier = Modifier
-                .size(43.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-        ) {
-            Icon(
-                imageVector = Icons.Default.GroupAdd,
-                contentDescription = "Create group",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onPrimary
-            )
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                IconButton(
+                    onClick = onNewChatClick,
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    val plusColor = MaterialTheme.colorScheme.onPrimary
+                    Canvas(modifier = Modifier.size(18.dp)) {
+                        val arm = 6.5.dp.toPx()
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val stroke = 2.dp.toPx()
+                        drawLine(
+                            color = plusColor,
+                            start = Offset(centerX - arm, centerY),
+                            end = Offset(centerX + arm, centerY),
+                            strokeWidth = stroke,
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = plusColor,
+                            start = Offset(centerX, centerY - arm),
+                            end = Offset(centerX, centerY + arm),
+                            strokeWidth = stroke,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
-/*
- * ============================================================
- * SEARCH BAR
- * ============================================================
- */
+@Composable
+private fun BulkSelectionBar(
+    enabled: Boolean,
+    hideLabel: String,
+    favoriteLabel: String,
+    onToggleHidden: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onDelete: () -> Unit
+) {
+    // Match the navigation dock's footprint: 86% width inside the same
+    // 18dp side gutters, with the same fixed 60dp height and pill silhouette.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.86f)
+                .height(60.dp),
+            shape = RoundedCornerShape(50.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 2.dp,
+            shadowElevation = 12.dp,
+            border = BorderStroke(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+            TextButton(
+                onClick = onToggleHidden,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = if (hideLabel == "Show") {
+                        Icons.Outlined.Visibility
+                    } else {
+                        Icons.Outlined.VisibilityOff
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(hideLabel, fontSize = 11.sp, maxLines = 1)
+            }
+
+            TextButton(
+                onClick = onToggleFavorite,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = if (favoriteLabel == "Unfavorite") {
+                        Icons.Filled.Star
+                    } else {
+                        Icons.Outlined.Star
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(favoriteLabel, fontSize = 11.sp, maxLines = 1)
+            }
+
+            TextButton(
+                onClick = onDelete,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.DeleteOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "Delete",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1
+                )
+            }
+        }
+        }
+    }
+}
+
 @Composable
 private fun HomeSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
-    TextField(
+    CompactSearchField(
         value = query,
         onValueChange = onQueryChange,
+        placeholder = "Search conversations",
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = 18.dp,
-                end = 18.dp,
-                bottom = 16.dp
-            )
-            .border(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(17.dp)
-            ),
-        singleLine = true,
-        shape = RoundedCornerShape(17.dp),
-        textStyle = MaterialTheme.typography.bodyMedium.copy(
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface
-        ),
-        placeholder = {
-            Text(
-                text = "Search conversations",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search chats",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(19.dp)
-            )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        },
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            cursorColor = MaterialTheme.colorScheme.primary,
-            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
-        )
+            .padding(start = 18.dp, end = 18.dp, bottom = 16.dp),
+        onClear = onClear
     )
-}
-
-/*
- * ============================================================
- * SECTION HEADING
- * ============================================================
- */
-@Composable
-private fun HomeSectionHeading(
-    totalChats: Int,
-    unreadCount: Long
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = 22.dp,
-                end = 22.dp,
-                bottom = 7.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "RECENT CONVERSATIONS",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp,
-                letterSpacing = 1.0.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        if (unreadCount > 0L) {
-            Text(
-                text = "$unreadCount UNREAD",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
-                    fontSize = 9.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(Modifier.width(12.dp))
-        }
-
-        Text(
-            text = totalChats.toString().padStart(2, '0'),
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = JetBrainsMono,
-                fontSize = 9.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
 }
 
 /*
@@ -912,7 +1277,7 @@ private fun NoSearchResults(
                 19.sp,
 
             fontWeight =
-                FontWeight.Bold
+                FontWeight.Medium
         )
 
         Spacer(
@@ -940,6 +1305,93 @@ private fun NoSearchResults(
     }
 }
 
+
+@Composable
+private fun HomeInboxFilterChips(
+    selectedFilter: String,
+    onFilterSelected: (String) -> Unit
+) {
+    val filters = listOf("All", "Unread", "Favorites", "Groups", "Pinned")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        filters.forEach { filter ->
+            val selected = selectedFilter == filter
+            val chipBackground by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                },
+                label = "inboxFilterBackground"
+            )
+            val chipContent by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                label = "inboxFilterContent"
+            )
+
+            Surface(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(CircleShape)
+                    .clickable { onFilterSelected(filter) },
+                shape = CircleShape,
+                color = chipBackground
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 13.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = filter,
+                        color = chipContent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeInboxFilterEmptyState(
+    selectedFilter: String,
+    onShowAll: () -> Unit
+) {
+    val message = when (selectedFilter) {
+        "Unread" -> "No unread conversations"
+        "Favorites" -> "No favorite conversations yet"
+        "Groups" -> "No group conversations yet"
+        "Pinned" -> "No pinned conversations yet"
+        else -> "No conversations"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 42.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp
+        )
+        TextButton(onClick = onShowAll) {
+            Text("Show all chats")
+        }
+    }
+}
 
 /*
  * ============================================================
@@ -1080,7 +1532,7 @@ private fun HomeConversationLoadingState() {
  */
 @Composable
 private fun EmptyConversationState(
-    onCreateGroupClick: () -> Unit
+    onNewChatClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -1136,7 +1588,7 @@ private fun EmptyConversationState(
         Spacer(Modifier.height(20.dp))
 
         OutlinedButton(
-            onClick = onCreateGroupClick,
+            onClick = onNewChatClick,
             shape = RoundedCornerShape(14.dp),
             border = BorderStroke(
                 width = 1.dp,
@@ -1148,7 +1600,7 @@ private fun EmptyConversationState(
             )
         ) {
             Icon(
-                imageVector = Icons.Default.GroupAdd,
+                imageVector = Icons.Default.Add,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -1156,7 +1608,7 @@ private fun EmptyConversationState(
             Spacer(Modifier.width(8.dp))
 
             Text(
-                text = "Create a group",
+                text = "Start a conversation",
                 color = MaterialTheme.colorScheme.primary
             )
         }
@@ -1171,8 +1623,9 @@ private fun EmptyConversationState(
 @Composable
 private fun ConversationActionsPopup(
     conversation: Conversation,
-    popupOnLeft: Boolean,
     onDismiss: () -> Unit,
+    onSelectChat: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
     confirmingDelete: Boolean,
@@ -1181,10 +1634,10 @@ private fun ConversationActionsPopup(
     onDelete: () -> Unit
 ) {
     val density = LocalDensity.current
-    val positionProvider = remember(popupOnLeft, density) {
+    val positionProvider = remember(density) {
         ConversationActionsPopupPositionProvider(
-            preferLeft = popupOnLeft,
-            edgeMarginPx = with(density) { 14.dp.roundToPx() }
+            edgeMarginPx = with(density) { 14.dp.roundToPx() },
+            anchorGapPx = with(density) { 8.dp.roundToPx() }
         )
     }
 
@@ -1197,9 +1650,20 @@ private fun ConversationActionsPopup(
             dismissOnClickOutside = true
         )
     ) {
+        AnimatedVisibility(
+            visible = true,
+            // Keep the popup at a constant measured size while its alpha settles.
+            enter = fadeIn(animationSpec = InChatMotion.effects(155)) +
+                scaleIn(
+                    initialScale = 0.94f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f)
+                )
+        ) {
         Surface(
-            modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
-            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .widthIn(min = 190.dp, max = 228.dp)
+                .heightIn(min = 260.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 4.dp,
@@ -1222,7 +1686,7 @@ private fun ConversationActionsPopup(
                         Text(
                             text = "Delete this chat?",
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(5.dp))
@@ -1239,6 +1703,7 @@ private fun ConversationActionsPopup(
                     ConversationActionRow(
                         icon = Icons.Default.Clear,
                         title = "Cancel",
+                        destructive = true,
                         onClick = onCancelDelete
                     )
                     ConversationActionRow(
@@ -1248,6 +1713,16 @@ private fun ConversationActionsPopup(
                         onClick = onConfirmDelete
                     )
                 } else {
+                    ConversationActionRow(
+                        icon = Icons.Default.Check,
+                        title = "Select Chat",
+                        onClick = onSelectChat
+                    )
+                    ConversationActionRow(
+                        icon = if (conversation.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                        title = if (conversation.isFavorite) "Remove from Favorites" else "Add to Favorites",
+                        onClick = onToggleFavorite
+                    )
                     ConversationActionRow(
                         icon = Icons.Outlined.PushPin,
                         title = if (conversation.isPinned) "Unpin" else "Pin",
@@ -1267,12 +1742,18 @@ private fun ConversationActionsPopup(
                 }
             }
         }
+        }
     }
 }
 
+/**
+ * Places the conversation menu beside its anchor row instead of centering it
+ * over the entire screen. Prefer below the row, flip above near the bottom,
+ * and clamp both axes so the popup remains inside the app window.
+ */
 private class ConversationActionsPopupPositionProvider(
-    private val preferLeft: Boolean,
-    private val edgeMarginPx: Int
+    private val edgeMarginPx: Int,
+    private val anchorGapPx: Int
 ) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
@@ -1282,12 +1763,28 @@ private class ConversationActionsPopupPositionProvider(
     ): IntOffset {
         val maxX = (windowSize.width - popupContentSize.width - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
-        val x = if (preferLeft) edgeMarginPx else maxX
-
         val maxY = (windowSize.height - popupContentSize.height - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
-        val y = (anchorBounds.center.y - popupContentSize.height / 2)
-            .coerceIn(edgeMarginPx, maxY)
+
+        val preferredX = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left + edgeMarginPx
+        } else {
+            anchorBounds.right - popupContentSize.width - edgeMarginPx
+        }
+        val x = preferredX.coerceIn(edgeMarginPx, maxX)
+
+        val spaceBelow = windowSize.height - anchorBounds.bottom - edgeMarginPx
+        val spaceAbove = anchorBounds.top - edgeMarginPx
+        val belowY = anchorBounds.bottom + anchorGapPx
+        val aboveY = anchorBounds.top - popupContentSize.height - anchorGapPx
+
+        val preferredY = when {
+            spaceBelow >= popupContentSize.height + anchorGapPx -> belowY
+            spaceAbove >= popupContentSize.height + anchorGapPx -> aboveY
+            spaceBelow >= spaceAbove -> belowY
+            else -> aboveY
+        }
+        val y = preferredY.coerceIn(edgeMarginPx, maxY)
 
         return IntOffset(x, y)
     }
@@ -1338,7 +1835,7 @@ private fun ConversationActionRow(
                 style = MaterialTheme.typography.titleSmall.copy(
                     fontSize = 13.sp
                 ),
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (destructive) {
                     MaterialTheme.colorScheme.error
                 } else {
@@ -1363,7 +1860,7 @@ private fun HiddenChatsToggle(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         border = BorderStroke(
-            width = 0.75.dp,
+            width = 0.7.dp,
             color = MaterialTheme.colorScheme.outlineVariant
         )
     ) {
@@ -1390,7 +1887,7 @@ private fun HiddenChatsToggle(
             Text(
                 text = "HIDDEN CHATS  /  $hiddenCount",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
                     letterSpacing = 0.55.sp
                 ),
@@ -1402,9 +1899,9 @@ private fun HiddenChatsToggle(
             Text(
                 text = if (expanded) "HIDE" else "SHOW",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = JetBrainsMono,
+                    fontFamily = GoogleSansFlex,
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Medium
                 ),
                 color = MaterialTheme.colorScheme.primary
             )
@@ -1420,14 +1917,20 @@ private fun HiddenChatsToggle(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationItem(
+    itemModifier: Modifier = Modifier,
     conversation: Conversation,
+    homeViewModel: HomeViewModel,
     userRepository: UserRepository,
     currentUserId: String,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onSelectChat: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     showActions: Boolean,
-    popupOnLeft: Boolean,
+    isContextMenuOpen: Boolean,
     onDismissActions: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleHidden: () -> Unit,
     confirmingDelete: Boolean,
@@ -1435,6 +1938,16 @@ private fun ConversationItem(
     onConfirmDelete: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val localPreviewFlow = remember(
+        currentUserId,
+        conversation.chatId,
+        conversation.chatType,
+        conversation.otherUserId
+    ) {
+        homeViewModel.observeLocalPreview(currentUserId, conversation)
+    }
+    val localPreview by localPreviewFlow.collectAsState(initial = null)
+
     var otherUserProfilePhoto by remember(conversation.otherUserId) {
         mutableStateOf(
             userRepository.getCachedUser(conversation.otherUserId)?.let { cachedUser ->
@@ -1454,6 +1967,40 @@ private fun ConversationItem(
         }
     }
 
+    var otherUserTyping by remember(conversation.chatId, conversation.otherUserId) {
+        mutableStateOf(false)
+    }
+
+    // Observe the same per-chat typing node used by ChatViewModel. The listener
+    // exists only while this inbox row is composed and is removed when it leaves.
+    DisposableEffect(conversation.chatId, conversation.otherUserId, conversation.chatType) {
+        if (conversation.chatType != "group" &&
+            conversation.chatId.isNotBlank() &&
+            conversation.otherUserId.isNotBlank()
+        ) {
+            val typingRef = FirebaseDatabase.getInstance()
+                .getReference("typing")
+                .child(conversation.chatId)
+                .child(conversation.otherUserId)
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    otherUserTyping = snapshot.getValue(Boolean::class.java) == true
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    otherUserTyping = false
+                }
+            }
+            typingRef.addValueEventListener(listener)
+            onDispose {
+                typingRef.removeEventListener(listener)
+            }
+        } else {
+            otherUserTyping = false
+            onDispose { }
+        }
+    }
+
     val hasUnread = conversation.unreadCount > 0L
     val avatarBorderColor =
         if (hasUnread) {
@@ -1462,59 +2009,168 @@ private fun ConversationItem(
             MaterialTheme.colorScheme.outline.copy(alpha = 0.72f)
         }
 
+    // Worker metadata timestamps match the authenticated sentAtMillis value.
+    // Use local plaintext only for the latest item (or a newer queued send).
+    val visibleLocalPreview = localPreview?.takeIf {
+        it.timestamp >= conversation.lastTimestamp
+    }
+    val previewSenderId = visibleLocalPreview?.senderUserId ?: conversation.lastSenderId
+    val previewTimestamp = maxOf(
+        conversation.lastTimestamp,
+        visibleLocalPreview?.timestamp ?: 0L
+    )
     val messagePrefix =
         if (conversation.chatType == "group") {
             when {
-                conversation.lastSenderId == currentUserId -> "You: "
-                conversation.lastSenderNickname.isNotBlank() ->
-                    conversation.lastSenderNickname + ": "
+                previewSenderId == currentUserId -> "You: "
+                visibleLocalPreview == null ||
+                    visibleLocalPreview.timestamp == conversation.lastTimestamp ->
+                    conversation.lastSenderNickname
+                        .takeIf { it.isNotBlank() }
+                        ?.plus(": ")
+                        .orEmpty()
                 else -> ""
             }
-        } else if (conversation.lastSenderId == currentUserId) {
+        } else if (previewSenderId == currentUserId) {
             "You: "
         } else {
             ""
         }
 
-    // Legacy inbox rows may still contain pre-E2EE plaintext previews.
-    // Never render or search that untrusted historical field.
-    val previewText = conversation.safeInboxPreview()
+    // Decrypted text is read only from this account's encrypted local store.
+    // Firebase inbox metadata remains a non-sensitive fallback for uncached messages.
+    val previewText = visibleLocalPreview?.text ?: conversation.safeInboxPreview()
 
-    Box {
+    val isContextMenuFocused = showActions && !isSelectionMode
+    val contextDimAlpha by animateFloatAsState(
+        targetValue = if (isContextMenuOpen && !isContextMenuFocused && !isSelectionMode) {
+            0.48f
+        } else {
+            1f
+        },
+        animationSpec = tween(175),
+        label = "conversationContextDim"
+    )
+    val rowElevation by animateDpAsState(
+        targetValue = if (isContextMenuFocused) 8.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 460f),
+        label = "conversationContextElevation"
+    )
+    val rowSurfaceColor by animateColorAsState(
+        targetValue = if (isContextMenuFocused) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.64f)
+        } else if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+        } else if (hasUnread) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        animationSpec = tween(180),
+        label = "conversationSelectionSurface"
+    )
+    val rowBorderColor by animateColorAsState(
+        targetValue = if (isContextMenuFocused) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.96f)
+        } else if (isSelected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        } else if (hasUnread) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
+        },
+        animationSpec = tween(180),
+        label = "conversationSelectionBorder"
+    )
+
+    Box(modifier = itemModifier) {
         Surface(
             modifier = Modifier
+                .graphicsLayer(alpha = contextDimAlpha)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .padding(horizontal = 16.dp, vertical = 3.dp)
                 .combinedClickable(
                     interactionSource = null,
-                    indication = null,
+                    indication = LocalIndication.current,
                     onClick = onClick,
                     onLongClick = onLongClick
                 ),
             shape = RoundedCornerShape(18.dp),
-            color = if (hasUnread) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
+            color = rowSurfaceColor,
             border = BorderStroke(
-                width = 0.75.dp,
-                color = if (hasUnread) {
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.78f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
-                }
-            )
+                width = if (isContextMenuFocused) 1.25.dp else 0.75.dp,
+                color = rowBorderColor
+            ),
+            shadowElevation = rowElevation
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                AnimatedVisibility(
+                    visible = isSelectionMode,
+                    enter = fadeIn(animationSpec = tween(130)) +
+                        scaleIn(initialScale = 0.72f, animationSpec = tween(160)),
+                    exit = fadeOut(animationSpec = tween(110)) +
+                        scaleOut(targetScale = 0.72f, animationSpec = tween(120))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val selectorFill by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            animationSpec = tween(150),
+                            label = "conversationSelectorFill"
+                        )
+                        val selectorBorder by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.82f)
+                            },
+                            animationSpec = tween(150),
+                            label = "conversationSelectorBorder"
+                        )
+                        Surface(
+                            modifier = Modifier.size(25.dp),
+                            shape = CircleShape,
+                            color = selectorFill,
+                            border = BorderStroke(
+                                width = 1.25.dp,
+                                color = selectorBorder
+                            )
+                        ) {
+                            AnimatedVisibility(
+                                visible = isSelected,
+                                enter = fadeIn(animationSpec = tween(100)) +
+                                    scaleIn(
+                                        initialScale = 0.58f,
+                                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f)
+                                    ),
+                                exit = fadeOut(animationSpec = tween(90)) +
+                                    scaleOut(targetScale = 0.58f, animationSpec = tween(100))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(9.dp))
+                    }
+                }
+
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(48.dp)
                         .border(
                             width = 1.dp,
                             color = avatarBorderColor,
@@ -1558,9 +2214,9 @@ private fun ConversationItem(
                                 lineHeight = 19.sp
                             ),
                             fontWeight = if (hasUnread) {
-                                FontWeight.Bold
+                                FontWeight.Medium
                             } else {
-                                FontWeight.SemiBold
+                                FontWeight.Medium
                             },
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
@@ -1582,17 +2238,19 @@ private fun ConversationItem(
                     Spacer(Modifier.height(5.dp))
 
                     Text(
-                        text = "$messagePrefix$previewText",
+                        text = if (otherUserTyping) "typing…" else "$messagePrefix$previewText",
                         style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
                         ),
-                        fontWeight = if (hasUnread) {
+                        fontWeight = if (otherUserTyping || hasUnread) {
                             FontWeight.Medium
                         } else {
                             FontWeight.Normal
                         },
-                        color = if (hasUnread) {
+                        color = if (otherUserTyping) {
+                            MaterialTheme.colorScheme.primary
+                        } else if (hasUnread) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -1609,14 +2267,14 @@ private fun ConversationItem(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = formatConversationTime(conversation.lastTimestamp),
+                        text = formatConversationTime(previewTimestamp),
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = JetBrainsMono,
-                            fontSize = 9.sp,
+                            fontFamily = GoogleSansFlex,
+                            fontSize = 10.sp,
                             letterSpacing = 0.1.sp
                         ),
                         fontWeight = if (hasUnread) {
-                            FontWeight.SemiBold
+                            FontWeight.Medium
                         } else {
                             FontWeight.Normal
                         },
@@ -1644,10 +2302,10 @@ private fun ConversationItem(
                                     horizontal = 7.dp,
                                     vertical = 3.dp
                                 ),
-                                fontFamily = JetBrainsMono,
+                                fontFamily = GoogleSansFlex,
                                 fontSize = 9.sp,
                                 lineHeight = 11.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
@@ -1658,8 +2316,9 @@ private fun ConversationItem(
         if (showActions) {
             ConversationActionsPopup(
                 conversation = conversation,
-                popupOnLeft = popupOnLeft,
                 onDismiss = onDismissActions,
+                onSelectChat = onSelectChat,
+                onToggleFavorite = onToggleFavorite,
                 onTogglePin = onTogglePin,
                 onToggleHidden = onToggleHidden,
                 confirmingDelete = confirmingDelete,
