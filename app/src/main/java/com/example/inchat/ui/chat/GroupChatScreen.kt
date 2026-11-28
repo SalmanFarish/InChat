@@ -443,12 +443,11 @@ fun GroupChatScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
+                    .padding(innerPadding)
             ) {
-                Text(
-                    text = "Loading group...",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                ChatConversationLoadingState(
+                    title = "Opening group",
+                    description = "Loading group details and messages"
                 )
             }
         }
