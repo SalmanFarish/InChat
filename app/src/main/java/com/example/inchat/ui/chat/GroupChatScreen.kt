@@ -4,6 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -50,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
 import com.example.inchat.ui.theme.Black
 import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -261,108 +268,128 @@ fun GroupChatScreen(
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
-            if (selectedMessageIds.isNotEmpty()) {
-                val selectedMessages = messages.filter { it.id in selectedMessageIds }
-                val selectedAreAllOwn = selectedMessages.size == selectedMessageIds.size &&
-                    selectedMessages.all { it.senderId == currentUserId }
-                MessageSelectionTopBar(
-                    selectedCount = selectedMessageIds.size,
-                    canDeleteForEveryone = selectedAreAllOwn,
-                    onClose = { selectedMessageIds = emptySet() },
-                    onCopy = {
-                        val copiedText = selectedMessages
-                            .sortedBy { it.timestamp }
-                            .mapNotNull { it.text.takeIf(String::isNotBlank) }
-                            .joinToString("\n")
-                        if (copiedText.isNotBlank()) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-
-                        }
-                        selectedMessageIds = emptySet()
-                    },
-                    onDeleteForMe = {
-                        showDeleteSelectedForMeConfirmation = true
-                    },
-                    onDeleteForEveryone = {
-                        showDeleteSelectedForEveryoneConfirmation = true
-                    }
-                )
-            } else {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                title = {
-                    Row(
-                        modifier = Modifier
-                            .clickable { onGroupInfoClick() }
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        GroupAvatar(
-                            groupName = group?.name ?: "Group",
-                            modifier = Modifier.size(40.dp),
-                            fontSize = 20.sp
-                        )
-
-                        Spacer(Modifier.width(10.dp))
-
-                        Column {
-                            Text(
-                                text = group?.name?.ifBlank { "Group" } ?: "Group",
-                                fontFamily = GoogleSansFlex,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.primary
+            AnimatedContent(
+                targetState = selectedMessageIds.isNotEmpty(),
+                transitionSpec = {
+                    (
+                        fadeIn(animationSpec = InChatMotion.effects(150)) +
+                            slideInVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                initialOffsetY = { it / 8 }
                             )
-                            Text(
-                                text = (group?.members?.size ?: 0).toString() + " members",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) togetherWith (
+                        fadeOut(animationSpec = InChatMotion.effects(110)) +
+                            slideOutVertically(
+                                animationSpec = InChatMotion.navigationSpring(),
+                                targetOffsetY = { -it / 8 }
                             )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { overflowExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More group chat options"
                         )
-                    }
-                    DropdownMenu(
-                        expanded = overflowExpanded,
-                        onDismissRequest = { overflowExpanded = false },
-                        containerColor = Black,
-                        tonalElevation = 0.dp
-                    ) {
-                        DropdownMenuItem(
-                            modifier = Modifier.background(Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
-                            text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Outlined.DeleteSweep,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                overflowExpanded = false
-                                showClearChatConfirmation = true
+                },
+                label = "groupChatTopBar"
+            ) { selectingMessages ->
+                if (selectingMessages) {
+                    val selectedMessages = messages.filter { it.id in selectedMessageIds }
+                    val selectedAreAllOwn =
+                        selectedMessages.size == selectedMessageIds.size &&
+                            selectedMessages.all { it.senderId == currentUserId }
+                    MessageSelectionTopBar(
+                        selectedCount = selectedMessageIds.size,
+                        canDeleteForEveryone = selectedAreAllOwn,
+                        onClose = { selectedMessageIds = emptySet() },
+                        onCopy = {
+                            val copiedText = selectedMessages
+                                .sortedBy { it.timestamp }
+                                .mapNotNull { it.text.takeIf(String::isNotBlank) }
+                                .joinToString("\n")
+                            if (copiedText.isNotBlank()) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
                             }
+                            selectedMessageIds = emptySet()
+                        },
+                        onDeleteForMe = {
+                            showDeleteSelectedForMeConfirmation = true
+                        },
+                        onDeleteForEveryone = {
+                            showDeleteSelectedForEveryoneConfirmation = true
+                        }
+                    )
+                } else {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back"
+                                )
+                            }
+                        },
+                        title = {
+                            Row(
+                                modifier = Modifier
+                                    .clickable { onGroupInfoClick() }
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GroupAvatar(
+                                    groupName = group?.name ?: "Group",
+                                    modifier = Modifier.size(40.dp),
+                                    fontSize = 20.sp
+                                )
+
+                                Spacer(Modifier.width(10.dp))
+
+                                Column {
+                                    Text(
+                                        text = group?.name?.ifBlank { "Group" } ?: "Group",
+                                        fontFamily = GoogleSansFlex,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = (group?.members?.size ?: 0).toString() + " members",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { overflowExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More group chat options"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = overflowExpanded,
+                                onDismissRequest = { overflowExpanded = false },
+                                containerColor = Black,
+                                tonalElevation = 0.dp
+                            ) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.background(Black, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                                    text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.DeleteSweep,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showClearChatConfirmation = true
+                                    }
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+                    )
+                }
             }
         },
         bottomBar = {
