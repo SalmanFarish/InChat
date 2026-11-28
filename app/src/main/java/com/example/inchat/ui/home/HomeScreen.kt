@@ -97,6 +97,7 @@ import com.example.inchat.data.repository.UserRepository
 import com.example.inchat.ui.chat.GroupAvatar
 import com.example.inchat.ui.profile.InChatProfileAvatar
 import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 import com.example.inchat.ui.auth.AuthViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -554,7 +555,15 @@ fun HomeScreen(
                             }
                         }
                     ) { conversation ->
-                        ConversationItem(
+                        Box(
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = InChatMotion.effects(180),
+                                placementSpec = InChatMotion.contentSpring(),
+                                fadeOutSpec = InChatMotion.effects(140)
+                            )
+                            )
+                        } {
+                            ConversationItem(
                             conversation = conversation,
                             homeViewModel = homeViewModel,
                             userRepository = userRepository,
@@ -672,7 +681,14 @@ fun HomeScreen(
                             }
                         }
                             ) { conversation ->
-                                ConversationItem(
+                                Box(
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = InChatMotion.effects(180),
+                                        placementSpec = InChatMotion.contentSpring(),
+                                        fadeOutSpec = InChatMotion.effects(140)
+                                    )
+                                ) {
+                                    ConversationItem(
                                     conversation = conversation,
                                     homeViewModel = homeViewModel,
                                     userRepository = userRepository,
@@ -714,7 +730,8 @@ fun HomeScreen(
                                     currentUserId = currentUserId,
                                     chatId = conversation.chatId,
                                     favorite = !conversation.isFavorite
-                                ) { success, error ->
+                                    )
+                                } { success, error ->
                                     selectedConversation = null
                                     if (!success) {
                                         actionMessage = error ?: "Could not update favorites."
@@ -772,12 +789,12 @@ fun HomeScreen(
                 // together, which forces extra measurements as the dock changes.
                 enter = slideInVertically(
                     initialOffsetY = { it / 3 },
-                    animationSpec = tween(190)
-                ) + fadeIn(animationSpec = tween(150)),
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeIn(animationSpec = InChatMotion.effects(190)),
                 exit = slideOutVertically(
                     targetOffsetY = { it / 3 },
-                    animationSpec = tween(160)
-                ) + fadeOut(animationSpec = tween(120))
+                    animationSpec = InChatMotion.navigationSpring()
+                ) + fadeOut(animationSpec = InChatMotion.effects(150))
             ) {
                 val allSelectedAreHidden = selectedConversations.isNotEmpty() &&
                     selectedConversations.all { it.isHidden }
