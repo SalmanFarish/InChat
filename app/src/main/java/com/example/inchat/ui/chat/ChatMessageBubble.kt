@@ -1,6 +1,8 @@
 package com.example.inchat.ui.chat
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -58,6 +60,7 @@ import com.example.inchat.crypto.EncryptedMessageDeliveryStatus
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.ui.theme.GoogleSansFlex
+import com.example.inchat.ui.theme.InChatMotion
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -246,6 +249,33 @@ fun SwipeableMessageBubble(
 
                 // Keep all message corners consistently rounded across group boundaries.
                 val bubbleShape = RoundedCornerShape(20.dp)
+                val bubbleBackground by animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                    } else if (isMe) {
+                        chatTheme.outgoingBubbleColor
+                    } else {
+                        chatTheme.incomingBubbleColor
+                    },
+                    animationSpec = InChatMotion.effects(170),
+                    label = "messageSelectionBackground"
+                )
+                val bubbleBorderColor by animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else if (isMe) {
+                        chatTheme.outgoingBorderColor
+                    } else {
+                        chatTheme.incomingBorderColor
+                    },
+                    animationSpec = InChatMotion.effects(170),
+                    label = "messageSelectionBorder"
+                )
+                val bubbleBorderWidth by animateDpAsState(
+                    targetValue = if (isSelected) 1.6.dp else 0.7.dp,
+                    animationSpec = InChatMotion.contentSpring(),
+                    label = "messageSelectionBorderWidth"
+                )
 
                 Column(
                     modifier =
@@ -262,24 +292,10 @@ fun SwipeableMessageBubble(
                                 onLongClick = onLongClick
                             )
                             .clip(bubbleShape)
-                            .background(
-                                if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
-                                } else if (isMe) {
-                                    chatTheme.outgoingBubbleColor
-                                } else {
-                                    chatTheme.incomingBubbleColor
-                                }
-                            )
+                            .background(bubbleBackground)
                             .border(
-                                width = if (isSelected) 1.6.dp else 0.7.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else if (isMe) {
-                                    chatTheme.outgoingBorderColor
-                                } else {
-                                    chatTheme.incomingBorderColor
-                                },
+                                width = bubbleBorderWidth,
+                                color = bubbleBorderColor,
                                 shape = bubbleShape
                             )
                             .padding(horizontal = 16.dp, vertical = 11.dp)
