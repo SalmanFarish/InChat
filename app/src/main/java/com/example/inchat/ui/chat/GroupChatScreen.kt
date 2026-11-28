@@ -3,16 +3,7 @@ package com.example.inchat.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Info
-import com.example.inchat.ui.components.InChatActionDialog
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,8 +48,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inchat.data.model.Message
+import com.example.inchat.crypto.EncryptedMessageContentCodec
+import com.example.inchat.ui.theme.Black
 import com.example.inchat.ui.theme.GoogleSansFlex
-import com.example.inchat.ui.theme.InChatMotion
+import com.example.inchat.ui.components.InChatActionDialog
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -113,8 +107,9 @@ fun GroupChatScreen(
                     id = encrypted.messageId,
                     senderId = encrypted.senderUserId,
                     senderNickname = "🔒 ${encrypted.senderUserId}",
-                    text = encrypted.text,
+                    text = EncryptedMessageContentCodec.decode(encrypted.text).text,
                     timestamp = encrypted.sentAtMillis,
+                    replyTo = EncryptedMessageContentCodec.decode(encrypted.text).replyTo,
                 )
             }
         // A pending local intent is shown immediately while key distribution
@@ -129,8 +124,9 @@ fun GroupChatScreen(
                     id = pending.messageId,
                     senderId = currentUserId,
                     senderNickname = "🔒 $currentNickname",
-                    text = pending.plaintext,
+                    text = EncryptedMessageContentCodec.decode(pending.plaintext).text,
                     timestamp = pending.sentAtMillis,
+                    replyTo = EncryptedMessageContentCodec.decode(pending.plaintext).replyTo,
                 )
             }
         (messages + encryptedRows + pendingRows).sortedWith(
@@ -266,168 +262,112 @@ fun GroupChatScreen(
             onDismiss = { actionMessage = null }
         )
     }
+
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
-            AnimatedContent(
-                targetState = selectedMessageIds.isNotEmpty(),
-                transitionSpec = {
-                    (
-                        fadeIn(animationSpec = InChatMotion.effects(150)) +
-                            slideInVertically(
-                                animationSpec = InChatMotion.navigationSpring(),
-                                initialOffsetY = { it / 8 }
-                            )
-                        ) togetherWith (
-                        fadeOut(animationSpec = InChatMotion.effects(110)) +
-                            slideOutVertically(
-                                animationSpec = InChatMotion.navigationSpring(),
-                                targetOffsetY = { -it / 8 }
-                            )
-                        )
-                },
-                label = "groupChatTopBar"
-            ) { selectingMessages ->
-                if (selectingMessages) {
-                    val selectedMessages = messages.filter { it.id in selectedMessageIds }
-                    val selectedAreAllOwn =
-                        selectedMessages.size == selectedMessageIds.size &&
-                            selectedMessages.all { it.senderId == currentUserId }
-                    MessageSelectionTopBar(
-                        selectedCount = selectedMessageIds.size,
-                        canDeleteForEveryone = selectedAreAllOwn,
-                        onClose = { selectedMessageIds = emptySet() },
-                        onCopy = {
-                            val copiedText = selectedMessages
-                                .sortedBy { it.timestamp }
-                                .mapNotNull { it.text.takeIf(String::isNotBlank) }
-                                .joinToString("\n")
-                            if (copiedText.isNotBlank()) {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
-                            }
-                            selectedMessageIds = emptySet()
-                        },
-                        onDeleteForMe = {
-                            showDeleteSelectedForMeConfirmation = true
-                        },
-                        onDeleteForEveryone = {
-                            showDeleteSelectedForEveryoneConfirmation = true
+            if (selectedMessageIds.isNotEmpty()) {
+                val selectedMessages = messages.filter { it.id in selectedMessageIds }
+                val selectedAreAllOwn = selectedMessages.size == selectedMessageIds.size &&
+                    selectedMessages.all { it.senderId == currentUserId }
+                MessageSelectionTopBar(
+                    selectedCount = selectedMessageIds.size,
+                    canDeleteForEveryone = selectedAreAllOwn,
+                    onClose = { selectedMessageIds = emptySet() },
+                    onCopy = {
+                        val copiedText = selectedMessages
+                            .sortedBy { it.timestamp }
+                            .mapNotNull { it.text.takeIf(String::isNotBlank) }
+                            .joinToString("\n")
+                        if (copiedText.isNotBlank()) {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("InChat messages", copiedText))
+
                         }
-                    )
-                } else {
-                    TopAppBar(
-                        navigationIcon = {
-                            IconButton(onClick = onBackClick) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back"
-                                )
-                            }
-                        },
-                        title = {
-                            Row(
-                                modifier = Modifier
-                                    .clickable { onGroupInfoClick() }
-                                    .padding(horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                GroupAvatar(
-                                    groupName = group?.name ?: "Group",
-                                    modifier = Modifier.size(40.dp),
-                                    fontSize = 20.sp
-                                )
-
-                                Spacer(Modifier.width(10.dp))
-
-                                Column {
-                                    AnimatedContent(
-                                        targetState = group?.name?.ifBlank { "Group" } ?: "Group",
-                                        transitionSpec = {
-                                            (
-                                                fadeIn(animationSpec = InChatMotion.effects(150)) +
-                                                    slideInVertically(
-                                                        animationSpec = InChatMotion.navigationSpring(),
-                                                        initialOffsetY = { it / 5 }
-                                                    )
-                                                ) togetherWith (
-                                                fadeOut(animationSpec = InChatMotion.effects(110)) +
-                                                    slideOutVertically(
-                                                        animationSpec = InChatMotion.navigationSpring(),
-                                                        targetOffsetY = { -it / 5 }
-                                                    )
-                                                )
-                                        },
-                                        label = "groupHeaderName"
-                                    ) { name ->
-                                        Text(
-                                            text = name,
-                                            fontFamily = GoogleSansFlex,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 16.sp,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1
-                                        )
-                                    }
-                                    AnimatedContent(
-                                        targetState = group?.members?.size ?: 0,
-                                        transitionSpec = {
-                                            fadeIn(animationSpec = InChatMotion.effects(130)) togetherWith
-                                                fadeOut(animationSpec = InChatMotion.effects(100))
-                                        },
-                                        label = "groupMemberCount"
-                                    ) { memberCount ->
-                                        Text(
-                                            text = "$memberCount members",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        actions = {
-                            IconButton(onClick = { overflowExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More group chat options"
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = overflowExpanded,
-                                onDismissRequest = { overflowExpanded = false },
-                                modifier = Modifier.border(
-                                    BorderStroke(
-                                        0.8.dp,
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    ),
-                                    RoundedCornerShape(16.dp)
-                                ),
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                tonalElevation = 2.dp
-                            ) {
-                                DropdownMenuItem(
-                                    modifier = Modifier,
-                                    text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Outlined.DeleteSweep,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                    },
-                                    onClick = {
-                                        overflowExpanded = false
-                                        showClearChatConfirmation = true
-                                    }
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background
+                        selectedMessageIds = emptySet()
+                    },
+                    onDeleteForMe = {
+                        showDeleteSelectedForMeConfirmation = true
+                    },
+                    onDeleteForEveryone = {
+                        showDeleteSelectedForEveryoneConfirmation = true
+                    }
+                )
+            } else {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
                         )
-                    )
-                }
+                    }
+                },
+                title = {
+                    Row(
+                        modifier = Modifier
+                            .clickable { onGroupInfoClick() }
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GroupAvatar(
+                            groupName = group?.name ?: "Group",
+                            modifier = Modifier.size(40.dp),
+                            fontSize = 20.sp
+                        )
+
+                        Spacer(Modifier.width(10.dp))
+
+                        Column {
+                            Text(
+                                text = group?.name?.ifBlank { "Group" } ?: "Group",
+                                fontFamily = GoogleSansFlex,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = (group?.members?.size ?: 0).toString() + " members",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { overflowExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More group chat options"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = overflowExpanded,
+                        onDismissRequest = { overflowExpanded = false },
+                        modifier = Modifier,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.DeleteSweep,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            onClick = {
+                                overflowExpanded = false
+                                showClearChatConfirmation = true
+                            }
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
             }
         },
         bottomBar = {
@@ -480,9 +420,10 @@ fun GroupChatScreen(
                 showSenderNames = true,
                 chatTheme = chatTheme,
                 onReply = { message ->
-                    if (message.id !in encryptedMessageIds) {
-                        groupViewModel.setReplyingTo(message)
-                    }
+                    // Replies travel inside the encrypted content envelope.
+                    // Encrypted messages remain replyable although edit/reaction
+                    // operations are intentionally unavailable at present.
+                    groupViewModel.setReplyingTo(message)
                 },
                 onLongClick = { message ->
                     // A not-yet-distributed encrypted intent is immutable while
@@ -536,41 +477,57 @@ fun GroupChatScreen(
         }
 
             if (showDeleteSelectedForMeConfirmation) {
-            InChatActionDialog(
-                title = "Delete selected messages for you?",
-                description = "These messages will disappear only from your view. Other group members will keep them.",
-                titleIcon = Icons.Outlined.DeleteSweep,
-                confirmLabel = "Delete for me",
-                confirmIcon = Icons.Outlined.DeleteSweep,
-                onConfirm = {
-                    showDeleteSelectedForMeConfirmation = false
-                    val ids = selectedMessageIds
-                    groupViewModel.deleteMessagesForMe(ids) { success, error ->
-                        selectedMessageIds = emptySet()
-                        if (!success) actionMessage = error ?: "Could not delete selected messages."
-                    }
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedForMeConfirmation = false },
+                title = { Text("Delete selected messages for you?") },
+                text = {
+                    Text("These messages will disappear only from your view. Other group members will keep them.")
                 },
-                onDismiss = { showDeleteSelectedForMeConfirmation = false }
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteSelectedForMeConfirmation = false
+                            val ids = selectedMessageIds
+                            groupViewModel.deleteMessagesForMe(ids) { success, error ->
+                                selectedMessageIds = emptySet()
+                                if (!success) actionMessage = error ?: "Could not delete selected messages."
+                            }
+                        }
+                    ) { Text("Delete for me", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedForMeConfirmation = false }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
 
     if (showDeleteSelectedForEveryoneConfirmation) {
-        InChatActionDialog(
-            title = "Delete selected messages?",
-            description = "These messages will be removed for all group members. This cannot be undone.",
-            titleIcon = Icons.Outlined.DeleteSweep,
-            confirmLabel = "Delete for everyone",
-            confirmIcon = Icons.Outlined.DeleteSweep,
-            onConfirm = {
-                showDeleteSelectedForEveryoneConfirmation = false
-                val ids = selectedMessageIds
-                groupViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
-                    selectedMessageIds = emptySet()
-                    if (!success) actionMessage = error ?: "Could not delete selected messages."
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedForEveryoneConfirmation = false },
+                title = { Text("Delete selected messages?") },
+                text = {
+                    Text("These messages will be removed for all group members. This cannot be undone.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteSelectedForEveryoneConfirmation = false
+                            val ids = selectedMessageIds
+                            groupViewModel.deleteMessagesForEveryone(ids, currentUserId) { success, error ->
+                                selectedMessageIds = emptySet()
+                                if (!success) actionMessage = error ?: "Could not delete selected messages."
+                            }
+                        }
+                    ) { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedForEveryoneConfirmation = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            onDismiss = { showDeleteSelectedForEveryoneConfirmation = false }
-        )
-    }
+            )
+        }
     }
 }
