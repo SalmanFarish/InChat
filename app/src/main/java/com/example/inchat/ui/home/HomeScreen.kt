@@ -1156,6 +1156,7 @@ private fun BulkSelectionBar(
                 )
             }
         }
+        }
     }
 }
 
