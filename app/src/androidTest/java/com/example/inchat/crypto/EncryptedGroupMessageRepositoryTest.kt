@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
+import com.example.inchat.data.model.ReplyTo
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -587,6 +588,55 @@ class EncryptedGroupMessageRepositoryTest {
             outgoing,
             repository.getMessage("alice", "group-123", outgoing.messageId),
         )
+    }
+
+    @Test
+    fun pendingEncryptedGroupReplySurvivesLocalAcceptanceAndTimelineCommit() = runBlocking {
+        val reply = ReplyTo(
+            messageId = "quoted-message-456",
+            senderId = "bob",
+            senderNickname = "Bob",
+            text = "Quoted encrypted group text",
+        )
+        val encodedContent = EncryptedMessageContentCodec.encode(
+            text = "My encrypted group reply",
+            replyTo = reply,
+            currentUserId = "alice",
+            currentUserNickname = "Alice",
+        )
+        val outgoing = outgoingMessage("group-reply-pending").copy(text = encodedContent)
+
+        assertTrue(
+            repository.savePendingOutgoingIntent(
+                outgoing.ownerUserId,
+                outgoing.groupId,
+                outgoing.messageId,
+                outgoing.sentAtMillis,
+                outgoing.text,
+            ),
+        )
+        assertTrue(
+            "The accepted message must remain discoverable in the durable local outbox",
+            repository.isPendingOutgoingIntent("alice", "group-123", outgoing.messageId),
+        )
+        val pending = repository.pendingOutgoingIntents("alice")
+            .single { it.messageId == outgoing.messageId }
+        assertEquals(reply, EncryptedMessageContentCodec.decode(pending.plaintext).replyTo)
+
+        assertEquals(
+            1L,
+            database.olmDeliveryQueueDao()
+                .insertOutgoingGroupCommitIfAbsent(commitMarker(outgoing)),
+        )
+        repository.saveOutgoingMessageAndClearPendingIntent(outgoing)
+
+        assertFalse(
+            repository.isPendingOutgoingIntent("alice", "group-123", outgoing.messageId),
+        )
+        val committed = requireNotNull(
+            repository.getMessage("alice", "group-123", outgoing.messageId),
+        )
+        assertEquals(reply, EncryptedMessageContentCodec.decode(committed.text).replyTo)
     }
 
     @Test

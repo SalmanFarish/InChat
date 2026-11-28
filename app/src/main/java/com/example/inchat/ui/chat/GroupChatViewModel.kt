@@ -19,6 +19,7 @@ import com.example.inchat.data.model.ReplyTo
 import com.example.inchat.data.repository.ChatRepository
 import com.example.inchat.data.repository.CloudflareNotificationRepository
 import com.example.inchat.data.repository.GroupChatRepository
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -121,6 +122,7 @@ class GroupChatViewModel : ViewModel() {
     private var pendingIntentRetryJob: Job? = null
     private var trustChangeRetryJob: Job? = null
     private val pendingOutgoingIntentMutex = MegolmPendingGroupIntentRetryLock.mutex
+    private val pendingOutgoingIntentPersistenceMutex = Mutex()
     private var groupJob: Job? = null
     private var messagesJob: Job? = null
     private var encryptedMessagesJob: Job? = null
@@ -142,8 +144,30 @@ class GroupChatViewModel : ViewModel() {
             val connectedRef = database.getReference(".info/connected")
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    _isConnected.value =
-                        snapshot.getValue(Boolean::class.java) ?: false
+                    val connected = snapshot.getValue(Boolean::class.java) ?: false
+                    val wasConnected = _isConnected.value
+                    _isConnected.value = connected
+                    if (connected && !wasConnected) {
+                        val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid
+                        if (!ownerUserId.isNullOrBlank()) {
+                            viewModelScope.launch(Dispatchers.IO) {
+                                try {
+                                    EncryptedOlmDeviceWorkScheduler.scheduleImmediateRecovery(
+                                        InChatApplication.instance,
+                                        ownerUserId,
+                                    )
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    Log.w(
+                                        "GroupChatViewModel",
+                                        "Encrypted group outbox could not be woken after reconnect.",
+                                        error,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -506,7 +530,15 @@ class GroupChatViewModel : ViewModel() {
      * Re-attempt durable pending intents after acknowledgement receipts change.
      * Every attempt revalidates the exact Megolm session, membership and device roster.
      */
-    private suspend fun retryPendingOutgoingIntents(groupId: String, ownerUserId: String) {
+    private suspend fun retryPendingOutgoingIntents(
+        groupId: String,
+        ownerUserId: String,
+        beforeSentAtMillis: Long? = null,
+        beforeMessageId: String? = null,
+    ) {
+        require((beforeSentAtMillis == null) == (beforeMessageId == null)) {
+            "Group retry ordering requires both message timestamp and ID"
+        }
         if (listeningGroupId != groupId || listeningUserId != ownerUserId ||
             FirebaseAuth.getInstance().currentUser?.uid != ownerUserId
         ) return
@@ -525,7 +557,13 @@ class GroupChatViewModel : ViewModel() {
         }
         val pending = withContext(Dispatchers.IO) {
             encryptedGroupMessageRepository.pendingOutgoingIntents(ownerUserId)
-                .filter { it.groupId == groupId }
+                .filter { intent ->
+                    intent.groupId == groupId && (
+                        beforeSentAtMillis == null ||
+                            intent.sentAtMillis < beforeSentAtMillis ||
+                            (intent.sentAtMillis == beforeSentAtMillis && intent.messageId < beforeMessageId!!)
+                        )
+                }
         }
         for (intent in pending) {
             if (listeningGroupId != groupId || listeningUserId != ownerUserId ||
@@ -659,163 +697,209 @@ class GroupChatViewModel : ViewModel() {
             currentUserNickname = senderNickname,
         )
 
-        // Group content is sent only through Megolm. In particular, do not
-        // create a plaintext Room pending row: the legacy retry worker would
-        // otherwise be able to upload it to chats/{groupId}/messages.
+        // Persist the AES-GCM protected intent before membership reads, key
+        // distribution or network waits. A locally accepted message must never
+        // wait for Firebase/Cloudflare before it appears in the timeline.
         viewModelScope.launch {
             var pendingIntentPersisted = false
             try {
-                pendingOutgoingIntentMutex.withLock {
-                val existingMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
-                val membership = if (
-                    existingMembership != null &&
-                    existingMembership.isValid() &&
-                    existingMembership.groupId == groupId
-                ) {
-                    existingMembership
-                } else {
-                    // Legacy groups may predate the Worker-authored E2EE snapshot.
-                    // Ask the authenticated Worker to initialize/repair it; never
-                    // synthesize membership from client-side group metadata.
-                    val initializedMembership =
-                        CloudflareNotificationRepository()
-                            .ensureGroupCryptoMembershipSnapshot(groupId)
-                            .getOrThrow()
-
-                    check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
-                        "The signed-in account changed during group E2EE initialization."
+                pendingOutgoingIntentPersistenceMutex.withLock {
+                    withContext(Dispatchers.IO) {
+                        encryptedGroupMessageRepository.savePendingOutgoingIntent(
+                            ownerUserId = currentUserId,
+                            groupId = groupId,
+                            messageId = messageId,
+                            sentAtMillis = sentAtMillis,
+                            plaintext = encryptedContent,
+                        )
                     }
-                    require(
-                        initializedMembership.isValid() &&
-                            initializedMembership.groupId == groupId &&
-                            currentUserId in initializedMembership.memberUserIds
-                    ) {
-                        "The server could not verify this account's encrypted group membership."
-                    }
-
-                    // Firebase may first emit a stale locally cached value while the
-                    // Worker's authoritative write is propagating. Ignore every
-                    // non-matching emission and wait briefly for the exact snapshot.
-                    // The send coordinator still performs its own independent reads
-                    // and membership checks before it can commit any ciphertext.
-                    val refreshedMembership = withTimeoutOrNull(15_000L) {
-                        groupRepository.observeGroupCryptoMembership(groupId).first {
-                            observed ->
-                            observed != null &&
-                                observed.isValid() &&
-                                observed.groupId == groupId &&
-                                observed.epoch == initializedMembership.epoch &&
-                                observed.members == initializedMembership.members
-                        }
-                    } ?: throw IllegalStateException(
-                        "The server initialized group encryption, but its membership snapshot did not become visible. Please retry."
-                    )
-                    check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
-                        "The signed-in account changed while waiting for group encryption to initialize."
-                    }
-                    refreshedMembership
                 }
-
-                if (!membership.isValid() ||
-                    membership.groupId != groupId ||
-                    currentUserId !in membership.memberUserIds
-                ) {
-                    onResult(
-                        false,
-                        "This account is not an active member of the group's encrypted membership."
-                    )
-                    return@launch
-                }
-
-                // A prior process may have died after the ciphertext fan-out was
-                // committed but before its sender timeline echo was stored. Recover
-                // that exact ciphertext metadata from the durable marker; never call
-                // Megolm send again for a committed pending intent.
-                withContext(Dispatchers.IO) {
-                    encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(
-                        ownerUserId = currentUserId,
-                        groupId = groupId,
-                    )
-                }
-
-                // A previous send may have been securely staged while a device
-                // was untrusted or temporarily unavailable. Re-evaluate those
-                // intents before adding this new one, so a later successful send
-                // also drives recovery instead of stranding older messages.
-                retryPendingOutgoingIntents(groupId, currentUserId)
-
-                // Persist the user's intent before attempting key distribution or
-                // advancing the Megolm ratchet. Room stores only AES-GCM ciphertext.
-                withContext(Dispatchers.IO) {
-                    encryptedGroupMessageRepository.savePendingOutgoingIntent(
-                        ownerUserId = currentUserId,
-                        groupId = groupId,
-                        messageId = messageId,
-                        sentAtMillis = sentAtMillis,
-                        plaintext = encryptedContent,
-                    )
-                }
-                // A persisted encrypted intent is now safely accepted by this
-                // device, even while group-key acknowledgements are outstanding.
-                // Clear the composer now so a tap/retry cannot create a duplicate ID.
                 pendingIntentPersisted = true
                 onQueued()
                 _replyingTo.value = null
 
-                when (
-                    val outcome = withContext(Dispatchers.IO) {
-                        encryptedGroupMessageSendCoordinator.send(
-                            groupId = groupId,
-                            messageId = messageId,
-                            plaintext = encryptedContent,
-                            sentAtMillis = sentAtMillis,
+                // Install an immediate sender wake independently of the
+                // membership/key-preparation path. The Room intent survives
+                // process death; this wake avoids waiting for the periodic poll.
+                try {
+                    withContext(Dispatchers.IO) {
+                        EncryptedOlmDeviceWorkScheduler.scheduleImmediateRecovery(
+                            InChatApplication.instance,
+                            currentUserId,
                         )
                     }
-                ) {
-                    is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (scheduleError: Exception) {
+                    Log.w(
+                        "GroupChatViewModel",
+                        "Could not schedule immediate recovery for the locally saved group message.",
+                        scheduleError,
+                    )
+                }
+
+                // Local persistence is outside the Megolm mutex so another
+                // message can be accepted immediately. The shared lock serializes
+                // ratchet advancement with the background sender.
+                pendingOutgoingIntentMutex.withLock {
+                    // A background sender may have completed this exact intent
+                    // after the Room commit but before this coroutine acquired
+                    // the Megolm lock.
+                    val stillPending = withContext(Dispatchers.IO) {
+                        encryptedGroupMessageRepository.isPendingOutgoingIntent(
+                            ownerUserId = currentUserId,
+                            groupId = groupId,
+                            messageId = messageId,
+                        )
+                    }
+                    if (!stillPending) {
+                        onResult(true, null)
+                        return@withLock
+                    }
+
+                    val existingMembership = groupRepository.getGroupCryptoMembershipSnapshot(groupId)
+                    val membership = if (
+                        existingMembership != null &&
+                        existingMembership.isValid() &&
+                        existingMembership.groupId == groupId
+                    ) {
+                        existingMembership
+                    } else {
+                        // Legacy groups may predate the Worker-authored E2EE snapshot.
+                        // Ask the authenticated Worker to initialize/repair it; never
+                        // synthesize membership from client-side group metadata.
+                        val initializedMembership =
+                            CloudflareNotificationRepository()
+                                .ensureGroupCryptoMembershipSnapshot(groupId)
+                                .getOrThrow()
+
+                        check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                            "The signed-in account changed during group E2EE initialization."
+                        }
+                        require(
+                            initializedMembership.isValid() &&
+                                initializedMembership.groupId == groupId &&
+                                currentUserId in initializedMembership.memberUserIds
+                        ) {
+                            "The server could not verify this account's encrypted group membership."
+                        }
+
+                        // Firebase may first emit a stale locally cached value while the
+                        // Worker's authoritative write is propagating. Wait for the exact
+                        // epoch before allowing the Megolm sender to proceed.
+                        val refreshedMembership = withTimeoutOrNull(15_000L) {
+                            groupRepository.observeGroupCryptoMembership(groupId).first { observed ->
+                                observed != null &&
+                                    observed.isValid() &&
+                                    observed.groupId == groupId &&
+                                    observed.epoch == initializedMembership.epoch &&
+                                    observed.members == initializedMembership.members
+                            }
+                        } ?: throw IllegalStateException(
+                            "The server initialized group encryption, but its membership snapshot did not become visible. Please retry."
+                        )
+                        check(FirebaseAuth.getInstance().currentUser?.uid == currentUserId) {
+                            "The signed-in account changed while waiting for group encryption to initialize."
+                        }
+                        refreshedMembership
+                    }
+
+                    if (!membership.isValid() ||
+                        membership.groupId != groupId ||
+                        currentUserId !in membership.memberUserIds
+                    ) {
                         onResult(
                             true,
-                            "Message saved securely. It is waiting for trusted member devices to acknowledge the group key.",
+                            "Message is saved securely on this device. Delivery is paused until this account's group membership can be verified.",
+                        )
+                        return@withLock
+                    }
+
+                    // Repair an interrupted sender timeline echo before sending.
+                    withContext(Dispatchers.IO) {
+                        encryptedGroupMessageRepository.recoverCommittedOutgoingIntents(
+                            ownerUserId = currentUserId,
+                            groupId = groupId,
                         )
                     }
 
-                    is MegolmGroupMessageSendOutcome.Queued -> {
-                        val queued = outcome.result
-                        // Keep the sender's own timeline copy in the isolated
-                        // AES-GCM encrypted table; the legacy plaintext cache
-                        // and Firebase chat path are never touched.
-                        try {
-                            encryptedGroupMessageRepository.saveOutgoingMessageAndClearPendingIntent(
-                                DecryptedGroupMessage(
-                                    ownerUserId = currentUserId,
-                                    groupId = groupId,
-                                    messageId = queued.messageId,
-                                    membershipEpoch = queued.membershipEpoch,
-                                    senderUserId = queued.senderUserId,
-                                    senderDeviceId = queued.senderDeviceId,
-                                    megolmSessionId = queued.megolmSessionId,
-                                    messageIndex = queued.messageIndex,
-                                    sentAtMillis = queued.sentAtMillis,
-                                    text = encryptedContent,
-                                )
-                            )
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (localCopyError: Exception) {
-                            Log.e(
-                                "GroupChatViewModel",
-                                "Encrypted group message is queued, but its local timeline copy could not be saved.",
-                                localCopyError,
-                            )
-                        }
-                        if (listeningGroupId == groupId && listeningUserId == currentUserId) {
-                            _replyingTo.value = null
-                        }
-                        // The coordinator returns only after ciphertext-only
-                        // per-device deliveries are durably committed to Room.
-                        onResult(true, null)
+                    // Drain only messages that precede this one in Room's stable
+                    // timestamp/ID order, so concurrently composed sends cannot
+                    // overtake an earlier local intent.
+                    retryPendingOutgoingIntents(
+                        groupId = groupId,
+                        ownerUserId = currentUserId,
+                        beforeSentAtMillis = sentAtMillis,
+                        beforeMessageId = messageId,
+                    )
+
+                    // Another recovery path may have completed this message while
+                    // older intents were being reconciled.
+                    val currentStillPending = withContext(Dispatchers.IO) {
+                        encryptedGroupMessageRepository.isPendingOutgoingIntent(
+                            ownerUserId = currentUserId,
+                            groupId = groupId,
+                            messageId = messageId,
+                        )
                     }
-                }
+                    if (!currentStillPending) {
+                        onResult(true, null)
+                        return@withLock
+                    }
+
+                    when (
+                        val outcome = withContext(Dispatchers.IO) {
+                            encryptedGroupMessageSendCoordinator.send(
+                                groupId = groupId,
+                                messageId = messageId,
+                                plaintext = encryptedContent,
+                                sentAtMillis = sentAtMillis,
+                            )
+                        }
+                    ) {
+                        is MegolmGroupMessageSendOutcome.AwaitingKeyAcknowledgements -> {
+                            onResult(
+                                true,
+                                "Message saved securely. It is waiting for trusted member devices to acknowledge the group key.",
+                            )
+                        }
+
+                        is MegolmGroupMessageSendOutcome.Queued -> {
+                            val queued = outcome.result
+                            // Keep the sender's own timeline copy in the isolated
+                            // AES-GCM encrypted table; never use the legacy cache.
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    encryptedGroupMessageRepository.saveOutgoingMessageAndClearPendingIntent(
+                                        DecryptedGroupMessage(
+                                            ownerUserId = currentUserId,
+                                            groupId = groupId,
+                                            messageId = queued.messageId,
+                                            membershipEpoch = queued.membershipEpoch,
+                                            senderUserId = queued.senderUserId,
+                                            senderDeviceId = queued.senderDeviceId,
+                                            megolmSessionId = queued.megolmSessionId,
+                                            messageIndex = queued.messageIndex,
+                                            sentAtMillis = queued.sentAtMillis,
+                                            text = encryptedContent,
+                                        )
+                                    )
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (localCopyError: Exception) {
+                                Log.e(
+                                    "GroupChatViewModel",
+                                    "Encrypted group message is queued, but its local timeline copy could not be saved.",
+                                    localCopyError,
+                                )
+                            }
+                            if (listeningGroupId == groupId && listeningUserId == currentUserId) {
+                                _replyingTo.value = null
+                            }
+                            onResult(true, null)
+                        }
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

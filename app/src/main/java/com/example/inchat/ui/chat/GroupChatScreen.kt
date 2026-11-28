@@ -412,9 +412,10 @@ fun GroupChatScreen(
                 showSenderNames = true,
                 chatTheme = chatTheme,
                 onReply = { message ->
-                    if (message.id !in encryptedMessageIds) {
-                        groupViewModel.setReplyingTo(message)
-                    }
+                    // Replies travel inside the encrypted content envelope.
+                    // Encrypted messages remain replyable although edit/reaction
+                    // operations are intentionally unavailable at present.
+                    groupViewModel.setReplyingTo(message)
                 },
                 onLongClick = { message ->
                     // A not-yet-distributed encrypted intent is immutable while

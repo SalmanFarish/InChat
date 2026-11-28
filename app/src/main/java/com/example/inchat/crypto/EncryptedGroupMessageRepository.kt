@@ -210,6 +210,23 @@ internal class EncryptedGroupMessageRepository(
         }
     }
 
+    /** Check one durable intent before resuming it after a foreground/worker race. */
+    suspend fun isPendingOutgoingIntent(
+        ownerUserId: String,
+        groupId: String,
+        messageId: String,
+    ): Boolean {
+        validateScope(ownerUserId, groupId)
+        require(MESSAGE_ID.matches(messageId)) { "Pending group message ID is invalid" }
+        requireAuthenticatedOwner(ownerUserId)
+        return withContext(ioDispatcher) {
+            requireAuthenticatedOwner(ownerUserId)
+            val exists = dao.getPendingMessage(ownerUserId, groupId, messageId) != null
+            requireAuthenticatedOwner(ownerUserId)
+            exists
+        }
+    }
+
     suspend fun pendingOutgoingIntents(ownerUserId: String): List<PendingGroupMessageIntent> {
         require(ID.matches(ownerUserId))
         requireAuthenticatedOwner(ownerUserId)

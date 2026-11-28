@@ -20,6 +20,7 @@ import com.example.inchat.crypto.TrustedDeviceRepository
 import com.example.inchat.crypto.toDelivery
 import com.example.inchat.data.local.LocalChatDatabase
 import com.example.inchat.data.worker.EncryptedOlmDeliveryWorker
+import com.example.inchat.data.worker.EncryptedOlmDeviceWorkScheduler
 import com.example.inchat.data.worker.EncryptedOlmForegroundDeliveryDispatcher
 import com.example.inchat.data.model.Message
 import com.example.inchat.data.model.Presence
@@ -352,10 +353,30 @@ class ChatViewModel : ViewModel() {
                             DataSnapshot
                         ) {
 
-                            _isConnected.value =
-                                snapshot.getValue(
-                                    Boolean::class.java
-                                ) ?: false
+                            val connected = snapshot.getValue(Boolean::class.java) ?: false
+                            val wasConnected = _isConnected.value
+                            _isConnected.value = connected
+                            if (connected && !wasConnected) {
+                                val ownerUserId = FirebaseAuth.getInstance().currentUser?.uid
+                                if (!ownerUserId.isNullOrBlank()) {
+                                    viewModelScope.launch(Dispatchers.IO) {
+                                        try {
+                                            EncryptedOlmDeviceWorkScheduler.scheduleImmediateRecovery(
+                                                InChatApplication.instance,
+                                                ownerUserId,
+                                            )
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (error: Exception) {
+                                            Log.w(
+                                                "ChatViewModel",
+                                                "Encrypted outbox could not be woken after reconnect.",
+                                                error,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         override fun onCancelled(
