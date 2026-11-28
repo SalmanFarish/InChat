@@ -1656,8 +1656,11 @@ private fun ConversationActionsPopup(
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = fadeIn(animationSpec = tween(120)) +
-                scaleIn(initialScale = 0.94f, animationSpec = tween(150))
+            enter = fadeIn(animationSpec = InChatMotion.effects(180)) +
+                scaleIn(
+                    initialScale = 0.96f,
+                    animationSpec = InChatMotion.navigationSpring()
+                )
         ) {
         Surface(
             modifier = Modifier.widthIn(min = 190.dp, max = 228.dp),
