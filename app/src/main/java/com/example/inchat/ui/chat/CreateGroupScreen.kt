@@ -2,6 +2,7 @@ package com.example.inchat.ui.chat
 
 import com.example.inchat.ui.components.CompactSearchField
 import com.example.inchat.ui.components.inChatOutlinedTextFieldColors
+import com.example.inchat.ui.theme.InChatMotion
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -408,7 +409,12 @@ private fun ParticipantSelectionStep(
                 ) { user ->
                     SelectedParticipantChip(
                         user = user,
-                        onRemove = { onToggleUser(user) }
+                        onRemove = { onToggleUser(user) },
+                        itemModifier = Modifier.animateItem(
+                            fadeInSpec = InChatMotion.effects(160),
+                            placementSpec = InChatMotion.contentSpring(),
+                            fadeOutSpec = InChatMotion.effects(130)
+                        )
                     )
                 }
             }
@@ -501,7 +507,12 @@ private fun ParticipantSelectionStep(
                         ParticipantUserRow(
                             user = user,
                             selected = selectedUsers.any { it.uid == user.uid },
-                            onClick = { onToggleUser(user) }
+                            onClick = { onToggleUser(user) },
+                            itemModifier = Modifier.animateItem(
+                                fadeInSpec = InChatMotion.effects(180),
+                                placementSpec = InChatMotion.contentSpring(),
+                                fadeOutSpec = InChatMotion.effects(140)
+                            )
                         )
                     }
                 }
@@ -534,7 +545,12 @@ private fun ParticipantSelectionStep(
                         ParticipantUserRow(
                             user = user,
                             selected = selectedUsers.any { it.uid == user.uid },
-                            onClick = { onToggleUser(user) }
+                            onClick = { onToggleUser(user) },
+                            itemModifier = Modifier.animateItem(
+                                fadeInSpec = InChatMotion.effects(180),
+                                placementSpec = InChatMotion.contentSpring(),
+                                fadeOutSpec = InChatMotion.effects(140)
+                            )
                         )
                     }
                 }
@@ -548,10 +564,11 @@ private fun ParticipantSelectionStep(
 private fun ParticipantUserRow(
     user: User,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = itemModifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
@@ -616,9 +633,11 @@ private fun ParticipantUserRow(
 @Composable
 private fun SelectedParticipantChip(
     user: User,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    itemModifier: Modifier = Modifier
 ) {
     Surface(
+        modifier = itemModifier,
         shape = RoundedCornerShape(50.dp),
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
