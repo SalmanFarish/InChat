@@ -4,6 +4,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 
 /** Olm operation required to wrap a Megolm ciphertext for one pinned device identity. */
 internal interface OlmGroupMessageOutboundSessionRepository : OlmOutboundSessionRepository {

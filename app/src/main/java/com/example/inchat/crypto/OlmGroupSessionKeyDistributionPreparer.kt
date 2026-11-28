@@ -4,6 +4,7 @@ import com.example.inchat.data.model.GroupCryptoMembershipSnapshot
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 
 /** Expected trust/membership prerequisite that should wait for user or directory changes. */
 internal class OlmGroupKeyDistributionDeferredException(message: String) :
