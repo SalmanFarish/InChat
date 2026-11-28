@@ -19,6 +19,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +79,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -349,6 +352,11 @@ fun HomeScreen(
     // If the navigation host ends selection mode (for example, when a
     // notification opens another destination), clear the local selection too.
     LaunchedEffect(homeSelectionMode) {
+        if (homeSelectionMode) {
+            // A context popup and multi-select are mutually exclusive states.
+            selectedConversation = null
+            pendingDeleteConversation = null
+        }
         if (!homeSelectionMode && selectedChatIds.isNotEmpty()) {
             selectedChatIds = emptySet()
         }
@@ -556,6 +564,7 @@ fun HomeScreen(
                             currentUserId = currentUserId,
                             isSelectionMode = homeSelectionMode,
                             isSelected = conversation.chatId in selectedChatIds,
+                            isContextMenuOpen = selectedConversation != null && !homeSelectionMode,
                             onSelectChat = {
                                 selectedConversation = null
                                 pendingDeleteConversation = null
@@ -677,6 +686,7 @@ fun HomeScreen(
                                     currentUserId = currentUserId,
                                     isSelectionMode = homeSelectionMode,
                                     isSelected = conversation.chatId in selectedChatIds,
+                                    isContextMenuOpen = selectedConversation != null && !homeSelectionMode,
                                     onSelectChat = {
                                         selectedConversation = null
                                         pendingDeleteConversation = null
@@ -1626,7 +1636,8 @@ private fun ConversationActionsPopup(
     val density = LocalDensity.current
     val positionProvider = remember(density) {
         ConversationActionsPopupPositionProvider(
-            edgeMarginPx = with(density) { 14.dp.roundToPx() }
+            edgeMarginPx = with(density) { 14.dp.roundToPx() },
+            anchorGapPx = with(density) { 8.dp.roundToPx() }
         )
     }
 
@@ -1642,7 +1653,11 @@ private fun ConversationActionsPopup(
         AnimatedVisibility(
             visible = true,
             // Keep the popup at a constant measured size while its alpha settles.
-            enter = fadeIn(animationSpec = InChatMotion.effects(155))
+            enter = fadeIn(animationSpec = InChatMotion.effects(155)) +
+                scaleIn(
+                    initialScale = 0.94f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 500f)
+                )
         ) {
         Surface(
             modifier = Modifier
@@ -1731,8 +1746,14 @@ private fun ConversationActionsPopup(
     }
 }
 
+/**
+ * Places the conversation menu beside its anchor row instead of centering it
+ * over the entire screen. Prefer below the row, flip above near the bottom,
+ * and clamp both axes so the popup remains inside the app window.
+ */
 private class ConversationActionsPopupPositionProvider(
-    private val edgeMarginPx: Int
+    private val edgeMarginPx: Int,
+    private val anchorGapPx: Int
 ) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
@@ -1742,13 +1763,28 @@ private class ConversationActionsPopupPositionProvider(
     ): IntOffset {
         val maxX = (windowSize.width - popupContentSize.width - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
-        val x = ((windowSize.width - popupContentSize.width) / 2)
-            .coerceIn(edgeMarginPx, maxX)
-
         val maxY = (windowSize.height - popupContentSize.height - edgeMarginPx)
             .coerceAtLeast(edgeMarginPx)
-        val y = (anchorBounds.center.y - popupContentSize.height / 2)
-            .coerceIn(edgeMarginPx, maxY)
+
+        val preferredX = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left + edgeMarginPx
+        } else {
+            anchorBounds.right - popupContentSize.width - edgeMarginPx
+        }
+        val x = preferredX.coerceIn(edgeMarginPx, maxX)
+
+        val spaceBelow = windowSize.height - anchorBounds.bottom - edgeMarginPx
+        val spaceAbove = anchorBounds.top - edgeMarginPx
+        val belowY = anchorBounds.bottom + anchorGapPx
+        val aboveY = anchorBounds.top - popupContentSize.height - anchorGapPx
+
+        val preferredY = when {
+            spaceBelow >= popupContentSize.height + anchorGapPx -> belowY
+            spaceAbove >= popupContentSize.height + anchorGapPx -> aboveY
+            spaceBelow >= spaceAbove -> belowY
+            else -> aboveY
+        }
+        val y = preferredY.coerceIn(edgeMarginPx, maxY)
 
         return IntOffset(x, y)
     }
@@ -1892,6 +1928,7 @@ private fun ConversationItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     showActions: Boolean,
+    isContextMenuOpen: Boolean,
     onDismissActions: () -> Unit,
     onToggleFavorite: () -> Unit,
     onTogglePin: () -> Unit,
@@ -2004,8 +2041,25 @@ private fun ConversationItem(
     // Firebase inbox metadata remains a non-sensitive fallback for uncached messages.
     val previewText = visibleLocalPreview?.text ?: conversation.safeInboxPreview()
 
+    val isContextMenuFocused = showActions && !isSelectionMode
+    val contextDimAlpha by animateFloatAsState(
+        targetValue = if (isContextMenuOpen && !isContextMenuFocused && !isSelectionMode) {
+            0.48f
+        } else {
+            1f
+        },
+        animationSpec = tween(175),
+        label = "conversationContextDim"
+    )
+    val rowElevation by animateDpAsState(
+        targetValue = if (isContextMenuFocused) 8.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 460f),
+        label = "conversationContextElevation"
+    )
     val rowSurfaceColor by animateColorAsState(
-        targetValue = if (isSelected) {
+        targetValue = if (isContextMenuFocused) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.64f)
+        } else if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
         } else if (hasUnread) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
@@ -2016,7 +2070,9 @@ private fun ConversationItem(
         label = "conversationSelectionSurface"
     )
     val rowBorderColor by animateColorAsState(
-        targetValue = if (isSelected) {
+        targetValue = if (isContextMenuFocused) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.96f)
+        } else if (isSelected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
         } else if (hasUnread) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
@@ -2030,6 +2086,7 @@ private fun ConversationItem(
     Box(modifier = itemModifier) {
         Surface(
             modifier = Modifier
+                .graphicsLayer(alpha = contextDimAlpha)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 3.dp)
                 .combinedClickable(
@@ -2041,9 +2098,10 @@ private fun ConversationItem(
             shape = RoundedCornerShape(18.dp),
             color = rowSurfaceColor,
             border = BorderStroke(
-                width = 0.75.dp,
+                width = if (isContextMenuFocused) 1.25.dp else 0.75.dp,
                 color = rowBorderColor
-            )
+            ),
+            shadowElevation = rowElevation
         ) {
             Row(
                 modifier = Modifier
